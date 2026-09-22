@@ -1,0 +1,47 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "field:employer_code",
+  "creation": "2026-09-22 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "employer_code",
+    "employer_name",
+    "active",
+    "payroll_frequency",
+    "rounding_tolerance_usd",
+    "tax_id",
+    "contact_email",
+    "grace_days",
+    "notes"
+  ],
+  "fields": [
+    {"fieldname": "employer_code", "fieldtype": "Data", "in_list_view": 1, "label": "Codigo", "reqd": 1, "unique": 1},
+    {"fieldname": "employer_name", "fieldtype": "Data", "in_list_view": 1, "label": "Empresa", "reqd": 1},
+    {"default": "1", "fieldname": "active", "fieldtype": "Check", "in_list_view": 1, "label": "Activa"},
+    {"default": "Mensual", "description": "Define si se envía una cobranza al mes o una por cada quincena. Los períodos ya creados conservan su ciclo.", "fieldname": "payroll_frequency", "fieldtype": "Select", "in_list_view": 1, "label": "Frecuencia de cobranza", "options": "Mensual\nQuincenal", "reqd": 1},
+    {"default": "0", "description": "Diferencia máxima absoluta entre una aplicación del core y un depósito único en US$ para generar un movimiento interno de conciliación. Cero desactiva el ajuste automático; máximo US$ 0.10.", "fieldname": "rounding_tolerance_usd", "fieldtype": "Currency", "label": "Tolerancia automática US$", "options": "USD", "precision": "4"},
+    {"fieldname": "tax_id", "fieldtype": "Data", "label": "RUC / Identificacion fiscal"},
+    {"fieldname": "contact_email", "fieldtype": "Data", "label": "Correo de contacto", "options": "Email"},
+    {"default": "10", "description": "Dias del mes siguiente para recibir la remesa.", "fieldname": "grace_days", "fieldtype": "Int", "label": "Dias limite de remesa"},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2026-09-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Employer",
+  "naming_rule": "By fieldname",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+    {"create": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "share": 1, "write": 1},
+    {"read": 1, "role": "Operador Credinomina"}
+  ],
+  "sort_field": "employer_name",
+  "sort_order": "ASC",
+  "states": [],
+  "track_changes": 1
+}

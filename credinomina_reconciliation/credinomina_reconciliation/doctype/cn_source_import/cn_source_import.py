@@ -1,0 +1,1662 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from collections import defaultdict
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import flt, getdate, now_datetime
+
+from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
+from credinomina_reconciliation.cadence import unique_full_quincena_pair
+from credinomina_reconciliation.deduction_recognition import recognition_reason
+from credinomina_reconciliation.historical import (
+    blocked_historical_deposits,
+    historical_balance,
+    historical_status,
+    is_historical_date,
+)
+from credinomina_reconciliation.parsers import (
+    SOURCE_ACCOUNTING,
+    SOURCE_TRANSACTIONS,
+    SourceFileError,
+    canonical_identifier,
+    clean_text,
+    file_sha256,
+    parse_source_file,
+)
+from credinomina_reconciliation.reconciliation import (
+    AMOUNT_TOLERANCE,
+    complementary_matches_collection,
+    converted_amount,
+    deposit_pair_result,
+    documented_rate,
+    duplicate_business_key,
+    matching_exception_notes,
+    narrow_deposit_candidates_by_date,
+    same_amount,
+    source_priority,
+)
+from credinomina_reconciliation.rounding import CASH_EPSILON, rounding_movements
+
+
+class CNSourceImport(Document):
+    def validate(self):
+        self._validate_historical_periods()
+        self._validate_duplicate_file()
+        self._validate_manual_rates()
+        self.recalculate_summary()
+
+    def _validate_historical_periods(self):
+        if self.historical_period and self.source_type == "Detalle de depositos":
+            frappe.throw(_("El período histórico se asigna a aplicaciones, no al archivo bancario."))
+        if self.historical_backfill and self.source_type == "Detalle de depositos":
+            frappe.throw(_("La carga histórica de aplicaciones no corresponde al archivo bancario."))
+        if any(
+            row.historical_period and row.event_type != "Aplicacion"
+            for row in self.rows or []
+        ):
+            frappe.throw(_("Solo las filas de aplicación pueden tener período histórico."))
+        if any(
+            row.processing_route and row.event_type != "Aplicacion"
+            for row in self.rows or []
+        ):
+            frappe.throw(_("La ruta de aplicación no corresponde a un depósito."))
+        if any(
+            row.processing_route == "Operativa" and row.historical_period
+            for row in self.rows or []
+        ):
+            frappe.throw(_("Una aplicación marcada Operativa no puede tener período histórico."))
+        if any(
+            row.processing_route == "Operativa" and is_historical_date(row.event_date)
+            for row in self.rows or []
+        ):
+            frappe.throw(_("Una aplicación fechada antes de septiembre de 2026 no puede usar la ruta Operativa."))
+        selected = {self.historical_period} if self.historical_period else set()
+        selected.update(
+            row.historical_period for row in self.rows or []
+            if row.event_type == "Aplicacion" and row.historical_period
+        )
+        for name in selected:
+            mode = frappe.db.get_value("CN Reconciliation Period", name, "reconciliation_mode")
+            if mode != "Historica":
+                frappe.throw(_("{0} no es un período histórico.").format(name))
+
+    def _validate_manual_rates(self):
+        for row in self.rows or []:
+            rate = flt(row.manual_fx_rate)
+            if rate < 0:
+                frappe.throw(_("La fila {0} tiene un tipo de cambio negativo.").format(row.idx))
+            if rate and not clean_text(row.manual_fx_evidence):
+                frappe.throw(
+                    _("Documente la fuente del tipo de cambio autorizado en la fila {0}.").format(row.idx)
+                )
+            if rate and row.fx_basis:
+                frappe.throw(
+                    _("La fila {0} ya tiene un tipo de cambio documentado en el archivo.").format(row.idx)
+                )
+
+    def _validate_duplicate_file(self):
+        if not self.file_hash:
+            return
+        duplicate = frappe.db.get_value(
+            self.doctype,
+            {
+                "name": ["!=", self.name or ""],
+                "source_type": self.source_type,
+                "file_hash": self.file_hash,
+                "status": ["!=", "Fallido"],
+            },
+            "name",
+        )
+        if duplicate:
+            frappe.throw(_("Este archivo ya fue importado en {0}.").format(duplicate))
+
+    def recalculate_summary(self):
+        rows = list(self.rows or [])
+        self.row_count = len(rows)
+        self.matched_count = sum(
+            row.match_status == "Conciliado"
+            and (
+                row.event_type != "Deposito"
+                or flt(row.unallocated_usd) <= CASH_EPSILON
+            )
+            and (
+                row.event_type != "Aplicacion"
+                or row.deposit_match_status == "Remesa conciliada"
+            )
+            for row in rows
+        )
+        self.exception_count = sum(
+            row.match_status in {"Ambiguo", "Sin coincidencia"}
+            or (
+                row.event_type == "Deposito"
+                and row.effective
+                and flt(row.unallocated_usd) > CASH_EPSILON
+            )
+            or (
+                row.event_type == "Aplicacion"
+                and row.effective
+                and row.deposit_match_status != "Remesa conciliada"
+            )
+            for row in rows
+        )
+        self.ignored_count = sum(row.match_status == "Ignorado" for row in rows)
+        self.total_usd = sum(flt(row.amount_usd) for row in rows if row.effective)
+        self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
+
+
+def _attached_file(document):
+    if not document.source_file:
+        frappe.throw(_("Adjunte el archivo de origen."))
+    file_doc = frappe.get_doc("File", {"file_url": document.source_file})
+    if (
+        file_doc.attached_to_doctype != document.doctype
+        or file_doc.attached_to_name != document.name
+    ):
+        frappe.throw(_("El archivo debe estar adjunto a esta importacion."))
+    content = file_doc.get_content()
+    if isinstance(content, str):
+        content = content.encode("utf-8")
+    return file_doc, content
+
+
+@frappe.whitelist(methods=["POST"])
+def import_source_file(import_name: str):
+    document = frappe.get_doc("CN Source Import", import_name)
+    document.check_permission("write")
+    file_doc, content = _attached_file(document)
+    try:
+        parsed = parse_source_file(document.source_type, file_doc.file_name, content)
+    except SourceFileError as exc:
+        document.status = "Fallido"
+        document.notes = str(exc)
+        document.save()
+        frappe.throw(str(exc), title=_("No se pudo importar la fuente"))
+
+    existing_settings = defaultdict(list)
+    for row in document.rows or []:
+        if row.source_key:
+            existing_settings[row.source_key].append(
+                (
+                    row.name, row.manual_fx_rate,
+                    row.manual_fx_evidence, row.historical_period,
+                    row.processing_route,
+                )
+            )
+    document.file_hash = file_sha256(content)
+    document.set("rows", [])
+    for record in parsed:
+        previous = existing_settings[record["source_key"]]
+        preserved_name, manual_rate, manual_evidence, prior_period, prior_route = (
+            previous.pop(0) if previous else (None, 0, "", "", "")
+        )
+        document.append(
+            "rows",
+            {
+                **record,
+                **({"name": preserved_name} if preserved_name else {}),
+                "manual_fx_rate": manual_rate,
+                "manual_fx_evidence": manual_evidence,
+                "processing_route": prior_route,
+                "historical_period": (
+                    prior_period or document.historical_period
+                    if record["event_type"] == "Aplicacion" else ""
+                ),
+                "effective": 1,
+                "match_status": "Pendiente",
+                "deposit_match_status": "Pendiente",
+            },
+        )
+    document.imported_on = now_datetime()
+    document.imported_by = frappe.session.user
+    document.status = "Importado"
+    document.notes = _("Se importaron {0} filas de {1}.").format(
+        len(parsed), file_doc.file_name
+    )
+    document.save()
+    result = reconcile_all_sources()
+    result["import_name"] = document.name
+    return result
+
+
+@frappe.whitelist(methods=["POST"])
+def reconcile_all_sources():
+    if not frappe.has_permission("CN Source Import", "write"):
+        frappe.throw(_("No tiene permiso para conciliar importaciones."))
+
+    import_names = frappe.get_all(
+        "CN Source Import",
+        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
+        order_by="creation asc",
+        pluck="name",
+    )
+    imports = [frappe.get_doc("CN Source Import", name) for name in import_names]
+    all_rows = []
+    for document in imports:
+        for row in document.rows:
+            row._source_type = document.source_type
+            row._source_import = document.name
+            row._historical_backfill = (
+                row.processing_route == "Historica"
+                or (
+                    row.processing_route != "Operativa"
+                    and bool(document.historical_backfill or document.historical_period)
+                )
+            )
+            row.effective = 1
+            row.match_status = "Pendiente"
+            row.match_reason = ""
+            row.collection_period = ""
+            row.collection_row_id = ""
+            row.application_allocation_detail = "[]"
+            row.deposit_match_status = "Pendiente"
+            row.deposit_match_reason = ""
+            row.fx_variance_usd = 0
+            row.rounding_adjustment_usd = 0
+            row.complementary_usd = 0
+            row.rounding_movement_detail = "[]"
+            row.allocated_usd = 0
+            row.unallocated_usd = 0
+            row.justified_surplus_usd = 0
+            row.unclassified_usd = 0
+            row.allocation_reason = ""
+            row.allocation_detail = "[]"
+            row.inherited_exception_comment = ""
+            row.historical_remitted_usd = 0
+            row.historical_balance_usd = 0
+            row.historical_detail = "[]"
+            row.historical_application_id = (
+                row.name if row.event_type == "Aplicacion" and row.historical_period
+                else ""
+            )
+            if row.event_type == "Aplicacion" and not row.historical_period:
+                row.historical_period = document.historical_period or ""
+                if row.historical_period:
+                    row.historical_application_id = row.name
+            all_rows.append(row)
+
+    _apply_source_precedence(all_rows)
+    periods = _load_open_periods()
+    collection_rows = [row for period in periods for row in period.collection_rows]
+    complementary_items = frappe.get_all(
+        "CN Complementary Item",
+        filters={"docstatus": 1},
+        fields=[
+            "name", "reference", "amount_usd", "employer", "period",
+            "client_number", "loan_number", "installment_number",
+        ],
+    )
+    complementary_by_target = _allocate_complementary_items(
+        complementary_items, periods
+    )
+    manual_allocations = frappe.get_all(
+        "CN Remittance Allocation",
+        filters={"docstatus": 1},
+        fields=[
+            "name", "deposit_reference", "deposit_voucher", "period",
+            "row_key", "complementary_item", "historical_application",
+            "amount_usd", "result",
+        ],
+        order_by="creation asc",
+    )
+    surplus_items = frappe.get_all(
+        "CN Deposit Surplus",
+        filters={"docstatus": 1},
+        fields=[
+            "name", "period", "deposit_reference", "deposit_voucher",
+            "amount_usd", "result",
+        ],
+        order_by="creation asc",
+    )
+    deposit_pairs = _match_deposits(all_rows)
+    _refresh_recognition_evidence(periods, deposit_pairs)
+    _match_applications(
+        all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
+    )
+    allocation = _distribute_deposits(
+        periods, all_rows, deposit_pairs, complementary_items,
+        complementary_by_target, manual_allocations,
+    )
+    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows)
+    _classify_surplus(allocation, surplus_items)
+    _rebuild_period_balances(
+        [period for period in periods if period.reconciliation_mode != "Historica"],
+        all_rows, deposit_pairs, allocation,
+    )
+    _rebuild_historical_balances(periods, all_rows, allocation)
+
+    for document in imports:
+        document.recalculate_summary()
+        document.status = (
+            "Importado con excepciones" if document.exception_count else "Importado"
+        )
+        document.save(ignore_permissions=True)
+
+    return {
+        "imports": len(imports),
+        "rows": len(all_rows),
+        "matched": sum(
+            row.match_status == "Conciliado"
+            and (
+                row.event_type != "Deposito"
+                or flt(row.unallocated_usd) <= CASH_EPSILON
+            )
+            and (
+                row.event_type != "Aplicacion"
+                or row.deposit_match_status == "Remesa conciliada"
+            )
+            for row in all_rows
+        ),
+        "exceptions": sum(
+            row.match_status in {"Ambiguo", "Sin coincidencia"}
+            or (
+                row.event_type == "Deposito"
+                and row.effective
+                and flt(row.unallocated_usd) > CASH_EPSILON
+            )
+            or (
+                row.event_type == "Aplicacion"
+                and row.effective
+                and row.deposit_match_status != "Remesa conciliada"
+            )
+            for row in all_rows
+        ),
+        "ignored": sum(row.match_status == "Ignorado" for row in all_rows),
+    }
+
+
+def _apply_source_precedence(rows):
+    application_rows = [row for row in rows if row.event_type == "Aplicacion"]
+    application_rows.sort(
+        key=lambda row: (
+            source_priority(row._source_type, row.event_type),
+            row._source_import,
+            row.idx,
+        )
+    )
+    claimed = {}
+    primary_by_reference = defaultdict(list)
+    for row in application_rows:
+        if row._source_type != SOURCE_ACCOUNTING:
+            continue
+        if row.reference:
+            primary_by_reference[
+                (canonical_identifier(row.loan_number), clean_text(row.reference))
+            ].append(row)
+    for row in rows:
+        if row.event_type == "Ajuste":
+            row.effective = 0
+            row.match_status = "Ignorado"
+            row.match_reason = _(
+                "Las dispensas y ajustes no son pagos en efectivo y se revisan por separado."
+            )
+    for row in application_rows:
+        if (
+            row._source_type == SOURCE_TRANSACTIONS
+            and row.reference
+            and any(
+                same_amount(primary.amount, row.amount)
+                and primary.currency == row.currency
+                and str(primary.event_date or "")[:10] == str(row.event_date or "")[:10]
+                for primary in primary_by_reference[
+                    (canonical_identifier(row.loan_number), clean_text(row.reference))
+                ]
+            )
+        ):
+            row.effective = 0
+            row.match_status = "Ignorado"
+            row.match_reason = _(
+                "Movimientos contables ya contiene esta aplicacion; Transacciones se usa solo como respaldo."
+            )
+            continue
+        key = duplicate_business_key(row.as_dict())
+        preferred = claimed.get(key)
+        if not preferred:
+            claimed[key] = row
+            continue
+        row.effective = 0
+        row.match_status = "Ignorado"
+        row.match_reason = _("La fuente principal ya contiene esta aplicacion.")
+
+
+def _load_open_periods():
+    names = frappe.get_all(
+        "CN Reconciliation Period",
+        order_by="payroll_month asc",
+        pluck="name",
+    )
+    return [frappe.get_doc("CN Reconciliation Period", name) for name in names]
+
+
+def _refresh_recognition_evidence(periods, deposit_pairs):
+    """Withdraw inferred payroll detail if its underlying deposit ceases to match."""
+    pairs_by_account = {account.name: (account, bank) for account, bank in deposit_pairs}
+    for period in periods:
+        if period.deduction_basis != "Depósito coincidente":
+            continue
+        pair = pairs_by_account.get(period.deduction_recognition_deposit)
+        reason = ""
+        if not pair:
+            reason = _("El depósito de respaldo ya no está conciliado entre banco y contabilidad.")
+        else:
+            account, bank = pair
+            rows = [
+                {**row.as_dict(), "deduction_status": "Pendiente de detalle"}
+                for row in period.collection_rows
+            ]
+            account_check = {**account.as_dict(), "allocated_usd": 0, "justified_surplus_usd": 0}
+            bank_check = {**bank.as_dict(), "allocated_usd": 0, "justified_surplus_usd": 0}
+            reason = recognition_reason(rows, account_check, bank_check)
+            if not reason and clean_text(account.reference) != clean_text(
+                period.deduction_recognition_reference
+            ):
+                reason = _("Cambió la referencia del depósito de respaldo.")
+            if not reason and not (account.event_date or bank.event_date):
+                reason = _("El depósito de respaldo ya no tiene fecha verificable.")
+            if (
+                not reason and period.cutoff_date
+                and getdate(account.event_date or bank.event_date) < getdate(period.cutoff_date)
+            ):
+                reason = _("El depósito de respaldo ahora precede el cierre de la cobranza.")
+        if not reason:
+            continue
+        if period.status == "Cerrado":
+            frappe.throw(
+                _("La evidencia del período cerrado {0} dejó de ser válida: {1}").format(
+                    period.name, reason
+                )
+            )
+        was_inferred = False
+        for row in period.collection_rows:
+            if row.deduction_status != "Inferida por depósito":
+                continue
+            was_inferred = True
+            row.deducted_usd = 0
+            row.deducted_nio = 0
+            row.deduction_currency = ""
+            row.deduction_status = "Pendiente de detalle"
+            row.deduction_evidence_date = None
+            row.deduction_match_note = _("Reconocimiento suspendido: {0}").format(reason)
+        if was_inferred:
+            period.status = "Cobranza cargada"
+            period.notes = "\n".join(
+                part for part in (
+                    period.notes,
+                    _("Reconocimiento por depósito suspendido: {0}").format(reason),
+                ) if part
+            )
+
+
+def _deducted_amount(row, currency):
+    if currency == "USD":
+        direct = flt(row.deducted_usd)
+        if direct > AMOUNT_TOLERANCE:
+            return direct
+        if flt(row.deducted_nio) and flt(row.expected_nio) and flt(row.expected_usd):
+            return flt(row.expected_usd) * flt(row.deducted_nio) / flt(row.expected_nio)
+    if currency == "NIO":
+        direct = flt(row.deducted_nio)
+        if direct > AMOUNT_TOLERANCE:
+            return direct
+        if flt(row.deducted_usd) and flt(row.expected_usd) and flt(row.expected_nio):
+            return flt(row.expected_nio) * flt(row.deducted_usd) / flt(row.expected_usd)
+    return 0
+
+
+def _allocate_complementary_items(items, periods):
+    """An optional customer allocation must identify exactly one collection row."""
+    allocations = defaultdict(list)
+    for item in items:
+        if not item.loan_number:
+            continue
+        candidates = [
+            row
+            for period in periods
+            for row in period.collection_rows
+            if complementary_matches_collection(
+                item,
+                {**row.as_dict(), "employer": period.employer},
+                item.reference,
+            )
+        ]
+        if len(candidates) == 1:
+            allocations[(candidates[0].name, clean_text(item.reference))].append(item)
+    return allocations
+
+
+def _application_allocations(source):
+    """Read the auditable USD split, including pre-upgrade single-row links."""
+    detail = json.loads(source.application_allocation_detail or "[]")
+    if detail:
+        return detail
+    if source.collection_row_id:
+        return [{"collection_row_id": source.collection_row_id,
+                 "amount_usd": flt(source.amount)}]
+    return []
+
+
+def _match_applications(
+    source_rows, collection_rows, deposit_pairs, complementary_by_target, periods
+):
+    historical_periods = {
+        period.name: period for period in periods
+        if period.reconciliation_mode == "Historica"
+    }
+    period_by_name = {period.name: period for period in periods}
+    pairs_by_reference = defaultdict(list)
+    for account, bank in deposit_pairs:
+        pairs_by_reference[clean_text(account.reference)].append((account, bank))
+    applied_by_target = defaultdict(float)
+    for source in source_rows:
+        if source.event_type != "Aplicacion" or not source.effective:
+            continue
+        if source.currency != "USD":
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _(
+                "Las aplicaciones del core deben expresarse en US$. Revise la moneda de esta fila."
+            )
+            continue
+        if source.historical_period:
+            period = historical_periods.get(source.historical_period)
+            if not period:
+                source.match_status = "Sin coincidencia"
+                source.match_reason = _("Asigne un período histórico válido a la aplicación.")
+                continue
+            source.match_status = "Conciliado"
+            source.match_reason = _(
+                "Aplicación histórica asignada a {0}; se conciliará directamente con depósitos."
+            ).format(period.name)
+            source.collection_period = period.name
+            continue
+        if source._historical_backfill or is_historical_date(source.event_date):
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _(
+                "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
+            )
+            continue
+        reference_pairs = pairs_by_reference.get(clean_text(source.reference)) or []
+        payment_rate = None
+        if len(reference_pairs) == 1:
+            account, bank = reference_pairs[0]
+            payment_rate = documented_rate(account.as_dict()) or documented_rate(
+                bank.as_dict()
+            )
+        candidates = []
+        pair_candidates = []
+        for target in collection_rows:
+            if canonical_identifier(target.loan_number) != canonical_identifier(
+                source.loan_number
+            ):
+                continue
+            if source.installment_number and canonical_identifier(
+                target.installment_number
+            ) != canonical_identifier(source.installment_number):
+                continue
+            if target.deduction_status == "No deducido":
+                continue
+            if source.client_number and canonical_identifier(
+                target.client_number
+            ) != canonical_identifier(source.client_number):
+                continue
+            if source.national_id and clean_text(
+                target.national_id
+            ).casefold() != clean_text(source.national_id).casefold():
+                continue
+            if target.application_reference and clean_text(
+                target.application_reference
+            ) != clean_text(source.reference):
+                continue
+            complementary = sum(
+                flt(item.amount_usd)
+                for item in complementary_by_target.get(
+                    (target.name, clean_text(source.reference)), []
+                )
+            )
+            detail_pending = target.deduction_status in {"", "Pendiente de detalle"}
+            deducted_usd = _deducted_amount(target, "USD")
+            direct_capacity = max(
+                (flt(target.expected_usd) if detail_pending else deducted_usd)
+                - complementary,
+                0,
+            )
+            converted_capacity = (
+                max(flt(target.deducted_nio) / payment_rate - complementary, 0)
+                if target.deduction_currency == "NIO" and payment_rate
+                else 0
+            )
+            converted_match = (
+                target.deduction_currency == "NIO"
+                and payment_rate is not None
+                and converted_capacity > direct_capacity + AMOUNT_TOLERANCE
+            )
+            available = max(direct_capacity, converted_capacity) - applied_by_target[target.name]
+            if available > AMOUNT_TOLERANCE:
+                target_period = period_by_name.get(target.parent)
+                if target_period and target_period.reconciliation_mode != "Historica":
+                    pair_candidates.append({
+                        "target": target,
+                        "available_usd": round(available, 4),
+                        "cycle": target_period.collection_cycle,
+                        "employer": target_period.employer,
+                        "month": str(target_period.payroll_month)[:7],
+                        "detail_pending": detail_pending,
+                        "converted_match": converted_match,
+                    })
+            if flt(source.amount) > available + AMOUNT_TOLERANCE:
+                continue
+            exact = same_amount(flt(source.amount), available)
+            candidates.append((target, converted_match, exact, detail_pending))
+        confirmed_candidates = [candidate for candidate in candidates if not candidate[3]]
+        if confirmed_candidates:
+            candidates = confirmed_candidates
+        exact_candidates = [candidate for candidate in candidates if candidate[2]]
+        if confirmed_candidates and len(candidates) > 1 and len(exact_candidates) == 1:
+            candidates = exact_candidates
+        if len(candidates) == 1:
+            target, converted_match, _exact, detail_pending = candidates[0]
+            applied_by_target[target.name] += flt(source.amount)
+            source.match_status = "Conciliado"
+            if converted_match:
+                source.match_reason = _(
+                    "Aplicacion parcial o total en US$ enlazada a la deduccion en C$ con tasa documentada de {0} C$ por US$."
+                ).format(round(payment_rate, 8))
+            elif detail_pending:
+                source.match_reason = _(
+                    "Aplicacion enlazada de forma unica a la cobranza; falta confirmar la deduccion de la empresa."
+                )
+            else:
+                source.match_reason = _(
+                    "Aplicacion parcial o total enlazada por credito y referencia cuando fue informada; no excede la deduccion disponible."
+                )
+            source.collection_period = target.parent
+            source.collection_row_id = target.name
+            source.application_allocation_detail = json.dumps([{
+                "collection_row_id": target.name,
+                "period": target.parent,
+                "amount_usd": round(flt(source.amount), 4),
+            }], ensure_ascii=False)
+        elif not candidates and (
+            pair := unique_full_quincena_pair(pair_candidates, flt(source.amount))
+        ):
+            detail = []
+            for candidate in pair:
+                target = candidate["target"]
+                amount = candidate["available_usd"]
+                applied_by_target[target.name] += amount
+                detail.append({
+                    "collection_row_id": target.name,
+                    "period": target.parent,
+                    "amount_usd": amount,
+                })
+            source.match_status = "Conciliado"
+            source.match_reason = _(
+                "Una aplicacion del core cubre las dos quincenas del mismo credito, empresa y mes; reparto completo por saldos disponibles."
+            )
+            if any(candidate["detail_pending"] for candidate in pair):
+                source.match_reason += " " + _(
+                    "Falta confirmar la deduccion de la empresa."
+                )
+            if any(candidate["converted_match"] for candidate in pair):
+                source.match_reason += " " + _(
+                    "Conversion con tasa documentada de {0} C$ por US$."
+                ).format(round(payment_rate, 8))
+            source.collection_period = detail[0]["period"]
+            source.application_allocation_detail = json.dumps(detail, ensure_ascii=False)
+        elif len(candidates) > 1:
+            source.match_status = "Ambiguo"
+            source.match_reason = _(
+                "Mas de una cuota podria recibir esta aplicacion parcial."
+            )
+        else:
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _(
+                "No existe una cobranza identificada con capacidad disponible para este credito e importe."
+            )
+
+
+def _match_deposits(rows):
+    accounting = defaultdict(list)
+    bank_detail = defaultdict(list)
+    for row in rows:
+        if row.event_type != "Deposito" or not row.effective:
+            continue
+        target = accounting if row._source_type == SOURCE_ACCOUNTING else bank_detail
+        target[clean_text(row.reference)].append(row)
+
+    paired = []
+    for reference in set(accounting) | set(bank_detail):
+        left = accounting.get(reference, [])
+        right = bank_detail.get(reference, [])
+        if not reference:
+            for row in left + right:
+                row.match_status = "Sin coincidencia"
+                row.match_reason = _("El deposito no tiene referencia bancaria.")
+            continue
+
+        matches_by_left = {
+            id(account): narrow_deposit_candidates_by_date(
+                account.as_dict(), [
+                    bank for bank in right
+                    if deposit_pair_result(account.as_dict(), bank.as_dict())[0]
+                ],
+            )
+            for account in left
+        }
+        matches_by_right = {
+            id(bank): narrow_deposit_candidates_by_date(
+                bank.as_dict(), [
+                    account for account in left
+                    if deposit_pair_result(account.as_dict(), bank.as_dict())[0]
+                ],
+            )
+            for bank in right
+        }
+        paired_ids = set()
+        for account in left:
+            candidates = matches_by_left[id(account)]
+            if len(candidates) != 1:
+                continue
+            bank = candidates[0]
+            if len(matches_by_right[id(bank)]) != 1:
+                continue
+            _, reason = deposit_pair_result(account.as_dict(), bank.as_dict())
+            for row in (account, bank):
+                row.match_status = "Conciliado"
+                row.match_reason = _(reason)
+                paired_ids.add(id(row))
+            paired.append((account, bank))
+
+        for row, alternatives, opposite in (
+            *((account, matches_by_left[id(account)], right) for account in left),
+            *((bank, matches_by_right[id(bank)], left) for bank in right),
+        ):
+            if id(row) in paired_ids:
+                continue
+            if alternatives:
+                row.match_status = "Ambiguo"
+                row.match_reason = _("Hay mas de un deposito compatible con esta referencia e importe.")
+            else:
+                row.match_status = "Sin coincidencia"
+                if opposite:
+                    _, reason = deposit_pair_result(
+                        row.as_dict(), opposite[0].as_dict()
+                    )
+                    row.match_reason = _(reason)
+                else:
+                    row.match_reason = _(
+                        "Falta el deposito equivalente en contabilidad o en el detalle bancario."
+                    )
+    return paired
+
+
+def _distribute_deposits(
+    periods, source_rows, deposit_pairs, complementary_items,
+    complementary_by_target, manual_allocations,
+):
+    rows_by_name = {
+        row.name: row for period in periods for row in period.collection_rows
+    }
+    employer_by_period = {period.name: period.employer for period in periods}
+    historical_applications = {
+        row.name: row for row in source_rows
+        if row.event_type == "Aplicacion" and row.effective
+        and row.historical_period and row.match_status == "Conciliado"
+    }
+    known_employers = frappe.get_all(
+        "CN Employer", fields=["name", "employer_name", "rounding_tolerance_usd"]
+    )
+    tolerance_by_employer = {
+        employer.name: flt(employer.rounding_tolerance_usd, 4)
+        for employer in known_employers
+    }
+    employer_by_label = {
+        label.casefold(): employer.name
+        for employer in known_employers
+        for label in (clean_text(employer.name), clean_text(employer.employer_name))
+        if label
+    }
+    row_by_key = {
+        (period.name, clean_text(row.row_key)): row.name
+        for period in periods for row in period.collection_rows
+    }
+    complementary_target = {
+        item.name: target_name
+        for (target_name, _reference), items in complementary_by_target.items()
+        for item in items
+    }
+    complementary_totals = defaultdict(float)
+    for item in complementary_items:
+        target_name = complementary_target.get(item.name)
+        if target_name:
+            complementary_totals[target_name] += flt(item.amount_usd)
+
+    deposits = []
+    deposit_meta = {}
+    for account, bank in deposit_pairs:
+        account_usd = converted_amount(account.as_dict(), "USD")
+        bank_usd = converted_amount(bank.as_dict(), "USD")
+        if account_usd is None and bank_usd is None:
+            account.allocation_reason = bank.allocation_reason = _(
+                "Falta tipo de cambio documentado para distribuir el deposito."
+            )
+            for source in (account, bank):
+                source.match_status = "Sin coincidencia"
+                source.match_reason = source.allocation_reason
+            continue
+        if (
+            account_usd is not None and bank_usd is not None
+            and not same_amount(account_usd, bank_usd)
+        ):
+            account.allocation_reason = bank.allocation_reason = _(
+                "Los equivalentes US$ del banco y contabilidad difieren."
+            )
+            for source in (account, bank):
+                source.match_status = "Sin coincidencia"
+                source.match_reason = source.allocation_reason
+            continue
+        amount_usd = round(account_usd if account_usd is not None else bank_usd, 4)
+        native_nio = (
+            flt(account.amount) if account.currency == "NIO"
+            else flt(bank.amount) if bank.currency == "NIO" else 0
+        )
+        deposits.append(
+            {"id": account.name, "reference": clean_text(account.reference),
+             "amount_usd": amount_usd,
+             "currency": account.currency, "bank_currency": bank.currency,
+             "bank_amount_usd": flt(bank.amount) if bank.currency == "USD" else 0,
+             "group": employer_by_label.get(
+                 clean_text(account.employer_text or bank.employer_text).casefold()
+             )}
+        )
+        deposit_meta[account.name] = {
+            "account": account, "bank": bank,
+            "amount_usd": amount_usd,
+            "nio_per_usd": native_nio / amount_usd if amount_usd else 0,
+        }
+
+    references_by_row = defaultdict(set)
+    hints_by_row = defaultdict(lambda: defaultdict(float))
+    core_amount_by_row = defaultdict(float)
+    application_ids_by_row = defaultdict(set)
+    for source in source_rows:
+        if (
+            source.event_type == "Aplicacion" and source.effective
+            and source.match_status == "Conciliado"
+        ):
+            reference = clean_text(source.reference)
+            for link in _application_allocations(source):
+                row_id = link["collection_row_id"]
+                core_amount_by_row[row_id] += flt(link["amount_usd"])
+                application_ids_by_row[row_id].add(source.name)
+                if reference:
+                    references_by_row[row_id].add(reference)
+                    hints_by_row[row_id][reference] += flt(link["amount_usd"])
+
+    claims = []
+    for row in rows_by_name.values():
+        deducted_usd = _deducted_amount(row, "USD")
+        loan_amount = max(deducted_usd - complementary_totals[row.name], 0)
+        if loan_amount <= CASH_EPSILON:
+            continue
+        references = set(references_by_row[row.name])
+        if row.application_reference:
+            references.add(clean_text(row.application_reference))
+        claims.append(
+            {"id": "C:" + row.name, "amount_usd": loan_amount,
+             "references": references, "hints": dict(hints_by_row[row.name]),
+             "group": employer_by_period.get(row.parent),
+             "period": row.parent,
+             "core_applied_usd": round(core_amount_by_row[row.name], 4),
+             "application_ids": sorted(application_ids_by_row[row.name])}
+        )
+    for item in complementary_items:
+        claims.append(
+            {"id": "X:" + item.name, "amount_usd": flt(item.amount_usd),
+             "references": [clean_text(item.reference)], "hints": {},
+            "group": item.employer or employer_by_period.get(item.period)}
+        )
+    for application in historical_applications.values():
+        claims.append(
+            {
+                "id": "H:" + application.name,
+                "amount_usd": flt(application.amount),
+                "references": [clean_text(application.reference)],
+                "hints": {},
+                "group": employer_by_period.get(application.historical_period),
+                "period": application.historical_period,
+                "core_applied_usd": flt(application.amount),
+                "application_ids": [application.name],
+            }
+        )
+
+    deposits_by_reference = defaultdict(list)
+    for deposit in deposits:
+        deposits_by_reference[deposit["reference"]].append(deposit)
+    claims_by_id = {claim["id"]: claim for claim in claims}
+    instructions = []
+    # A user-approved exact deposit is reserved for every row of its payroll
+    # period. These instructions precede optional manual cash allocations.
+    for period in periods:
+        if (
+            period.reconciliation_mode == "Historica"
+            or period.deduction_basis != "Depósito coincidente"
+            or not period.deduction_recognition_deposit
+            or period.deduction_recognition_deposit not in deposit_meta
+            or not period.collection_rows
+            or any(row.deduction_status != "Inferida por depósito" for row in period.collection_rows)
+        ):
+            continue
+        deposit_id = period.deduction_recognition_deposit
+        period_rows = {row.name for row in period.collection_rows}
+        for row in period.collection_rows:
+            claim_id = "C:" + row.name
+            if claim_id in claims_by_id:
+                instructions.append({
+                    "id": "R:" + period.name + ":" + row.name,
+                    "deposit_id": deposit_id,
+                    "claim_id": claim_id,
+                    "amount_usd": claims_by_id[claim_id]["amount_usd"],
+                })
+        for item in complementary_items:
+            if complementary_target.get(item.name) in period_rows:
+                instructions.append({
+                    "id": "R:" + period.name + ":X:" + item.name,
+                    "deposit_id": deposit_id,
+                    "claim_id": "X:" + item.name,
+                    "amount_usd": flt(item.amount_usd),
+                })
+    manual_results = {}
+    manually_ambiguous_deposits = blocked_historical_deposits(claims, deposits)
+    for item in manual_allocations:
+        candidates = [
+            deposit for deposit in deposits_by_reference[clean_text(item.deposit_reference)]
+            if not item.deposit_voucher
+            or clean_text(deposit_meta[deposit["id"]]["account"].voucher)
+            == clean_text(item.deposit_voucher)
+        ]
+        if len(candidates) != 1:
+            manual_results[item.name] = (
+                "Falta deposito" if not candidates else "Deposito ambiguo"
+            )
+            manually_ambiguous_deposits.update(
+                deposit["id"] for deposit in candidates
+            )
+            continue
+        claim_id = (
+            "X:" + item.complementary_item if item.complementary_item
+            else "H:" + item.historical_application if item.historical_application
+            else "C:" + row_by_key.get((item.period, clean_text(item.row_key)), "")
+        )
+        claim_group = clean_text(claims_by_id.get(claim_id, {}).get("group"))
+        deposit_group = clean_text(candidates[0].get("group"))
+        if claim_group and deposit_group and claim_group != deposit_group:
+            manual_results[item.name] = "Empresa no coincide"
+            manually_ambiguous_deposits.add(candidates[0]["id"])
+            continue
+        instructions.append(
+            {"id": item.name, "deposit_id": candidates[0]["id"],
+             "claim_id": claim_id, "amount_usd": flt(item.amount_usd)}
+        )
+
+    result = allocate_cash(
+        deposits, claims, instructions, manually_ambiguous_deposits
+    )
+    movements = rounding_movements(
+        deposits, claims, result["allocations"], result["deposit_remaining"],
+        result["claim_remaining"], tolerance_by_employer,
+        result["blocked_deposits"],
+    )
+    result["rounding_movements"] = movements
+    for movement in movements:
+        deposit_id = movement["deposit_id"]
+        result["deposit_remaining"][deposit_id] = round(
+            result["deposit_remaining"][deposit_id]
+            - movement["consumed_residual_usd"], 4
+        )
+    manual_results.update(result["instruction_results"])
+    for item in manual_allocations:
+        status = manual_results.get(item.name, "Pendiente")
+        if item.result != status:
+            frappe.db.set_value(
+                "CN Remittance Allocation", item.name, "result", status,
+                update_modified=False,
+            )
+
+    assigned_by_deposit = defaultdict(float)
+    detail_by_deposit = defaultdict(list)
+    for entry in result["allocations"]:
+        assigned_by_deposit[entry["deposit_id"]] += entry["amount_usd"]
+        claim_id = entry["claim_id"]
+        if claim_id.startswith("C:"):
+            target = rows_by_name[claim_id[2:]]
+            destination = {
+                "tipo": "Cobranza", "periodo": target.parent,
+                "fila_id": target.row_key, "credito": target.loan_number,
+            }
+        elif claim_id.startswith("H:"):
+            application = historical_applications[claim_id[2:]]
+            destination = {
+                "tipo": "Aplicacion historica",
+                "periodo": application.historical_period,
+                "aplicacion_id": application.name,
+                "credito": application.loan_number,
+            }
+        else:
+            destination = {
+                "tipo": "Partida complementaria", "partida": claim_id[2:]
+            }
+        detail_by_deposit[entry["deposit_id"]].append(
+            {**destination, "importe_usd": entry["amount_usd"],
+             "origen": entry["origin"]}
+        )
+    for movement in movements:
+        deposit_id = movement["deposit_id"]
+        assigned_by_deposit[deposit_id] += movement["consumed_residual_usd"]
+        detail_by_deposit[deposit_id].append({
+            "tipo": "Movimiento de conciliación",
+            "periodo": movement["period"],
+            "movimiento": movement["name"],
+            "diferencia_usd": movement["signed_amount_usd"],
+            "importe_usd": movement["consumed_residual_usd"],
+            "origen": "Tolerancia automática",
+        })
+    for deposit_id, meta in deposit_meta.items():
+        assigned = round(assigned_by_deposit[deposit_id], 4)
+        remaining = round(result["deposit_remaining"][deposit_id], 4)
+        reason = _("Distribuido {0} US$; pendiente de distribuir {1} US$.").format(
+            assigned, remaining
+        )
+        if deposit_id in result["blocked_deposits"]:
+            reason += " " + _("Revise la referencia reutilizada o una distribución manual inválida o ambigua.")
+        for source in (meta["account"], meta["bank"]):
+            source.allocated_usd = assigned
+            source.unallocated_usd = remaining
+            source.allocation_reason = reason
+            source.allocation_detail = json.dumps(
+                detail_by_deposit[deposit_id], ensure_ascii=False
+            )
+    result["deposit_meta"] = deposit_meta
+    result["complementary_target"] = complementary_target
+    result["complementary_totals"] = complementary_totals
+    return result
+
+
+def _classify_surplus(allocation, surplus_items):
+    """Document unapplied cash, without treating it as a loan or fee payment."""
+    meta_by_id = allocation["deposit_meta"]
+    justified = defaultdict(float)
+    for item in surplus_items:
+        candidates = [
+            deposit_id for deposit_id, meta in meta_by_id.items()
+            if clean_text(meta["account"].reference) == clean_text(item.deposit_reference)
+            and (
+                not item.deposit_voucher
+                or clean_text(meta["account"].voucher)
+                == clean_text(item.deposit_voucher)
+            )
+        ]
+        if len(candidates) != 1:
+            status = "Falta deposito" if not candidates else "Deposito ambiguo"
+        else:
+            deposit_id = candidates[0]
+            if not can_document_surplus(
+                allocation["deposit_remaining"][deposit_id],
+                justified[deposit_id],
+                item.amount_usd,
+            ):
+                status = "Excede saldo sin distribuir"
+            else:
+                justified[deposit_id] += flt(item.amount_usd)
+                status = "Saldo a favor documentado"
+        if item.result != status:
+            frappe.db.set_value(
+                "CN Deposit Surplus", item.name, "result", status,
+                update_modified=False,
+            )
+    for deposit_id, meta in meta_by_id.items():
+        total = flt(allocation["deposit_remaining"][deposit_id])
+        company_credit = round(justified[deposit_id], 4)
+        unclassified = round(max(total - company_credit, 0), 4)
+        for source in (meta["account"], meta["bank"]):
+            source.justified_surplus_usd = company_credit
+            source.unclassified_usd = unclassified
+            if company_credit:
+                source.allocation_reason += " " + _(
+                    "Saldo a favor documentado de la empresa: {0} US$; no aplicado al credito."
+                ).format(company_credit)
+
+
+def _sync_rounding_movements(movements, allocation, source_rows):
+    """Persist deterministic movements and reverse stale ones; never post GL."""
+    desired = {movement["name"]: movement for movement in movements}
+    existing = {
+        item.name: item
+        for item in frappe.get_all(
+            "CN Reconciliation Movement",
+            fields=["name", "status", "period"],
+            limit_page_length=100000,
+        )
+    }
+    for name, item in existing.items():
+        if item.status != "Vigente" or name in desired:
+            continue
+        if frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
+            frappe.throw(_("El movimiento {0} pertenece a un período cerrado y no puede revertirse automáticamente.").format(name))
+        document = frappe.get_doc("CN Reconciliation Movement", name)
+        document.status = "Revertido"
+        document.reversed_on = now_datetime()
+        document.reversal_reason = _(
+            "La diferencia ya no cumple la tolerancia, la referencia o el enlace único entre aplicación y depósito."
+        )
+        document.save(ignore_permissions=True)
+
+    source_by_name = {row.name: row for row in source_rows}
+    detail_by_source = defaultdict(list)
+    for movement in movements:
+        name = movement["name"]
+        period = movement["period"]
+        if name not in existing or existing[name].status != "Vigente":
+            if frappe.db.get_value("CN Reconciliation Period", period, "status") == "Cerrado":
+                frappe.throw(_("No se puede crear o reactivar un ajuste en el período cerrado {0}.").format(period))
+            if name in existing:
+                document = frappe.get_doc("CN Reconciliation Movement", name)
+                document.status = "Vigente"
+                document.reversed_on = None
+                document.reversal_reason = ""
+                document.save(ignore_permissions=True)
+            else:
+                deposit = allocation["deposit_meta"][movement["deposit_id"]]["account"]
+                frappe.get_doc({
+                    "doctype": "CN Reconciliation Movement",
+                    "movement_key": name,
+                    "status": "Vigente",
+                    "employer": movement["employer"],
+                    "period": period,
+                    "deposit_source_row": movement["deposit_id"],
+                    "application_source_row": movement["application_id"],
+                    "claim_id": movement["claim_id"],
+                    "deposit_reference": deposit.reference,
+                    "deposit_date": deposit.event_date,
+                    "signed_amount_usd": movement["signed_amount_usd"],
+                    "absorbed_cash_usd": movement["consumed_residual_usd"],
+                    "tolerance_usd": movement["tolerance_usd"],
+                    "core_applied_usd": movement["core_applied_usd"],
+                    "deposit_usd": movement["deposit_usd"],
+                    "claim_usd": movement["claim_usd"],
+                    "reason": _(
+                        "Diferencia menor dentro de la tolerancia autorizada; movimiento interno de conciliación, sin asiento contable ni cambio en el core."
+                    ),
+                }).insert(ignore_permissions=True)
+        for source_id in (
+            movement["deposit_id"],
+            allocation["deposit_meta"][movement["deposit_id"]]["bank"].name,
+            movement["application_id"],
+        ):
+            detail_by_source[source_id].append({
+                "movimiento": name,
+                "diferencia_usd": movement["signed_amount_usd"],
+                "periodo": period,
+            })
+    for source_id, entries in detail_by_source.items():
+        source = source_by_name.get(source_id)
+        if source:
+            source.rounding_adjustment_usd = round(
+                sum(flt(entry["diferencia_usd"]) for entry in entries), 4
+            )
+            source.rounding_movement_detail = json.dumps(entries, ensure_ascii=False)
+
+
+def _rebuild_period_balances(
+    periods, source_rows, deposit_pairs, allocation,
+):
+    rows_by_name = {}
+    for period in periods:
+        for row in period.collection_rows:
+            row.applied_usd = 0
+            row.applied_nio = 0
+            row.complementary_usd = allocation["complementary_totals"][row.name]
+            row.remitted_usd = 0
+            row.remitted_nio = 0
+            row.fx_variance_usd = 0
+            row.rounding_adjustment_usd = 0
+            row.application_status = "Pendiente"
+            row.remittance_detail = "[]"
+            row.inherited_exception_comment = ""
+            rows_by_name[row.name] = row
+
+    for source in source_rows:
+        if (
+            source.event_type != "Aplicacion" or not source.effective
+            or source.match_status != "Conciliado"
+        ):
+            continue
+        for link in _application_allocations(source):
+            target = rows_by_name.get(link["collection_row_id"])
+            if not target:
+                continue
+            amount = flt(link["amount_usd"])
+            target.applied_usd = flt(target.applied_usd) + amount
+            equivalent_currency, equivalent_amount = _equivalent_amount(
+                target, source, amount
+            )
+            if equivalent_currency == "NIO":
+                target.applied_nio = flt(target.applied_nio) + equivalent_amount
+
+    detail_by_target = defaultdict(list)
+    for entry in allocation["allocations"]:
+        claim_id = entry["claim_id"]
+        target_name = (
+            claim_id[2:] if claim_id.startswith("C:")
+            else allocation["complementary_target"].get(claim_id[2:])
+        )
+        target = rows_by_name.get(target_name)
+        if not target:
+            continue
+        amount = entry["amount_usd"]
+        deposit_account = allocation["deposit_meta"][entry["deposit_id"]]["account"]
+        detail_by_target[target.name].append(
+            {
+                "referencia": deposit_account.reference,
+                "comprobante": deposit_account.voucher,
+                "fecha": str(deposit_account.event_date or ""),
+                "importe_usd": amount,
+                "destino": "Partida complementaria" if claim_id.startswith("X:") else "Cobranza",
+                "origen": entry["origin"],
+            }
+        )
+        target.remitted_usd = flt(target.remitted_usd) + amount
+        deposit_rate = allocation["deposit_meta"][entry["deposit_id"]]["nio_per_usd"]
+        collection_rate = (
+            flt(target.expected_nio) / flt(target.expected_usd)
+            if flt(target.expected_usd) > AMOUNT_TOLERANCE else 0
+        )
+        target.remitted_nio = flt(target.remitted_nio) + amount * (
+            deposit_rate or collection_rate
+        )
+
+    for movement in allocation["rounding_movements"]:
+        if not movement["claim_id"].startswith("C:"):
+            continue
+        target = rows_by_name.get(movement["claim_id"][2:])
+        if not target:
+            continue
+        delta = flt(movement["signed_amount_usd"])
+        consumed = flt(movement["consumed_residual_usd"])
+        target.rounding_adjustment_usd = flt(target.rounding_adjustment_usd) + delta
+        target.remitted_usd = flt(target.remitted_usd) + consumed
+        rate = allocation["deposit_meta"][movement["deposit_id"]]["nio_per_usd"]
+        if not rate and flt(target.expected_usd) > CASH_EPSILON:
+            rate = flt(target.expected_nio) / flt(target.expected_usd)
+        target.remitted_nio = flt(target.remitted_nio) + consumed * rate
+        account = allocation["deposit_meta"][movement["deposit_id"]]["account"]
+        detail_by_target[target.name].append({
+            "referencia": account.reference,
+            "comprobante": account.voucher,
+            "fecha": str(account.event_date or ""),
+            "importe_usd": consumed,
+            "diferencia_usd": delta,
+            "movimiento": movement["name"],
+            "destino": "Movimiento de conciliación",
+            "origen": "Tolerancia automática",
+        })
+
+    for target in rows_by_name.values():
+        deducted_usd = _deducted_amount(target, "USD")
+        core_due = max(deducted_usd - flt(target.complementary_usd), 0)
+        status_due = (
+            max(flt(target.expected_usd) - flt(target.complementary_usd), 0)
+            if target.deduction_status in {"", "Pendiente de detalle"}
+            else core_due
+        )
+        if (
+            target.deduction_currency == "NIO"
+            and flt(target.deducted_nio) > AMOUNT_TOLERANCE
+            and flt(target.remitted_usd) > AMOUNT_TOLERANCE
+            and same_amount(target.remitted_nio, target.deducted_nio)
+        ):
+            variance = round(deducted_usd - flt(target.remitted_usd), 4)
+            if abs(variance) > AMOUNT_TOLERANCE:
+                target.fx_variance_usd = variance
+                target.application_status = "Diferencia cambiaria en revision"
+                continue
+        cash_due = max(deducted_usd - max(flt(target.fx_variance_usd), 0), 0)
+        rounding = flt(target.rounding_adjustment_usd)
+        core_complete = (
+            flt(target.applied_usd) + max(rounding, 0) + CASH_EPSILON >= core_due
+        )
+        cash_complete = (
+            flt(target.remitted_usd) + max(-rounding, 0) + CASH_EPSILON >= cash_due
+        )
+        loan_cash = flt(target.remitted_usd) - flt(target.complementary_usd)
+        unexplained = loan_cash - flt(target.applied_usd) - rounding
+        if (
+            core_complete and cash_complete
+            and not flt(target.fx_variance_usd)
+            and abs(unexplained) > CASH_EPSILON
+        ):
+            target.application_status = "Diferencia aplicacion vs deposito"
+            continue
+        if (
+            deducted_usd > AMOUNT_TOLERANCE
+            and core_complete and cash_complete
+        ):
+            target.application_status = "Aplicado y remitido"
+        elif deducted_usd > AMOUNT_TOLERANCE and cash_complete:
+            target.application_status = "Remitido, aplicacion parcial"
+        elif flt(target.remitted_usd) > AMOUNT_TOLERANCE:
+            target.application_status = "Remesa parcial"
+        elif flt(target.applied_usd) > AMOUNT_TOLERANCE:
+            target.application_status = (
+                "Aplicacion parcial"
+                if flt(target.applied_usd) + AMOUNT_TOLERANCE < status_due
+                else "Aplicacion encontrada"
+            )
+
+    _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation)
+
+    paired_references = {
+        clean_text(account.reference) for account, _bank in deposit_pairs
+    }
+    for source in source_rows:
+        if source.event_type != "Aplicacion" or not source.effective:
+            continue
+        targets = [
+            rows_by_name[link["collection_row_id"]]
+            for link in _application_allocations(source)
+            if link["collection_row_id"] in rows_by_name
+        ]
+        if not targets:
+            source.deposit_match_status = (
+                "Ambiguo" if clean_text(source.reference) in paired_references
+                else "Sin deposito"
+            )
+            source.deposit_match_reason = _(
+                "La aplicacion aun no se enlaza de forma unica con una cobranza."
+            )
+            continue
+        complete = all(
+            flt(target.remitted_usd) + max(flt(target.fx_variance_usd), 0)
+            + max(-flt(target.rounding_adjustment_usd), 0)
+            + CASH_EPSILON >= _deducted_amount(target, "USD")
+            for target in targets
+        )
+        if any(target.application_status == "Diferencia aplicacion vs deposito" for target in targets):
+            source.deposit_match_status = "Diferencia de importe"
+        elif complete:
+            source.deposit_match_status = "Remesa conciliada"
+        elif any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets):
+            source.deposit_match_status = "Remesa parcial"
+        else:
+            source.deposit_match_status = "Sin deposito"
+        source.deposit_match_reason = _(
+            "{0} cobranza(s): {1} US$ deducidos, {2} US$ remitidos; {3} US$ aplicados al credito; ajuste de conciliación {4} US$."
+        ).format(
+            len(targets),
+            round(sum(_deducted_amount(target, "USD") for target in targets), 4),
+            round(sum(flt(target.remitted_usd) for target in targets), 4),
+            round(sum(flt(target.applied_usd) for target in targets), 4),
+            round(sum(flt(target.rounding_adjustment_usd) for target in targets), 4),
+        )
+        source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
+
+    for period in periods:
+        period.recalculate_totals()
+        relevant = [
+            row for row in period.collection_rows
+            if flt(row.deducted_usd) > AMOUNT_TOLERANCE
+            or flt(row.deducted_nio) > AMOUNT_TOLERANCE
+        ]
+        if period.status != "Cerrado":
+            if relevant and all(
+                row.application_status == "Aplicado y remitido" for row in relevant
+            ):
+                period.status = "Deposito conciliado"
+            elif period.status == "Deposito conciliado":
+                period.status = "Detalle empresa cargado"
+        period.save(ignore_permissions=True)
+
+
+def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation):
+    """Show first-stage evidence on related deposits without changing cash balances."""
+    exceptions_by_row = defaultdict(list)
+    if rows_by_name:
+        exceptions = frappe.get_all(
+            "CN Reconciliation Exception",
+            filters={
+                "collection_row_id": ["in", list(rows_by_name)],
+                "status": ["in", ["Abierta", "En revision", "Resuelta"]],
+            },
+            fields=[
+                "name", "collection_row_id", "exception_type", "description",
+                "resolution", "status",
+            ],
+            order_by="creation desc",
+            limit_page_length=100000,
+        )
+        for exception in exceptions:
+            exceptions_by_row[exception.collection_row_id].append(exception)
+
+    notes_by_key = {}
+    for target in rows_by_name.values():
+        deduction_notes = [
+            {
+                "comment": (
+                    exception.resolution
+                    if exception.status == "Resuelta" and exception.resolution
+                    else exception.description
+                ),
+                "exception_id": exception.name,
+            }
+            for exception in exceptions_by_row[target.name]
+            if exception.exception_type in {
+                "Deduccion parcial", "No deducido", "Deduccion en exceso",
+                "Moneda no coincide", "Importes inconsistentes",
+            }
+        ]
+        application_notes = [
+            {"comment": comment}
+            for comment in (target.first_exception_comment, target.application_comment)
+            if clean_text(comment)
+        ]
+        notes = matching_exception_notes(
+            expected_usd=flt(target.expected_usd),
+            deducted_usd=_deducted_amount(target, "USD"),
+            applied_usd=flt(target.applied_usd),
+            complementary_usd=flt(target.complementary_usd),
+            remitted_usd=flt(target.remitted_usd),
+            deduction_notes=deduction_notes,
+            application_notes=application_notes,
+        )
+        notes_by_key[(target.parent, clean_text(target.row_key))] = notes
+        target.inherited_exception_comment = "\n".join(
+            f"{note['origin']}: {note['gap_usd']} US$ — {note['comment']}"
+            for note in notes
+        )
+        for detail in detail_by_target[target.name]:
+            if detail["destino"] == "Cobranza" and notes:
+                detail["excepciones_heredadas"] = notes
+        target.remittance_detail = json.dumps(
+            detail_by_target[target.name], ensure_ascii=False
+        )
+
+    for meta in allocation["deposit_meta"].values():
+        source = meta["account"]
+        entries = json.loads(source.allocation_detail or "[]")
+        summaries = []
+        seen = set()
+        for entry in entries:
+            if entry.get("tipo") != "Cobranza":
+                continue
+            notes = notes_by_key.get(
+                (entry.get("periodo"), clean_text(entry.get("fila_id"))), []
+            )
+            if not notes:
+                continue
+            entry["excepciones_heredadas"] = notes
+            for note in notes:
+                key = (entry.get("periodo"), entry.get("fila_id"), note["comment"])
+                if key not in seen:
+                    seen.add(key)
+                    summaries.append(
+                        f"{entry['periodo']} / {entry['fila_id']}: "
+                        f"{note['gap_usd']} US$ — {note['comment']}"
+                    )
+        encoded = json.dumps(entries, ensure_ascii=False)
+        summary = "\n".join(summaries)
+        for deposit in (meta["account"], meta["bank"]):
+            deposit.allocation_detail = encoded
+            deposit.inherited_exception_comment = summary
+
+
+def _rebuild_historical_balances(periods, source_rows, allocation):
+    """Second-stage-only backfill: core applications versus paired deposits."""
+    historical_periods = {
+        period.name: period for period in periods
+        if period.reconciliation_mode == "Historica"
+    }
+    applications = {
+        row.name: row for row in source_rows
+        if row.event_type == "Aplicacion" and row.effective
+        and row.historical_period in historical_periods
+        and row.match_status == "Conciliado"
+    }
+    deposits_by_application = defaultdict(list)
+    unclassified_deposits_by_period = defaultdict(set)
+    for entry in allocation["allocations"]:
+        if not entry["claim_id"].startswith("H:"):
+            continue
+        application_id = entry["claim_id"][2:]
+        if application_id not in applications:
+            continue
+        account = allocation["deposit_meta"][entry["deposit_id"]]["account"]
+        if flt(account.unclassified_usd) > CASH_EPSILON:
+            unclassified_deposits_by_period[
+                applications[application_id].historical_period
+            ].add(entry["deposit_id"])
+        deposits_by_application[application_id].append(
+            {
+                "referencia": account.reference,
+                "comprobante": account.voucher,
+                "fecha": str(account.event_date or ""),
+                "importe_usd": entry["amount_usd"],
+                "origen": entry["origin"],
+            }
+        )
+
+    rounding_by_application = defaultdict(float)
+    for movement in allocation["rounding_movements"]:
+        if not movement["claim_id"].startswith("H:"):
+            continue
+        application_id = movement["claim_id"][2:]
+        if application_id not in applications:
+            continue
+        rounding_by_application[application_id] += flt(movement["signed_amount_usd"])
+        account = allocation["deposit_meta"][movement["deposit_id"]]["account"]
+        deposits_by_application[application_id].append({
+            "referencia": account.reference,
+            "comprobante": account.voucher,
+            "fecha": str(account.event_date or ""),
+            "importe_usd": flt(movement["consumed_residual_usd"]),
+            "diferencia_usd": flt(movement["signed_amount_usd"]),
+            "movimiento": movement["name"],
+            "origen": "Tolerancia automática",
+        })
+
+    apps_by_period = defaultdict(list)
+    for application in applications.values():
+        details = deposits_by_application[application.name]
+        remitted = round(sum(flt(item["importe_usd"]) for item in details), 4)
+        applied = flt(application.amount)
+        adjustment = round(rounding_by_application[application.name], 4)
+        application.historical_remitted_usd = remitted
+        application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
+        application.historical_detail = json.dumps(details, ensure_ascii=False)
+        application.deposit_match_status = (
+            "Remesa conciliada" if application.historical_balance_usd <= CASH_EPSILON
+            else "Remesa parcial" if remitted > CASH_EPSILON
+            else "Sin deposito"
+        )
+        application.deposit_match_reason = _(
+            "Histórico: {0} US$ aplicados al crédito; ajuste {1} US$; {2} US$ vinculados a depósitos; {3} US$ pendientes de evidencia de depósito."
+        ).format(
+            round(applied, 4), adjustment, remitted, application.historical_balance_usd,
+        )
+        apps_by_period[application.historical_period].append(application)
+
+    for period in historical_periods.values():
+        related = apps_by_period[period.name]
+        applied = round(sum(flt(row.amount) for row in related), 4)
+        remitted = round(sum(flt(row.historical_remitted_usd) for row in related), 4)
+        adjustment = round(sum(rounding_by_application[row.name] for row in related), 4)
+        fingerprint_data = [
+            {
+                "application_id": row.name,
+                "amount_usd": round(flt(row.amount), 4),
+                "deposits": sorted(
+                    deposits_by_application[row.name],
+                    key=lambda item: (
+                        clean_text(item["referencia"]),
+                        clean_text(item["comprobante"]),
+                        clean_text(item["fecha"]),
+                        flt(item["importe_usd"]),
+                    ),
+                ),
+            }
+            for row in sorted(related, key=lambda item: item.name)
+        ]
+        fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_data, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+        if period.status == "Cerrado" and (
+            not same_amount(period.applied_usd, applied)
+            or not same_amount(period.remitted_usd, remitted)
+            or abs(flt(period.rounding_adjustment_usd) - adjustment) > CASH_EPSILON
+            or (
+                period.historical_fingerprint
+                and period.historical_fingerprint != fingerprint
+            )
+            or bool(unclassified_deposits_by_period[period.name])
+        ):
+            frappe.throw(
+                _("El período histórico {0} está cerrado y su conciliación cambiaría.").format(period.name)
+            )
+        period.expected_usd = 0
+        period.expected_nio = 0
+        period.deducted_usd = 0
+        period.deducted_nio = 0
+        period.applied_usd = applied
+        period.applied_nio = 0
+        period.remitted_usd = remitted
+        period.remitted_nio = 0
+        period.fx_variance_usd = 0
+        period.rounding_adjustment_usd = adjustment
+        period.historical_fingerprint = fingerprint
+        period.exception_count = sum(
+            row.deposit_match_status != "Remesa conciliada" for row in related
+        ) + len(unclassified_deposits_by_period[period.name])
+        if period.status != "Cerrado":
+            period.status = (
+                "Historico con excedente"
+                if unclassified_deposits_by_period[period.name]
+                else historical_status(applied + adjustment, remitted)
+            )
+        period.save(ignore_permissions=True)
+
+
+def _equivalent_amount(target, source, amount_usd):
+    if (
+        source.currency == "USD"
+        and flt(target.expected_usd) > AMOUNT_TOLERANCE
+        and flt(target.expected_nio) > AMOUNT_TOLERANCE
+    ):
+        return "NIO", amount_usd * flt(target.expected_nio) / flt(target.expected_usd)
+    if (
+        source.currency == "NIO"
+        and flt(target.expected_nio) > AMOUNT_TOLERANCE
+        and flt(target.expected_usd) > AMOUNT_TOLERANCE
+    ):
+        return "USD", amount_usd * flt(target.expected_usd) / flt(target.expected_nio)
+    return None, 0

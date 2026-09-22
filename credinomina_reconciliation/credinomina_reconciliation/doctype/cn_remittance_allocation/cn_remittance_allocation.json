@@ -1,0 +1,39 @@
+{
+  "actions": [],
+  "autoname": "naming_series:",
+  "creation": "2026-09-22 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["naming_series", "deposit_reference", "deposit_voucher", "amount_usd", "target_section", "period", "row_key", "historical_application", "complementary_item", "result", "notes", "support_file"],
+  "fields": [
+    {"default": "CN-ALLOC-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-ALLOC-.YYYY.-.#####", "reqd": 1},
+    {"description": "Referencia bancaria del deposito contable y bancario conciliado.", "fieldname": "deposit_reference", "fieldtype": "Data", "in_list_view": 1, "label": "Referencia del deposito", "reqd": 1},
+    {"description": "Complete si hay mas de un deposito con la misma referencia.", "fieldname": "deposit_voucher", "fieldtype": "Data", "label": "Comprobante contable del deposito"},
+    {"fieldname": "amount_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Importe a distribuir US$", "options": "USD", "precision": "4", "reqd": 1},
+    {"fieldname": "target_section", "fieldtype": "Section Break", "label": "Destino de la distribucion"},
+    {"description": "Para cobranza operativa, indique período y Fila ID. Para histórico, elija una aplicación histórica. También puede elegir una partida complementaria. Solo un destino.", "fieldname": "period", "fieldtype": "Link", "label": "Periodo de planilla", "options": "CN Reconciliation Period"},
+    {"description": "Fila ID del archivo de cobranza exportado.", "fieldname": "row_key", "fieldtype": "Data", "label": "Fila ID de cobranza"},
+    {"description": "ID exacto de la fila de aplicación del core, visible en la importación de fuente. Solo para conciliación histórica.", "fieldname": "historical_application", "fieldtype": "Data", "label": "ID de aplicación histórica"},
+    {"fieldname": "complementary_item", "fieldtype": "Link", "label": "Partida complementaria", "options": "CN Complementary Item"},
+    {"default": "Pendiente", "fieldname": "result", "fieldtype": "Data", "in_list_view": 1, "label": "Resultado de conciliacion", "read_only": 1},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Justificacion", "reqd": 1},
+    {"fieldname": "support_file", "fieldtype": "Attach", "label": "Soporte"}
+  ],
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2026-09-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Remittance Allocation",
+  "naming_rule": "By naming series",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "submit": 1, "cancel": 1, "write": 1},
+    {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "submit": 1, "cancel": 1, "write": 1},
+    {"create": 1, "read": 1, "report": 1, "role": "Operador Credinomina", "write": 1}
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

@@ -1,0 +1,21 @@
+[project]
+name = "credinomina_reconciliation"
+authors = [
+    { name = "MIDESA" }
+]
+description = "Standalone payroll-loan reconciliation for Frappe Framework"
+requires-python = ">=3.10"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    "openpyxl>=3.1",
+    "xlrd>=2.0.2,<3",
+]
+
+[build-system]
+requires = ["flit_core>=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0-dev"
+

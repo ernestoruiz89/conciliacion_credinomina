@@ -1,0 +1,37 @@
+{
+  "actions": [],
+  "autoname": "naming_series:",
+  "creation": "2026-09-22 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["naming_series", "period", "employer", "deposit_reference", "deposit_voucher", "amount_usd", "reason_type", "explanation", "support_file", "result"],
+  "fields": [
+    {"default": "CN-EXC-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-EXC-.YYYY.-.#####", "reqd": 1},
+    {"description": "Periodo al que pertenece la empresa que realizo el deposito.", "fieldname": "period", "fieldtype": "Link", "in_list_view": 1, "label": "Periodo de planilla", "options": "CN Reconciliation Period", "reqd": 1},
+    {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "read_only": 1},
+    {"fieldname": "deposit_reference", "fieldtype": "Data", "in_list_view": 1, "label": "Referencia del deposito", "reqd": 1},
+    {"description": "Complete si existen varios depositos con la misma referencia.", "fieldname": "deposit_voucher", "fieldtype": "Data", "label": "Comprobante contable del deposito"},
+    {"fieldname": "amount_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Excedente US$", "options": "USD", "precision": "4", "reqd": 1},
+    {"default": "Error de la empresa", "fieldname": "reason_type", "fieldtype": "Select", "label": "Motivo", "options": "Error de la empresa\nPago adicional no informado\nOtro por aclarar", "reqd": 1},
+    {"description": "Explique por que el importe no se aplico a una cobranza y como se gestionara.", "fieldname": "explanation", "fieldtype": "Small Text", "label": "Justificacion y tratamiento", "reqd": 1},
+    {"fieldname": "support_file", "fieldtype": "Attach", "label": "Soporte"},
+    {"default": "Pendiente", "fieldname": "result", "fieldtype": "Data", "in_list_view": 1, "label": "Resultado de control", "read_only": 1}
+  ],
+  "is_submittable": 1,
+  "links": [],
+  "modified": "2026-09-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Deposit Surplus",
+  "naming_rule": "By naming series",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "submit": 1, "cancel": 1, "write": 1},
+    {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "submit": 1, "cancel": 1, "write": 1},
+    {"create": 1, "read": 1, "report": 1, "role": "Operador Credinomina", "write": 1}
+  ],
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

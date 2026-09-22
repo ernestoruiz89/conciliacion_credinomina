@@ -1,0 +1,3 @@
+recursive-include credinomina_reconciliation *.css *.csv *.html *.ico *.js *.json *.md *.png *.py *.svg *.txt
+recursive-exclude credinomina_reconciliation *.pyc
+

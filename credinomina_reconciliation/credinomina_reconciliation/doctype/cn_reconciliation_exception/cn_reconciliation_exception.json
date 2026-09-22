@@ -1,0 +1,40 @@
+{
+  "actions": [],
+  "autoname": "hash",
+  "creation": "2026-09-22 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["status", "exception_type", "period", "employer", "source_import", "source_row", "client_number", "loan_number", "amount_usd", "amount_nio", "collection_row_id", "description", "resolution"],
+  "fields": [
+    {"default": "Abierta", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "label": "Estado", "options": "Abierta\nEn revision\nResuelta\nDescartada", "reqd": 1},
+    {"fieldname": "exception_type", "fieldtype": "Data", "in_list_view": 1, "label": "Tipo", "reqd": 1},
+    {"fieldname": "period", "fieldtype": "Link", "in_list_view": 1, "label": "Periodo", "options": "CN Reconciliation Period"},
+    {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer"},
+    {"fieldname": "source_import", "fieldtype": "Link", "label": "Importacion", "options": "CN Source Import"},
+    {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila de origen"},
+    {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente"},
+    {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito"},
+    {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Monto US$", "options": "USD", "precision": "4"},
+    {"fieldname": "amount_nio", "fieldtype": "Currency", "label": "Monto C$", "options": "NIO", "precision": "4"},
+    {"fieldname": "collection_row_id", "fieldtype": "Data", "hidden": 1, "label": "Fila de cobranza"},
+    {"fieldname": "description", "fieldtype": "Small Text", "label": "Descripcion"},
+    {"fieldname": "resolution", "fieldtype": "Small Text", "label": "Resolucion"}
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2026-09-22 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Reconciliation Exception",
+  "naming_rule": "Random",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+    {"create": 1, "delete": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "write": 1},
+    {"create": 1, "read": 1, "report": 1, "role": "Operador Credinomina", "write": 1}
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
