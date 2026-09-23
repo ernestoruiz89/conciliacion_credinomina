@@ -1,4 +1,6 @@
 CN Employer,Empresa Credinómina
+CN Client,Cliente Credinómina
+CN Client Alias,Nombre Alternativo del Cliente
 Conciliacion Credinomina,Conciliación Credinómina
 CN Reconciliation Period,Período de Conciliación
 CN Collection Row,Detalle de Cobranza
@@ -10,3 +12,4 @@ CN Remittance Target,Destino de Depósito
 CN Remittance Detail,Detalle de Pago por Cliente
 CN Deposit Surplus,Excedente de Depósito
 CN Reconciliation Exception,Excepción de Conciliación
+Antiguedad de Saldos,Antigüedad de Saldos

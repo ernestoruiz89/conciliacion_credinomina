@@ -56,6 +56,8 @@ def execute(filters=None):
                 credit_by_period.get(item.period, 0) + flt(item.amount_usd)
             )
     for row in data:
+        row["usd_currency"] = "USD"
+        row["nio_currency"] = "NIO"
         if row.reconciliation_mode == "Historica":
             row["historical_label"] = (
                 f"Fecha {row.historical_application_date}"
@@ -101,21 +103,21 @@ def get_columns():
         {"fieldname": "cutoff_date", "label": _("Cierre del ciclo"), "fieldtype": "Date", "width": 110},
         {"fieldname": "status", "label": _("Estado"), "fieldtype": "Data", "width": 150},
         {"fieldname": "remittance_due_date", "label": _("Vence remesa"), "fieldtype": "Date", "width": 105},
-        {"fieldname": "expected_usd", "label": _("Cobrado US$"), "fieldtype": "Currency", "options": "USD", "width": 105},
-        {"fieldname": "deducted_usd", "label": _("Deducido US$"), "fieldtype": "Currency", "options": "USD", "width": 110},
-        {"fieldname": "applied_usd", "label": _("Aplicado al crédito US$"), "fieldtype": "Currency", "options": "USD", "width": 145},
-        {"fieldname": "complementary_usd", "label": _("Partida complementaria US$"), "fieldtype": "Currency", "options": "USD", "width": 155},
-        {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "USD", "width": 115},
-        {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "USD", "width": 150},
-        {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "USD", "width": 175},
-        {"fieldname": "employee_shortfall_usd", "label": _("Faltante empleado US$"), "fieldtype": "Currency", "options": "USD", "width": 135},
-        {"fieldname": "employer_receivable_usd", "label": _("CxC empresa US$"), "fieldtype": "Currency", "options": "USD", "width": 120},
-        {"fieldname": "historical_pending_usd", "label": _("Aplicación histórica sin depósito US$"), "fieldtype": "Currency", "options": "USD", "width": 185},
-        {"fieldname": "company_credit_usd", "label": _("Saldo a favor documentado US$"), "fieldtype": "Currency", "options": "USD", "width": 170},
-        {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "NIO", "width": 105},
-        {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "NIO", "width": 110},
-        {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "NIO", "width": 115},
-        {"fieldname": "employee_shortfall_nio", "label": _("Faltante empleado C$"), "fieldtype": "Currency", "options": "NIO", "width": 135},
-        {"fieldname": "employer_receivable_nio", "label": _("CxC empresa C$"), "fieldtype": "Currency", "options": "NIO", "width": 120},
+        {"fieldname": "expected_usd", "label": _("Cobrado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 105},
+        {"fieldname": "deducted_usd", "label": _("Deducido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 110},
+        {"fieldname": "applied_usd", "label": _("Aplicado al crédito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
+        {"fieldname": "complementary_usd", "label": _("Partida complementaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
+        {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
+        {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
+        {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 175},
+        {"fieldname": "employee_shortfall_usd", "label": _("Faltante empleado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 135},
+        {"fieldname": "employer_receivable_usd", "label": _("Deducido sin remesa asignada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
+        {"fieldname": "historical_pending_usd", "label": _("Aplicación histórica sin depósito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 185},
+        {"fieldname": "company_credit_usd", "label": _("Saldo a favor documentado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
+        {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
+        {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
+        {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
+        {"fieldname": "employee_shortfall_nio", "label": _("Faltante empleado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 135},
+        {"fieldname": "employer_receivable_nio", "label": _("Deducido sin remesa asignada C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
         {"fieldname": "exception_count", "label": _("Excepciones"), "fieldtype": "Int", "width": 90},
     ]

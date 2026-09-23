@@ -144,6 +144,8 @@ def get_control_data(year=None, employer=None):
             if row.deduction_status == "Pendiente de detalle"
         ) if not is_historical else 0
         adjustment = flt(period.rounding_adjustment_usd)
+        # This is an assignment gap, not a confirmed company receivable: an
+        # already received deposit may still lack its per-client detail.
         employer_gap = max(deducted - remitted - fx_variance - max(-adjustment, 0), 0) if not is_historical else 0
         historical_pending = max(applied + adjustment - remitted, 0) if is_historical else 0
         period_surpluses = surplus_by_period[period.name]

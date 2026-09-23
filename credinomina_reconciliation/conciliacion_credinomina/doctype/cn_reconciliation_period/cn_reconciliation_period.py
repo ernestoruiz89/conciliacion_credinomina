@@ -15,6 +15,7 @@ from credinomina_reconciliation.cadence import (
     cycle_for_frequency,
     cycles_conflict,
 )
+from credinomina_reconciliation.client_registry import ClientIndex, load_client_index, names_for_claim
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.employer_naming import employer_alias_index
 from credinomina_reconciliation.historical import (
@@ -536,19 +537,23 @@ def import_collection(period_name: str):
         frappe.throw(_("Revierta primero el reconocimiento por depósito antes de reemplazar la cobranza."))
     file_doc, content = _attached_file(period, period.collection_file)
     try:
-        parsed = parse_collection_file(file_doc.file_name, content)
+        parsed = parse_collection_file(file_doc.file_name, content, require_name=True)
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Archivo de cobranza invalido"))
 
     _supersede_open_period_exceptions(period.name)
     period.set("collection_rows", [])
+    clients = ClientIndex()
     seen = set()
     for record in parsed:
+        if not record.get("loan_number"):
+            frappe.throw(_("La fila {0} de cobranza no tiene número de crédito.").format(record["source_row"]))
+        client = clients.ensure_from_collection(record)
         row_key = record.get("row_key") or source_key(
             period.employer,
             getdate(period.payroll_month).replace(day=1),
             period.collection_cycle,
-            record.get("client_number"),
+            record.get("client_number") or record.get("national_id") or record.get("client_name"),
             record.get("loan_number"),
             record.get("installment_number"),
         )[:24]
@@ -563,6 +568,7 @@ def import_collection(period_name: str):
             "collection_rows",
             {
                 **record,
+                "client": client,
                 "row_key": row_key,
                 "deduction_status": "Pendiente de detalle",
                 "application_status": "Pendiente",
@@ -595,7 +601,8 @@ def import_employer_response(period_name: str):
     file_doc, content = _attached_file(period, period.employer_response_file)
     try:
         responses = parse_collection_file(
-            file_doc.file_name, content, require_deduction=True
+            file_doc.file_name, content,
+            require_deduction=True, require_name=True, keep_zero_rows=True,
         )
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de empresa invalido"))
@@ -620,9 +627,17 @@ def import_employer_response(period_name: str):
     _supersede_open_period_exceptions(period.name)
 
     rows_by_name = {row.name: row for row in period.collection_rows}
-    candidates = [
-        {**row.as_dict(), "name": row.name} for row in period.collection_rows
-    ]
+    client_catalog = load_client_index()
+    by_client = {client["name"]: client for client in client_catalog}
+    candidates = []
+    for row in period.collection_rows:
+        candidate = {**row.as_dict(), "name": row.name}
+        linked = by_client.get(row.get("client"))
+        candidate["client_aliases"] = (
+            [linked["client_name"], *(linked.get("client_aliases") or ())]
+            if linked else names_for_claim(candidate, client_catalog)
+        )
+        candidates.append(candidate)
     matched_names = set()
     unmatched = 0
     for response in responses:

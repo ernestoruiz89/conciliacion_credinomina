@@ -26,6 +26,11 @@ class RegisteredRemittanceWorkflowTest(unittest.TestCase):
         self.assertEqual(1, child["istable"])
         self.assertIn("support_file", fields)
         self.assertIn("deposit_date", fields)
+        self.assertFalse(fields["support_file"].get("reqd"))
+        self.assertEqual(1, fields["support_file"]["allow_on_submit"])
+        self.assertEqual(1, fields["detail_file"]["allow_on_submit"])
+        self.assertEqual(1, fields["detail_rows"]["allow_on_submit"])
+        self.assertEqual("Datetime", fields["detail_imported_on"]["fieldtype"])
 
     def test_later_month_deposit_can_settle_prior_month_application(self):
         result = allocate_cash(

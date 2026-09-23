@@ -3,13 +3,15 @@
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["period", "row_key", "historical_application", "complementary_item", "amount_usd", "notes", "result"],
+  "field_order": ["usd_currency", "nio_currency", "period", "row_key", "historical_application", "complementary_item", "amount_usd", "notes", "result"],
   "fields": [
+    {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
+    {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
     {"fieldname": "period", "fieldtype": "Link", "label": "Período de cobranza", "options": "CN Reconciliation Period", "in_list_view": 1, "allow_on_submit": 1},
     {"fieldname": "row_key", "fieldtype": "Data", "label": "Fila ID de cobranza", "in_list_view": 1, "allow_on_submit": 1},
     {"fieldname": "historical_application", "fieldtype": "Data", "label": "ID de aplicación histórica", "in_list_view": 1, "allow_on_submit": 1},
     {"fieldname": "complementary_item", "fieldtype": "Link", "label": "Partida complementaria", "options": "CN Complementary Item", "in_list_view": 1, "allow_on_submit": 1},
-    {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Importe asignado US$", "options": "USD", "precision": "4", "reqd": 1, "in_list_view": 1, "allow_on_submit": 1},
+    {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Importe asignado US$", "options": "usd_currency", "precision": "4", "reqd": 1, "in_list_view": 1, "allow_on_submit": 1},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Observación", "allow_on_submit": 1},
     {"fieldname": "result", "fieldtype": "Data", "label": "Resultado", "read_only": 1, "allow_on_submit": 1}
   ],

@@ -6,6 +6,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.client_identity import matching_name
 
 
 EPSILON = 0.00005
@@ -36,12 +37,14 @@ def _same_id(left: Any, right: Any) -> bool:
 
 
 def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
+    if row.get("client") and claim.get("client") and row["client"] != claim["client"]:
+        return False
     loan = row.get("loan_number")
     client = row.get("client_number")
     national_id = row.get("national_id")
-    if not loan or not (client or national_id):
+    if loan and not _same_id(loan, claim.get("loan_number")):
         return False
-    if not _same_id(loan, claim.get("loan_number")):
+    if not loan and not (client or national_id or row.get("client_name")):
         return False
     identity_match = False
     if client and claim.get("client_number"):
@@ -52,7 +55,16 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
         if clean_text(national_id).casefold() != clean_text(claim["national_id"]).casefold():
             return False
         identity_match = True
-    if not identity_match and (claim.get("client_number") or claim.get("national_id")):
+    if (client or national_id) and not identity_match and (
+        not loan or claim.get("client_number") or claim.get("national_id")
+    ):
+        return False
+    if not any((loan, client, national_id)) and not matching_name(
+        row.get("client_name"), {
+            "client_name": claim.get("client_name"),
+            "client_aliases": claim.get("client_names") or (),
+        },
+    ):
         return False
     installment = row.get("installment_number")
     if installment and claim.get("installment_number") and not _same_id(
@@ -117,6 +129,15 @@ def suggest_detail_targets(
     kinds = {claim.get("kind") for claim in matches}
     if "C" in kinds and "H" in kinds:
         return [], "Coincidencia entre histórico y operativo: seleccione período"
+    if not any((row.get("loan_number"), row.get("client_number"), row.get("national_id"))):
+        people = {
+            canonical_identifier(claim.get("client_number"))
+            or canonical_identifier(claim.get("national_id"))
+            or claim.get("client")
+            for claim in matches
+        }
+        if len(people) != 1 or "" in people:
+            return [], "Nombre compartido o sin identidad única; indique destinos manuales"
     total = round(sum(float(claim["amount_usd"]) for claim in matches), 4)
     if abs(total - amount_usd) > EPSILON:
         return [], "Varias aplicaciones posibles; indique destinos manuales"

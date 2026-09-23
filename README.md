@@ -31,7 +31,8 @@ importes permiten un cruce único.
   no se adivinan.
 - **Movimientos contables** como fuente principal de aplicaciones y
   **Transacciones** como respaldo. El depósito se registra directamente con
-  referencia, fecha, empresa, moneda, importe y detalle/soporte adjunto; no
+  referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
+  adjuntarse después, sin cambiar la fecha del depósito. No
   hace falta importar el Excel bancario mensual (que mezcla otros depósitos).
   Las importaciones bancarias anteriores permanecen disponibles como legado.
 - Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
@@ -88,6 +89,11 @@ bench --site sitio.local install-app credinomina_reconciliation
 bench --site sitio.local migrate
 ```
 
+En un sitio recién creado, complete además el asistente inicial de Frappe
+antes de entrar al escritorio. Puede configurar **Español (Nicaragua)**,
+**America/Managua** y moneda base **NIO**: los campos de la app muestran
+separadamente US$ y C$, y la conciliación se calcula en US$.
+
 Al actualizar una instalación existente, `bench migrate` ejecuta un parche que
 renombra cada **Empresa Credinómina** desde su código al valor de **Empresa**
 (`employer_name`). El **Código** (`employer_code`) se conserva como campo único
@@ -95,6 +101,11 @@ y como alias para reconocer archivos anteriores; los vínculos entre documentos
 se actualizan mediante el renombrado de Frappe. Haga una copia de seguridad
 antes de migrar. Si existen nombres vacíos o duplicados, el parche se detiene
 para que se corrijan sin fusionar empresas.
+Otro parche crea el catálogo de clientes a partir de las cobranzas existentes y
+enlaza las filas que se identifican sin conflicto; las identidades ambiguas
+quedan para revisión. No cambia aplicaciones ni saldos del core.
+Un parche adicional incorpora el enlace del reporte de antigüedad al Workspace
+existente sin borrar los demás accesos que haya configurado el sitio.
 
 La instalación crea los roles `Operador Credinomina` y
 `Supervisor Credinomina`. Asigne el rol correspondiente y, si se desea,
@@ -105,45 +116,62 @@ disponible la página `/app/control-credinomina`.
 
 ## Primer uso
 
-1. Cree las **Empresas Credinómina** y defina frecuencia de cobranza,
-   plazo de remesa y, si procede, tolerancia en US$.
-2. Cree los **Períodos de Conciliación**. Para el histórico, use uno mensual
-   por empresa o varios cortes de aplicación por fecha exacta/rango dentro del
-   mes; para la operación, uno mensual o dos quincenales según el convenio.
-3. En períodos operativos, importe y exporte la cobranza; cuando llegue la
-   respuesta de la empresa, cargue el detalle de deducción en el período de
-   planilla original, aunque llegue al mes siguiente.
-4. Importe los movimientos contables y, si hace falta, las transacciones de
-   respaldo. En el histórico, asigne explícitamente el período a cada
-   aplicación cuando un archivo mezcle empresas, meses o cortes de fecha.
-5. Registre **un documento de Distribución de Remesa por cada depósito**:
-   empresa, referencia, fecha real, moneda, importe y soporte. Adjunte en
-   **Detalle de pago por cliente** el archivo de cobranza devuelto por la
-   empresa con `Deducido C$` y/o `Deducido US$`, y pulse **Importar detalle por
-   cliente**. Puede tener 200 aplicaciones y un solo depósito: las filas se
-   concilian por cliente, crédito, cuota y, cuando exista, referencia o Fila ID.
-   Si Movimientos contables solo trae el crédito, se toma la identidad de
-   Transacciones cuando exista una contraparte exacta; de lo contrario, solo
-   se usa un crédito inequívoco y el resultado advierte que el core no aportó
-   identidad del cliente.
-   En el histórico se buscan las aplicaciones del core; en la operación, las
-   filas de cobranza. La fecha del depósito puede ser posterior a la aplicación.
-   Si está en C$ o alguna fila solo informa C$, documente la tasa C$/US$ y su
-   fuente. Revise las filas ambiguas o sin aplicación y use **Destinos del
-   depósito** para excepciones. Si el detalle suma más que el depósito, no se
-   distribuye automáticamente. Si suma menos, el resto permanece sin distribuir
-   o se documenta como saldo a favor, sin aplicarlo al préstamo.
-6. Revise el **Control de Credinómina**. Documente distribuciones ambiguas,
-   partidas administrativas y excedentes; revise las diferencias cambiarias
-   y los movimientos de tolerancia antes de cerrar.
-7. Consulte **Estado de Cuenta Operativo** y **Resumen de Conciliación** para
-   explicar aplicaciones, depósitos, pendientes y excepciones.
+1. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
+   o quincenal. Adjunte el archivo y pulse **1. Cargar cobranza**. Solo se
+   cargan las cuotas y se crean o enlazan los clientes; todavía no se afirma
+   que la empresa haya deducido ni pagado nada. Cada cliente tiene nombre,
+   número, cédula y una tabla de nombres alternativos.
+2. **Deducción de la empresa.** En ese mismo período, adjunte el archivo
+   devuelto con `Deducido C$` y/o `Deducido US$` y pulse **2. Cargar deducción
+   de empresa**. Se compara con la cobranza. El nombre es obligatorio; si
+   faltan crédito, cédula y número de cliente, se admite un nombre o alias
+   único. Se ignora el orden de nombres y apellidos y las tildes. Una falta
+   de ortografía solo se acepta si se registró como alias; nombres compartidos
+   o no reconocidos quedan pendientes, sin asignación automática.
+3. **Aplicación de pago.** Importe **Movimientos contables** y, cuando haga
+   falta, **Transacciones** como respaldo. En la tabla de aplicaciones se ven
+   nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
+   y recibo cuando la fuente los proporciona. La aplicación puede registrarse
+   antes o después de que llegue la deducción de la empresa.
+4. **Depósito y detalle integrador.** Registre una **Distribución de Remesa**
+   por depósito, con empresa, fecha real, moneda, importe y justificación. El
+   soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la
+   empresa envíe el detalle días después; la app conserva la fecha real del
+   depósito y registra por separado cuándo se importó el detalle.
+   Aunque la referencia identifique una sola aplicación, el depósito no se
+   asigna automáticamente por cliente sin detalle o distribución manual
+   documentada.
+   Adjunte el mismo formato de cobranza con deducidos y pulse **4. Cargar
+   detalle del depósito**. Un depósito puede cubrir 200 aplicaciones; varias
+   remesas pueden cubrir una aplicación. El detalle se compara en US$ y no
+   se inventa un reparto cuando hay nombres ambiguos o el total supera el
+   depósito. Un saldo restante queda sin distribuir o como saldo a favor
+   documentado. Un detalle solo en C$ requiere tasa y fuente documentadas.
+
+Para el **histórico de abril de 2025 a agosto de 2026** se omiten los pasos
+de cobranza y deducción: se asignan las aplicaciones a períodos históricos y
+se concilian contra los depósitos. La fecha del depósito puede estar en el mes
+siguiente a la aplicación. Revise excepciones y saldos antes de cerrar un
+período; el tablero y los reportes muestran lo pendiente.
 
 El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
+El reporte **Antigüedad de Saldos** separa por empresa y cliente las cuotas
+no deducidas, las deducciones sin remesa asignada y las filas sin detalle de
+empresa. Distribuye cada importe en bandas de 1–30, 31–60, 61–90 y más de
+90 días desde su fecha de referencia. Es un control operativo de saldos
+actuales, no un cálculo de provisión ni una reconstrucción histórica; para
+provisionar hay que cotejar el saldo y la mora del crédito en el core y aplicar
+la política vigente de la IMF. Un depósito recibido sin detalle puede estar
+cubriendo deducciones aún no asignadas por cliente: no sume ambos importes ni
+interprete la deducción sin remesa asignada como CxC confirmada.
+
 ## Desarrollo y documentación
+
+La evidencia de la simulación y los comandos de auditoría están en
+[Pruebas en WSL](docs/pruebas_wsl.md).
 
 Las reglas de importación y conciliación tienen pruebas unitarias que pueden
 ejecutarse sin un sitio Frappe:

@@ -6,6 +6,8 @@
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
+    "usd_currency",
+    "nio_currency",
     "employer_name",
     "employer_code",
     "active",
@@ -17,11 +19,13 @@
     "notes"
   ],
   "fields": [
+    {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
+    {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
     {"fieldname": "employer_name", "fieldtype": "Data", "in_list_view": 1, "label": "Empresa", "reqd": 1, "description": "Identifica el documento. Para cambiarlo después de crearlo, use Renombrar."},
     {"fieldname": "employer_code", "fieldtype": "Data", "in_list_view": 1, "label": "Código", "reqd": 1, "unique": 1},
     {"default": "1", "fieldname": "active", "fieldtype": "Check", "in_list_view": 1, "label": "Activa"},
     {"default": "Mensual", "description": "Define si se envía una cobranza al mes o una por cada quincena. Los períodos ya creados conservan su ciclo.", "fieldname": "payroll_frequency", "fieldtype": "Select", "in_list_view": 1, "label": "Frecuencia de cobranza", "options": "Mensual\nQuincenal", "reqd": 1},
-    {"default": "0", "description": "Diferencia máxima absoluta entre una aplicación del core y un depósito único en US$ para generar un movimiento interno de conciliación. Cero desactiva el ajuste automático; máximo US$ 0.10.", "fieldname": "rounding_tolerance_usd", "fieldtype": "Currency", "label": "Tolerancia automática US$", "options": "USD", "precision": "4"},
+    {"default": "0", "description": "Diferencia máxima absoluta entre una aplicación del core y un depósito único en US$ para generar un movimiento interno de conciliación. Cero desactiva el ajuste automático; máximo US$ 0.10.", "fieldname": "rounding_tolerance_usd", "fieldtype": "Currency", "label": "Tolerancia automática US$", "options": "usd_currency", "precision": "4"},
     {"fieldname": "tax_id", "fieldtype": "Data", "label": "RUC / Identificacion fiscal"},
     {"fieldname": "contact_email", "fieldtype": "Data", "label": "Correo de contacto", "options": "Email"},
     {"default": "10", "description": "Dias del mes siguiente para recibir la remesa.", "fieldname": "grace_days", "fieldtype": "Int", "label": "Dias limite de remesa"},

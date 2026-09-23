@@ -6,23 +6,26 @@ frappe.ui.form.on("CN Source Import", {
         frm.set_query("historical_period", "rows", () => ({
             filters: { reconciliation_mode: "Historica" },
         }));
+        const legacyDeposits = frm.doc.source_type === "Detalle de depositos";
+        frm.set_df_property("rows", "label", legacyDeposits ? __("Depósitos importados (legado)") : __("Aplicaciones de pago por cliente"));
         if (frm.is_new()) return;
 
-        frm.add_custom_button(__("Importar y conciliar"), () => {
+        frm.add_custom_button(__(legacyDeposits ? "Importar depósitos antiguos" : "3. Cargar aplicaciones del core"), async () => {
+            if (frm.is_dirty()) await frm.save();
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.import_source_file",
                 args: { import_name: frm.doc.name },
                 freeze: true,
-                freeze_message: __("Importando y conciliando..."),
+                freeze_message: __("Cargando aplicaciones y actualizando conciliaciones..."),
             }).then(() => frm.reload_doc());
         });
 
-        frm.add_custom_button(__("Reconciliar todas las fuentes"), () => {
+        frm.add_custom_button(__("Actualizar conciliaciones"), () => {
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.reconcile_all_sources",
                 freeze: true,
                 freeze_message: __("Recalculando conciliaciones..."),
             }).then(() => frm.reload_doc());
-        });
+        }, __("Más opciones"));
     },
 });

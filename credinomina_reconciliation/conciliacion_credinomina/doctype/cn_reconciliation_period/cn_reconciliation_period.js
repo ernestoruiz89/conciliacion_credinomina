@@ -16,14 +16,15 @@ frappe.ui.form.on("CN Reconciliation Period", {
             return;
         }
 
-        frm.add_custom_button(__("Importar cobranza"), () => {
+        frm.add_custom_button(__("1. Cargar cobranza"), async () => {
+            if (frm.is_dirty()) await frm.save();
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_collection",
                 args: { period_name: frm.doc.name },
                 freeze: true,
-                freeze_message: __("Importando cobranza..."),
+                freeze_message: __("Cargando cobranza y clientes..."),
             }).then(() => frm.reload_doc());
-        }, __("Conciliacion 1"));
+        });
 
         frm.add_custom_button(__("Exportar archivo empresa"), () => {
             frappe.call({
@@ -32,16 +33,17 @@ frappe.ui.form.on("CN Reconciliation Period", {
             }).then((response) => {
                 if (response.message?.file_url) window.open(response.message.file_url);
             });
-        }, __("Conciliacion 1"));
+        }, __("Más opciones"));
 
-        frm.add_custom_button(__("Importar detalle empresa"), () => {
+        if ((frm.doc.collection_rows || []).length) frm.add_custom_button(__("2. Cargar deducción de empresa"), async () => {
+            if (frm.is_dirty()) await frm.save();
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_employer_response",
                 args: { period_name: frm.doc.name },
                 freeze: true,
-                freeze_message: __("Conciliando deducciones..."),
+                freeze_message: __("Cargando y comparando deducciones..."),
             }).then(() => frm.reload_doc());
-        }, __("Conciliacion 1"));
+        });
 
         if (frm.doc.deduction_basis === "Depósito coincidente" && frm.doc.status !== "Cerrado") {
             frm.add_custom_button(__("Revertir reconocimiento por depósito"), () => {
@@ -53,14 +55,14 @@ frappe.ui.form.on("CN Reconciliation Period", {
                         freeze: true,
                     }).then(() => frm.reload_doc())
                 );
-            }, __("Conciliacion 1"));
+            }, __("Más opciones"));
         } else if (
             frm.doc.status !== "Cerrado" && !frm.doc.deduction_basis &&
             !frm.doc.employer_response_file && (frm.doc.collection_rows || []).length
         ) {
             frm.add_custom_button(__("Reconocer cobranza por depósito"), () => {
                 showDepositRecognition(frm);
-            }, __("Conciliacion 1"));
+            }, __("Más opciones"));
         }
 
         if (frm.doc.status !== "Cerrado") {

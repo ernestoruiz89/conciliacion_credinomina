@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from credinomina_reconciliation.client_identity import matching_name
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
     SOURCE_DEPOSITS,
@@ -13,6 +14,28 @@ from credinomina_reconciliation.parsers import (
 
 
 AMOUNT_TOLERANCE = 0.01
+
+
+def application_matches_collection(
+    application: Mapping[str, Any], collection: Mapping[str, Any],
+    client_aliases: Iterable[str] = (),
+) -> bool:
+    """Match core applications by available identifiers, name only as a last resort."""
+    loan = canonical_identifier(application.get("loan_number"))
+    client = canonical_identifier(application.get("client_number"))
+    national_id = canonical_identifier(application.get("national_id"))
+    if loan and loan != canonical_identifier(collection.get("loan_number")):
+        return False
+    if client and client != canonical_identifier(collection.get("client_number")):
+        return False
+    if national_id and national_id != canonical_identifier(collection.get("national_id")):
+        return False
+    if not (loan or client or national_id):
+        return matching_name(application.get("client_name"), {
+            "client_name": collection.get("client_name"),
+            "client_aliases": tuple(client_aliases),
+        })
+    return True
 
 
 def same_amount(left: Any, right: Any, tolerance: float = AMOUNT_TOLERANCE) -> bool:
@@ -273,14 +296,29 @@ def match_collection_record(
     if row_key:
         exact = [row for row in candidates if clean_text(row.get("row_key")) == row_key]
         if len(exact) == 1:
+            row = exact[0]
+            for field in ("loan_number", "client_number", "national_id"):
+                incoming = canonical_identifier(response.get(field))
+                stored = canonical_identifier(row.get(field))
+                if incoming and stored and incoming != stored:
+                    return None, "La Fila ID contradice los identificadores del cliente o crédito"
             return exact[0], "Fila ID"
         if len(exact) > 1:
             return None, "Fila ID duplicada"
+        return None, "Fila ID no encontrada en la cobranza del período"
 
     loan = clean_text(response.get("loan_number"))
     installment = clean_text(response.get("installment_number"))
     client = clean_text(response.get("client_number"))
     national_id = clean_text(response.get("national_id"))
+    def identifiers_compatible(row):
+        return not (
+            client and row.get("client_number")
+            and canonical_identifier(row.get("client_number")) != canonical_identifier(client)
+        ) and not (
+            national_id and row.get("national_id")
+            and canonical_identifier(row.get("national_id")) != canonical_identifier(national_id)
+        )
 
     strategies = []
     if client and loan:
@@ -289,6 +327,7 @@ def match_collection_record(
                 "cliente, credito y cuota",
                 lambda row: canonical_identifier(row.get("client_number"))
                 == canonical_identifier(client)
+                and identifiers_compatible(row)
                 and canonical_identifier(row.get("loan_number"))
                 == canonical_identifier(loan)
                 and (
@@ -304,6 +343,7 @@ def match_collection_record(
                 "cedula, credito y cuota",
                 lambda row: clean_text(row.get("national_id")).casefold()
                 == national_id.casefold()
+                and identifiers_compatible(row)
                 and canonical_identifier(row.get("loan_number"))
                 == canonical_identifier(loan)
                 and (
@@ -313,7 +353,7 @@ def match_collection_record(
                 ),
             )
         )
-    if loan:
+    if loan and not (client or national_id):
         strategies.append(
             (
                 "credito y cuota",
@@ -326,6 +366,31 @@ def match_collection_record(
                 ),
             )
         )
+    if client and not loan:
+        strategies.append((
+            "número de cliente",
+            lambda row: canonical_identifier(row.get("client_number"))
+            == canonical_identifier(client)
+            and identifiers_compatible(row)
+            and (not installment or canonical_identifier(row.get("installment_number"))
+                 == canonical_identifier(installment)),
+        ))
+    if national_id and not loan:
+        strategies.append((
+            "cédula",
+            lambda row: canonical_identifier(row.get("national_id"))
+            == canonical_identifier(national_id)
+            and identifiers_compatible(row)
+            and (not installment or canonical_identifier(row.get("installment_number"))
+                 == canonical_identifier(installment)),
+        ))
+    if not any((loan, client, national_id)) and response.get("client_name"):
+        strategies.append((
+            "nombre o alias único",
+            lambda row: matching_name(response["client_name"], row)
+            and (not installment or canonical_identifier(row.get("installment_number"))
+                 == canonical_identifier(installment)),
+        ))
 
     for label, predicate in strategies:
         exact = [row for row in candidates if predicate(row)]

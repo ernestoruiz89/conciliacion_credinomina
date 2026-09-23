@@ -4,8 +4,10 @@
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["status", "exception_type", "period", "employer", "source_import", "source_row", "client_number", "loan_number", "amount_usd", "amount_nio", "collection_row_id", "description", "resolution"],
+  "field_order": ["usd_currency", "nio_currency", "status", "exception_type", "period", "employer", "source_import", "source_row", "client_number", "loan_number", "amount_usd", "amount_nio", "collection_row_id", "description", "resolution"],
   "fields": [
+    {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
+    {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
     {"default": "Abierta", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "label": "Estado", "options": "Abierta\nEn revision\nResuelta\nDescartada", "reqd": 1},
     {"fieldname": "exception_type", "fieldtype": "Data", "in_list_view": 1, "label": "Tipo", "reqd": 1},
     {"fieldname": "period", "fieldtype": "Link", "in_list_view": 1, "label": "Periodo", "options": "CN Reconciliation Period"},
@@ -14,8 +16,8 @@
     {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila de origen"},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente"},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito"},
-    {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Monto US$", "options": "USD", "precision": "4"},
-    {"fieldname": "amount_nio", "fieldtype": "Currency", "label": "Monto C$", "options": "NIO", "precision": "4"},
+    {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Monto US$", "options": "usd_currency", "precision": "4"},
+    {"fieldname": "amount_nio", "fieldtype": "Currency", "label": "Monto C$", "options": "nio_currency", "precision": "4"},
     {"fieldname": "collection_row_id", "fieldtype": "Data", "hidden": 1, "label": "Fila de cobranza"},
     {"fieldname": "description", "fieldtype": "Small Text", "label": "Descripcion"},
     {"fieldname": "resolution", "fieldtype": "Small Text", "label": "Resolucion"}

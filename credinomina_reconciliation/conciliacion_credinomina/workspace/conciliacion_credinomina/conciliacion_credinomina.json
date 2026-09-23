@@ -13,11 +13,11 @@
   "label": "Conciliacion Credinomina",
   "links": [
     {
-      "description": "Configure empresas y períodos de cobranza mensual o quincenal.",
+      "description": "1. Cree el período y cargue la cobranza; aquí se registran los clientes y sus alias.",
       "hidden": 0,
       "is_query_report": 0,
       "label": "Preparación y cobranza",
-      "link_count": 2,
+      "link_count": 3,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -35,6 +35,16 @@
     {
       "hidden": 0,
       "is_query_report": 0,
+      "label": "Clientes y alias",
+      "link_count": 0,
+      "link_to": "CN Client",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
       "label": "Períodos de conciliación",
       "link_count": 0,
       "link_to": "CN Reconciliation Period",
@@ -43,7 +53,7 @@
       "type": "Link"
     },
     {
-      "description": "Importe aplicaciones y depósitos; documente repartos, partidas y excedentes.",
+      "description": "3. Importe aplicaciones del core; 4. registre cada depósito y cargue su detalle cuando llegue. Revise repartos, partidas y excedentes.",
       "hidden": 0,
       "is_query_report": 0,
       "label": "Conciliación de remesas",
@@ -97,7 +107,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "Control y consultas",
-      "link_count": 5,
+      "link_count": 6,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -129,6 +139,17 @@
       "label": "Resumen de conciliación",
       "link_count": 0,
       "link_to": "Resumen de Conciliacion",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Antigüedad de saldos",
+      "link_count": 0,
+      "link_to": "Antiguedad de Saldos",
       "link_type": "Report",
       "onboard": 0,
       "type": "Link",

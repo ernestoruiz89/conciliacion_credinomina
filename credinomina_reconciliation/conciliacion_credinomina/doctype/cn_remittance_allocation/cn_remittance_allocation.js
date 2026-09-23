@@ -2,7 +2,8 @@ frappe.ui.form.on("CN Remittance Allocation", {
     refresh(frm) {
         const file = frm.doc.detail_file || frm.doc.support_file || "";
         if (frm.is_new() || frm.doc.docstatus === 2 || !/\.(xlsx|xls|csv)(\?|$)/i.test(file)) return;
-        frm.add_custom_button(__("Importar detalle por cliente"), () => {
+        frm.add_custom_button(__("4. Cargar detalle del depósito"), async () => {
+            if (frm.is_dirty()) await frm.save();
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.import_remittance_detail",
                 args: { remittance_name: frm.doc.name },

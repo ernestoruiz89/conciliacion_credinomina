@@ -68,11 +68,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             [__("Aplicado al crédito"), totals.applied_usd, "applied"],
             [__("Remitido"), totals.remitted_usd, "remitted"],
             [__("Movimientos de conciliación"), totals.rounding_movement_abs_usd, "pending"],
-            [__("CxC de empresas"), totals.employer_gap_usd, "gap"],
+            [__("Deducido sin remesa asignada"), totals.employer_gap_usd, "gap"],
             [__("Detalle pendiente"), totals.pending_detail_usd, "pending"],
             [__("Histórico sin depósito"), totals.historical_pending_usd, "pending"],
             [__("Saldo a favor documentado"), totals.documented_credit_usd, "surplus"],
-            [__("Sin clasificar"), totals.unclassified_deposit_usd, "unclassified"],
+            [__("Depósitos sin asignar"), totals.unclassified_deposit_usd, "unclassified"],
         ].map(([label, value, kind]) => `
             <div class="cn-kpi cn-kpi-${kind}">
                 <div class="cn-kpi-label">${esc(label)}</div>
@@ -106,9 +106,9 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
                             ${(period.rounding_movements || []).length ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
-                            ${Number(period.employer_gap_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("CxC"))}: ${money(period.employer_gap_usd)}</span>` : ""}
+                            ${Number(period.employer_gap_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Sin remesa asignada"))}: ${money(period.employer_gap_usd)}</span>` : ""}
                             ${Number(period.documented_credit_usd) > 0.00005 ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(period.documented_credit_usd)}</span>` : ""}
-                            ${Number(period.unclassified_deposit_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Sin clasificar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
+                            ${Number(period.unclassified_deposit_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Depósito sin asignar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
                         </button>`).join("")}
                     </td>`;
                 }).join("")}
@@ -136,7 +136,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </tr>`).join("")}</tbody></table></div>` : "";
         const depositTable = deposits.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table">
-                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin clasificar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
+                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin asignar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
                 <tbody>${deposits.map((deposit) => `<tr>
                     <td>${esc(deposit.event_date)}</td>
                     <td>${esc(deposit.employer_text)}</td>
@@ -160,7 +160,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
             ${unassigned.length ? `<section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Aplicaciones históricas sin período"))}</h3><span>${unassigned.length} ${esc(__("filas"))}</span></div>${unassignedTable}</section>` : ""}
             ${employerField.get_value() ? "" : `<section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Depósitos pendientes de distribuir"))}</h3><span>${deposits.length} ${esc(__("depósitos"))}</span></div>${depositTable}</section>`}
-            <p class="cn-footnote">${esc(__("Los saldos a favor y los depósitos sin clasificar no se aplican automáticamente a créditos. Las cifras están expresadas en US$."))}</p>
+            <p class="cn-footnote">${esc(__("El deducido sin remesa asignada y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
         `);
     }
 
@@ -240,9 +240,9 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Deducido"))}</div><div class="cn-kpi-value">${money(period.deducted_usd)}</div></div>
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Remitido"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("CxC empresa"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
+                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Deducido sin remesa asignada"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-surplus"><div class="cn-kpi-label">${esc(__("Saldo a favor"))}</div><div class="cn-kpi-value">${money(period.documented_credit_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Sin clasificar"))}</div><div class="cn-kpi-value">${money(period.unclassified_deposit_usd)}</div></div>
+                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Depósito sin asignar"))}</div><div class="cn-kpi-value">${money(period.unclassified_deposit_usd)}</div></div>
                     `}
                 </div>
                 ${historical ? `<p>${esc(__("Histórico: no se infieren deducciones de planilla ni cuentas por cobrar a la empresa."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Detalle de cobranza"))}</h4>${rowTable}<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}`}
@@ -360,11 +360,11 @@ function styles() {
         .cn-matrix th.cn-company { width: 200px; text-align: left; position: sticky; left: 0; z-index: 2; }
         .cn-matrix tbody th.cn-company { background: white; color: #334155; border-right: 2px solid #cbd5e1; border-bottom: 1px solid #e2e8f0; text-transform: none; font-size: 12px; }
         .cn-matrix td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #f1f5f9; vertical-align: top; padding: 0; }
-        .cn-cell-button { width: 100%; border: 0; background: transparent; text-align: left; padding: 9px 7px; min-height: 88px; }
+        .cn-cell-button { width: 100%; border: 0; background: transparent; text-align: left; padding: 9px 7px; min-height: 88px; overflow-wrap: anywhere; }
         .cn-cell-button + .cn-cell-button { border-top: 1px dashed #cbd5e1; }
         .cn-cell-cycle { display: block; font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 3px; }
         .cn-cell-summary { padding: 6px 7px; font-size: 10px; font-weight: 700; color: #1e293b; border-bottom: 1px solid #cbd5e1; }
-        .cn-cell-button:hover { filter: brightness(.97); } .cn-cell-amount { display: block; font-weight: 700; font-size: 11px; white-space: nowrap; }
+        .cn-cell-button:hover { filter: brightness(.97); } .cn-cell-amount { display: block; font-weight: 700; font-size: 11px; line-height: 1.25; }
         .cn-cell-sub, .cn-cell-gap, .cn-cell-credit { display: block; font-size: 9px; margin-top: 3px; }
         .cn-cell-gap { color: #b45309; font-weight: 700; } .cn-cell-credit { color: #7c3aed; font-weight: 700; }
         .cn-badge { display: inline-block; margin-top: 5px; border-radius: 10px; padding: 2px 5px; background: #ffffffaa; font-size: 9px; font-weight: 700; }

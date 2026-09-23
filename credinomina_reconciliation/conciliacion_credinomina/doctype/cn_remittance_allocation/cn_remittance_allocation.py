@@ -3,11 +3,13 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import flt, now_datetime
 
 from credinomina_reconciliation.parsers import (
     SourceFileError, clean_text, file_sha256, parse_collection_file,
 )
+from credinomina_reconciliation.client_registry import load_client_index
+from credinomina_reconciliation.client_identity import choose_client
 
 
 class CNRemittanceAllocation(Document):
@@ -22,8 +24,8 @@ class CNRemittanceAllocation(Document):
     def _validate_deposit(self):
         if self.docstatus == 1:
             self._assert_open_related_periods()
-        if not self.employer or not (self.support_file or self.detail_file):
-            frappe.throw(_("Indique la empresa y adjunte el detalle o soporte del depósito."))
+        if not self.employer:
+            frappe.throw(_("Indique la empresa del depósito."))
         if self.detail_period:
             period = frappe.db.get_value(
                 "CN Reconciliation Period", self.detail_period,
@@ -229,12 +231,14 @@ def import_remittance_detail(remittance_name: str):
     try:
         records = parse_collection_file(
             file_doc.file_name, content,
-            require_deduction=True, keep_zero_rows=True,
+            require_deduction=True, keep_zero_rows=True, require_name=True,
         )
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
     document.set("detail_rows", [])
+    clients = load_client_index()
     for record in records:
+        client, identity_reason = choose_client(record, clients)
         document.append("detail_rows", {
             key: record.get(key) for key in (
                 "source_row", "row_key", "client_number", "client_name",
@@ -243,9 +247,13 @@ def import_remittance_detail(remittance_name: str):
                 "expected_usd", "expected_nio",
                 "deducted_usd", "deducted_nio",
             )
+        } | {
+            "client": client["name"] if client else "",
+            "identity_reason": identity_reason,
         })
     document.detail_hash = file_sha256(content)
     document.detail_source_file = source_url
+    document.detail_imported_on = now_datetime()
     document.detail_count = len(records)
     document.detail_status = "Cargado; pendiente de conciliación"
     document.save()

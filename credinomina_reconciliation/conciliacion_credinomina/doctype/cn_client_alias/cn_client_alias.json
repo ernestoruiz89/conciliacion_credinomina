@@ -1,0 +1,13 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["alias_name"],
+  "fields": [
+    {"fieldname": "alias_name", "fieldtype": "Data", "label": "Nombre alternativo", "reqd": 1, "in_list_view": 1}
+  ],
+  "istable": 1,
+  "module": "Conciliacion Credinomina",
+  "name": "CN Client Alias",
+  "permissions": []
+}

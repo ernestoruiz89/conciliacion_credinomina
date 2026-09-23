@@ -233,15 +233,18 @@ def _value(row: list[Any], mapping: dict[str, int], fieldname: str) -> Any:
 
 def parse_collection_file(
     file_name: str, content: bytes, *, require_deduction: bool = False,
-    keep_zero_rows: bool = False,
+    keep_zero_rows: bool = False, require_name: bool = False,
 ) -> list[dict[str, Any]]:
     rows = read_table(file_name, content)
     mapping: dict[str, int] | None = None
     parsed: list[dict[str, Any]] = []
     for row_number, row in enumerate(rows, start=1):
         candidate = header_mapping(row, COLLECTION_ALIASES)
-        if "loan_number" in candidate and (
-            "client_number" in candidate or "national_id" in candidate
+        if (
+            "client_name" in candidate
+            or "loan_number" in candidate and (
+                "client_number" in candidate or "national_id" in candidate
+            )
         ):
             mapping = candidate
             continue
@@ -250,12 +253,21 @@ def parse_collection_file(
         loan_number = clean_text(_value(row, mapping, "loan_number"))
         client_number = clean_text(_value(row, mapping, "client_number"))
         national_id = clean_text(_value(row, mapping, "national_id"))
-        if not any((loan_number, client_number, national_id)):
-            continue
+        client_name = clean_text(_value(row, mapping, "client_name"))
         expected_usd = parse_amount(_value(row, mapping, "expected_usd"))
         expected_nio = parse_amount(_value(row, mapping, "expected_nio"))
         deducted_usd = parse_amount(_value(row, mapping, "deducted_usd"))
         deducted_nio = parse_amount(_value(row, mapping, "deducted_nio"))
+        if not any((loan_number, client_number, national_id, client_name)):
+            if require_name and any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
+                raise SourceFileError(
+                    f"La fila {row_number} tiene importe pero no tiene Nombre y Apellidos del Cliente."
+                )
+            continue
+        if require_name and not client_name:
+            raise SourceFileError(
+                f"La fila {row_number} no tiene Nombre y Apellidos del Cliente."
+            )
         if not keep_zero_rows and not any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
             continue
         if require_deduction and not (
@@ -269,7 +281,7 @@ def parse_collection_file(
                 "source_row": row_number,
                 "row_key": clean_text(_value(row, mapping, "row_key")),
                 "client_number": client_number,
-                "client_name": clean_text(_value(row, mapping, "client_name")),
+                "client_name": client_name,
                 "national_id": national_id,
                 "loan_number": loan_number,
                 "installment_number": clean_text(_value(row, mapping, "installment_number")),
@@ -329,6 +341,19 @@ def _extract_employer(description: str, fallback: Any = None) -> str:
         re.IGNORECASE,
     )
     return clean_text(match.group(1) if match else fallback)
+
+
+def _extract_application_client_name(description: str) -> str:
+    match = re.search(
+        r"\bCLIENTE\s*[:=]?\s*(.+?)(?:\s+N\.?\s*C\.?(?:\s|$)|\s+CONVENIO\b|\s+-)",
+        description, re.IGNORECASE,
+    )
+    return clean_text(match.group(1)) if match else ""
+
+
+def _extract_receipt(description: str) -> str:
+    match = re.search(r"\bNO\.?\s*DOCUM(?:ENTO)?\.?\s*[:#]?\s*([A-Z0-9-]+)", description, re.IGNORECASE)
+    return clean_text(match.group(1)) if match else ""
 
 
 def _native_deposit_amount(description: str, fallback: Any) -> tuple[str, float]:
@@ -392,7 +417,10 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 event_date=event_date,
                 reference=reference,
                 voucher=record.get("no_cmpte"),
+                accounting_entry=record.get("no_cmpte") if event_type == "Aplicacion" else "",
+                receipt=_extract_receipt(description) if event_type == "Aplicacion" else "",
                 employer=employer,
+                client_name=_extract_application_client_name(description) if event_type == "Aplicacion" else "",
                 loan_number=loan_number,
                 currency=currency,
                 amount=amount,
@@ -439,6 +467,7 @@ def parse_transactions(file_name: str, content: bytes) -> list[dict[str, Any]]:
                 event_date=parse_date(record.get("fecha")),
                 reference=reference,
                 voucher=record.get("nro_comprobante"),
+                receipt=record.get("nro_comprobante"),
                 employer=record.get("convenio"),
                 client_number=record.get("nrocliente"),
                 client_name=record.get("cliente"),
@@ -507,6 +536,8 @@ def _source_record(
     event_date: date | None,
     reference: Any,
     voucher: Any = None,
+    accounting_entry: Any = None,
+    receipt: Any = None,
     employer: Any = None,
     client_number: Any = None,
     client_name: Any = None,
@@ -526,6 +557,8 @@ def _source_record(
         "event_date": event_date,
         "reference": clean_text(reference),
         "voucher": clean_text(voucher),
+        "accounting_entry": clean_text(accounting_entry),
+        "receipt": clean_text(receipt),
         "employer_text": clean_text(employer),
         "client_number": clean_text(client_number),
         "client_name": clean_text(client_name),

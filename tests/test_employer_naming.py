@@ -30,7 +30,11 @@ class EmployerNamingTest(unittest.TestCase):
         patches.read(root / "credinomina_reconciliation" / "patches.txt")
         self.assertEqual([], list(patches["pre_model_sync"]))
         self.assertEqual(
-            ["credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name"],
+            [
+                "credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name",
+                "credinomina_reconciliation.patches.v1_0.backfill_clients",
+                "credinomina_reconciliation.patches.v1_0.add_aging_workspace_link",
+            ],
             list(patches["post_model_sync"]),
         )
 

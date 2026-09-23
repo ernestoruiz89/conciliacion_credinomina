@@ -4,8 +4,10 @@
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["naming_series", "source_type", "source_file", "historical_backfill", "historical_period", "status", "file_hash", "imported_on", "imported_by", "summary_section", "row_count", "matched_count", "exception_count", "ignored_count", "total_usd", "total_nio", "rows", "notes"],
+  "field_order": ["usd_currency", "nio_currency", "naming_series", "source_type", "source_file", "historical_backfill", "historical_period", "status", "file_hash", "imported_on", "imported_by", "summary_section", "row_count", "matched_count", "exception_count", "ignored_count", "total_usd", "total_nio", "rows", "notes"],
   "fields": [
+    {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
+    {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
     {"default": "CN-IMP-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-IMP-.YYYY.-.#####", "reqd": 1},
     {"fieldname": "source_type", "fieldtype": "Select", "in_list_view": 1, "label": "Tipo de fuente", "options": "Movimientos contables (principal)\nTransacciones del core (fallback)\nDetalle de depositos", "reqd": 1, "description": "Detalle de depósitos se conserva solo por compatibilidad con importaciones anteriores. Registre depósitos nuevos en Distribución de Remesa."},
     {"description": "Archivo de aplicaciones del core. El detalle bancario mensual no se importa en el flujo nuevo; adjunte el soporte a cada depósito registrado.", "fieldname": "source_file", "fieldtype": "Attach", "label": "Archivo", "reqd": 1},
@@ -20,8 +22,8 @@
     {"fieldname": "matched_count", "fieldtype": "Int", "label": "Conciliadas", "read_only": 1},
     {"fieldname": "exception_count", "fieldtype": "Int", "label": "Excepciones", "read_only": 1},
     {"fieldname": "ignored_count", "fieldtype": "Int", "label": "Ignoradas", "read_only": 1},
-    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "USD", "precision": "4", "read_only": 1},
-    {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "NIO", "precision": "4", "read_only": 1},
+    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "usd_currency", "precision": "4", "read_only": 1},
+    {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "4", "read_only": 1},
     {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row"},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
   ],

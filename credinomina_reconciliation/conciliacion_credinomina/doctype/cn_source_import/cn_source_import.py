@@ -11,6 +11,8 @@ from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
+from credinomina_reconciliation.client_registry import load_client_index, names_for_claim
+from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
     deposit_scope,
@@ -37,6 +39,7 @@ from credinomina_reconciliation.parsers import (
 )
 from credinomina_reconciliation.reconciliation import (
     AMOUNT_TOLERANCE,
+    application_matches_collection,
     complementary_matches_collection,
     converted_amount,
     deposit_pair_result,
@@ -634,6 +637,13 @@ def _application_allocations(source):
 def _match_applications(
     source_rows, collection_rows, deposit_pairs, complementary_by_target, periods
 ):
+    clients = load_client_index()
+    clients_by_name = {client["name"]: client for client in clients}
+    aliases_by_target = {
+        row.name: (clients_by_name.get(row.get("client")) or {}).get("client_aliases", ())
+        for row in collection_rows
+    }
+    collection_values = {row.name: row.as_dict() for row in collection_rows}
     historical_periods = {
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
@@ -678,6 +688,14 @@ def _match_applications(
                 "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
             )
             continue
+        if not any((source.loan_number, source.client_number, source.national_id)):
+            _client, identity_reason = choose_client(source.as_dict(), clients)
+            if identity_reason.startswith("Nombre ambiguo"):
+                source.match_status = "Ambiguo"
+                source.match_reason = _(
+                    "El nombre corresponde a varios clientes; indique un identificador o corrija sus alias."
+                )
+                continue
         reference_pairs = pairs_by_reference.get(clean_text(source.reference)) or []
         payment_rate = None
         if len(reference_pairs) == 1:
@@ -687,9 +705,11 @@ def _match_applications(
             )
         candidates = []
         pair_candidates = []
+        application_values = source.as_dict()
         for target in collection_rows:
-            if canonical_identifier(target.loan_number) != canonical_identifier(
-                source.loan_number
+            if not application_matches_collection(
+                application_values, collection_values[target.name],
+                aliases_by_target[target.name],
             ):
                 continue
             if source.installment_number and canonical_identifier(
@@ -697,14 +717,6 @@ def _match_applications(
             ) != canonical_identifier(source.installment_number):
                 continue
             if target.deduction_status == "No deducido":
-                continue
-            if source.client_number and canonical_identifier(
-                target.client_number
-            ) != canonical_identifier(source.client_number):
-                continue
-            if source.national_id and clean_text(
-                target.national_id
-            ).casefold() != clean_text(source.national_id).casefold():
                 continue
             if target.application_reference and clean_text(
                 target.application_reference
@@ -1003,7 +1015,7 @@ def _prepare_remittance_details(
         "CN Remittance Detail",
         filters={"parent": ["in", names]},
         fields=[
-            "name", "parent", "source_row", "row_key", "client_number",
+            "name", "parent", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number",
             "national_id", "loan_number", "installment_number",
             "application_reference", "deducted_usd", "deducted_nio",
             "amount_usd", "match_status", "match_reason", "matched_targets",
@@ -1030,18 +1042,23 @@ def _prepare_remittance_details(
         deposit = by_deposit[deposit_id]
         rows = rows_by_parent[item.name]
         attached_detail = bool(item.detail_file or item.detail_hash)
-        # An unimported deposit with several possible destinations is not
-        # evidence that all of them were deducted by the company.
+        # A registered deposit is evidence of cash received, not of its
+        # per-client split. Explicit targets (including a documented
+        # collection-as-detail recognition) remain valid without a file.
         if not attached_detail:
-            reference = clean_text(deposit["reference"])
-            potential = [
-                claim for claim in claims
-                if clean_text(claim.get("group")) == clean_text(item.employer)
-                and reference in {clean_text(value) for value in claim.get("references", ())}
-            ] if reference else []
-            if len(potential) > 1:
-                blocked.add(deposit_id)
-                contexts[item.name] = {"status": "Detalle pendiente", "rows": []}
+            blocked.add(deposit_id)
+            explicit_amount = sum(
+                flt(entry["amount_usd"]) for entry in prior_instructions
+                if entry["deposit_id"] == deposit_id
+            )
+            contexts[item.name] = {
+                "status": (
+                    "Distribución manual"
+                    if explicit_amount >= flt(deposit["amount_usd"]) - CASH_EPSILON
+                    else "Detalle pendiente"
+                ),
+                "rows": [],
+            }
             continue
         blocked.add(deposit_id)
         if not item.detail_hash or not rows:
@@ -1070,6 +1087,10 @@ def _prepare_remittance_details(
         )
         for plan in plans:
             amount = plan["amount_usd"]
+            if clean_text(plan["row"].identity_reason).startswith(("Conflicto", "Nombre ambiguo")):
+                plan["status"] = "Revisar"
+                plan["reason"] = plan["row"].identity_reason
+                continue
             if not amount:
                 plan["status"] = (
                     "No deducido" if plan["explanation"] == "No deducido"
@@ -1150,7 +1171,10 @@ def _sync_remittance_details(context, allocation):
                     update_modified=False,
                 )
             if not state["status"]:
-                if any(plan["status"] != "Conciliada" for plan in state["rows"]):
+                if any(
+                    plan["status"] not in {"Conciliada", "No deducido"}
+                    for plan in state["rows"]
+                ):
                     state["status"] = "Revisar filas"
                 elif state["total_usd"] < state["deposit_usd"] - CASH_EPSILON:
                     state["status"] = "Parcial; saldo sin detalle"
@@ -1287,6 +1311,7 @@ def _distribute_deposits(
         fallback_identities[key].add((
             clean_text(source.client_number), clean_text(source.national_id),
             clean_text(source.installment_number),
+            clean_text(source.client_name),
         ))
 
     claims = []
@@ -1301,6 +1326,7 @@ def _distribute_deposits(
         claims.append(
             {"id": "C:" + row.name, "amount_usd": loan_amount,
              "kind": "C", "row_key": row.row_key,
+             "client": row.get("client"), "client_name": row.client_name,
              "client_number": row.client_number, "national_id": row.national_id,
              "loan_number": row.loan_number,
              "installment_number": row.installment_number,
@@ -1327,13 +1353,14 @@ def _distribute_deposits(
             application.currency, str(application.event_date or "")[:10],
         )
         identity_options = fallback_identities.get(identity_key, set())
-        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "")
+        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "", "")
         claims.append(
             {
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
                 "kind": "H", "client_number": application.client_number or fallback_identity[0],
                 "national_id": application.national_id or fallback_identity[1],
+                "client_name": application.client_name or fallback_identity[3],
                 "loan_number": application.loan_number,
                 "installment_number": application.installment_number or fallback_identity[2],
                 "references": [clean_text(application.reference)],
@@ -1344,6 +1371,14 @@ def _distribute_deposits(
                 "application_ids": [application.name],
             }
         )
+    client_catalog = load_client_index()
+    for claim in claims:
+        claim["client_names"] = names_for_claim(claim, client_catalog)
+        client, reason = choose_client(claim, client_catalog)
+        if client and reason in {"Identificador exacto", "Nombre o alias único"}:
+            claim["client"] = client["name"]
+            claim["client_number"] = claim.get("client_number") or client["client_number"]
+            claim["national_id"] = claim.get("national_id") or client["national_id"]
 
     deposits_by_reference = defaultdict(list)
     for deposit in deposits:

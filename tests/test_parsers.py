@@ -156,7 +156,7 @@ class SourceParserTest(unittest.TestCase):
                     "02/01/2026",
                     "002",
                     "002",
-                    "NOTA AL PRESTAMO 109367-1 CLIENTE ANA |REF:321001591|",
+                    "NOTA AL PRESTAMO 109367-1 NO. DOCUM 7541 CLIENTE ANA PEREZ N.C. CONVENIO ACME |REF:321001591|",
                     46.72,
                     0,
                 ],
@@ -172,6 +172,9 @@ class SourceParserTest(unittest.TestCase):
         self.assertEqual("USD", rows[1]["currency"])
         self.assertEqual("109367", rows[1]["loan_number"])
         self.assertEqual("321001591", rows[1]["reference"])
+        self.assertEqual("ANA PEREZ", rows[1]["client_name"])
+        self.assertEqual("002", rows[1]["accounting_entry"])
+        self.assertEqual("7541", rows[1]["receipt"])
 
     def test_bank_detail_preserves_nio_payment_and_usd_equivalent(self):
         content = workbook_bytes(
