@@ -16,8 +16,12 @@ from credinomina_reconciliation.cadence import (
     cycles_conflict,
 )
 from credinomina_reconciliation.deduction_recognition import recognition_reason
+from credinomina_reconciliation.employer_naming import employer_alias_index
 from credinomina_reconciliation.historical import (
+    HISTORICAL_MONTHLY,
     OPERATIVE_START,
+    historical_scope_interval,
+    historical_scopes_conflict,
     is_historical_date,
 )
 from credinomina_reconciliation.parsers import (
@@ -61,13 +65,52 @@ class CNReconciliationPeriod(Document):
     def _validate_mode(self):
         if not self.payroll_month:
             return
+        previous = self.get_doc_before_save()
+        linked_applications = bool(
+            previous and previous.reconciliation_mode == "Historica"
+            and frappe.db.exists(
+                "CN Source Row", {"historical_period": self.name, "event_type": "Aplicacion"}
+            )
+        )
+        if linked_applications and self.reconciliation_mode != "Historica":
+            frappe.throw(_("Reasigne primero las aplicaciones antes de cambiar la modalidad histórica."))
         if self.reconciliation_mode == "Historica":
             self.collection_cycle = ""
             if not is_historical_date(self.payroll_month):
                 frappe.throw(_("El período histórico debe estar entre abril de 2025 y agosto de 2026."))
+            self.historical_scope = self.historical_scope or HISTORICAL_MONTHLY
+            try:
+                historical_scope_interval(
+                    self.historical_scope, self.historical_application_date,
+                    self.historical_start_date, self.historical_end_date,
+                )
+            except ValueError as exc:
+                frappe.throw(_(str(exc)))
             if self.collection_rows or self.collection_file or self.employer_response_file:
                 frappe.throw(_("Un período histórico no admite cobranza ni detalle de deducción."))
+            if previous and previous.reconciliation_mode == "Historica":
+                before = (
+                    previous.employer, str(previous.payroll_month or "")[:10],
+                    previous.historical_scope or HISTORICAL_MONTHLY,
+                    str(previous.historical_application_date or "")[:10],
+                    str(previous.historical_start_date or "")[:10],
+                    str(previous.historical_end_date or "")[:10],
+                )
+                after = (
+                    self.employer, str(self.payroll_month or "")[:10], self.historical_scope,
+                    str(self.historical_application_date or "")[:10],
+                    str(self.historical_start_date or "")[:10],
+                    str(self.historical_end_date or "")[:10],
+                )
+                if before != after and linked_applications:
+                    frappe.throw(_(
+                        "Reasigne primero las aplicaciones antes de cambiar el corte histórico."
+                    ))
         else:
+            self.historical_scope = ""
+            self.historical_application_date = None
+            self.historical_start_date = None
+            self.historical_end_date = None
             if self.is_new() and getdate(self.payroll_month) < OPERATIVE_START:
                 frappe.throw(_("Para abril de 2025 a agosto de 2026 seleccione la modalidad Histórica."))
             previous = self.get_doc_before_save()
@@ -141,18 +184,35 @@ class CNReconciliationPeriod(Document):
                 "employer": self.employer,
                 "payroll_month": getdate(self.payroll_month).replace(day=1),
             },
-            fields=["name", "collection_cycle", "reconciliation_mode"],
+            fields=[
+                "name", "collection_cycle", "reconciliation_mode", "historical_scope",
+                "historical_application_date", "historical_start_date", "historical_end_date",
+            ],
+            limit_page_length=1000,
         )
         for candidate in candidates:
             if candidate.name == self.name:
                 continue
-            candidate_cycle = (
-                "" if candidate.reconciliation_mode == "Historica"
-                else candidate.collection_cycle or MONTHLY
-            )
-            if cycles_conflict(candidate_cycle, self.collection_cycle or ""):
+            if candidate.reconciliation_mode != self.reconciliation_mode:
+                frappe.throw(_("Ya existe otra modalidad para esta empresa y mes."))
+            if self.reconciliation_mode == "Historica":
+                existing = historical_scope_interval(
+                    candidate.historical_scope or HISTORICAL_MONTHLY,
+                    candidate.historical_application_date,
+                    candidate.historical_start_date, candidate.historical_end_date,
+                )
+                proposed = historical_scope_interval(
+                    self.historical_scope, self.historical_application_date,
+                    self.historical_start_date, self.historical_end_date,
+                )
+                conflict = historical_scopes_conflict(existing, proposed)
+            else:
+                conflict = cycles_conflict(
+                    candidate.collection_cycle or MONTHLY, self.collection_cycle or MONTHLY
+                )
+            if conflict:
                 frappe.throw(
-                    _("Ya existe el periodo {0} para esta empresa y ciclo.").format(candidate.name)
+                    _("Ya existe el período {0} para esta empresa y corte.").format(candidate.name)
                 )
 
     def recalculate_totals(self):
@@ -276,22 +336,23 @@ def _recognition_candidates(period):
         if item.name != period.name and item.deduction_recognition_deposit
     }
     known_employers = frappe.get_all(
-        "CN Employer", fields=["name", "employer_name"], limit_page_length=100000
+        "CN Employer", fields=["name", "employer_name", "employer_code"],
+        limit_page_length=100000,
     )
-    employer_by_label = {
-        clean_text(label).casefold(): item.name
-        for item in known_employers
-        for label in (item.name, item.employer_name)
-        if clean_text(label)
-    }
+    employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
     rows = [row.as_dict() for row in period.collection_rows]
     candidates = []
     for account, bank in _recognition_pairs():
         if account.name in used:
             continue
-        labels = {
-            employer_by_label.get(clean_text(item.employer_text).casefold())
+        source_labels = {
+            clean_text(item.employer_text).casefold()
             for item in (account, bank) if clean_text(item.employer_text)
+        }
+        if source_labels & ambiguous_labels:
+            continue
+        labels = {
+            employer_by_label.get(label) for label in source_labels
         }
         if any(label and label != period.employer for label in labels):
             continue

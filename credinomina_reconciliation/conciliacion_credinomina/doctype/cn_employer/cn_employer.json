@@ -1,13 +1,13 @@
 {
   "actions": [],
   "allow_rename": 1,
-  "autoname": "field:employer_code",
+  "autoname": "field:employer_name",
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
-    "employer_code",
     "employer_name",
+    "employer_code",
     "active",
     "payroll_frequency",
     "rounding_tolerance_usd",
@@ -17,8 +17,8 @@
     "notes"
   ],
   "fields": [
-    {"fieldname": "employer_code", "fieldtype": "Data", "in_list_view": 1, "label": "Codigo", "reqd": 1, "unique": 1},
-    {"fieldname": "employer_name", "fieldtype": "Data", "in_list_view": 1, "label": "Empresa", "reqd": 1},
+    {"fieldname": "employer_name", "fieldtype": "Data", "in_list_view": 1, "label": "Empresa", "reqd": 1, "description": "Identifica el documento. Para cambiarlo después de crearlo, use Renombrar."},
+    {"fieldname": "employer_code", "fieldtype": "Data", "in_list_view": 1, "label": "Código", "reqd": 1, "unique": 1},
     {"default": "1", "fieldname": "active", "fieldtype": "Check", "in_list_view": 1, "label": "Activa"},
     {"default": "Mensual", "description": "Define si se envía una cobranza al mes o una por cada quincena. Los períodos ya creados conservan su ciclo.", "fieldname": "payroll_frequency", "fieldtype": "Select", "in_list_view": 1, "label": "Frecuencia de cobranza", "options": "Mensual\nQuincenal", "reqd": 1},
     {"default": "0", "description": "Diferencia máxima absoluta entre una aplicación del core y un depósito único en US$ para generar un movimiento interno de conciliación. Cero desactiva el ajuste automático; máximo US$ 0.10.", "fieldname": "rounding_tolerance_usd", "fieldtype": "Currency", "label": "Tolerancia automática US$", "options": "USD", "precision": "4"},
@@ -29,7 +29,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-09-22 00:00:00.000000",
+  "modified": "2026-09-23 01:45:19.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Employer",
@@ -40,8 +40,10 @@
     {"create": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "share": 1, "write": 1},
     {"read": 1, "role": "Operador Credinomina"}
   ],
+  "search_fields": "employer_code",
   "sort_field": "employer_name",
   "sort_order": "ASC",
   "states": [],
+  "title_field": "employer_name",
   "track_changes": 1
 }

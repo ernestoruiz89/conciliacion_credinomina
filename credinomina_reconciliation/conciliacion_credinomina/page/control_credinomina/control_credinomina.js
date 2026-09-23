@@ -45,7 +45,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const totals = data.totals || {};
         const year = Number(data.year || currentYear);
         const companies = [...new Map(periods.map((period) => [period.employer, {
-            code: period.employer,
+            id: period.employer,
             name: period.employer_name || period.employer,
         }])).values()].sort((a, b) => a.name.localeCompare(b.name));
         const byCell = new Map();
@@ -83,20 +83,24 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <tr>
                 <th class="cn-company">${esc(company.name)}</th>
                 ${months.map((month) => {
-                    const cellPeriods = byCell.get(`${company.code}|${month.key}`) || [];
+                    const cellPeriods = byCell.get(`${company.id}|${month.key}`) || [];
                     if (!cellPeriods.length) return '<td class="cn-empty-cell">—</td>';
                     const ordered = [...cellPeriods].sort((a, b) =>
-                        cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle)
+                        a.reconciliation_mode === "Historica" && b.reconciliation_mode === "Historica"
+                            ? historicalSortDate(a).localeCompare(historicalSortDate(b))
+                            : cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle)
                     );
                     const monthRemitted = ordered.reduce((sum, item) => sum + Number(item.remitted_usd || 0), 0);
-                    const monthDeducted = ordered.reduce((sum, item) => sum + Number(item.deducted_usd || 0), 0);
-                    const monthState = ordered.every((item) => item.control_state === "conciliado") ? "conciliado" :
-                        ordered.some((item) => ["diferencia", "excedente"].includes(item.control_state)) ? "diferencia" :
-                        ordered.some((item) => item.control_state === "parcial") ? "parcial" : "en_transito";
+                    const monthCompared = ordered.reduce((sum, item) => sum + Number(
+                        item.reconciliation_mode === "Historica" ? item.applied_usd || 0 : item.deducted_usd || 0
+                    ), 0);
+                    const monthState = ordered.every((item) => ["conciliado", "historico_conciliado"].includes(item.control_state)) ? "conciliado" :
+                        ordered.some((item) => ["diferencia", "excedente", "historico_excedente"].includes(item.control_state)) ? "diferencia" :
+                        ordered.some((item) => ["parcial", "historico_parcial"].includes(item.control_state)) ? "parcial" : "en_transito";
                     return `<td class="cn-cell cn-${esc(ordered.length === 1 ? ordered[0].control_state : monthState)}">
-                        ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))}: ${money(monthRemitted)} / ${money(monthDeducted)}</div>` : ""}
+                        ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))}: ${money(monthRemitted)} / ${money(monthCompared)}</div>` : ""}
                         ${ordered.map((period) => `<button type="button" class="cn-cell-button" data-period="${esc(period.name)}">
-                            <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? __("Histórico") : period.collection_cycle || __("Mensual"))}</span>
+                            <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
                             <span class="cn-cell-amount">${money(period.remitted_usd)} / ${money(period.reconciliation_mode === "Historica" ? period.applied_usd : period.deducted_usd)}</span>
                             <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Depósito / aplicación histórica") : __("Remitido / deducido"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
@@ -214,7 +218,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td class="cn-number">${money(item.tolerance_usd)}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin movimientos de diferencia menor."))}</div>`;
         const dialog = new frappe.ui.Dialog({
-            title: `${esc(period.employer_name || period.employer)} · ${esc(period.month)} · ${esc(historical ? __("Histórico") : period.collection_cycle || __("Mensual"))}`,
+            title: `${esc(period.employer_name || period.employer)} · ${esc(period.month)} · ${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}`,
             size: "extra-large",
             fields: [{ fieldname: "detail", fieldtype: "HTML" }],
             primary_action_label: __("Abrir período"),
@@ -296,6 +300,20 @@ function stateLabel(state) {
 
 function cycleOrder(cycle) {
     return ({ "Primera quincena": 1, "Segunda quincena": 2, "Mensual": 3 })[cycle] || 4;
+}
+
+function historicalSortDate(period) {
+    return period.historical_application_date || period.historical_start_date || period.payroll_month || "";
+}
+
+function historicalLabel(period) {
+    if (period.historical_scope === "Fecha exacta") {
+        return `${__("Histórico")} · ${period.historical_application_date || ""}`;
+    }
+    if (period.historical_scope === "Rango de fechas") {
+        return `${__("Histórico")} · ${period.historical_start_date || ""} – ${period.historical_end_date || ""}`;
+    }
+    return `${__("Histórico")} · ${__("Mensual")}`;
 }
 
 function allocationLines(raw) {

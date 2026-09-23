@@ -43,7 +43,7 @@ Resultados posibles:
 
 ## Implementación histórica y corte de septiembre de 2026
 
-De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos contables y bancarios (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes asignados explícitamente, referencia, importe aplicado, depósitos asignados y saldo sin evidencia de depósito. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Remesa confirmada.
+De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos contables y bancarios (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes y corte asignados explícitamente: mensual, fecha exacta de aplicación o rango inclusivo de fechas. Las fechas de aplicación pueden ser el 15, el 30 o cualquier otro día, incluso de un mes posterior al de cobranza. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Remesa confirmada.
 
 Este saldo **no** prueba que la empresa deba dinero ni que el trabajador no haya pagado: son conclusiones que exigirían la cobranza y la deducción, ausentes en el histórico. Tampoco se registra un pago nuevo en el core. Una aplicación de agosto depositada en septiembre permanece en agosto por su período asignado. Desde **septiembre de 2026**, los períodos nuevos son **Operativos** y usan ambas conciliaciones descritas abajo. Véase la secuencia de carga en `docs/instalacion_y_uso.md`.
 
@@ -51,7 +51,7 @@ Este saldo **no** prueba que la empresa deba dinero ni que el trabajador no haya
 
 La **Frecuencia de cobranza** se configura por empresa. Una empresa mensual tiene un solo período operativo por mes; una empresa quincenal tiene dos: primera quincena (cierre día 15) y segunda quincena (cierre el último día del mes). Cada período conserva su archivo de cobranza, respuesta de la empresa, deducción, aplicaciones, depósitos y excepciones. La misma cuota puede aparecer en dos envíos, pero el período y la `Fila ID` distinguen los registros; nunca se suman dos quincenas como si fueran un solo descuento.
 
-La carga **histórica** sigue agrupada por empresa y mes de aplicación asignado: como no se reconstruye el envío de cobranza, no se inventa una primera o segunda quincena histórica.
+La carga **histórica** sigue agrupada por empresa y mes de cobranza asignado, pero puede separarse además por fecha exacta o rango de aplicación. No se presume que un corte sea una primera o segunda quincena: sus fechas se registran según la evidencia real.
 
 Normalmente el core registra una aplicación por quincena. Si registra **una sola aplicación en US$ para ambas**, la conciliación la reparte automáticamente entre Q1 y Q2 únicamente cuando corresponden al mismo crédito, empresa y mes, pasan los controles de cliente, cuota y referencia, y el importe es exactamente la suma de los saldos disponibles de ambas. El reparto queda visible en **Distribución de la aplicación (JSON)** y alimenta los saldos y las referencias de depósito de cada quincena. Si hay varias combinaciones posibles o la aplicación es parcial, queda como excepción para revisión; el sistema no adivina el reparto.
 
@@ -83,7 +83,7 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 
 1. Importar **Movimientos contables** como fuente principal de aplicaciones.
 2. Importar **Transacciones** como respaldo. Una aplicacion equivalente se ignora si ya existe en la fuente principal. Las `DISPENSAS` no se tratan como efectivo.
-3. Importar **Detalle de depositos** como evidencia bancaria.
+3. Importar **Detalle de depósitos** como evidencia bancaria. Se usa la pestaña **Depósito** del archivo mensual completo, sin separar manualmente por empresa ni mes. Puede contener varias remesas de la misma empresa, otras empresas y pagos ajenos al convenio. Las filas claramente ajenas se conservan como **Ignoradas**, las no identificadas se revisan y los depósitos idénticos arrastrados de un archivo anterior no se duplican. Si la clasificación automática falla, ajustar **Tratamiento del depósito** en la fila bancaria y volver a reconciliar.
 4. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
 5. El depósito bancario se concilia con el depósito contable por referencia e importe en su moneda original o equivalente documentado.
 6. La remesa se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.

@@ -20,11 +20,12 @@ def execute(filters=None):
         "CN Reconciliation Period",
         filters=conditions,
         fields=[
-            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
+            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "remitted_usd", "fx_variance_usd", "rounding_adjustment_usd",
             "expected_nio", "deducted_nio", "applied_nio", "remitted_nio", "exception_count",
         ],
         order_by="payroll_month desc, employer asc",
+        limit_page_length=10000,
     )
     if filters.collection_cycle:
         data = [
@@ -33,6 +34,12 @@ def execute(filters=None):
                 row.collection_cycle
                 or ("Mensual" if row.reconciliation_mode != "Historica" else "")
             ) == filters.collection_cycle
+        ]
+    if filters.historical_scope:
+        data = [
+            row for row in data
+            if row.reconciliation_mode == "Historica"
+            and (row.historical_scope or "Mensual") == filters.historical_scope
         ]
     credit_by_period = {}
     if data:
@@ -50,6 +57,13 @@ def execute(filters=None):
             )
     for row in data:
         if row.reconciliation_mode == "Historica":
+            row["historical_label"] = (
+                f"Fecha {row.historical_application_date}"
+                if row.historical_scope == "Fecha exacta"
+                else f"{row.historical_start_date} – {row.historical_end_date}"
+                if row.historical_scope == "Rango de fechas"
+                else "Mensual"
+            )
             row["employee_shortfall_usd"] = 0
             row["employer_receivable_usd"] = 0
             row["employee_shortfall_nio"] = 0
@@ -81,6 +95,7 @@ def get_columns():
         {"fieldname": "employer", "label": _("Empresa"), "fieldtype": "Link", "options": "CN Employer", "width": 130},
         {"fieldname": "reconciliation_mode", "label": _("Modalidad"), "fieldtype": "Data", "width": 100},
         {"fieldname": "collection_cycle", "label": _("Ciclo"), "fieldtype": "Data", "width": 140},
+        {"fieldname": "historical_label", "label": _("Corte histórico"), "fieldtype": "Data", "width": 210},
         {"fieldname": "deduction_basis", "label": _("Origen de deducción"), "fieldtype": "Data", "width": 155},
         {"fieldname": "deduction_recognition_reference", "label": _("Depósito para deducción"), "fieldtype": "Data", "width": 155},
         {"fieldname": "cutoff_date", "label": _("Cierre del ciclo"), "fieldtype": "Date", "width": 110},

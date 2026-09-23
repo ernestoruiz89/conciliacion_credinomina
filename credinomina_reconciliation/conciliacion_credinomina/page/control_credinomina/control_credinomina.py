@@ -27,7 +27,7 @@ def get_control_data(year=None, employer=None):
         "CN Reconciliation Period",
         filters=filters,
         fields=[
-            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
+            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
         ],

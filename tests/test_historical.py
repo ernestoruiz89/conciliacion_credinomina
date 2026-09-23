@@ -1,9 +1,15 @@
+import json
 import unittest
+from datetime import date
+from pathlib import Path
 
 from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.historical import (
     blocked_historical_deposits,
     historical_balance,
+    historical_scope_contains,
+    historical_scope_interval,
+    historical_scopes_conflict,
     historical_status,
     is_historical_date,
 )
@@ -14,6 +20,60 @@ from credinomina_reconciliation.reconciliation import (
 
 
 class HistoricalReconciliationTest(unittest.TestCase):
+    def test_period_form_exposes_dated_historical_cuts(self):
+        root = Path(__file__).resolve().parents[1]
+        path = (
+            root / "credinomina_reconciliation" / "conciliacion_credinomina"
+            / "doctype" / "cn_reconciliation_period" / "cn_reconciliation_period.json"
+        )
+        period = json.loads(path.read_text(encoding="utf-8"))
+        fields = {item["fieldname"]: item for item in period["fields"]}
+        self.assertEqual(
+            "Mensual\nFecha exacta\nRango de fechas", fields["historical_scope"]["options"]
+        )
+        for name in (
+            "historical_application_date", "historical_start_date", "historical_end_date"
+        ):
+            self.assertEqual("Date", fields[name]["fieldtype"])
+
+    def test_historical_month_exact_date_and_arbitrary_range(self):
+        self.assertIsNone(historical_scope_interval("Mensual"))
+        self.assertTrue(historical_scope_contains("Mensual", "2025-05-22"))
+        exact = historical_scope_interval("Fecha exacta", "2025-05-15")
+        self.assertEqual((date(2025, 5, 15), date(2025, 5, 15)), exact)
+        self.assertTrue(historical_scope_contains("Fecha exacta", "2025-05-15", "2025-05-15"))
+        self.assertFalse(historical_scope_contains("Fecha exacta", "2025-05-30", "2025-05-15"))
+        date_range = historical_scope_interval(
+            "Rango de fechas", start_date="2025-05-16", end_date="2025-05-30"
+        )
+        self.assertTrue(historical_scope_contains(
+            "Rango de fechas", "2025-05-22",
+            start_date="2025-05-16", end_date="2025-05-30",
+        ))
+        self.assertFalse(historical_scope_contains(
+            "Rango de fechas", "2025-05-31",
+            start_date="2025-05-16", end_date="2025-05-30",
+        ))
+        self.assertFalse(historical_scopes_conflict(None, exact))
+        self.assertFalse(historical_scopes_conflict(exact, date_range))
+        self.assertTrue(historical_scopes_conflict(exact, exact))
+        self.assertTrue(historical_scopes_conflict(
+            exact, historical_scope_interval(
+                "Rango de fechas", start_date="2025-05-01", end_date="2025-05-15"
+            )
+        ))
+        self.assertTrue(historical_scopes_conflict(None, None))
+
+    def test_historical_cuts_reject_incomplete_or_reversed_dates(self):
+        for args in (
+            ("Fecha exacta", None, None, None),
+            ("Rango de fechas", None, "2025-05-30", "2025-05-15"),
+            ("Rango de fechas", None, "2025-05-15", None),
+            ("Mensual", "2025-05-15", None, None),
+        ):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                historical_scope_interval(*args)
+
     def test_historical_window_and_unmatched_application_balance(self):
         self.assertFalse(is_historical_date("2025-03-31"))
         self.assertTrue(is_historical_date("2025-04-01"))

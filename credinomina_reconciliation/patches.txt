@@ -1,1 +1,2 @@
-
+[post_model_sync]
+credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name

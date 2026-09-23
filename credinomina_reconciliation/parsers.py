@@ -116,7 +116,9 @@ def source_key(*parts: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def read_table(file_name: str, content: bytes) -> list[list[Any]]:
+def read_table(
+    file_name: str, content: bytes, *, sheet_name: str | None = None
+) -> list[list[Any]]:
     suffix = Path(file_name).suffix.lower()
     if suffix == ".xlsx":
         try:
@@ -125,7 +127,19 @@ def read_table(file_name: str, content: bytes) -> list[list[Any]]:
             raise SourceFileError("Se requiere openpyxl para leer archivos .xlsx.") from exc
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         try:
-            return [list(row) for row in workbook.active.iter_rows(values_only=True)]
+            sheet = workbook.active
+            if sheet_name:
+                sheet = next(
+                    (item for item in workbook.worksheets
+                     if normalize_header(item.title) == normalize_header(sheet_name)),
+                    None,
+                )
+                if sheet is None:
+                    if len(workbook.worksheets) == 1:
+                        sheet = workbook.worksheets[0]
+                    else:
+                        raise SourceFileError(f"No se encontró la pestaña {sheet_name}.")
+            return [list(row) for row in sheet.iter_rows(values_only=True)]
         finally:
             workbook.close()
     if suffix == ".xls":
@@ -135,6 +149,18 @@ def read_table(file_name: str, content: bytes) -> list[list[Any]]:
             raise SourceFileError("Se requiere xlrd para leer archivos .xls.") from exc
         workbook = xlrd.open_workbook(file_contents=content)
         sheet = workbook.sheet_by_index(0)
+        if sheet_name:
+            sheet = next(
+                (workbook.sheet_by_index(index) for index in range(workbook.nsheets)
+                 if normalize_header(workbook.sheet_by_index(index).name)
+                 == normalize_header(sheet_name)),
+                None,
+            )
+            if sheet is None:
+                if workbook.nsheets == 1:
+                    sheet = workbook.sheet_by_index(0)
+                else:
+                    raise SourceFileError(f"No se encontró la pestaña {sheet_name}.")
         result = []
         for row_index in range(sheet.nrows):
             row = []
@@ -297,7 +323,7 @@ def _extract_reference(description: str, fallback: Any = None) -> str:
 
 def _extract_employer(description: str, fallback: Any = None) -> str:
     match = re.search(
-        r"CONVENIO\s+(.+?)(?:\s*\(|\s+EN\s+LA\s+CUENTA|\s+-|\s+\|)",
+        r"CONVENIO\s+(.+?)(?:\s*\(|\s+EN\s+LA\s+CUENTA|\s+-|\s+\||$)",
         description,
         re.IGNORECASE,
     )
@@ -432,7 +458,10 @@ def parse_transactions(file_name: str, content: bytes) -> list[dict[str, Any]]:
 
 
 def parse_deposit_detail(file_name: str, content: bytes) -> list[dict[str, Any]]:
-    records = _records_from_header(read_table(file_name, content), "referencia")
+    sheet_name = "Depósito" if Path(file_name).suffix.lower() in {".xlsx", ".xls"} else None
+    records = _records_from_header(
+        read_table(file_name, content, sheet_name=sheet_name), "referencia"
+    )
     parsed = []
     for row_number, record in records:
         nio_amount = parse_amount(record.get("valorc"))

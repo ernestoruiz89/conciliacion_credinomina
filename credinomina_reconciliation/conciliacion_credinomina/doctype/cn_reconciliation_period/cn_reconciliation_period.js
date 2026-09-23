@@ -79,6 +79,15 @@ frappe.ui.form.on("CN Reconciliation Period", {
     reconciliation_mode(frm) {
         setRemittanceDateEditing(frm);
     },
+    historical_scope(frm) {
+        if (frm.doc.historical_scope !== "Fecha exacta") {
+            frm.set_value("historical_application_date", null);
+        }
+        if (frm.doc.historical_scope !== "Rango de fechas") {
+            frm.set_value("historical_start_date", null);
+            frm.set_value("historical_end_date", null);
+        }
+    },
     employer(frm) {
         if (!frm.is_new() || !frm.doc.employer || frm.doc.reconciliation_mode === "Historica") return;
         frappe.db.get_value("CN Employer", frm.doc.employer, "payroll_frequency").then((result) => {

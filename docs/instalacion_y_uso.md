@@ -16,6 +16,14 @@ bench --site sitio.local install-app credinomina_reconciliation
 bench --site sitio.local migrate
 ```
 
+En una instalación ya usada, haga una copia de seguridad antes de actualizar.
+La migración cambia el identificador de cada **Empresa Credinómina** del código
+al valor de `employer_name`, conserva `employer_code` como campo único y actualiza
+los vínculos de Frappe. No fusiona empresas: si hay nombres vacíos o duplicados,
+hay que corregirlos antes de volver a ejecutar `bench migrate`. Para modificar
+el nombre después de migrar, utilice **Renombrar**; el código se edita por
+separado y sigue sirviendo para reconocer fuentes históricas.
+
 La instalacion crea los roles `Operador Credinomina` y `Supervisor Credinomina`.
 Asigne uno de ellos a cada usuario y configure el idioma del usuario como Espanol.
 El Workspace **Conciliación Credinómina** aparece en el escritorio para esos
@@ -28,13 +36,13 @@ importaciones, distribuciones, excepciones, movimientos internos y reportes.
 
 ### Carga histórica: abril 2025 a agosto 2026
 
-1. Cree un **Período de Conciliación** por empresa y mes que vaya a reconstruir; seleccione modalidad **Histórica**. No adjunte cobranza ni detalle de deducción.
-2. Importe **Movimientos contables** como principal y **Transacciones** como respaldo de las aplicaciones. Marque **Carga histórica de aplicaciones**. Si un archivo corresponde a una sola empresa/mes, indique el período histórico predeterminado. Si mezcla empresas o meses, deje ese campo vacío, importe y asigne el **Período histórico** a cada fila de aplicación antes de pulsar **Reconciliar todas las fuentes**; las filas sin asignar quedarán pendientes aunque su fecha sea septiembre de 2026 o posterior. Si el mismo archivo incluye aplicaciones operativas de septiembre, marque esas filas con **Ruta de aplicación = Operativa**. La fecha de aplicación histórica puede ser posterior al mes histórico; el período se asigna explícitamente.
-3. Importe el **Detalle de depósitos** por separado, sin período histórico predeterminado. La pareja banco–contabilidad exige referencia, moneda/importe o conversión documentada; una referencia repetida se desambigua automáticamente solo cuando la fecha exacta identifica un único par. **Transacciones** se omite frente a un movimiento contable de la misma aplicación únicamente cuando también coinciden importe, moneda y fecha; una referencia reutilizada en otro mes no se descarta.
+1. Cree un **Período de Conciliación** por empresa y mes de cobranza que vaya a reconstruir; seleccione modalidad **Histórica**. En **Tipo de período histórico**, use **Mensual** para conservar el esquema anterior, **Fecha exacta** para un corte de aplicaciones del core (15, 30 o cualquier otro día), o **Rango de fechas** para agrupar varios días, ambos extremos incluidos. Puede tener varios cortes fechados en un mismo mes de cobranza, siempre que sus fechas no se solapen. Un período mensual puede coexistir con cortes fechados durante una transición; cada aplicación pertenece a un solo período explícito. La fecha de aplicación puede ser posterior al mes de cobranza. No adjunte cobranza ni detalle de deducción.
+2. Importe **Movimientos contables** como principal y **Transacciones** como respaldo de las aplicaciones. Marque **Carga histórica de aplicaciones**. Si un archivo corresponde a una sola empresa, mes y corte, indique el período histórico predeterminado. Si mezcla empresas, meses o fechas de corte, deje ese campo vacío, importe y asigne el **Período histórico** a cada fila de aplicación antes de pulsar **Reconciliar todas las fuentes**; en cortes fechados, la fecha real de la aplicación debe estar dentro del corte seleccionado. Las filas sin asignar quedarán pendientes aunque su fecha sea septiembre de 2026 o posterior. Si el mismo archivo incluye aplicaciones operativas de septiembre, marque esas filas con **Ruta de aplicación = Operativa**.
+3. Importe el **Detalle de depósitos** por separado, sin período histórico predeterminado. La app lee la pestaña **Depósito** del archivo mensual completo, aunque incluya varias remesas de una empresa, otras empresas, pagos personales o filas arrastradas de meses anteriores. Los pagos claramente ajenos al convenio quedan **Ignorados** sin borrarse y los **No identificado** permanecen para revisión; en cada fila bancaria puede elegir **Tratamiento del depósito = Conciliar** o **Excluir** y volver a reconciliar. Una fila bancaria idéntica que reaparece en otra importación se ignora para no duplicar dinero. La pareja banco–contabilidad exige referencia, moneda/importe o conversión documentada; una referencia repetida se desambigua automáticamente solo cuando la fecha exacta identifica un único par. **Transacciones** se omite frente a un movimiento contable de la misma aplicación únicamente cuando también coinciden importe, moneda y fecha; una referencia reutilizada en otro mes no se descarta.
 4. Revise en **Control de Credinómina** las aplicaciones sin depósito. Una referencia única permite asignación automática en US$; una referencia reutilizada entre meses, compartida con cobranza operativa o con varios depósitos y aplicaciones exige una **Distribución de Remesa** con el **ID de aplicación histórica** visible en la fila importada. Puede distribuir parcialmente, usar varios depósitos para una aplicación o un depósito para varias aplicaciones.
 5. Documente partidas administrativas con **Partida Complementaria** y excedentes con **Excedente de Depósito**; nunca aumentan ficticiamente lo aplicado al crédito. Cierre el período histórico solo cuando todas sus aplicaciones queden cubiertas por depósitos.
 
-El saldo histórico **aplicación sin depósito** no es una cuenta por cobrar a la empresa ni un faltante del trabajador: no se reconstruyó la primera conciliación. Conserve los archivos originales y soportes de distribuciones manuales. Una aplicación histórica de agosto de 2026 cobrada en septiembre puede seguir vinculada a agosto mediante su período explícito.
+El saldo histórico **aplicación sin depósito** no es una cuenta por cobrar a la empresa ni un faltante del trabajador: no se reconstruyó la primera conciliación. Conserve los archivos originales y soportes de distribuciones manuales. Una aplicación histórica de agosto de 2026 registrada en septiembre puede seguir vinculada al mes de cobranza agosto y al corte de aplicación de septiembre que corresponda. No cambie las fechas de un corte con aplicaciones asignadas: primero reasígnelas.
 
 ### Operación desde septiembre 2026
 

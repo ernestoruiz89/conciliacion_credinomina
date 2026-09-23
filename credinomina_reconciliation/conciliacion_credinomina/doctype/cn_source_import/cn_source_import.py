@@ -12,14 +12,22 @@ from frappe.utils import flt, getdate, now_datetime
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.deduction_recognition import recognition_reason
+from credinomina_reconciliation.deposit_scoping import (
+    deposit_scope,
+    duplicate_deposit_key,
+    resolved_deposit_employer,
+)
+from credinomina_reconciliation.employer_naming import employer_alias_index
 from credinomina_reconciliation.historical import (
     blocked_historical_deposits,
     historical_balance,
+    historical_scope_contains,
     historical_status,
     is_historical_date,
 )
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
+    SOURCE_DEPOSITS,
     SOURCE_TRANSACTIONS,
     SourceFileError,
     canonical_identifier,
@@ -45,6 +53,13 @@ from credinomina_reconciliation.rounding import CASH_EPSILON, rounding_movements
 class CNSourceImport(Document):
     def validate(self):
         self._validate_historical_periods()
+        if any(
+            row.deposit_scope and (
+                self.source_type != SOURCE_DEPOSITS or row.event_type != "Deposito"
+            )
+            for row in self.rows or []
+        ):
+            frappe.throw(_("El tratamiento del depósito solo corresponde a la pestaña Depósito."))
         self._validate_duplicate_file()
         self._validate_manual_rates()
         self.recalculate_summary()
@@ -79,10 +94,36 @@ class CNSourceImport(Document):
             row.historical_period for row in self.rows or []
             if row.event_type == "Aplicacion" and row.historical_period
         )
+        periods = {
+            period.name: period for period in frappe.get_all(
+                "CN Reconciliation Period",
+                filters={"name": ["in", list(selected)]},
+                fields=[
+                    "name", "reconciliation_mode", "historical_scope",
+                    "historical_application_date", "historical_start_date",
+                    "historical_end_date",
+                ],
+                limit_page_length=max(len(selected), 20),
+            )
+        } if selected else {}
         for name in selected:
-            mode = frappe.db.get_value("CN Reconciliation Period", name, "reconciliation_mode")
-            if mode != "Historica":
+            if name not in periods or periods[name].reconciliation_mode != "Historica":
                 frappe.throw(_("{0} no es un período histórico.").format(name))
+        for row in self.rows or []:
+            if row.event_type != "Aplicacion" or row.processing_route == "Operativa":
+                continue
+            period_name = row.historical_period or self.historical_period
+            if not period_name:
+                continue
+            period = periods[period_name]
+            if not historical_scope_contains(
+                period.historical_scope, row.event_date,
+                period.historical_application_date, period.historical_start_date,
+                period.historical_end_date,
+            ):
+                frappe.throw(_(
+                    "La fecha de la aplicación en la fila {0} no pertenece al corte histórico {1}."
+                ).format(row.idx, period_name))
 
     def _validate_manual_rates(self):
         for row in self.rows or []:
@@ -183,15 +224,15 @@ def import_source_file(import_name: str):
                 (
                     row.name, row.manual_fx_rate,
                     row.manual_fx_evidence, row.historical_period,
-                    row.processing_route,
+                    row.processing_route, row.deposit_scope,
                 )
             )
     document.file_hash = file_sha256(content)
     document.set("rows", [])
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, manual_evidence, prior_period, prior_route = (
-            previous.pop(0) if previous else (None, 0, "", "", "")
+        preserved_name, manual_rate, manual_evidence, prior_period, prior_route, prior_scope = (
+            previous.pop(0) if previous else (None, 0, "", "", "", "")
         )
         document.append(
             "rows",
@@ -201,6 +242,7 @@ def import_source_file(import_name: str):
                 "manual_fx_rate": manual_rate,
                 "manual_fx_evidence": manual_evidence,
                 "processing_route": prior_route,
+                "deposit_scope": prior_scope if record["event_type"] == "Deposito" else "",
                 "historical_period": (
                     prior_period or document.historical_period
                     if record["event_type"] == "Aplicacion" else ""
@@ -311,7 +353,7 @@ def reconcile_all_sources():
         ],
         order_by="creation asc",
     )
-    deposit_pairs = _match_deposits(all_rows)
+    deposit_pairs = _scope_deposit_pairs(all_rows, _match_deposits(all_rows))
     _refresh_recognition_evidence(periods, deposit_pairs)
     _match_applications(
         all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
@@ -420,6 +462,29 @@ def _apply_source_precedence(rows):
         row.effective = 0
         row.match_status = "Ignorado"
         row.match_reason = _("La fuente principal ya contiene esta aplicacion.")
+
+    # Monthly Depósito workbooks can retain unresolved rows from earlier months.
+    # Keep the first identical bank entry, but not a second copy from a later file.
+    first_deposit_by_key = {}
+    for row in rows:
+        if (
+            row._source_type != SOURCE_DEPOSITS
+            or row.event_type != "Deposito"
+            or not row.effective
+        ):
+            continue
+        key = duplicate_deposit_key(row.as_dict())
+        if key is None:
+            continue
+        first = first_deposit_by_key.get(key)
+        if first and first._source_import != row._source_import:
+            row.effective = 0
+            row.match_status = "Ignorado"
+            row.match_reason = _(
+                "El mismo depósito ya fue importado desde {0}."
+            ).format(first._source_import)
+        elif first is None:
+            first_deposit_by_key[key] = row
 
 
 def _load_open_periods():
@@ -564,6 +629,14 @@ def _match_applications(
             if not period:
                 source.match_status = "Sin coincidencia"
                 source.match_reason = _("Asigne un período histórico válido a la aplicación.")
+                continue
+            if not historical_scope_contains(
+                period.historical_scope, source.event_date,
+                period.historical_application_date, period.historical_start_date,
+                period.historical_end_date,
+            ):
+                source.match_status = "Sin coincidencia"
+                source.match_reason = _("La fecha de aplicación no pertenece al corte histórico elegido.")
                 continue
             source.match_status = "Conciliado"
             source.match_reason = _(
@@ -792,6 +865,41 @@ def _match_deposits(rows):
     return paired
 
 
+def _scope_deposit_pairs(rows, paired):
+    """Exclude clearly unrelated bank rows, retaining uncertain ones for review."""
+    known_employers = frappe.get_all(
+        "CN Employer", fields=["name", "employer_name", "employer_code"],
+        limit_page_length=100000,
+    )
+    aliases, ambiguous = employer_alias_index(known_employers)
+    account_by_bank = {id(bank): account for account, bank in paired}
+    excluded_banks = set()
+    for bank in rows:
+        if (
+            bank._source_type != SOURCE_DEPOSITS
+            or bank.event_type != "Deposito"
+            or not bank.effective
+        ):
+            continue
+        account = account_by_bank.get(id(bank))
+        decision = deposit_scope(
+            bank.as_dict(), account.as_dict() if account else None, aliases, ambiguous
+        )
+        if decision != "Excluir":
+            continue
+        excluded_banks.add(id(bank))
+        reason = _(
+            "Fuera de la conciliación de convenios según CLIENTE. "
+            "Si corresponde a una empresa, seleccione Conciliar y vuelva a reconciliar."
+        )
+        for source in (bank, account):
+            if source:
+                source.effective = 0
+                source.match_status = "Ignorado"
+                source.match_reason = reason
+    return [(account, bank) for account, bank in paired if id(bank) not in excluded_banks]
+
+
 def _distribute_deposits(
     periods, source_rows, deposit_pairs, complementary_items,
     complementary_by_target, manual_allocations,
@@ -806,18 +914,15 @@ def _distribute_deposits(
         and row.historical_period and row.match_status == "Conciliado"
     }
     known_employers = frappe.get_all(
-        "CN Employer", fields=["name", "employer_name", "rounding_tolerance_usd"]
+        "CN Employer",
+        fields=["name", "employer_name", "employer_code", "rounding_tolerance_usd"],
+        limit_page_length=100000,
     )
     tolerance_by_employer = {
         employer.name: flt(employer.rounding_tolerance_usd, 4)
         for employer in known_employers
     }
-    employer_by_label = {
-        label.casefold(): employer.name
-        for employer in known_employers
-        for label in (clean_text(employer.name), clean_text(employer.employer_name))
-        if label
-    }
+    employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
     row_by_key = {
         (period.name, clean_text(row.row_key)): row.name
         for period in periods for row in period.collection_rows
@@ -835,6 +940,8 @@ def _distribute_deposits(
 
     deposits = []
     deposit_meta = {}
+    ambiguous_deposit_ids = set()
+    unresolved_employer_ids = set()
     for account, bank in deposit_pairs:
         account_usd = converted_amount(account.as_dict(), "USD")
         bank_usd = converted_amount(bank.as_dict(), "USD")
@@ -862,14 +969,18 @@ def _distribute_deposits(
             flt(account.amount) if account.currency == "NIO"
             else flt(bank.amount) if bank.currency == "NIO" else 0
         )
+        employer, unresolved_employer = resolved_deposit_employer(
+            account.as_dict(), bank.as_dict(), employer_by_label, ambiguous_labels
+        )
+        if unresolved_employer:
+            ambiguous_deposit_ids.add(account.name)
+            unresolved_employer_ids.add(account.name)
         deposits.append(
             {"id": account.name, "reference": clean_text(account.reference),
              "amount_usd": amount_usd,
              "currency": account.currency, "bank_currency": bank.currency,
              "bank_amount_usd": flt(bank.amount) if bank.currency == "USD" else 0,
-             "group": employer_by_label.get(
-                 clean_text(account.employer_text or bank.employer_text).casefold()
-             )}
+             "group": employer}
         )
         deposit_meta[account.name] = {
             "account": account, "bank": bank,
@@ -969,7 +1080,9 @@ def _distribute_deposits(
                     "amount_usd": flt(item.amount_usd),
                 })
     manual_results = {}
-    manually_ambiguous_deposits = blocked_historical_deposits(claims, deposits)
+    manually_ambiguous_deposits = (
+        blocked_historical_deposits(claims, deposits) | ambiguous_deposit_ids
+    )
     for item in manual_allocations:
         candidates = [
             deposit for deposit in deposits_by_reference[clean_text(item.deposit_reference)]
@@ -1071,6 +1184,11 @@ def _distribute_deposits(
         )
         if deposit_id in result["blocked_deposits"]:
             reason += " " + _("Revise la referencia reutilizada o una distribución manual inválida o ambigua.")
+        if deposit_id in unresolved_employer_ids:
+            reason += " " + _(
+                "La empresa del depósito no se identificó de forma única; "
+                "se requiere una distribución manual para asignarlo."
+            )
         for source in (meta["account"], meta["bank"]):
             source.allocated_usd = assigned
             source.unallocated_usd = remaining

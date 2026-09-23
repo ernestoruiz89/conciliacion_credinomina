@@ -30,6 +30,11 @@ importes permiten un cruce único.
 - **Movimientos contables** como fuente principal de aplicaciones y
   **Transacciones** como respaldo. El **Detalle de depósitos** proporciona la
   evidencia bancaria que se empareja con el depósito contable.
+- El archivo mensual de depósitos se lee desde la pestaña **Depósito**. Se
+  conservan las filas de varias empresas, pagos personales y meses anteriores.
+  Los pagos ajenos al convenio se ignoran sin borrarlos; los no identificados
+  quedan para revisión. Un depósito idéntico repetido en otro archivo mensual
+  solo participa una vez en la conciliación.
 - Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
   para la conciliación solo con una tasa y evidencia documentadas. Las
   diferencias cambiarias quedan para revisión de cada caso.
@@ -81,6 +86,14 @@ bench --site sitio.local install-app credinomina_reconciliation
 bench --site sitio.local migrate
 ```
 
+Al actualizar una instalación existente, `bench migrate` ejecuta un parche que
+renombra cada **Empresa Credinómina** desde su código al valor de **Empresa**
+(`employer_name`). El **Código** (`employer_code`) se conserva como campo único
+y como alias para reconocer archivos anteriores; los vínculos entre documentos
+se actualizan mediante el renombrado de Frappe. Haga una copia de seguridad
+antes de migrar. Si existen nombres vacíos o duplicados, el parche se detiene
+para que se corrijan sin fusionar empresas.
+
 La instalación crea los roles `Operador Credinomina` y
 `Supervisor Credinomina`. Asigne el rol correspondiente y, si se desea,
 configure el idioma del usuario como español. El Workspace
@@ -92,14 +105,16 @@ disponible la página `/app/control-credinomina`.
 
 1. Cree las **Empresas Credinómina** y defina frecuencia de cobranza,
    plazo de remesa y, si procede, tolerancia en US$.
-2. Cree los **Períodos de Conciliación**. Para el histórico, uno por empresa
-   y mes; para la operación, uno mensual o dos quincenales según el convenio.
+2. Cree los **Períodos de Conciliación**. Para el histórico, use uno mensual
+   por empresa o varios cortes de aplicación por fecha exacta/rango dentro del
+   mes; para la operación, uno mensual o dos quincenales según el convenio.
 3. En períodos operativos, importe y exporte la cobranza; cuando llegue la
    respuesta de la empresa, cargue el detalle de deducción en el período de
    planilla original, aunque llegue al mes siguiente.
 4. Importe por separado los movimientos contables, las transacciones de
    respaldo y el detalle bancario. En el histórico, asigne explícitamente el
-   período a cada aplicación cuando un archivo mezcle empresas o meses.
+   período a cada aplicación cuando un archivo mezcle empresas, meses o cortes
+   de fecha.
 5. Revise el **Control de Credinómina**. Documente distribuciones ambiguas,
    partidas administrativas y excedentes; revise las diferencias cambiarias
    y los movimientos de tolerancia antes de cerrar.
