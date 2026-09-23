@@ -863,7 +863,7 @@ def _match_deposits(rows):
             bank = candidates[0]
             if len(matches_by_right[id(bank)]) != 1:
                 continue
-            _, reason = deposit_pair_result(account.as_dict(), bank.as_dict())
+            reason = deposit_pair_result(account.as_dict(), bank.as_dict())[1]
             for row in (account, bank):
                 row.match_status = "Conciliado"
                 row.match_reason = _(reason)
@@ -882,9 +882,9 @@ def _match_deposits(rows):
             else:
                 row.match_status = "Sin coincidencia"
                 if opposite:
-                    _, reason = deposit_pair_result(
+                    reason = deposit_pair_result(
                         row.as_dict(), opposite[0].as_dict()
-                    )
+                    )[1]
                     row.match_reason = _(reason)
                 else:
                     row.match_reason = _(
