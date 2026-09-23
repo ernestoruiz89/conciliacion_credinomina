@@ -1,5 +1,6 @@
 """Static checks for the standard Frappe Workspace shipped with the app."""
 
+import csv
 import json
 import unittest
 from pathlib import Path
@@ -19,12 +20,21 @@ class WorkspaceTest(unittest.TestCase):
     def test_workspace_is_public_but_limited_to_app_roles(self):
         self.assertEqual("Workspace", self.workspace["doctype"])
         self.assertEqual("Conciliacion Credinomina", self.workspace["name"])
+        self.assertEqual(self.workspace["name"], self.workspace["title"])
+        self.assertEqual(self.workspace["name"], self.workspace["label"])
         self.assertEqual(1, self.workspace["public"])
         self.assertEqual(0, self.workspace["is_hidden"])
         self.assertEqual(
             {"System Manager", "Supervisor Credinomina", "Operador Credinomina"},
             {item["role"] for item in self.workspace["roles"]},
         )
+
+    def test_workspace_has_spanish_display_translation(self):
+        translations = dict(csv.reader(
+            (ROOT / "credinomina_reconciliation" / "translations" / "es.csv")
+            .read_text(encoding="utf-8").splitlines()
+        ))
+        self.assertEqual("Conciliación Credinómina", translations[self.workspace["title"]])
 
     def test_blocks_refer_to_existing_cards_and_shortcuts(self):
         ids = [block["id"] for block in self.blocks]
