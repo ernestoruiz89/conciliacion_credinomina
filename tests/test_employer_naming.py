@@ -1,3 +1,4 @@
+import configparser
 import importlib.util
 import json
 import sys
@@ -24,9 +25,14 @@ class EmployerNamingTest(unittest.TestCase):
         self.assertEqual("field:employer_name", doctype["autoname"])
         self.assertEqual(1, fields["employer_code"]["unique"])
         self.assertEqual("employer_code", doctype["search_fields"])
-        patches = (root / "credinomina_reconciliation" / "patches.txt").read_text()
-        self.assertIn("[post_model_sync]", patches)
-        self.assertIn("rename_cn_employers_by_name", patches)
+        patches = configparser.ConfigParser(allow_no_value=True, delimiters="\n")
+        patches.optionxform = str
+        patches.read(root / "credinomina_reconciliation" / "patches.txt")
+        self.assertEqual([], list(patches["pre_model_sync"]))
+        self.assertEqual(
+            ["credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name"],
+            list(patches["post_model_sync"]),
+        )
 
     def test_patch_preserves_codes_when_renaming_existing_records(self):
         root = Path(__file__).resolve().parents[1]
