@@ -30,7 +30,7 @@ def _as_date(value) -> date:
 
 
 def historical_scope_interval(scope, exact_date=None, start_date=None, end_date=None):
-    """Return the inclusive application-date window, or None for legacy monthly periods."""
+    """Return the inclusive application-date window, or None for monthly periods."""
     scope = scope or HISTORICAL_MONTHLY
     if scope == HISTORICAL_MONTHLY:
         if exact_date or start_date or end_date:

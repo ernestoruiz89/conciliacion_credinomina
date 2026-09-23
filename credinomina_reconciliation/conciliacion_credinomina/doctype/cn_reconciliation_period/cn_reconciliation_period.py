@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import json
-from collections import defaultdict
 
 import frappe
 from frappe import _
@@ -28,7 +27,6 @@ from credinomina_reconciliation.historical import (
 )
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
-    SOURCE_DEPOSITS,
     SourceFileError,
     clean_text,
     file_sha256,
@@ -39,9 +37,7 @@ from credinomina_reconciliation.period_lock import current_period_write_action, 
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
     converted_amount,
-    deposit_pair_result,
     match_collection_record,
-    narrow_deposit_candidates_by_date,
     remittance_fx_basis,
 )
 from credinomina_reconciliation.rounding import CASH_EPSILON
@@ -286,56 +282,7 @@ def _assert_editable(period):
 
 
 def _recognition_pairs():
-    """Find legacy matched deposits and supported deposits entered in the app."""
-    imports = frappe.get_all(
-        "CN Source Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
-        fields=["name", "source_type"],
-        limit_page_length=100000,
-    )
-    source_type = {item.name: item.source_type for item in imports}
-    relevant = [
-        name for name, kind in source_type.items()
-        if kind in {SOURCE_ACCOUNTING, SOURCE_DEPOSITS}
-    ]
-    deposits = frappe.get_all(
-        "CN Source Row",
-        filters={"parent": ["in", relevant], "event_type": "Deposito", "effective": 1},
-        fields=[
-            "name", "parent", "reference", "voucher", "event_date", "employer_text",
-            "currency", "amount", "equivalent_currency", "equivalent_amount",
-            "fx_rate", "fx_basis", "manual_fx_rate", "manual_fx_evidence",
-            "allocated_usd", "justified_surplus_usd",
-        ],
-        limit_page_length=100000,
-    ) if relevant else []
-    accounting = [row for row in deposits if source_type.get(row.parent) == SOURCE_ACCOUNTING]
-    bank = [row for row in deposits if source_type.get(row.parent) == SOURCE_DEPOSITS]
-    accounting_by_reference = defaultdict(list)
-    bank_by_reference = defaultdict(list)
-    for row in accounting:
-        accounting_by_reference[clean_text(row.reference)].append(row)
-    for row in bank:
-        bank_by_reference[clean_text(row.reference)].append(row)
     paired = []
-    for account in accounting:
-        matches = narrow_deposit_candidates_by_date(
-            account, [
-                item for item in bank_by_reference[clean_text(account.reference)]
-                if deposit_pair_result(account, item)[0]
-            ]
-        )
-        if len(matches) != 1:
-            continue
-        reverse = narrow_deposit_candidates_by_date(
-            matches[0],
-            [
-                item for item in accounting_by_reference[clean_text(matches[0].reference)]
-                if deposit_pair_result(item, matches[0])[0]
-            ],
-        )
-        if len(reverse) == 1 and reverse[0].name == account.name:
-            paired.append((account, matches[0]))
     for item in frappe.get_all(
         "CN Remittance Allocation",
         filters={"docstatus": 1},
@@ -357,10 +304,6 @@ def _recognition_pairs():
             manual_fx_rate=item.fx_rate, manual_fx_evidence=fx_basis,
             allocated_usd=item.allocated_usd, justified_surplus_usd=0,
         )
-        paired = [
-            pair for pair in paired
-            if not deposit_pair_result(pair[0], deposit)[0]
-        ]
         paired.append((deposit, deposit))
     return paired
 

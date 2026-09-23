@@ -147,7 +147,7 @@ function showDepositRecognition(frm) {
     }).then((response) => {
         const deposits = response.message || [];
         if (!deposits.length) {
-            frappe.msgprint(__("No hay un depósito contable y bancario libre que coincida exactamente con la cobranza completa de este período."));
+            frappe.msgprint(__("No hay una remesa registrada y libre que coincida exactamente con la cobranza completa de este período."));
             return;
         }
         const labels = deposits.map((item) =>

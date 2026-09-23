@@ -6,9 +6,6 @@ from typing import Any
 
 from credinomina_reconciliation.client_identity import matching_name
 from credinomina_reconciliation.parsers import (
-    SOURCE_ACCOUNTING,
-    SOURCE_DEPOSITS,
-    SOURCE_TRANSACTIONS,
     canonical_identifier,
     clean_text,
 )
@@ -438,16 +435,6 @@ def match_collection_record(
         if len(exact) > 1:
             return None, f"Coincidencia ambigua por {label}"
     return None, "Sin coincidencia exacta"
-
-
-def source_priority(source_type: str, event_type: str) -> int:
-    if source_type == SOURCE_ACCOUNTING:
-        return 10
-    if source_type == SOURCE_TRANSACTIONS and event_type == "Aplicacion":
-        return 20
-    if source_type == SOURCE_DEPOSITS and event_type == "Deposito":
-        return 20
-    return 90
 
 
 def duplicate_business_key(row: Mapping[str, Any]) -> tuple[Any, ...]:

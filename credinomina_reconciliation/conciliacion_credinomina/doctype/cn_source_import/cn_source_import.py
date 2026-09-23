@@ -15,8 +15,6 @@ from credinomina_reconciliation.client_registry import load_client_index, names_
 from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
-    deposit_scope,
-    duplicate_deposit_key,
     resolved_deposit_employer,
 )
 from credinomina_reconciliation.employer_naming import employer_alias_index
@@ -29,8 +27,6 @@ from credinomina_reconciliation.historical import (
 )
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
-    SOURCE_DEPOSITS,
-    SOURCE_TRANSACTIONS,
     SourceFileError,
     canonical_identifier,
     clean_text,
@@ -50,7 +46,6 @@ from credinomina_reconciliation.reconciliation import (
     narrow_deposit_candidates_by_date,
     remittance_fx_basis,
     same_amount,
-    source_priority,
 )
 from credinomina_reconciliation.rounding import CASH_EPSILON, rounding_movements
 from credinomina_reconciliation.remittance_detail import (
@@ -79,35 +74,15 @@ class CNSourceImport(Document):
     def validate(self):
         self._validate_source_type()
         self._validate_historical_periods()
-        if any(
-            row.deposit_scope and (
-                self.source_type != SOURCE_DEPOSITS or row.event_type != "Deposito"
-            )
-            for row in self.rows or []
-        ):
-            frappe.throw(_("El tratamiento del depósito solo corresponde a la pestaña Depósito."))
         self._validate_duplicate_file()
         self._validate_manual_rates()
         self.recalculate_summary()
 
     def _validate_source_type(self):
-        if self.source_type != SOURCE_DEPOSITS:
-            return
-        previous_type = (
-            frappe.db.get_value(self.doctype, self.name, "source_type")
-            if self.name else None
-        )
-        if previous_type != SOURCE_DEPOSITS:
-            frappe.throw(_(
-                "El detalle de depósitos ya no se carga en Importación de Fuente. "
-                "Registre cada depósito en Distribución de Remesa."
-            ))
+        if self.source_type != SOURCE_ACCOUNTING:
+            frappe.throw(_("El tipo de fuente debe ser Movimientos contables."))
 
     def _validate_historical_periods(self):
-        if self.historical_period and self.source_type == "Detalle de depositos":
-            frappe.throw(_("El período histórico se asigna a aplicaciones, no al archivo bancario."))
-        if self.historical_backfill and self.source_type == "Detalle de depositos":
-            frappe.throw(_("La carga histórica de aplicaciones no corresponde al archivo bancario."))
         if any(
             row.historical_period and row.event_type != "Aplicacion"
             for row in self.rows or []
@@ -247,11 +222,8 @@ def _attached_file(document):
 def import_source_file(import_name: str):
     document = frappe.get_doc("CN Source Import", import_name)
     document.check_permission("write")
-    if document.source_type == SOURCE_DEPOSITS:
-        frappe.throw(_(
-            "Las fuentes bancarias anteriores se conservan para consulta y conciliación, "
-            "pero ya no admiten nuevas cargas. Registre el depósito en Distribución de Remesa."
-        ))
+    if document.source_type != SOURCE_ACCOUNTING:
+        frappe.throw(_("Solo se admiten archivos de Movimientos contables."))
     file_doc, content = _attached_file(document)
     try:
         parsed = parse_source_file(document.source_type, file_doc.file_name, content)
@@ -268,15 +240,15 @@ def import_source_file(import_name: str):
                 (
                     row.name, row.manual_fx_rate,
                     row.manual_fx_evidence, row.historical_period,
-                    row.processing_route, row.deposit_scope,
+                    row.processing_route,
                 )
             )
     document.file_hash = file_sha256(content)
     document.set("rows", [])
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, manual_evidence, prior_period, prior_route, prior_scope = (
-            previous.pop(0) if previous else (None, 0, "", "", "", "")
+        preserved_name, manual_rate, manual_evidence, prior_period, prior_route = (
+            previous.pop(0) if previous else (None, 0, "", "", "")
         )
         document.append(
             "rows",
@@ -286,7 +258,6 @@ def import_source_file(import_name: str):
                 "manual_fx_rate": manual_rate,
                 "manual_fx_evidence": manual_evidence,
                 "processing_route": prior_route,
-                "deposit_scope": prior_scope if record["event_type"] == "Deposito" else "",
                 "historical_period": (
                     prior_period or document.historical_period
                     if record["event_type"] == "Aplicacion" else ""
@@ -315,7 +286,7 @@ def reconcile_all_sources():
 
     import_names = frappe.get_all(
         "CN Source Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
+        filters={"status": ["in", ["Importado", "Importado con excepciones"]], "source_type": SOURCE_ACCOUNTING},
         order_by="creation asc",
         pluck="name",
     )
@@ -364,7 +335,7 @@ def reconcile_all_sources():
                     row.historical_application_id = row.name
             all_rows.append(row)
 
-    _apply_source_precedence(all_rows)
+    _deduplicate_applications(all_rows)
     periods = _load_open_periods()
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
@@ -400,10 +371,7 @@ def reconcile_all_sources():
         ],
         order_by="creation asc",
     )
-    legacy_pairs = _scope_deposit_pairs(all_rows, _match_deposits(all_rows))
-    deposit_pairs, registered_ids = _registered_deposit_pairs(
-        all_rows, manual_allocations, legacy_pairs
-    )
+    deposit_pairs, registered_ids = _registered_deposit_pairs(all_rows, manual_allocations)
     _refresh_recognition_evidence(periods, deposit_pairs)
     _match_applications(
         all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
@@ -461,24 +429,10 @@ def reconcile_all_sources():
     }
 
 
-def _apply_source_precedence(rows):
+def _deduplicate_applications(rows):
     application_rows = [row for row in rows if row.event_type == "Aplicacion"]
-    application_rows.sort(
-        key=lambda row: (
-            source_priority(row._source_type, row.event_type),
-            row._source_import,
-            row.idx,
-        )
-    )
+    application_rows.sort(key=lambda row: (row._source_import, row.idx))
     claimed = {}
-    primary_by_reference = defaultdict(list)
-    for row in application_rows:
-        if row._source_type != SOURCE_ACCOUNTING:
-            continue
-        if row.reference:
-            primary_by_reference[
-                (canonical_identifier(row.loan_number), clean_text(row.reference))
-            ].append(row)
     for row in rows:
         if row.event_type == "Ajuste":
             row.effective = 0
@@ -487,24 +441,6 @@ def _apply_source_precedence(rows):
                 "Las dispensas y ajustes no son pagos en efectivo y se revisan por separado."
             )
     for row in application_rows:
-        if (
-            row._source_type == SOURCE_TRANSACTIONS
-            and row.reference
-            and any(
-                same_amount(primary.amount, row.amount)
-                and primary.currency == row.currency
-                and str(primary.event_date or "")[:10] == str(row.event_date or "")[:10]
-                for primary in primary_by_reference[
-                    (canonical_identifier(row.loan_number), clean_text(row.reference))
-                ]
-            )
-        ):
-            row.effective = 0
-            row.match_status = "Ignorado"
-            row.match_reason = _(
-                "Movimientos contables ya contiene esta aplicacion; Transacciones se usa solo como respaldo."
-            )
-            continue
         key = duplicate_business_key(row.as_dict())
         preferred = claimed.get(key)
         if not preferred:
@@ -512,30 +448,7 @@ def _apply_source_precedence(rows):
             continue
         row.effective = 0
         row.match_status = "Ignorado"
-        row.match_reason = _("La fuente principal ya contiene esta aplicacion.")
-
-    # Monthly Depósito workbooks can retain unresolved rows from earlier months.
-    # Keep the first identical bank entry, but not a second copy from a later file.
-    first_deposit_by_key = {}
-    for row in rows:
-        if (
-            row._source_type != SOURCE_DEPOSITS
-            or row.event_type != "Deposito"
-            or not row.effective
-        ):
-            continue
-        key = duplicate_deposit_key(row.as_dict())
-        if key is None:
-            continue
-        first = first_deposit_by_key.get(key)
-        if first and first._source_import != row._source_import:
-            row.effective = 0
-            row.match_status = "Ignorado"
-            row.match_reason = _(
-                "El mismo depósito ya fue importado desde {0}."
-            ).format(first._source_import)
-        elif first is None:
-            first_deposit_by_key[key] = row
+        row.match_reason = _("Esta aplicación ya existe en otra importación contable.")
 
 
 def _load_open_periods():
@@ -556,7 +469,7 @@ def _refresh_recognition_evidence(periods, deposit_pairs):
         pair = pairs_by_account.get(period.deduction_recognition_deposit)
         reason = ""
         if not pair:
-            reason = _("El depósito de respaldo ya no está conciliado entre banco y contabilidad.")
+            reason = _("El depósito de respaldo ya no está registrado o disponible.")
         else:
             account, bank = pair
             rows = [
@@ -868,86 +781,11 @@ def _match_applications(
             )
 
 
-def _match_deposits(rows):
-    accounting = defaultdict(list)
-    bank_detail = defaultdict(list)
-    for row in rows:
-        if row.event_type != "Deposito" or not row.effective:
-            continue
-        target = accounting if row._source_type == SOURCE_ACCOUNTING else bank_detail
-        target[clean_text(row.reference)].append(row)
-
-    paired = []
-    for reference in set(accounting) | set(bank_detail):
-        left = accounting.get(reference, [])
-        right = bank_detail.get(reference, [])
-        if not reference:
-            for row in left + right:
-                row.match_status = "Sin coincidencia"
-                row.match_reason = _("El deposito no tiene referencia bancaria.")
-            continue
-
-        matches_by_left = {
-            id(account): narrow_deposit_candidates_by_date(
-                account.as_dict(), [
-                    bank for bank in right
-                    if deposit_pair_result(account.as_dict(), bank.as_dict())[0]
-                ],
-            )
-            for account in left
-        }
-        matches_by_right = {
-            id(bank): narrow_deposit_candidates_by_date(
-                bank.as_dict(), [
-                    account for account in left
-                    if deposit_pair_result(account.as_dict(), bank.as_dict())[0]
-                ],
-            )
-            for bank in right
-        }
-        paired_ids = set()
-        for account in left:
-            candidates = matches_by_left[id(account)]
-            if len(candidates) != 1:
-                continue
-            bank = candidates[0]
-            if len(matches_by_right[id(bank)]) != 1:
-                continue
-            reason = deposit_pair_result(account.as_dict(), bank.as_dict())[1]
-            for row in (account, bank):
-                row.match_status = "Conciliado"
-                row.match_reason = _(reason)
-                paired_ids.add(id(row))
-            paired.append((account, bank))
-
-        for row, alternatives, opposite in (
-            *((account, matches_by_left[id(account)], right) for account in left),
-            *((bank, matches_by_right[id(bank)], left) for bank in right),
-        ):
-            if id(row) in paired_ids:
-                continue
-            if alternatives:
-                row.match_status = "Ambiguo"
-                row.match_reason = _("Hay mas de un deposito compatible con esta referencia e importe.")
-            else:
-                row.match_status = "Sin coincidencia"
-                if opposite:
-                    reason = deposit_pair_result(
-                        row.as_dict(), opposite[0].as_dict()
-                    )[1]
-                    row.match_reason = _(reason)
-                else:
-                    row.match_reason = _(
-                        "Falta el deposito equivalente en contabilidad o en el detalle bancario."
-                    )
-    return paired
-
-
-def _registered_deposit_pairs(rows, allocations, legacy_pairs):
-    """Use manually registered deposits as cash evidence; keep unmatched legacy pairs."""
+def _registered_deposit_pairs(rows, allocations):
+    """Use registered deposits as cash evidence."""
     registered = list(allocations)
     if not registered:
-        return legacy_pairs, {}
+        return [], {}
     accounting = [
         row for row in rows
         if row.event_type == "Deposito" and row.effective
@@ -991,7 +829,7 @@ def _registered_deposit_pairs(rows, allocations, legacy_pairs):
             account = candidates[0]
             used_account_ids.add(account.name)
             account.match_status = "Conciliado"
-            account.match_reason = _("Depósito comprobado con registro y soporte adjunto.")
+            account.match_reason = _("Depósito cotejado con la remesa registrada.")
             pairs.append((registered_row, account))
             deposit_ids[item.name] = item.name
         else:
@@ -999,48 +837,7 @@ def _registered_deposit_pairs(rows, allocations, legacy_pairs):
             # have an imported accounting deposit row at registration time.
             pairs.append((registered_row, registered_row))
             deposit_ids[item.name] = item.name
-    for account, bank in legacy_pairs:
-        if account.name in used_account_ids:
-            bank.match_status = "Ignorado"
-            bank.match_reason = _("Sustituido por depósito registrado con soporte adjunto.")
-            continue
-        pairs.append((account, bank))
     return pairs, deposit_ids
-
-
-def _scope_deposit_pairs(rows, paired):
-    """Exclude clearly unrelated bank rows, retaining uncertain ones for review."""
-    known_employers = frappe.get_all(
-        "CN Employer", fields=["name", "employer_name", "employer_code"],
-        limit_page_length=100000,
-    )
-    aliases, ambiguous = employer_alias_index(known_employers)
-    account_by_bank = {id(bank): account for account, bank in paired}
-    excluded_banks = set()
-    for bank in rows:
-        if (
-            bank._source_type != SOURCE_DEPOSITS
-            or bank.event_type != "Deposito"
-            or not bank.effective
-        ):
-            continue
-        account = account_by_bank.get(id(bank))
-        decision = deposit_scope(
-            bank.as_dict(), account.as_dict() if account else None, aliases, ambiguous
-        )
-        if decision != "Excluir":
-            continue
-        excluded_banks.add(id(bank))
-        reason = _(
-            "Fuera de la conciliación de convenios según CLIENTE. "
-            "Si corresponde a una empresa, seleccione Conciliar y vuelva a reconciliar."
-        )
-        for source in (bank, account):
-            if source:
-                source.effective = 0
-                source.match_status = "Ignorado"
-                source.match_reason = reason
-    return [(account, bank) for account, bank in paired if id(bank) not in excluded_banks]
 
 
 def _prepare_remittance_details(
@@ -1286,7 +1083,7 @@ def _distribute_deposits(
             and not same_amount(account_usd, bank_usd)
         ):
             account.allocation_reason = bank.allocation_reason = _(
-                "Los equivalentes US$ del banco y contabilidad difieren."
+                "Los equivalentes US$ de la remesa y el movimiento contable difieren."
             )
             for source in (account, bank):
                 source.match_status = "Sin coincidencia"
@@ -1334,24 +1131,6 @@ def _distribute_deposits(
                     references_by_row[row_id].add(reference)
                     hints_by_row[row_id][reference] += flt(link["amount_usd"])
 
-    fallback_identities = defaultdict(set)
-    for source in source_rows:
-        if source.event_type != "Aplicacion" or source._source_type != SOURCE_TRANSACTIONS:
-            continue
-        if not (source.client_number or source.employee_number or source.national_id):
-            continue
-        key = (
-            canonical_identifier(source.loan_number), clean_text(source.reference),
-            round(flt(source.amount), 4), source.currency,
-            str(source.event_date or "")[:10],
-        )
-        fallback_identities[key].add((
-            clean_text(source.client_number), clean_text(source.national_id),
-            clean_text(source.installment_number),
-            clean_text(source.client_name),
-            clean_text(source.employee_number),
-        ))
-
     claims = []
     for row in rows_by_name.values():
         deducted_usd = _deducted_amount(row, "USD")
@@ -1386,23 +1165,16 @@ def _distribute_deposits(
              "period": item.period}
         )
     for application in historical_applications.values():
-        identity_key = (
-            canonical_identifier(application.loan_number),
-            clean_text(application.reference), round(flt(application.amount), 4),
-            application.currency, str(application.event_date or "")[:10],
-        )
-        identity_options = fallback_identities.get(identity_key, set())
-        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "", "", "")
         claims.append(
             {
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
-                "kind": "H", "client_number": application.client_number or fallback_identity[0],
-                "employee_number": application.employee_number or fallback_identity[4],
-                "national_id": application.national_id or fallback_identity[1],
-                "client_name": application.client_name or fallback_identity[3],
+                "kind": "H", "client_number": application.client_number,
+                "employee_number": application.employee_number,
+                "national_id": application.national_id,
+                "client_name": application.client_name,
                 "loan_number": application.loan_number,
-                "installment_number": application.installment_number or fallback_identity[2],
+                "installment_number": application.installment_number,
                 "references": [clean_text(application.reference)],
                 "hints": {},
                 "group": employer_by_period.get(application.historical_period),

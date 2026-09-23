@@ -17,11 +17,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-SOURCE_ACCOUNTING = "Movimientos contables (principal)"
-SOURCE_TRANSACTIONS = "Transacciones del core (fallback)"
-SOURCE_DEPOSITS = "Detalle de depositos"
-
-SOURCE_TYPES = (SOURCE_ACCOUNTING, SOURCE_TRANSACTIONS, SOURCE_DEPOSITS)
+SOURCE_ACCOUNTING = "Movimientos contables"
 
 
 class SourceFileError(ValueError):
@@ -438,104 +434,6 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
     return parsed
 
 
-def parse_transactions(file_name: str, content: bytes) -> list[dict[str, Any]]:
-    records = _records_from_header(read_table(file_name, content), "cod_trans")
-    parsed = []
-    for row_number, record in records:
-        transaction = clean_text(record.get("desc_transaccion"))
-        if not transaction:
-            continue
-        event_type = "Ajuste" if "DISPENSA" in transaction.upper() else "Aplicacion"
-        if event_type == "Aplicacion" and "DEPOSITO" not in transaction.upper():
-            continue
-        currency_text = clean_text(record.get("moneda")).upper()
-        currency = "NIO" if "CORD" in currency_text else "USD"
-        amount = parse_amount(record.get("total"))
-        if amount <= 0:
-            continue
-        transaction_rate = parse_amount(record.get("tipo_cambio"))
-        equivalent_currency = "NIO" if currency == "USD" else "USD"
-        equivalent_amount = (
-            amount * transaction_rate
-            if currency == "USD"
-            else amount / transaction_rate if transaction_rate > 0 else 0
-        )
-        reference = clean_text(record.get("referencia")) or _extract_reference(
-            clean_text(record.get("concepto"))
-        )
-        parsed.append(
-            _source_record(
-                row_number=row_number,
-                event_type=event_type,
-                event_date=parse_date(record.get("fecha")),
-                reference=reference,
-                voucher=record.get("nro_comprobante"),
-                receipt=record.get("nro_comprobante"),
-                employer=record.get("convenio"),
-                client_number=record.get("nrocliente"),
-                employee_number=(
-                    record.get("nro_empleado") or record.get("numero_empleado")
-                    or record.get("nroempleado") or record.get("numeroempleado")
-                ),
-                client_name=record.get("cliente"),
-                national_id=record.get("identificacion"),
-                loan_number=record.get("nrocredito"),
-                installment_number=record.get("nrocuota"),
-                currency=currency,
-                amount=amount,
-                description=record.get("concepto") or transaction,
-                equivalent_currency=equivalent_currency if transaction_rate > 0 else "",
-                equivalent_amount=equivalent_amount,
-                fx_basis="TIPO_CAMBIO de Transacciones" if transaction_rate > 0 else "",
-            )
-        )
-    if not parsed:
-        raise SourceFileError("No se encontraron aplicaciones en Transacciones.")
-    return parsed
-
-
-def parse_deposit_detail(file_name: str, content: bytes) -> list[dict[str, Any]]:
-    sheet_name = "Depósito" if Path(file_name).suffix.lower() in {".xlsx", ".xls"} else None
-    records = _records_from_header(
-        read_table(file_name, content, sheet_name=sheet_name), "referencia"
-    )
-    parsed = []
-    for row_number, record in records:
-        nio_amount = parse_amount(record.get("valorc"))
-        usd_amount = parse_amount(record.get("valoru"))
-        if nio_amount <= 0 and usd_amount <= 0:
-            continue
-        description = clean_text(record.get("descripcion"))
-        client_name = clean_text(record.get("cliente"))
-        native_amounts = [("NIO", nio_amount), ("USD", usd_amount)]
-        for currency, amount in native_amounts:
-            if amount <= 0:
-                continue
-            reported_usd = parse_amount(record.get("monto_u"))
-            has_separate_currency_amounts = nio_amount > 0 and usd_amount > 0
-            parsed.append(
-                _source_record(
-                    row_number=row_number,
-                    event_type="Deposito",
-                    event_date=parse_date(record.get("fecha")),
-                    reference=record.get("referencia"),
-                    voucher=record.get("banco"),
-                    employer=_extract_employer(client_name, client_name),
-                    client_name=client_name,
-                    loan_number=record.get("no_credito"),
-                    currency=currency,
-                    amount=amount,
-                    description=description,
-                    equivalent_currency="USD" if currency == "NIO" and reported_usd > 0 and not has_separate_currency_amounts else "",
-                    equivalent_amount=reported_usd if currency == "NIO" and not has_separate_currency_amounts else 0,
-                    fx_basis="MONTO U$ del detalle de deposito" if currency == "NIO" and reported_usd > 0 and not has_separate_currency_amounts else "",
-                )
-            )
-    if not parsed:
-        raise SourceFileError("No se encontraron depositos reconocibles.")
-    return parsed
-
-
 def _source_record(
     *,
     row_number: int,
@@ -603,8 +501,4 @@ def _source_record(
 def parse_source_file(source_type: str, file_name: str, content: bytes) -> list[dict[str, Any]]:
     if source_type == SOURCE_ACCOUNTING:
         return parse_accounting_movements(file_name, content)
-    if source_type == SOURCE_TRANSACTIONS:
-        return parse_transactions(file_name, content)
-    if source_type == SOURCE_DEPOSITS:
-        return parse_deposit_detail(file_name, content)
     raise SourceFileError(f"Tipo de fuente no soportado: {source_type}")

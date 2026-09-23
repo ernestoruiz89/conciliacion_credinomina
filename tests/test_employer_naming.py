@@ -29,7 +29,9 @@ class EmployerNamingTest(unittest.TestCase):
         patches.optionxform = str
         patches.read(root / "credinomina_reconciliation" / "patches.txt")
         self.assertEqual(
-            ["credinomina_reconciliation.patches.v1_0.move_remittance_fx_evidence_to_notes"],
+            [
+                "credinomina_reconciliation.patches.v1_0.move_remittance_fx_evidence_to_notes",
+            ],
             list(patches["pre_model_sync"]),
         )
         self.assertEqual(

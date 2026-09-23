@@ -18,7 +18,7 @@ Ejemplo para una cuota deducida en abril:
 - La empresa devuelve el detalle definitivo de lo efectivamente deducido.
 - La deduccion confirmada se reconoce con fecha de la evidencia de planilla.
 - La empresa remite el dinero en mayo, dentro del plazo definido en su ficha (por defecto, hasta el dia 10).
-- En mayo se importan movimientos contables, transacciones de respaldo y detalle bancario. La segunda conciliacion vincula aplicacion, deposito contable y deposito bancario.
+- En mayo se importan los movimientos contables para las aplicaciones. El depósito y su detalle se registran en Distribución de Remesa; la segunda conciliación vincula aplicación y remesa.
 
 El periodo siempre se identifica por el **mes de la planilla**, no por el mes en que llega el deposito.
 
@@ -43,7 +43,7 @@ Resultados posibles:
 
 ## Implementación histórica y corte de septiembre de 2026
 
-De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos contables y bancarios (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes y corte asignados explícitamente: mensual, fecha exacta de aplicación o rango inclusivo de fechas. Las fechas de aplicación pueden ser el 15, el 30 o cualquier otro día, incluso de un mes posterior al de cobranza. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Remesa confirmada.
+De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos registrados en Distribución de Remesa (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes y corte asignados explícitamente: mensual, fecha exacta de aplicación o rango inclusivo de fechas. Las fechas de aplicación pueden ser el 15, el 30 o cualquier otro día, incluso de un mes posterior al de cobranza. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Remesa confirmada.
 
 Este saldo **no** prueba que la empresa deba dinero ni que el trabajador no haya pagado: son conclusiones que exigirían la cobranza y la deducción, ausentes en el histórico. Tampoco se registra un pago nuevo en el core. Una aplicación de agosto depositada en septiembre permanece en agosto por su período asignado. Desde **septiembre de 2026**, los períodos nuevos son **Operativos** y usan ambas conciliaciones descritas abajo. Véase la secuencia de carga en `docs/instalacion_y_uso.md`.
 
@@ -59,7 +59,7 @@ El tablero agrega importes para la vista del mes y permite abrir cada quincena. 
 
 ### Reconocimiento provisional por depósito coincidente
 
-Si la empresa no remite el detalle de planilla pero el **depósito contable y el detalle bancario** forman una pareja inequívoca, libre de distribuciones, y el total coincide con la cobranza completa del período, el operador puede elegir **Conciliación 1 → Reconocer cobranza por depósito**. La app compara en US$; si la cobranza y el depósito también están expresados en C$, exige coincidencia en C$ y una tasa documentada para el equivalente en US$. No se ofrece esta opción para depósitos parciales, ya usados, anteriores al cierre del ciclo o atribuibles a otra empresa identificada.
+Si la empresa no remite el detalle de planilla pero un **depósito registrado** coincide inequívocamente con la cobranza completa del período y no tiene otras distribuciones, el operador puede elegir **Conciliación 1 → Reconocer cobranza por depósito** y justificarlo. La app compara en US$; si la cobranza y el depósito también están expresados en C$, exige coincidencia en C$ y una tasa documentada para el equivalente en US$. No se ofrece esta opción para depósitos parciales, ya usados, anteriores al cierre del ciclo o atribuibles a otra empresa identificada.
 
 El operador selecciona el depósito y escribe una justificación. La app registra quién lo reconoció, cuándo y qué depósito se usó; asigna el depósito a las filas de cobranza y muestra **Inferida por depósito** en lugar de presentar la deducción como confirmada por la empresa. El estado de cuenta y el tablero conservan esa advertencia. Este reconocimiento **no es prueba individual de descuento salarial** ni sustituye el detalle de planilla para investigar reclamaciones de trabajadores. Si llega el detalle real, se importa y reemplaza la inferencia; si fue un error, use **Revertir reconocimiento por depósito** antes del cierre.
 
@@ -82,12 +82,11 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 
 ## Conciliacion 2: aplicaciones contra deposito
 
-1. Importar **Movimientos contables** como fuente principal de aplicaciones.
-2. Importar **Transacciones** como respaldo. Una aplicacion equivalente se ignora si ya existe en la fuente principal. Las `DISPENSAS` no se tratan como efectivo.
-3. Registrar cada depósito de convenio en **Distribución de Remesa**, con su fecha real, empresa, referencia, importe, moneda y soporte. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a esa misma remesa e importarlo allí. Las importaciones bancarias anteriores se conservan para consulta y conciliación, pero no admiten nuevas cargas.
-4. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
-5. El depósito bancario se concilia con el depósito contable por referencia e importe en su moneda original o equivalente documentado.
-6. La remesa se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.
+1. Importar solo **Movimientos contables** para las aplicaciones. Las `DISPENSAS` no se tratan como efectivo.
+2. Registrar cada depósito de convenio en **Distribución de Remesa**, con su fecha real, empresa, referencia, importe, moneda y soporte. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a esa misma remesa e importarlo allí.
+3. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
+4. El depósito registrado puede cotejarse con un movimiento contable de depósito por referencia e importe en su moneda original o equivalente documentado.
+5. La remesa se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.
 
 Un depósito puede cubrir parte de una cobranza, varias cobranzas o combinarse con otros depósitos para cubrir una misma cobranza. Cada depósito conserva su importe distribuido, su saldo sin distribuir y el detalle de destinos; cada fila de cobranza muestra los depósitos que la financiaron, lo remitido y lo pendiente de la empresa. Una aplicación parcial del core tampoco se confunde con el pago completo de la cuota.
 
@@ -103,13 +102,13 @@ Cuando la tasa de la planilla difiere de la tasa del depósito, la diferencia en
 
 ### Ajustes menores por tolerancia
 
-El supervisor puede definir por empresa una tolerancia de **0 a US$0.10**, inicialmente cero. Tras la distribución de una remesa en US$, si el depósito bancario/contable y una única aplicación del core se enlazan sin ambigüedad, una diferencia absoluta no mayor que la tolerancia crea un **Movimiento de Conciliación** interno. La diferencia firmada es `depósito − aplicación`: US$46.53 depositados contra US$46.52 aplicados producen **+US$0.01**; US$46.52 depositados contra US$46.53 aplicados producen **−US$0.01**. Ambos se muestran en el período y el tablero sin cambiar el importe aplicado al préstamo ni el dinero recibido.
+El supervisor puede definir por empresa una tolerancia de **0 a US$0.10**, inicialmente cero. Tras la distribución de una remesa en US$, si el depósito registrado y una única aplicación del core se enlazan sin ambigüedad, una diferencia absoluta no mayor que la tolerancia crea un **Movimiento de Conciliación** interno. La diferencia firmada es `depósito − aplicación`: US$46.53 depositados contra US$46.52 aplicados producen **+US$0.01**; US$46.52 depositados contra US$46.53 aplicados producen **−US$0.01**. Ambos se muestran en el período y el tablero sin cambiar el importe aplicado al préstamo ni el dinero recibido.
 
 Este movimiento no es un asiento contable y no se exporta al core. El signo positivo puede clasificar únicamente el efectivo sobrante correspondiente; el negativo no representa un depósito ficticio. La tolerancia no resuelve diferencias cambiarias, varias asignaciones posibles, pagos parciales ni partidas administrativas. Si el origen cambia, el movimiento se revierte de forma trazable; no se recalcula un período cerrado para modificarlo.
 
 ## Depósitos mayores que la cobranza
 
-El depósito bancario y contable se registra por su importe total, aunque supere las cobranzas informadas. Solo la porción identificada se distribuye a las cobranzas o partidas complementarias. El excedente nunca se aplica automáticamente a un crédito.
+El depósito se registra en la remesa por su importe total, aunque supere las cobranzas informadas. Solo la porción identificada se distribuye a las cobranzas o partidas complementarias. El excedente nunca se aplica automáticamente a un crédito.
 
 - Si la empresa pagó de más por error o remitió una partida no informada, el supervisor crea un **Excedente de Depósito** con período, referencia, comprobante cuando sea necesario, importe en US$, motivo y explicación de su tratamiento.
 - El sistema valida que el excedente documentado no supere el saldo sin distribuir del depósito. Esa porción se muestra como **saldo a favor documentado de la empresa**, separado de las cobranzas. No se considera conciliada con un crédito.

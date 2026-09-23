@@ -6,8 +6,6 @@ from openpyxl import Workbook
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
-    SOURCE_DEPOSITS,
-    SourceFileError,
     parse_collection_file,
     parse_source_file,
 )
@@ -175,54 +173,6 @@ class SourceParserTest(unittest.TestCase):
         self.assertEqual("ANA PEREZ", rows[1]["client_name"])
         self.assertEqual("002", rows[1]["accounting_entry"])
         self.assertEqual("7541", rows[1]["receipt"])
-
-    def test_bank_detail_preserves_nio_payment_and_usd_equivalent(self):
-        content = workbook_bytes(
-            [
-                ["Fecha", "REFERENCIA", "ValorC", "ValorU", "MONTO U$"],
-                ["30/04/2026", "R-1", 3660, 0, 100],
-            ]
-        )
-        rows = parse_source_file(SOURCE_DEPOSITS, "depositos.xlsx", content)
-        self.assertEqual(1, len(rows))
-        self.assertEqual("NIO", rows[0]["currency"])
-        self.assertEqual(3660, rows[0]["amount"])
-        self.assertEqual(100, rows[0]["equivalent_amount"])
-        self.assertEqual(36.6, rows[0]["fx_rate"])
-
-    def test_monthly_bank_file_uses_deposito_tab_and_keeps_mixed_rows(self):
-        workbook = Workbook()
-        workbook.active.title = "BD"
-        workbook.active.append(["REFERENCIA", "ValorC", "ValorU"])
-        workbook.active.append(["WRONG", 9999, 0])
-        sheet = workbook.create_sheet("Depósito")
-        sheet.append([
-            "Fecha", "REFERENCIA ", "DESCRIPCION", "BANCO", " ValorC ",
-            " ValorU ", "No.Credito", "CLIENTE", "MONTO U$",
-        ])
-        sheet.append(["15/04/2025", "R-1", "Remesa", "BAC C$", 3660, 0, None,
-                      "CONVENIO ACME", 100])
-        sheet.append(["16/04/2025", "R-2", "Pago personal", "BAC U$", 0, 25,
-                      "1", "Cliente personal", 25])
-        stream = io.BytesIO()
-        workbook.save(stream)
-
-        rows = parse_source_file(SOURCE_DEPOSITS, "4_ABRIL 2025.xlsx", stream.getvalue())
-        self.assertEqual(2, len(rows))
-        self.assertEqual(["R-1", "R-2"], [row["reference"] for row in rows])
-        self.assertEqual([2, 3], [row["source_row"] for row in rows])
-        self.assertEqual("ACME", rows[0]["employer_text"])
-        self.assertEqual("NIO", rows[0]["currency"])
-        self.assertEqual("USD", rows[1]["currency"])
-
-    def test_multisheet_bank_file_without_deposito_tab_is_rejected(self):
-        workbook = Workbook()
-        workbook.active.title = "BD"
-        workbook.create_sheet("Otra")
-        stream = io.BytesIO()
-        workbook.save(stream)
-        with self.assertRaisesRegex(SourceFileError, "pestaña Depósito"):
-            parse_source_file(SOURCE_DEPOSITS, "depositos.xlsx", stream.getvalue())
 
 
 class ReconciliationTest(unittest.TestCase):

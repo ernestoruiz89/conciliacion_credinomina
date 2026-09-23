@@ -29,12 +29,10 @@ importes permiten un cruce único.
   detalle por cliente identifica automáticamente los destinos; la tabla de
   destinos manuales queda disponible para excepciones. Los repartos ambiguos
   no se adivinan.
-- **Movimientos contables** como fuente principal de aplicaciones y
-  **Transacciones** como respaldo. El depósito se registra directamente con
+- **Movimientos contables** como única fuente de aplicaciones. El depósito se registra directamente con
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
   hace falta importar el Excel bancario mensual (que mezcla otros depósitos).
-  Las importaciones bancarias anteriores permanecen disponibles como legado.
 - Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
   para la conciliación solo con una tasa y evidencia documentadas. Las
   diferencias cambiarias quedan para revisión de cada caso.
@@ -71,8 +69,7 @@ envía a la empresa contiene estas columnas:
 
 La exportación agrega `Fila ID` para enlazar la respuesta sin depender del
 nombre. La empresa devuelve el mismo archivo con `Deducido C$` y/o
-`Deducido US$`. Para aplicaciones se importan **Movimientos contables
-(principal)** y, si hace falta, **Transacciones del core (fallback)**. El
+`Deducido US$`. Para aplicaciones nuevas se importan solo **Movimientos contables**. El
 detalle del pago de la empresa se adjunta e importa **dentro de cada remesa**,
 no como fuente bancaria separada. Si contiene ambos deducidos, US$ es el
 importe de conciliación y C$ es informativo: no se suman. Si solo contiene C$,
@@ -132,8 +129,7 @@ disponible la página `/app/control-credinomina`.
    único. Se ignora el orden de nombres y apellidos y las tildes. Una falta
    de ortografía solo se acepta si se registró como alias; nombres compartidos
    o no reconocidos quedan pendientes, sin asignación automática.
-3. **Aplicación de pago.** Importe **Movimientos contables** y, cuando haga
-   falta, **Transacciones** como respaldo. En la tabla de aplicaciones se ven
+3. **Aplicación de pago.** Importe **Movimientos contables**. En la tabla de aplicaciones se ven
    nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
    y recibo cuando la fuente los proporciona. La aplicación puede registrarse
    antes o después de que llegue la deducción de la empresa.
