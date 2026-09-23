@@ -41,6 +41,7 @@ from credinomina_reconciliation.reconciliation import (
     remittance_fx_basis,
 )
 from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.templates import DETAIL_HEADERS
 
 
 EXCEPTION_STATES = {
@@ -900,23 +901,7 @@ def export_collection(period_name: str):
     except ImportError:
         frappe.throw(_("Se requiere openpyxl para exportar el archivo."))
 
-    headers = [
-        "Nro. Cliente",
-        "Nro. Empleado",
-        "Nombre y Apellidos del Cliente",
-        "Nro Cédula",
-        "Nro. Crédito",
-        "Nro. cuota",
-        "Nro. de cuotas totales",
-        "Monto de la cuota en US$",
-        "Monto de la cuota en C$",
-        "Comentarios",
-        "Referencia de Aplicación",
-        "Comentario de Aplicación",
-        "Deducido C$",
-        "Deducido US$",
-        "Fila ID",
-    ]
+    headers = DETAIL_HEADERS
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Cobranza"

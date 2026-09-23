@@ -1,6 +1,7 @@
 frappe.ui.form.on("CN Reconciliation Period", {
     refresh(frm) {
         setRemittanceDateEditing(frm);
+        if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
 
         if (frm.doc.reconciliation_mode !== "Historica") addExportButton(frm);
@@ -106,6 +107,24 @@ function addExportButton(frm) {
             if (response.message?.file_url) window.open(response.message.file_url);
         });
     }, __("Más opciones"));
+}
+
+function addTemplateButtons(frm) {
+    frm.add_custom_button(__("Plantilla de cobranza"), () => {
+        downloadTemplate("cobranza");
+    }, __("Plantillas"));
+    frm.add_custom_button(__("Plantilla de detalle empresa"), () => {
+        downloadTemplate("empresa", frm.is_new() ? "" : frm.doc.name);
+    }, __("Plantillas"));
+}
+
+function downloadTemplate(templateType, periodName) {
+    const params = new URLSearchParams({ template_type: templateType });
+    if (periodName) params.set("period_name", periodName);
+    window.open(
+        `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,
+        "_blank"
+    );
 }
 
 function showReopenDialog(frm) {

@@ -118,7 +118,8 @@ disponible la página `/app/control-credinomina`.
 ## Primer uso
 
 1. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
-   o quincenal. Adjunte el archivo y pulse **1. Cargar cobranza**. Solo se
+   o quincenal. En **Plantillas → Plantilla de cobranza** descargue el XLSX
+   con las columnas esperadas; complételo, adjúntelo y pulse **1. Cargar cobranza**. Solo se
    cargan las cuotas y se crean o enlazan los clientes; todavía no se afirma
    que la empresa haya deducido ni pagado nada. Cada cliente tiene nombre,
    número, cédula y una tabla de nombres alternativos.
@@ -129,6 +130,9 @@ disponible la página `/app/control-credinomina`.
    único. Se ignora el orden de nombres y apellidos y las tildes. Una falta
    de ortografía solo se acepta si se registró como alias; nombres compartidos
    o no reconocidos quedan pendientes, sin asignación automática.
+   **Plantilla de detalle empresa** descarga esas columnas y, si la cobranza
+   ya se cargó, conserva sus clientes y `Fila ID` para que la empresa complete
+   los importes deducidos.
 3. **Aplicación de pago.** Importe **Movimientos contables**. En la tabla de aplicaciones se ven
    nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
    y recibo cuando la fuente los proporciona. La aplicación puede registrarse
@@ -141,7 +145,9 @@ disponible la página `/app/control-credinomina`.
    Aunque la referencia identifique una sola aplicación, el depósito no se
    asigna automáticamente por cliente sin detalle o distribución manual
    documentada.
-   Adjunte el mismo formato de cobranza con deducidos y pulse **4. Cargar
+   En **Plantillas → Plantilla de detalle del depósito** descargue el mismo
+   formato con deducidos (precargado si eligió **Período del detalle**).
+   Adjunte el archivo completado y pulse **4. Cargar
    detalle del depósito**. Un depósito puede cubrir 200 aplicaciones; varias
    remesas pueden cubrir una aplicación. El detalle se compara en US$ y no
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
