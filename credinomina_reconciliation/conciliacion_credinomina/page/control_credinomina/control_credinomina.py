@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt
 
+from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 from credinomina_reconciliation.rounding import CASH_EPSILON
 
@@ -65,6 +66,7 @@ def get_control_data(year=None, employer=None):
             limit_page_length=20000,
         )
         for row in rows:
+            row["employee_receivable_usd"] = employee_receivable_usd(row)
             rows_by_period[row.parent].append(row)
         historical_rows = frappe.get_all(
             "CN Source Row",
@@ -134,14 +136,13 @@ def get_control_data(year=None, employer=None):
         fx_variance = max(flt(period.fx_variance_usd), 0)
         period_rows = rows_by_period[period.name]
         worker_gap = sum(
-            max(flt(row.expected_usd) - flt(row.deducted_usd), 0)
+            flt(row.employee_receivable_usd)
             for row in period_rows
-            if row.deduction_status != "Pendiente de detalle"
         ) if not is_historical else 0
         pending_detail = sum(
             flt(row.expected_usd)
             for row in period_rows
-            if row.deduction_status == "Pendiente de detalle"
+            if row.employee_receivable_usd is None
         ) if not is_historical else 0
         adjustment = flt(period.rounding_adjustment_usd)
         # This is an assignment gap, not a confirmed company receivable: an

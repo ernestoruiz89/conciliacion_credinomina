@@ -1,6 +1,10 @@
+from collections import defaultdict
+
 import frappe
 from frappe import _
 from frappe.utils import flt
+
+from credinomina_reconciliation.aging import employee_receivable_usd
 
 
 def execute(filters=None):
@@ -55,6 +59,27 @@ def execute(filters=None):
             credit_by_period[item.period] = (
                 credit_by_period.get(item.period, 0) + flt(item.amount_usd)
             )
+    employee_by_period = defaultdict(lambda: [0.0, 0.0])
+    operational_names = [
+        row.name for row in data if row.reconciliation_mode != "Historica"
+    ]
+    if operational_names:
+        for item in frappe.get_all(
+            "CN Collection Row",
+            filters={"parent": ["in", operational_names]},
+            fields=[
+                "parent", "expected_usd", "expected_nio", "deducted_usd",
+                "deduction_status",
+            ],
+        ):
+            amount = employee_receivable_usd(item)
+            if amount is None:
+                continue
+            employee_by_period[item.parent][0] += amount
+            if flt(item.expected_usd) > 0:
+                employee_by_period[item.parent][1] += (
+                    amount * flt(item.expected_nio) / flt(item.expected_usd)
+                )
     for row in data:
         row["usd_currency"] = "USD"
         row["nio_currency"] = "NIO"
@@ -74,12 +99,12 @@ def execute(filters=None):
             row["company_credit_usd"] = credit_by_period.get(row.name, 0)
             continue
         rate = flt(row.expected_nio) / flt(row.expected_usd) if flt(row.expected_usd) else 0
-        row["employee_shortfall_usd"] = max(flt(row.expected_usd) - flt(row.deducted_usd), 0)
+        row["employee_shortfall_usd"] = round(employee_by_period[row.name][0], 4)
         row["employer_receivable_usd"] = max(
             flt(row.deducted_usd) - flt(row.remitted_usd) - max(flt(row.fx_variance_usd), 0)
             - max(-flt(row.rounding_adjustment_usd), 0), 0
         )
-        row["employee_shortfall_nio"] = max(flt(row.expected_nio) - flt(row.deducted_nio), 0)
+        row["employee_shortfall_nio"] = round(employee_by_period[row.name][1], 4)
         row["employer_receivable_nio"] = max(
             flt(row.deducted_nio) - flt(row.remitted_nio) - (
                 max(flt(row.fx_variance_usd), 0) + max(-flt(row.rounding_adjustment_usd), 0)
@@ -110,14 +135,14 @@ def get_columns():
         {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
         {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 175},
-        {"fieldname": "employee_shortfall_usd", "label": _("Faltante empleado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 135},
+        {"fieldname": "employee_shortfall_usd", "label": _("CxC a empleados US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "employer_receivable_usd", "label": _("Deducido sin remesa asignada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
         {"fieldname": "historical_pending_usd", "label": _("Aplicación histórica sin depósito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 185},
         {"fieldname": "company_credit_usd", "label": _("Saldo a favor documentado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
         {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
         {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
         {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
-        {"fieldname": "employee_shortfall_nio", "label": _("Faltante empleado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 135},
+        {"fieldname": "employee_shortfall_nio", "label": _("CxC a empleados equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
         {"fieldname": "employer_receivable_nio", "label": _("Deducido sin remesa asignada C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
         {"fieldname": "exception_count", "label": _("Excepciones"), "fieldtype": "Int", "width": 90},
     ]

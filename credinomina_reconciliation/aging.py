@@ -37,6 +37,16 @@ def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]
     return {"age_days": days, "age_bucket": bucket, **values}
 
 
+def employee_receivable_usd(row: Mapping[str, Any]) -> float | None:
+    """Undeducted installment, or unknown until the employer provides detail."""
+    status = row.get("deduction_status")
+    if not status or status == "Pendiente de detalle":
+        return None
+    return round(max(
+        float(row.get("expected_usd") or 0) - float(row.get("deducted_usd") or 0), 0
+    ), 4)
+
+
 def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
     """Return distinct exposures; never add unconfirmed detail to a receivable."""
     expected = float(row.get("expected_usd") or 0)
@@ -44,7 +54,8 @@ def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
     remitted = float(row.get("remitted_usd") or 0)
     fx = max(float(row.get("fx_variance_usd") or 0), 0)
     rounding_short = max(-float(row.get("rounding_adjustment_usd") or 0), 0)
-    if row.get("deduction_status") == "Pendiente de detalle":
+    worker_shortfall = employee_receivable_usd(row)
+    if worker_shortfall is None:
         if expected > 0:
             yield {
                 "balance_type": "Detalle de empresa pendiente",
@@ -53,10 +64,9 @@ def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
                 "provision_review_usd": 0,
             }
         return
-    worker_shortfall = round(max(expected - deducted, 0), 4)
     if worker_shortfall > 0:
         yield {
-            "balance_type": "Cuota no deducida al trabajador",
+            "balance_type": "CxC a empleados (cuota no deducida)",
             "amount_usd": worker_shortfall,
             "due_date": period.get("cutoff_date"),
             "provision_review_usd": worker_shortfall,

@@ -175,6 +175,13 @@ la política vigente de la IMF. Un depósito recibido sin detalle puede estar
 cubriendo deducciones aún no asignadas por cliente: no sume ambos importes ni
 interprete la deducción sin remesa asignada como CxC confirmada.
 
+El tablero muestra **CxC a empleados (no deducido)** por año, período y cliente:
+es la cuota enviada menos lo efectivamente deducido, únicamente cuando se
+recibió el detalle de la empresa. Una cuota sin detalle permanece en **Detalle
+pendiente**, no se presume deuda del empleado. La cifra es un control operativo
+en US$ y debe cotejarse con el saldo oficial del crédito en el core. En
+períodos históricos no se infiere CxC a empleados ni a empresas.
+
 ## Desarrollo y documentación
 
 La evidencia de la simulación y los comandos de auditoría están en

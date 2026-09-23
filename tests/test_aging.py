@@ -1,6 +1,6 @@
 import unittest
 
-from credinomina_reconciliation.aging import age_balance, operational_balances
+from credinomina_reconciliation.aging import age_balance, employee_receivable_usd, operational_balances
 
 
 class AgingTests(unittest.TestCase):
@@ -37,6 +37,7 @@ class AgingTests(unittest.TestCase):
             "deduction_status": "Deduccion parcial",
         }, period))
         self.assertEqual([row["amount_usd"] for row in rows], [30, 20])
+        self.assertEqual(rows[0]["balance_type"], "CxC a empleados (cuota no deducida)")
         self.assertEqual(rows[1]["balance_type"], "Deducido sin remesa asignada")
         self.assertEqual([row["due_date"] for row in rows], ["2026-09-30", "2026-10-10"])
         self.assertEqual([row["provision_review_usd"] for row in rows], [30, 0])
@@ -47,6 +48,23 @@ class AgingTests(unittest.TestCase):
         self.assertEqual(len(unknown), 1)
         self.assertEqual(unknown[0]["balance_type"], "Detalle de empresa pendiente")
         self.assertEqual(unknown[0]["provision_review_usd"], 0)
+
+    def test_employee_receivable_requires_company_detail(self):
+        self.assertIsNone(employee_receivable_usd({
+            "expected_usd": 46.52, "deducted_usd": 0,
+            "deduction_status": "Pendiente de detalle",
+        }))
+        self.assertIsNone(employee_receivable_usd({
+            "expected_usd": 46.52, "deducted_usd": 0,
+        }))
+        self.assertEqual(employee_receivable_usd({
+            "expected_usd": 46.52, "deducted_usd": 20,
+            "deduction_status": "Deduccion parcial",
+        }), 26.52)
+        self.assertEqual(employee_receivable_usd({
+            "expected_usd": 46.52, "deducted_usd": 46.53,
+            "deduction_status": "Deduccion en exceso",
+        }), 0)
 
     def test_fx_and_negative_rounding_do_not_inflate_company_balance(self):
         rows = list(operational_balances({

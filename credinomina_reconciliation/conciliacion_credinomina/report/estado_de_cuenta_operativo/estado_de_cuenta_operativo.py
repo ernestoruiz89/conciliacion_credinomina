@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.reconciliation import AMOUNT_TOLERANCE
 
 
@@ -58,6 +59,7 @@ def execute(filters=None):
         classified_usd = flt(row.complementary_usd) + max(flt(row.fx_variance_usd), 0)
         rounding = flt(row.rounding_adjustment_usd)
         classified_nio = classified_usd * rate
+        employee_pending = employee_receivable_usd(row)
         item = frappe._dict(
             {
                 **row,
@@ -68,11 +70,10 @@ def execute(filters=None):
                 "collection_cycle": period.collection_cycle or "Mensual",
                 "deduction_basis": period.deduction_basis or "",
                 "employer": period.employer,
-                "employee_pending_usd": max(
-                    flt(row.expected_usd) - flt(row.deducted_usd), 0
-                ),
-                "employee_pending_nio": max(
-                    flt(row.expected_nio) - flt(row.deducted_nio), 0
+                "employee_pending_usd": employee_pending,
+                "employee_pending_nio": (
+                    round(employee_pending * rate, 4)
+                    if employee_pending is not None else None
                 ),
                 "pending_core_usd": max(
                     flt(row.deducted_usd) - flt(row.applied_usd) - classified_usd
@@ -138,7 +139,7 @@ def _base_status(row):
         return "Diferencia entre aplicación y depósito; requiere revisión"
     if abs(flt(row.fx_variance_usd)) > AMOUNT_TOLERANCE:
         return "Diferencia cambiaria en revisión"
-    if row.deduction_status == "Pendiente de detalle":
+    if not row.deduction_status or row.deduction_status == "Pendiente de detalle":
         return "Pendiente de detalle de la empresa"
     if row.deduction_status in {
         "Deduccion parcial",
@@ -184,13 +185,13 @@ def get_columns():
         {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
         {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
-        {"fieldname": "employee_pending_usd", "label": _("Pendiente trabajador US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
+        {"fieldname": "employee_pending_usd", "label": _("CxC a empleado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "pending_core_usd", "label": _("Pendiente core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "employer_receivable_usd", "label": _("Deducido sin remesa asignada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
         {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
         {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
         {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
-        {"fieldname": "employee_pending_nio", "label": _("Pendiente trabajador C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 145},
+        {"fieldname": "employee_pending_nio", "label": _("CxC a empleado equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
         {"fieldname": "pending_core_nio", "label": _("Pendiente core C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 125},
         {"fieldname": "employer_receivable_nio", "label": _("Deducido sin remesa asignada C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
         {"fieldname": "operational_status", "label": _("Estado operativo"), "fieldtype": "Data", "width": 230},

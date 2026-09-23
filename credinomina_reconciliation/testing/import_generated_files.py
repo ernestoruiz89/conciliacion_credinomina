@@ -177,7 +177,7 @@ def audit():
     if (
         len(aging_rows) != 2
         or len(aging_summary) != 1
-        or aging_summary[0]["label"] != "Cuota no deducida al trabajador"
+        or aging_summary[0]["label"] != "CxC a empleados (cuota no deducida)"
         or aging_summary[0]["value"] != 89.5
     ):
         raise AssertionError("El faltante del trabajador no quedó separado de la remesa.")

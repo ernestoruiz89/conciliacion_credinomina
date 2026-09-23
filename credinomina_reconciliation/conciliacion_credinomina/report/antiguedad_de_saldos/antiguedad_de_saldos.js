@@ -7,6 +7,6 @@ frappe.query_reports["Antiguedad de Saldos"] = {
         { fieldname: "client_number", label: __("Nro. Cliente"), fieldtype: "Data" },
         { fieldname: "national_id", label: __("Nro. Cédula"), fieldtype: "Data" },
         { fieldname: "loan_number", label: __("Nro. Crédito"), fieldtype: "Data" },
-        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", options: "\nCuota no deducida al trabajador\nDeducido sin remesa asignada\nDetalle de empresa pendiente" },
+        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", options: "\nCxC a empleados (cuota no deducida)\nDeducido sin remesa asignada\nDetalle de empresa pendiente" },
     ],
 };

@@ -98,7 +98,7 @@ def execute(filters=None):
             "indicator": indicator, "datatype": "Currency", "currency": "USD",
         }
         for label, indicator in (
-            ("Cuota no deducida al trabajador", "red"),
+            ("CxC a empleados (cuota no deducida)", "red"),
             ("Deducido sin remesa asignada", "orange"),
             ("Detalle de empresa pendiente", "blue"),
         )
