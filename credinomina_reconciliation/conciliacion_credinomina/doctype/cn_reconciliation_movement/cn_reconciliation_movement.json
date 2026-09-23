@@ -10,7 +10,7 @@
     {"default": "Vigente", "fieldname": "status", "fieldtype": "Select", "in_list_view": 1, "label": "Estado", "options": "Vigente\nRevertido", "read_only": 1},
     {"fieldname": "employer", "fieldtype": "Link", "in_list_view": 1, "label": "Empresa", "options": "CN Employer", "read_only": 1},
     {"fieldname": "period", "fieldtype": "Link", "in_list_view": 1, "label": "Período", "options": "CN Reconciliation Period", "read_only": 1},
-    {"fieldname": "deposit_source_row", "fieldtype": "Data", "label": "ID del depósito contable", "read_only": 1},
+    {"fieldname": "deposit_source_row", "fieldtype": "Data", "label": "ID del depósito", "read_only": 1},
     {"fieldname": "application_source_row", "fieldtype": "Data", "label": "ID de la aplicación del core", "read_only": 1},
     {"fieldname": "claim_id", "fieldtype": "Data", "label": "Cobranza o aplicación histórica", "read_only": 1},
     {"fieldname": "deposit_reference", "fieldtype": "Data", "in_list_view": 1, "label": "Referencia del depósito", "read_only": 1},

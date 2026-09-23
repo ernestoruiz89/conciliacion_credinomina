@@ -14,7 +14,7 @@ no deducida de una deducción ya realizada pero aún no remitida o aplicada.
 
 | Período | Qué se concilia | Qué no se presume |
 | --- | --- | --- |
-| **Histórico: abril 2025 – agosto 2026** | Aplicaciones del core contra depósitos contables y bancarios. | No se reconstruye la cobranza ni la deducción de planilla; una aplicación sin depósito no se presenta como deuda del trabajador o de la empresa. |
+| **Histórico: abril 2025 – agosto 2026** | Aplicaciones del core contra depósitos registrados con soporte. | No se reconstruye la cobranza ni la deducción de planilla; una aplicación sin depósito no se presenta como deuda del trabajador o de la empresa. |
 | **Operativo: desde septiembre 2026** | Cobranza, detalle de deducción y aplicación; después, aplicación contra depósito. | Una deducción no se convierte en pago aplicado al crédito hasta que el core lo confirme. |
 
 La cobranza puede ser **mensual o quincenal** por empresa. Cada quincena tiene
@@ -25,16 +25,15 @@ importes permiten un cruce único.
 ## Qué permite conciliar
 
 - Pagos parciales, un depósito para varias cobranzas y varios depósitos para
-  una cobranza. Los repartos ambiguos requieren una **Distribución de Remesa**
-  confirmada; no se asignan por similitud del nombre del cliente.
+  una cobranza. Cada **Distribución de Remesa** representa un depósito. Su
+  detalle por cliente identifica automáticamente los destinos; la tabla de
+  destinos manuales queda disponible para excepciones. Los repartos ambiguos
+  no se adivinan.
 - **Movimientos contables** como fuente principal de aplicaciones y
-  **Transacciones** como respaldo. El **Detalle de depósitos** proporciona la
-  evidencia bancaria que se empareja con el depósito contable.
-- El archivo mensual de depósitos se lee desde la pestaña **Depósito**. Se
-  conservan las filas de varias empresas, pagos personales y meses anteriores.
-  Los pagos ajenos al convenio se ignoran sin borrarlos; los no identificados
-  quedan para revisión. Un depósito idéntico repetido en otro archivo mensual
-  solo participa una vez en la conciliación.
+  **Transacciones** como respaldo. El depósito se registra directamente con
+  referencia, fecha, empresa, moneda, importe y detalle/soporte adjunto; no
+  hace falta importar el Excel bancario mensual (que mezcla otros depósitos).
+  Las importaciones bancarias anteriores permanecen disponibles como legado.
 - Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
   para la conciliación solo con una tasa y evidencia documentadas. Las
   diferencias cambiarias quedan para revisión de cada caso.
@@ -54,7 +53,7 @@ crea con un depósito y una aplicación inequívocos en US$; no resuelve
 diferencias cambiarias ni repartos múltiples.
 
 Si la empresa no devuelve a tiempo el detalle de planilla, un depósito
-contable y bancario que cubra **exactamente toda la cobranza** puede sustentar
+registrado con soporte que cubra **exactamente toda la cobranza** puede sustentar
 un reconocimiento provisional y justificado. Se muestra como **deducción
 inferida por depósito**, nunca como descuento individual confirmado por la
 empresa, y puede revertirse o sustituirse cuando llegue el detalle real.
@@ -71,9 +70,12 @@ envía a la empresa contiene estas columnas:
 
 La exportación agrega `Fila ID` para enlazar la respuesta sin depender del
 nombre. La empresa devuelve el mismo archivo con `Deducido C$` y/o
-`Deducido US$`. Las otras fuentes se importan por separado como
-**Movimientos contables (principal)**, **Transacciones del core (fallback)**
-y **Detalle de depósitos**.
+`Deducido US$`. Para aplicaciones se importan **Movimientos contables
+(principal)** y, si hace falta, **Transacciones del core (fallback)**. El
+detalle del pago de la empresa se adjunta e importa **dentro de cada remesa**,
+no como fuente bancaria separada. Si contiene ambos deducidos, US$ es el
+importe de conciliación y C$ es informativo: no se suman. Si solo contiene C$,
+indique la tasa documentada en la remesa para convertirlo a US$.
 
 ## Instalación
 
@@ -111,14 +113,30 @@ disponible la página `/app/control-credinomina`.
 3. En períodos operativos, importe y exporte la cobranza; cuando llegue la
    respuesta de la empresa, cargue el detalle de deducción en el período de
    planilla original, aunque llegue al mes siguiente.
-4. Importe por separado los movimientos contables, las transacciones de
-   respaldo y el detalle bancario. En el histórico, asigne explícitamente el
-   período a cada aplicación cuando un archivo mezcle empresas, meses o cortes
-   de fecha.
-5. Revise el **Control de Credinómina**. Documente distribuciones ambiguas,
+4. Importe los movimientos contables y, si hace falta, las transacciones de
+   respaldo. En el histórico, asigne explícitamente el período a cada
+   aplicación cuando un archivo mezcle empresas, meses o cortes de fecha.
+5. Registre **un documento de Distribución de Remesa por cada depósito**:
+   empresa, referencia, fecha real, moneda, importe y soporte. Adjunte en
+   **Detalle de pago por cliente** el archivo de cobranza devuelto por la
+   empresa con `Deducido C$` y/o `Deducido US$`, y pulse **Importar detalle por
+   cliente**. Puede tener 200 aplicaciones y un solo depósito: las filas se
+   concilian por cliente, crédito, cuota y, cuando exista, referencia o Fila ID.
+   Si Movimientos contables solo trae el crédito, se toma la identidad de
+   Transacciones cuando exista una contraparte exacta; de lo contrario, solo
+   se usa un crédito inequívoco y el resultado advierte que el core no aportó
+   identidad del cliente.
+   En el histórico se buscan las aplicaciones del core; en la operación, las
+   filas de cobranza. La fecha del depósito puede ser posterior a la aplicación.
+   Si está en C$ o alguna fila solo informa C$, documente la tasa C$/US$ y su
+   fuente. Revise las filas ambiguas o sin aplicación y use **Destinos del
+   depósito** para excepciones. Si el detalle suma más que el depósito, no se
+   distribuye automáticamente. Si suma menos, el resto permanece sin distribuir
+   o se documenta como saldo a favor, sin aplicarlo al préstamo.
+6. Revise el **Control de Credinómina**. Documente distribuciones ambiguas,
    partidas administrativas y excedentes; revise las diferencias cambiarias
    y los movimientos de tolerancia antes de cerrar.
-6. Consulte **Estado de Cuenta Operativo** y **Resumen de Conciliación** para
+7. Consulte **Estado de Cuenta Operativo** y **Resumen de Conciliación** para
    explicar aplicaciones, depósitos, pendientes y excepciones.
 
 El estado de cuenta de esta app explica los **movimientos en tránsito**;

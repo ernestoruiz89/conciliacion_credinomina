@@ -318,6 +318,90 @@ def get_control_data(year=None, employer=None):
                     order_by="event_date desc",
                     limit_page_length=1000,
                 )
+    if frappe.has_permission("CN Remittance Allocation", "read"):
+        manual_filters = {
+            "docstatus": 1,
+            "deposit_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
+        }
+        if employer:
+            manual_filters["employer"] = employer
+        registered = frappe.get_list(
+            "CN Remittance Allocation",
+            filters=manual_filters,
+            fields=[
+                "name", "employer", "deposit_reference", "deposit_voucher",
+                "deposit_date", "deposit_currency", "deposit_amount",
+                "allocated_usd", "unallocated_usd", "justified_surplus_usd",
+                "unclassified_usd", "allocation_detail", "result",
+            ],
+            limit_page_length=10000,
+        )
+        imported_keys = {
+            (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
+            for row in deposits
+        }
+        period_records = {record["name"]: record for record in output}
+        for item in registered:
+            if flt(item.unallocated_usd) <= CASH_EPSILON:
+                continue
+            key = (
+                item.deposit_reference, item.deposit_voucher,
+                item.deposit_currency, round(flt(item.deposit_amount), 4),
+            )
+            already_in_imports = key in imported_keys
+            justified = flt(item.justified_surplus_usd)
+            unclassified = flt(item.unclassified_usd)
+            deposits.append({
+                "parent": item.name,
+                "source_doctype": "CN Remittance Allocation",
+                "reference": item.deposit_reference,
+                "voucher": item.deposit_voucher,
+                "event_date": item.deposit_date,
+                "employer_text": item.employer,
+                "currency": item.deposit_currency,
+                "amount": item.deposit_amount,
+                "allocated_usd": item.allocated_usd,
+                "unallocated_usd": item.unallocated_usd,
+                "justified_surplus_usd": justified,
+                "unclassified_usd": unclassified,
+                "allocation_detail": item.allocation_detail or "[]",
+            })
+            if not already_in_imports:
+                totals["unclassified_deposit_usd"] += unclassified
+                related_periods = {
+                    entry.get("periodo") for entry in json.loads(item.allocation_detail or "[]")
+                    if entry.get("periodo") in period_records
+                }
+                if len(related_periods) == 1:
+                    record = period_records[next(iter(related_periods))]
+                    record["unclassified_deposit_usd"] += unclassified
+                    if unclassified > CASH_EPSILON and record["control_state"] == "conciliado":
+                        record["control_state"] = "excedente"
+        if registered:
+            no_period_credit = frappe.get_list(
+                "CN Deposit Surplus",
+                filters={
+                    "docstatus": 1, "result": "Saldo a favor documentado",
+                    "period": ["is", "not set"],
+                    "registered_deposit": ["in", [item.name for item in registered]],
+                },
+                fields=["amount_usd"],
+                limit_page_length=10000,
+            ) if frappe.has_permission("CN Deposit Surplus", "read") else []
+            totals["documented_credit_usd"] += sum(
+                flt(item.amount_usd) for item in no_period_credit
+            )
+        registered_keys = {
+            (item.deposit_reference, item.deposit_voucher,
+             item.deposit_currency, round(flt(item.deposit_amount), 4))
+            for item in registered
+        }
+        deposits = [
+            row for row in deposits
+            if row.get("source_doctype") == "CN Remittance Allocation"
+            or (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
+            not in registered_keys
+        ]
     return {
         "year": year,
         "periods": output,

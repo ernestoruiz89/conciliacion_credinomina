@@ -136,11 +136,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </tr>`).join("")}</tbody></table></div>` : "";
         const depositTable = deposits.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table">
-                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa en archivo"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin clasificar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
+                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin clasificar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
                 <tbody>${deposits.map((deposit) => `<tr>
                     <td>${esc(deposit.event_date)}</td>
                     <td>${esc(deposit.employer_text)}</td>
-                    <td><button class="cn-text-link" type="button" data-import="${esc(deposit.parent)}">${esc(deposit.reference)}</button></td>
+                    <td><button class="cn-text-link" type="button" ${deposit.source_doctype === "CN Remittance Allocation" ? `data-remittance="${esc(deposit.parent)}"` : `data-import="${esc(deposit.parent)}"`}>${esc(deposit.reference)}</button></td>
                     <td>${esc(deposit.voucher)}</td>
                     <td class="cn-number">${esc(deposit.amount)} ${esc(deposit.currency)}</td>
                     <td class="cn-number">${money(deposit.allocated_usd)}</td>
@@ -256,10 +256,13 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     $root.on("click", "[data-import]", function () {
         frappe.set_route("Form", "CN Source Import", $(this).attr("data-import"));
     });
+    $root.on("click", "[data-remittance]", function () {
+        frappe.set_route("Form", "CN Remittance Allocation", $(this).attr("data-remittance"));
+    });
     $root.on("click", "[data-movement]", function () {
         frappe.set_route("Form", "CN Reconciliation Movement", $(this).attr("data-movement"));
     });
-    page.add_button(__("Distribuir remesa"), () => frappe.new_doc("CN Remittance Allocation"));
+    page.add_button(__("Registrar depósito"), () => frappe.new_doc("CN Remittance Allocation"));
     page.add_button(__("Documentar excedente"), () => frappe.new_doc("CN Deposit Surplus"));
     page.set_primary_action(__("Actualizar"), refresh);
     refresh();

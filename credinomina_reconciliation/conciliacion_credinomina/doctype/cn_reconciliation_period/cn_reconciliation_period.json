@@ -29,7 +29,7 @@
     {"fieldname": "employer_response_file", "fieldtype": "Attach", "label": "Detalle devuelto por la empresa"},
     {"description": "Fecha de la planilla, constancia o evidencia que confirma la deduccion.", "fieldname": "deduction_evidence_date", "fieldtype": "Date", "label": "Fecha de evidencia de deduccion"},
     {"fieldname": "deduction_basis", "fieldtype": "Select", "label": "Origen del detalle de deducción", "options": "\nDetalle de empresa\nDepósito coincidente", "read_only": 1},
-    {"description": "ID de la fila contable del depósito que respalda el reconocimiento provisional.", "fieldname": "deduction_recognition_deposit", "fieldtype": "Data", "label": "ID del depósito usado", "read_only": 1},
+    {"description": "ID del depósito registrado o de la fila contable anterior que respalda el reconocimiento provisional.", "fieldname": "deduction_recognition_deposit", "fieldtype": "Data", "label": "ID del depósito usado", "read_only": 1},
     {"fieldname": "deduction_recognition_reference", "fieldtype": "Data", "label": "Referencia del depósito usado", "read_only": 1},
     {"fieldname": "deduction_recognition_note", "fieldtype": "Small Text", "label": "Justificación del reconocimiento", "read_only": 1},
     {"fieldname": "deduction_recognition_on", "fieldtype": "Datetime", "label": "Reconocido el", "read_only": 1},

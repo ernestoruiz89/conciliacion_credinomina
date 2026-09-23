@@ -65,6 +65,17 @@ class CollectionParserTest(unittest.TestCase):
         self.assertEqual(366, rows[0]["deducted_nio"])
         self.assertEqual("F-2", rows[1]["row_key"])
 
+    def test_remittance_detail_keeps_a_zero_deduction_for_review(self):
+        content = workbook_bytes([
+            ["Nro. Cliente", "Nro. Crédito", "Deducido US$"],
+            [100, 900, 0],
+        ])
+        rows = parse_collection_file(
+            "detalle.xlsx", content, require_deduction=True, keep_zero_rows=True,
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["deducted_usd"], 0)
+
     def test_exact_matching_never_uses_name_similarity(self):
         response = {
             "client_number": "100",

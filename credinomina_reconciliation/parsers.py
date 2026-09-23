@@ -232,7 +232,8 @@ def _value(row: list[Any], mapping: dict[str, int], fieldname: str) -> Any:
 
 
 def parse_collection_file(
-    file_name: str, content: bytes, *, require_deduction: bool = False
+    file_name: str, content: bytes, *, require_deduction: bool = False,
+    keep_zero_rows: bool = False,
 ) -> list[dict[str, Any]]:
     rows = read_table(file_name, content)
     mapping: dict[str, int] | None = None
@@ -255,7 +256,7 @@ def parse_collection_file(
         expected_nio = parse_amount(_value(row, mapping, "expected_nio"))
         deducted_usd = parse_amount(_value(row, mapping, "deducted_usd"))
         deducted_nio = parse_amount(_value(row, mapping, "deducted_nio"))
-        if not any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
+        if not keep_zero_rows and not any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
             continue
         if require_deduction and not (
             "deducted_usd" in mapping or "deducted_nio" in mapping

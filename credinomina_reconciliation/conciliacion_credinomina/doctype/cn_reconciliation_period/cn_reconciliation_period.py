@@ -265,7 +265,7 @@ def _assert_editable(period):
 
 
 def _recognition_pairs():
-    """Find one-to-one accounting/bank deposits, without trusting a stale match flag."""
+    """Find legacy matched deposits and supported deposits entered in the app."""
     imports = frappe.get_all(
         "CN Source Import",
         filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
@@ -277,8 +277,6 @@ def _recognition_pairs():
         name for name, kind in source_type.items()
         if kind in {SOURCE_ACCOUNTING, SOURCE_DEPOSITS}
     ]
-    if not relevant:
-        return []
     deposits = frappe.get_all(
         "CN Source Row",
         filters={"parent": ["in", relevant], "event_type": "Deposito", "effective": 1},
@@ -289,9 +287,9 @@ def _recognition_pairs():
             "allocated_usd", "justified_surplus_usd",
         ],
         limit_page_length=100000,
-    )
-    accounting = [row for row in deposits if source_type[row.parent] == SOURCE_ACCOUNTING]
-    bank = [row for row in deposits if source_type[row.parent] == SOURCE_DEPOSITS]
+    ) if relevant else []
+    accounting = [row for row in deposits if source_type.get(row.parent) == SOURCE_ACCOUNTING]
+    bank = [row for row in deposits if source_type.get(row.parent) == SOURCE_DEPOSITS]
     accounting_by_reference = defaultdict(list)
     bank_by_reference = defaultdict(list)
     for row in accounting:
@@ -317,6 +315,33 @@ def _recognition_pairs():
         )
         if len(reverse) == 1 and reverse[0].name == account.name:
             paired.append((account, matches[0]))
+    for item in frappe.get_all(
+        "CN Remittance Allocation",
+        filters={"docstatus": 1},
+        fields=[
+            "name", "employer", "deposit_reference", "deposit_voucher",
+            "deposit_date", "deposit_currency", "deposit_amount", "amount_usd",
+            "fx_rate", "fx_evidence", "allocated_usd", "unallocated_usd",
+        ],
+        limit_page_length=100000,
+    ):
+        if not item.deposit_date:
+            continue
+        deposit = frappe._dict(
+            name=item.name, reference=item.deposit_reference,
+            voucher=item.deposit_voucher, event_date=item.deposit_date,
+            employer_text=item.employer, currency=item.deposit_currency,
+            amount=item.deposit_amount, equivalent_currency="USD",
+            equivalent_amount=item.amount_usd,
+            fx_basis=item.fx_evidence if item.deposit_currency == "NIO" else "Moneda original USD",
+            manual_fx_rate=item.fx_rate, manual_fx_evidence=item.fx_evidence,
+            allocated_usd=item.allocated_usd, justified_surplus_usd=0,
+        )
+        paired = [
+            pair for pair in paired
+            if not deposit_pair_result(pair[0], deposit)[0]
+        ]
+        paired.append((deposit, deposit))
     return paired
 
 
@@ -385,8 +410,8 @@ def _recognition_candidates(period):
 def get_recognizable_deposits(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("read")
-    if not frappe.has_permission("CN Source Import", "read"):
-        frappe.throw(_("No tiene permiso para consultar los depósitos importados."))
+    if not (frappe.has_permission("CN Source Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
+        frappe.throw(_("No tiene permiso para consultar depósitos."))
     return [
         {key: value for key, value in candidate.items() if key not in {"account", "bank"}}
         for candidate in _recognition_candidates(period)
@@ -397,14 +422,17 @@ def get_recognizable_deposits(period_name: str):
 def recognize_collection_from_deposit(period_name: str, source_row_id: str, justification: str):
     # Serialize competing recognitions of the same cash row, then recheck all
     # conditions inside the current transaction.
+    lock_table = "tabCN Remittance Allocation" if frappe.db.exists(
+        "CN Remittance Allocation", source_row_id
+    ) else "tabCN Source Row"
     frappe.db.sql(
-        "SELECT name FROM `tabCN Source Row` WHERE name = %s FOR UPDATE",
+        f"SELECT name FROM `{lock_table}` WHERE name = %s FOR UPDATE",
         (source_row_id,),
     )
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
-    if not frappe.has_permission("CN Source Import", "read"):
-        frappe.throw(_("No tiene permiso para consultar los depósitos importados."))
+    if not (frappe.has_permission("CN Source Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
+        frappe.throw(_("No tiene permiso para consultar depósitos."))
     justification = clean_text(justification)
     if len(justification) < 12:
         frappe.throw(_("Explique por qué el depósito permite reconocer la cobranza completa (mínimo 12 caracteres)."))
@@ -717,10 +745,34 @@ def import_employer_response(period_name: str):
     }
 
 
+def _pending_registered_targets(target_filters):
+    submitted = frappe.get_all(
+        "CN Remittance Allocation", filters={"docstatus": 1}, pluck="name",
+        limit_page_length=100000,
+    )
+    if not submitted:
+        return False
+    return bool(frappe.db.count(
+        "CN Remittance Target",
+        {**target_filters, "parent": ["in", submitted], "result": ["!=", "Aplicada"]},
+    ))
+
+
 @frappe.whitelist(methods=["POST"])
 def close_period(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
+    if frappe.db.count(
+        "CN Remittance Allocation",
+        {
+            "docstatus": 1, "detail_period": period.name,
+            "detail_status": ["in", [
+                "Revisar filas", "Detalle supera depósito", "Detalle pendiente",
+                "Importar detalle actualizado",
+            ]],
+        },
+    ):
+        frappe.throw(_("Hay detalles de depósito por cliente pendientes de revisión para este período."))
     if period.reconciliation_mode == "Historica":
         if period.status != "Historico conciliado":
             frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
@@ -741,6 +793,10 @@ def close_period(period_name: str):
             },
         ):
             frappe.throw(_("Hay distribuciones históricas pendientes o inválidas."))
+        if application_ids and _pending_registered_targets(
+            {"historical_application": ["in", application_ids]}
+        ):
+            frappe.throw(_("Hay destinos de depósitos históricos pendientes o inválidos."))
         if frappe.db.count(
             "CN Deposit Surplus",
             {"docstatus": 1, "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
@@ -757,6 +813,8 @@ def close_period(period_name: str):
         frappe.throw(
             _("Hay distribuciones manuales pendientes o invalidas para este periodo.")
         )
+    if _pending_registered_targets({"period": period.name}):
+        frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para este período."))
     if frappe.db.count(
         "CN Deposit Surplus",
         {
@@ -803,6 +861,17 @@ def close_period(period_name: str):
             frappe.throw(
                 _("Hay depositos relacionados con este periodo sin distribuir ni justificar.")
             )
+    for deposit in frappe.get_all(
+        "CN Remittance Allocation",
+        filters={"docstatus": 1, "unclassified_usd": [">", CASH_EPSILON]},
+        fields=["name", "allocation_detail"],
+        limit_page_length=100000,
+    ):
+        if any(
+            entry.get("periodo") == period.name
+            for entry in json.loads(deposit.allocation_detail or "[]")
+        ):
+            frappe.throw(_("El depósito {0} tiene un saldo sin clasificar relacionado con este período.").format(deposit.name))
     open_exceptions = frappe.db.count(
         "CN Reconciliation Exception",
         {"period": period.name, "status": ["in", ["Abierta", "En revision"]]},

@@ -48,6 +48,26 @@ from credinomina_reconciliation.reconciliation import (
     source_priority,
 )
 from credinomina_reconciliation.rounding import CASH_EPSILON, rounding_movements
+from credinomina_reconciliation.remittance_detail import (
+    detail_amount_usd,
+    suggest_detail_targets,
+)
+
+
+class _RegisteredDeposit(dict):
+    """Deposit entered in the app, shaped like an imported source row."""
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError as exc:
+            raise AttributeError(key) from exc
+
+    def __setattr__(self, key, value):
+        self[key] = value
+
+    def as_dict(self):
+        return dict(self)
 
 
 class CNSourceImport(Document):
@@ -340,7 +360,11 @@ def reconcile_all_sources():
         fields=[
             "name", "deposit_reference", "deposit_voucher", "period",
             "row_key", "complementary_item", "historical_application",
-            "amount_usd", "result",
+            "amount_usd", "result", "employer", "deposit_date",
+            "deposit_currency", "deposit_amount", "fx_rate", "fx_evidence",
+            "allocated_usd", "unallocated_usd",
+            "support_file", "detail_file", "detail_source_file", "detail_hash", "detail_period",
+            "detail_status", "detail_total_usd", "detail_count",
         ],
         order_by="creation asc",
     )
@@ -348,19 +372,22 @@ def reconcile_all_sources():
         "CN Deposit Surplus",
         filters={"docstatus": 1},
         fields=[
-            "name", "period", "deposit_reference", "deposit_voucher",
+            "name", "period", "registered_deposit", "deposit_reference", "deposit_voucher",
             "amount_usd", "result",
         ],
         order_by="creation asc",
     )
-    deposit_pairs = _scope_deposit_pairs(all_rows, _match_deposits(all_rows))
+    legacy_pairs = _scope_deposit_pairs(all_rows, _match_deposits(all_rows))
+    deposit_pairs, registered_ids = _registered_deposit_pairs(
+        all_rows, manual_allocations, legacy_pairs
+    )
     _refresh_recognition_evidence(periods, deposit_pairs)
     _match_applications(
         all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
     )
     allocation = _distribute_deposits(
         periods, all_rows, deposit_pairs, complementary_items,
-        complementary_by_target, manual_allocations,
+        complementary_by_target, manual_allocations, registered_ids,
     )
     _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows)
     _classify_surplus(allocation, surplus_items)
@@ -369,6 +396,7 @@ def reconcile_all_sources():
         all_rows, deposit_pairs, allocation,
     )
     _rebuild_historical_balances(periods, all_rows, allocation)
+    _sync_registered_deposit_detail(allocation)
 
     for document in imports:
         document.recalculate_summary()
@@ -865,6 +893,70 @@ def _match_deposits(rows):
     return paired
 
 
+def _registered_deposit_pairs(rows, allocations, legacy_pairs):
+    """Use manually registered deposits as cash evidence; keep unmatched legacy pairs."""
+    registered = [item for item in allocations if item.deposit_date]
+    if not registered:
+        return legacy_pairs, {}
+    accounting = [
+        row for row in rows
+        if row.event_type == "Deposito" and row.effective
+        and row._source_type == SOURCE_ACCOUNTING
+    ]
+    used_account_ids = set()
+    pairs = []
+    deposit_ids = {}
+    for item in registered:
+        registered_row = _RegisteredDeposit(
+            name=item.name,
+            reference=clean_text(item.deposit_reference),
+            voucher=clean_text(item.deposit_voucher),
+            event_date=item.deposit_date,
+            currency=item.deposit_currency,
+            amount=flt(item.deposit_amount),
+            equivalent_currency="USD",
+            equivalent_amount=flt(item.amount_usd),
+            fx_basis=clean_text(item.fx_evidence) if item.deposit_currency == "NIO" else "Moneda original USD",
+            fx_rate=flt(item.fx_rate),
+            manual_fx_rate=flt(item.fx_rate),
+            manual_fx_evidence=clean_text(item.fx_evidence),
+            employer_text=item.employer,
+            effective=1,
+            allocated_usd=0,
+            unallocated_usd=0,
+            justified_surplus_usd=0,
+            unclassified_usd=0,
+            allocation_reason="",
+            allocation_detail="[]",
+        )
+        candidates = [
+            account for account in accounting
+            if account.name not in used_account_ids
+            and (not item.deposit_voucher or clean_text(account.voucher) == clean_text(item.deposit_voucher))
+            and deposit_pair_result(account.as_dict(), registered_row.as_dict())[0]
+        ]
+        candidates = narrow_deposit_candidates_by_date(registered_row, candidates)
+        if len(candidates) == 1:
+            account = candidates[0]
+            used_account_ids.add(account.name)
+            account.match_status = "Conciliado"
+            account.match_reason = _("Depósito comprobado con registro y soporte adjunto.")
+            pairs.append((registered_row, account))
+            deposit_ids[item.name] = item.name
+        else:
+            # A real deposit may arrive after the core application and need not
+            # have an imported accounting deposit row at registration time.
+            pairs.append((registered_row, registered_row))
+            deposit_ids[item.name] = item.name
+    for account, bank in legacy_pairs:
+        if account.name in used_account_ids:
+            bank.match_status = "Ignorado"
+            bank.match_reason = _("Sustituido por depósito registrado con soporte adjunto.")
+            continue
+        pairs.append((account, bank))
+    return pairs, deposit_ids
+
+
 def _scope_deposit_pairs(rows, paired):
     """Exclude clearly unrelated bank rows, retaining uncertain ones for review."""
     known_employers = frappe.get_all(
@@ -900,9 +992,184 @@ def _scope_deposit_pairs(rows, paired):
     return [(account, bank) for account, bank in paired if id(bank) not in excluded_banks]
 
 
+def _prepare_remittance_details(
+    remittances, registered_ids, deposits, claims, prior_instructions,
+    tolerance_by_employer,
+):
+    """Reserve a deposit for its client detail instead of guessing a split."""
+    by_deposit = {deposit["id"]: deposit for deposit in deposits}
+    names = [item.name for item in remittances if item.deposit_date]
+    detail_rows = frappe.get_all(
+        "CN Remittance Detail",
+        filters={"parent": ["in", names]},
+        fields=[
+            "name", "parent", "source_row", "row_key", "client_number",
+            "national_id", "loan_number", "installment_number",
+            "application_reference", "deducted_usd", "deducted_nio",
+            "amount_usd", "match_status", "match_reason", "matched_targets",
+        ],
+        order_by="parent asc, idx asc", limit_page_length=100000,
+    ) if names else []
+    rows_by_parent = defaultdict(list)
+    for row in detail_rows:
+        rows_by_parent[row.parent].append(row)
+    reserved = {
+        (entry["deposit_id"], entry["claim_id"])
+        for entry in prior_instructions
+    }
+    instructions = []
+    blocked = set()
+    rounding_eligible = set()
+    contexts = {}
+    for item in remittances:
+        if not item.deposit_date:
+            continue
+        deposit_id = registered_ids.get(item.name)
+        if deposit_id not in by_deposit:
+            continue
+        deposit = by_deposit[deposit_id]
+        rows = rows_by_parent[item.name]
+        attached_detail = bool(item.detail_file or item.detail_hash)
+        # An unimported deposit with several possible destinations is not
+        # evidence that all of them were deducted by the company.
+        if not attached_detail:
+            reference = clean_text(deposit["reference"])
+            potential = [
+                claim for claim in claims
+                if clean_text(claim.get("group")) == clean_text(item.employer)
+                and reference in {clean_text(value) for value in claim.get("references", ())}
+            ] if reference else []
+            if len(potential) > 1:
+                blocked.add(deposit_id)
+                contexts[item.name] = {"status": "Detalle pendiente", "rows": []}
+            continue
+        blocked.add(deposit_id)
+        if not item.detail_hash or not rows:
+            contexts[item.name] = {"status": "Detalle pendiente", "rows": []}
+            continue
+        if item.detail_source_file != (item.detail_file or item.support_file):
+            contexts[item.name] = {"status": "Importar detalle actualizado", "rows": []}
+            continue
+        plans = []
+        total_usd = 0.0
+        rate = flt(item.fx_rate) if clean_text(item.fx_evidence) else 0
+        for row in rows:
+            amount, explanation = detail_amount_usd(row, rate)
+            total_usd = round(total_usd + amount, 4)
+            plans.append({
+                "row": row, "amount_usd": amount, "explanation": explanation,
+                "targets": [], "status": "", "reason": "",
+            })
+        excessive = total_usd > flt(deposit["amount_usd"]) + CASH_EPSILON
+        one_to_one_candidate = (
+            len([plan for plan in plans if plan["amount_usd"] > CASH_EPSILON]) == 1
+            and abs(total_usd - flt(deposit["amount_usd"])) <= CASH_EPSILON
+            and deposit.get("currency") == "USD"
+            and deposit.get("bank_currency") == "USD"
+            and not any(entry["deposit_id"] == deposit_id for entry in prior_instructions)
+        )
+        for plan in plans:
+            amount = plan["amount_usd"]
+            if not amount:
+                plan["status"] = (
+                    "No deducido" if plan["explanation"] == "No deducido"
+                    else "Revisar"
+                )
+                plan["reason"] = plan["explanation"]
+                continue
+            if excessive:
+                plan["status"] = "Revisar"
+                plan["reason"] = "La suma del detalle supera el depósito"
+                continue
+            targets, reason = suggest_detail_targets(
+                plan["row"], claims, amount, item.employer,
+                item.detail_period or "",
+                tolerance_by_employer.get(item.employer, 0) if one_to_one_candidate else 0,
+            )
+            if not targets:
+                plan["status"] = "Revisar"
+                plan["reason"] = reason
+                continue
+            if any((deposit_id, target["claim_id"]) in reserved for target in targets):
+                plan["status"] = "Revisar"
+                plan["reason"] = "Destino ya cubierto por una distribución manual o depósito coincidente"
+                continue
+            plan["targets"] = targets
+            plan["reason"] = reason + "; " + plan["explanation"]
+            for target in targets:
+                instruction_id = "D:" + plan["row"].name + ":" + target["claim_id"]
+                instructions.append({
+                    "id": instruction_id, "deposit_id": deposit_id,
+                    "claim_id": target["claim_id"],
+                    "amount_usd": target["amount_usd"],
+                })
+                reserved.add((deposit_id, target["claim_id"]))
+        contexts[item.name] = {
+            "status": "Detalle supera depósito" if excessive else "",
+            "rows": plans, "total_usd": total_usd,
+            "deposit_usd": flt(deposit["amount_usd"]),
+        }
+        if one_to_one_candidate and sum(
+            bool(plan["targets"]) for plan in plans
+        ) == 1:
+            rounding_eligible.add(deposit_id)
+    return {
+        "instructions": instructions, "blocked_deposits": blocked,
+        "contexts": contexts, "rounding_eligible": rounding_eligible,
+    }
+
+
+def _sync_remittance_details(context, allocation):
+    statuses = {}
+    for parent, state in context["contexts"].items():
+        if state["rows"]:
+            for plan in state["rows"]:
+                targets = plan["targets"]
+                if targets:
+                    results = [
+                        allocation["instruction_results"].get(
+                            "D:" + plan["row"].name + ":" + target["claim_id"],
+                            "Pendiente",
+                        )
+                        for target in targets
+                    ]
+                    plan["status"] = (
+                        "Conciliada" if all(value == "Aplicada" for value in results)
+                        else "Revisar"
+                    )
+                    if plan["status"] == "Revisar":
+                        plan["reason"] += "; " + ", ".join(results)
+                frappe.db.set_value(
+                    "CN Remittance Detail", plan["row"].name,
+                    {
+                        "amount_usd": plan["amount_usd"],
+                        "match_status": plan["status"],
+                        "match_reason": plan["reason"],
+                        "matched_targets": json.dumps(targets, ensure_ascii=False),
+                    },
+                    update_modified=False,
+                )
+            if not state["status"]:
+                if any(plan["status"] != "Conciliada" for plan in state["rows"]):
+                    state["status"] = "Revisar filas"
+                elif state["total_usd"] < state["deposit_usd"] - CASH_EPSILON:
+                    state["status"] = "Parcial; saldo sin detalle"
+                else:
+                    state["status"] = "Conciliado"
+        statuses[parent] = state["status"]
+        changes = {"detail_status": state["status"]}
+        if "total_usd" in state:
+            changes["detail_total_usd"] = state["total_usd"]
+            changes["detail_count"] = len(state["rows"])
+        frappe.db.set_value(
+            "CN Remittance Allocation", parent, changes, update_modified=False,
+        )
+    return statuses
+
+
 def _distribute_deposits(
     periods, source_rows, deposit_pairs, complementary_items,
-    complementary_by_target, manual_allocations,
+    complementary_by_target, manual_allocations, registered_ids,
 ):
     rows_by_name = {
         row.name: row for period in periods for row in period.collection_rows
@@ -1006,6 +1273,22 @@ def _distribute_deposits(
                     references_by_row[row_id].add(reference)
                     hints_by_row[row_id][reference] += flt(link["amount_usd"])
 
+    fallback_identities = defaultdict(set)
+    for source in source_rows:
+        if source.event_type != "Aplicacion" or source._source_type != SOURCE_TRANSACTIONS:
+            continue
+        if not (source.client_number or source.national_id):
+            continue
+        key = (
+            canonical_identifier(source.loan_number), clean_text(source.reference),
+            round(flt(source.amount), 4), source.currency,
+            str(source.event_date or "")[:10],
+        )
+        fallback_identities[key].add((
+            clean_text(source.client_number), clean_text(source.national_id),
+            clean_text(source.installment_number),
+        ))
+
     claims = []
     for row in rows_by_name.values():
         deducted_usd = _deducted_amount(row, "USD")
@@ -1017,6 +1300,10 @@ def _distribute_deposits(
             references.add(clean_text(row.application_reference))
         claims.append(
             {"id": "C:" + row.name, "amount_usd": loan_amount,
+             "kind": "C", "row_key": row.row_key,
+             "client_number": row.client_number, "national_id": row.national_id,
+             "loan_number": row.loan_number,
+             "installment_number": row.installment_number,
              "references": references, "hints": dict(hints_by_row[row.name]),
              "group": employer_by_period.get(row.parent),
              "period": row.parent,
@@ -1026,14 +1313,29 @@ def _distribute_deposits(
     for item in complementary_items:
         claims.append(
             {"id": "X:" + item.name, "amount_usd": flt(item.amount_usd),
+             "kind": "X", "client_number": item.client_number,
+             "loan_number": item.loan_number,
+             "installment_number": item.installment_number,
              "references": [clean_text(item.reference)], "hints": {},
-            "group": item.employer or employer_by_period.get(item.period)}
+            "group": item.employer or employer_by_period.get(item.period),
+             "period": item.period}
         )
     for application in historical_applications.values():
+        identity_key = (
+            canonical_identifier(application.loan_number),
+            clean_text(application.reference), round(flt(application.amount), 4),
+            application.currency, str(application.event_date or "")[:10],
+        )
+        identity_options = fallback_identities.get(identity_key, set())
+        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "")
         claims.append(
             {
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
+                "kind": "H", "client_number": application.client_number or fallback_identity[0],
+                "national_id": application.national_id or fallback_identity[1],
+                "loan_number": application.loan_number,
+                "installment_number": application.installment_number or fallback_identity[2],
                 "references": [clean_text(application.reference)],
                 "hints": {},
                 "group": employer_by_period.get(application.historical_period),
@@ -1083,13 +1385,36 @@ def _distribute_deposits(
     manually_ambiguous_deposits = (
         blocked_historical_deposits(claims, deposits) | ambiguous_deposit_ids
     )
-    for item in manual_allocations:
-        candidates = [
-            deposit for deposit in deposits_by_reference[clean_text(item.deposit_reference)]
-            if not item.deposit_voucher
-            or clean_text(deposit_meta[deposit["id"]]["account"].voucher)
-            == clean_text(item.deposit_voucher)
-        ]
+    registered_names = [item.name for item in manual_allocations if item.deposit_date]
+    target_rows = frappe.get_all(
+        "CN Remittance Target",
+        filters={"parent": ["in", registered_names]},
+        fields=[
+            "name", "parent", "period", "row_key", "historical_application",
+            "complementary_item", "amount_usd", "result",
+        ],
+        order_by="parent asc, idx asc",
+        limit_page_length=100000,
+    ) if registered_names else []
+    allocation_instructions = [
+        (item, target) for item in manual_allocations if item.deposit_date
+        for target in target_rows if target.parent == item.name
+    ] + [
+        (item, item) for item in manual_allocations if not item.deposit_date
+    ]
+    for parent, item in allocation_instructions:
+        if parent.deposit_date:
+            candidates = [
+                deposit for deposit in deposits
+                if deposit["id"] == registered_ids.get(parent.name)
+            ]
+        else:
+            candidates = [
+                deposit for deposit in deposits_by_reference[clean_text(parent.deposit_reference)]
+                if not parent.deposit_voucher
+                or clean_text(deposit_meta[deposit["id"]]["account"].voucher)
+                == clean_text(parent.deposit_voucher)
+            ]
         if len(candidates) != 1:
             manual_results[item.name] = (
                 "Falta deposito" if not candidates else "Deposito ambiguo"
@@ -1114,13 +1439,23 @@ def _distribute_deposits(
              "claim_id": claim_id, "amount_usd": flt(item.amount_usd)}
         )
 
+    detail_context = _prepare_remittance_details(
+        manual_allocations, registered_ids, deposits, claims, instructions,
+        tolerance_by_employer,
+    )
+    instructions.extend(detail_context["instructions"])
+    previously_blocked = set(manually_ambiguous_deposits)
+    manually_ambiguous_deposits.update(detail_context["blocked_deposits"])
     result = allocate_cash(
         deposits, claims, instructions, manually_ambiguous_deposits
     )
+    detail_statuses = _sync_remittance_details(detail_context, result)
     movements = rounding_movements(
         deposits, claims, result["allocations"], result["deposit_remaining"],
         result["claim_remaining"], tolerance_by_employer,
-        result["blocked_deposits"],
+        result["blocked_deposits"] - (
+            detail_context["rounding_eligible"] - previously_blocked
+        ),
     )
     result["rounding_movements"] = movements
     for movement in movements:
@@ -1130,13 +1465,58 @@ def _distribute_deposits(
             - movement["consumed_residual_usd"], 4
         )
     manual_results.update(result["instruction_results"])
-    for item in manual_allocations:
-        status = manual_results.get(item.name, "Pendiente")
-        if item.result != status:
+    cash_by_claim = defaultdict(float)
+    for entry in result["allocations"]:
+        cash_by_claim[entry["claim_id"]] += flt(entry["amount_usd"])
+    for target in target_rows:
+        status = manual_results.get(target.name, "Pendiente")
+        if target.result != status:
             frappe.db.set_value(
-                "CN Remittance Allocation", item.name, "result", status,
+                "CN Remittance Target", target.name, "result", status,
                 update_modified=False,
             )
+    for item in manual_allocations:
+        if item.deposit_date:
+            deposit_id = registered_ids[item.name]
+            allocated = round(
+                flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd)), 4
+            )
+            remaining = round(flt(item.amount_usd) - allocated, 4)
+            statuses = [manual_results.get(row.name, "Pendiente") for row in target_rows if row.parent == item.name]
+            application_pending = any(
+                entry["deposit_id"] == deposit_id
+                and entry["claim_id"].startswith("C:")
+                and cash_by_claim[entry["claim_id"]]
+                > flt(claims_by_id[entry["claim_id"]]["core_applied_usd"]) + CASH_EPSILON
+                for entry in result["allocations"]
+            )
+            status = (
+                "Revisar destinos" if any(value != "Aplicada" for value in statuses)
+                else "Revisar detalle" if detail_statuses.get(item.name) in {
+                    "Revisar filas", "Detalle supera depósito", "Importar detalle actualizado",
+                }
+                else "Detalle pendiente" if detail_statuses.get(item.name) == "Detalle pendiente"
+                else (
+                    "Distribuido, aplicación pendiente" if remaining <= CASH_EPSILON
+                    else "Parcial, aplicación pendiente"
+                ) if application_pending
+                else "Conciliado" if remaining <= CASH_EPSILON
+                else "Parcial" if allocated > CASH_EPSILON
+                else "Sin aplicación"
+            )
+            if item.result != status or flt(item.allocated_usd) != allocated or flt(item.unallocated_usd) != remaining:
+                frappe.db.set_value(
+                    "CN Remittance Allocation", item.name,
+                    {"result": status, "allocated_usd": allocated, "unallocated_usd": remaining},
+                    update_modified=False,
+                )
+        else:
+            status = manual_results.get(item.name, "Pendiente")
+            if item.result != status:
+                frappe.db.set_value(
+                    "CN Remittance Allocation", item.name, "result", status,
+                    update_modified=False,
+                )
 
     assigned_by_deposit = defaultdict(float)
     detail_by_deposit = defaultdict(list)
@@ -1183,7 +1563,7 @@ def _distribute_deposits(
             assigned, remaining
         )
         if deposit_id in result["blocked_deposits"]:
-            reason += " " + _("Revise la referencia reutilizada o una distribución manual inválida o ambigua.")
+            reason += " " + _("Revise el detalle por cliente o una distribución manual inválida o ambigua.")
         if deposit_id in unresolved_employer_ids:
             reason += " " + _(
                 "La empresa del depósito no se identificó de forma única; "
@@ -1197,6 +1577,7 @@ def _distribute_deposits(
                 detail_by_deposit[deposit_id], ensure_ascii=False
             )
     result["deposit_meta"] = deposit_meta
+    result["registered_ids"] = registered_ids
     result["complementary_target"] = complementary_target
     result["complementary_totals"] = complementary_totals
     return result
@@ -1207,15 +1588,19 @@ def _classify_surplus(allocation, surplus_items):
     meta_by_id = allocation["deposit_meta"]
     justified = defaultdict(float)
     for item in surplus_items:
-        candidates = [
-            deposit_id for deposit_id, meta in meta_by_id.items()
-            if clean_text(meta["account"].reference) == clean_text(item.deposit_reference)
-            and (
-                not item.deposit_voucher
-                or clean_text(meta["account"].voucher)
-                == clean_text(item.deposit_voucher)
-            )
-        ]
+        if item.registered_deposit:
+            selected = allocation["registered_ids"].get(item.registered_deposit)
+            candidates = [selected] if selected in meta_by_id else []
+        else:
+            candidates = [
+                deposit_id for deposit_id, meta in meta_by_id.items()
+                if clean_text(meta["account"].reference) == clean_text(item.deposit_reference)
+                and (
+                    not item.deposit_voucher
+                    or clean_text(meta["account"].voucher)
+                    == clean_text(item.deposit_voucher)
+                )
+            ]
         if len(candidates) != 1:
             status = "Falta deposito" if not candidates else "Deposito ambiguo"
         else:
@@ -1245,6 +1630,37 @@ def _classify_surplus(allocation, surplus_items):
                 source.allocation_reason += " " + _(
                     "Saldo a favor documentado de la empresa: {0} US$; no aplicado al credito."
                 ).format(company_credit)
+
+
+def _sync_registered_deposit_detail(allocation):
+    for name, deposit_id in allocation["registered_ids"].items():
+        meta = allocation["deposit_meta"].get(deposit_id)
+        if not meta:
+            continue
+        source = meta["account"]
+        current_result = frappe.db.get_value("CN Remittance Allocation", name, "result")
+        result = current_result
+        if (
+            current_result in {"Parcial", "Sin aplicación"}
+            and flt(source.unallocated_usd) > CASH_EPSILON
+            and flt(source.unclassified_usd) <= CASH_EPSILON
+            and flt(source.justified_surplus_usd) > CASH_EPSILON
+        ):
+            result = (
+                "Parcial con saldo a favor" if flt(source.allocated_usd) > CASH_EPSILON
+                else "Saldo a favor documentado"
+            )
+        frappe.db.set_value(
+            "CN Remittance Allocation", name,
+            {
+                "result": result,
+                "allocation_detail": source.allocation_detail,
+                "inherited_exception_comment": getattr(source, "inherited_exception_comment", ""),
+                "justified_surplus_usd": flt(source.justified_surplus_usd),
+                "unclassified_usd": flt(source.unclassified_usd),
+            },
+            update_modified=False,
+        )
 
 
 def _sync_rounding_movements(movements, allocation, source_rows):
