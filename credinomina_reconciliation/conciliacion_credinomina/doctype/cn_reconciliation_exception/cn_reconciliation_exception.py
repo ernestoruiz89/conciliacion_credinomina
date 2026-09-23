@@ -45,7 +45,7 @@ class CNReconciliationException(Document):
                 {"status": ["in", ["Importado", "Importado con excepciones"]]},
             )
         ):
-            from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+            from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
                 reconcile_all_sources,
             )
 

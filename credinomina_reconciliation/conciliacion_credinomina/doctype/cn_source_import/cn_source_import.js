@@ -10,7 +10,7 @@ frappe.ui.form.on("CN Source Import", {
 
         frm.add_custom_button(__("Importar y conciliar"), () => {
             frappe.call({
-                method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import.import_source_file",
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.import_source_file",
                 args: { import_name: frm.doc.name },
                 freeze: true,
                 freeze_message: __("Importando y conciliando..."),
@@ -19,7 +19,7 @@ frappe.ui.form.on("CN Source Import", {
 
         frm.add_custom_button(__("Reconciliar todas las fuentes"), () => {
             frappe.call({
-                method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import.reconcile_all_sources",
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.reconcile_all_sources",
                 freeze: true,
                 freeze_message: __("Recalculando conciliaciones..."),
             }).then(() => frm.reload_doc());

@@ -7,7 +7,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
             if (frm.doc.status !== "Cerrado") {
                 frm.add_custom_button(__("Cerrar período histórico"), () => {
                     frappe.call({
-                        method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
+                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
                         args: { period_name: frm.doc.name },
                         freeze: true,
                     }).then(() => frm.reload_doc());
@@ -18,7 +18,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
 
         frm.add_custom_button(__("Importar cobranza"), () => {
             frappe.call({
-                method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.import_collection",
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_collection",
                 args: { period_name: frm.doc.name },
                 freeze: true,
                 freeze_message: __("Importando cobranza..."),
@@ -27,7 +27,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
 
         frm.add_custom_button(__("Exportar archivo empresa"), () => {
             frappe.call({
-                method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.export_collection",
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.export_collection",
                 args: { period_name: frm.doc.name },
             }).then((response) => {
                 if (response.message?.file_url) window.open(response.message.file_url);
@@ -36,7 +36,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
 
         frm.add_custom_button(__("Importar detalle empresa"), () => {
             frappe.call({
-                method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.import_employer_response",
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_employer_response",
                 args: { period_name: frm.doc.name },
                 freeze: true,
                 freeze_message: __("Conciliando deducciones..."),
@@ -48,7 +48,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
                 frappe.confirm(
                     __("Se retirará la deducción inferida y el depósito volverá a quedar disponible. ¿Continuar?"),
                     () => frappe.call({
-                        method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.revert_deposit_recognition",
+                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.revert_deposit_recognition",
                         args: { period_name: frm.doc.name },
                         freeze: true,
                     }).then(() => frm.reload_doc())
@@ -66,7 +66,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
         if (frm.doc.status !== "Cerrado") {
             frm.add_custom_button(__("Cerrar periodo"), () => {
                 frappe.call({
-                    method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
                     args: { period_name: frm.doc.name },
                     freeze: true,
                 }).then(() => frm.reload_doc());
@@ -101,7 +101,7 @@ function setRemittanceDateEditing(frm) {
 
 function showDepositRecognition(frm) {
     frappe.call({
-        method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.get_recognizable_deposits",
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.get_recognizable_deposits",
         args: { period_name: frm.doc.name },
     }).then((response) => {
         const deposits = response.message || [];
@@ -127,7 +127,7 @@ function showDepositRecognition(frm) {
                 const index = labels.indexOf(values.deposit);
                 if (index < 0) return;
                 frappe.call({
-                    method: "credinomina_reconciliation.credinomina_reconciliation.doctype.cn_reconciliation_period.cn_reconciliation_period.recognize_collection_from_deposit",
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.recognize_collection_from_deposit",
                     args: {
                         period_name: frm.doc.name,
                         source_row_id: deposits[index].source_row_id,

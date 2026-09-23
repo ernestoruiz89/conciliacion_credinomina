@@ -49,7 +49,7 @@ class CNComplementaryItem(Document):
         self._reconcile()
 
     def _reconcile(self):
-        from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
             reconcile_all_sources,
         )
 

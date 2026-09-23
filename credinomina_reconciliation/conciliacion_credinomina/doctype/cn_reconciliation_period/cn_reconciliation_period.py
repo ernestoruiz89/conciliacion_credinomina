@@ -110,7 +110,7 @@ class CNReconciliationPeriod(Document):
             {"status": ["in", ["Importado", "Importado con excepciones"]]},
         ):
             return
-        from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
             reconcile_all_sources,
         )
 
@@ -388,7 +388,7 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
         reconcile_all_sources,
     )
 
@@ -421,7 +421,7 @@ def revert_deposit_recognition(period_name: str):
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
         reconcile_all_sources,
     )
 
@@ -640,7 +640,7 @@ def import_employer_response(period_name: str):
         "CN Source Import",
         {"status": ["in", ["Importado", "Importado con excepciones"]]},
     ):
-        from credinomina_reconciliation.credinomina_reconciliation.doctype.cn_source_import.cn_source_import import (
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
             reconcile_all_sources,
         )
 

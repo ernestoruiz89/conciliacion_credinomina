@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-APP = ROOT / "credinomina_reconciliation" / "credinomina_reconciliation"
+APP = ROOT / "credinomina_reconciliation" / "conciliacion_credinomina"
 WORKSPACE = APP / "workspace" / "conciliacion_credinomina" / "conciliacion_credinomina.json"
 
 

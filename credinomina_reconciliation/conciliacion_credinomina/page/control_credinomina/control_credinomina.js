@@ -25,7 +25,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
 
     function refresh() {
         frappe.call({
-            method: "credinomina_reconciliation.credinomina_reconciliation.page.control_credinomina.control_credinomina.get_control_data",
+            method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_data",
             args: {
                 year: yearField.get_value(),
                 employer: employerField.get_value() || null,
