@@ -50,7 +50,15 @@ class EmployerNamingTest(unittest.TestCase):
         }
         rename_steps = []
 
-        def rename_doc(_doctype, old, new, **_kwargs):
+        def rename_doc(
+            _doctype, old, new, force=False, merge=False, *,
+            ignore_if_exists=False, show_alert=True, rebuild_search=True,
+        ):
+            self.assertTrue(force)
+            self.assertFalse(merge)
+            self.assertFalse(ignore_if_exists)
+            self.assertFalse(show_alert)
+            self.assertFalse(rebuild_search)
             item = records.pop(old)
             item["name"] = new
             item["employer_name"] = new  # Frappe's field:employer_name behavior.

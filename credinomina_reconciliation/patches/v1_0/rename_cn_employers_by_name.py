@@ -42,12 +42,12 @@ def execute():
     for old, temporary, _target in renames:
         frappe.rename_doc(
             "CN Employer", old, temporary, force=True,
-            ignore_permissions=True, show_alert=False, rebuild_search=False,
+            show_alert=False, rebuild_search=False,
         )
     for _old, temporary, target in renames:
         frappe.rename_doc(
             "CN Employer", temporary, target, force=True,
-            ignore_permissions=True, show_alert=False, rebuild_search=False,
+            show_alert=False, rebuild_search=False,
         )
     for employer in employers:
         target = normalized[employer.name]
