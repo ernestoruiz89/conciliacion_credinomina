@@ -1,6 +1,6 @@
 {
   "charts": [],
-  "content": "[{\"id\":\"titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"operacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Operación mensual\",\"col\":6}},{\"id\":\"control\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":6}},{\"id\":\"accesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Accesos rápidos</b></span>\",\"col\":12}},{\"id\":\"nuevo_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo periodo\",\"col\":3}},{\"id\":\"nueva_importacion\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":3}},{\"id\":\"partida_complementaria\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Partida complementaria\",\"col\":3}},{\"id\":\"estado_cliente\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}}]",
+  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":4}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":4}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":4}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir remesa\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movimientos de conciliación\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de remesas\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
   "creation": "2026-09-22 00:00:00.000000",
   "custom_blocks": [],
   "docstatus": 0,
@@ -12,20 +12,150 @@
   "is_hidden": 0,
   "label": "Conciliación Credinómina",
   "links": [
-    {"hidden": 0, "is_query_report": 0, "label": "Operación mensual", "link_count": 6, "link_type": "DocType", "onboard": 0, "type": "Card Break"},
-    {"hidden": 0, "is_query_report": 0, "label": "Empresas", "link_count": 0, "link_to": "CN Employer", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Períodos de conciliación", "link_count": 0, "link_to": "CN Reconciliation Period", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Importaciones de fuentes", "link_count": 0, "link_to": "CN Source Import", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Partidas complementarias", "link_count": 0, "link_to": "CN Complementary Item", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Distribuciones de remesas", "link_count": 0, "link_to": "CN Remittance Allocation", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Excedentes de depósito", "link_count": 0, "link_to": "CN Deposit Surplus", "link_type": "DocType", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Control y consultas", "link_count": 4, "link_type": "Report", "onboard": 0, "type": "Card Break"},
-    {"hidden": 0, "is_query_report": 0, "label": "Control de Credinómina", "link_count": 0, "link_to": "control-credinomina", "link_type": "Page", "onboard": 0, "type": "Link"},
-    {"hidden": 0, "is_query_report": 1, "label": "Estado de cuenta operativo", "link_count": 0, "link_to": "Estado de Cuenta Operativo", "link_type": "Report", "onboard": 0, "report_ref_doctype": "CN Reconciliation Period", "type": "Link"},
-    {"hidden": 0, "is_query_report": 1, "label": "Resumen de conciliación", "link_count": 0, "link_to": "Resumen de Conciliacion", "link_type": "Report", "onboard": 0, "report_ref_doctype": "CN Reconciliation Period", "type": "Link"},
-    {"hidden": 0, "is_query_report": 0, "label": "Excepciones", "link_count": 0, "link_to": "CN Reconciliation Exception", "link_type": "DocType", "onboard": 0, "type": "Link"}
+    {
+      "description": "Configure empresas y períodos de cobranza mensual o quincenal.",
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Preparación y cobranza",
+      "link_count": 2,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Empresas",
+      "link_count": 0,
+      "link_to": "CN Employer",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Períodos de conciliación",
+      "link_count": 0,
+      "link_to": "CN Reconciliation Period",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "description": "Importe aplicaciones y depósitos; documente repartos, partidas y excedentes.",
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Conciliación de remesas",
+      "link_count": 4,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Importaciones de fuentes",
+      "link_count": 0,
+      "link_to": "CN Source Import",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Distribuciones de remesas",
+      "link_count": 0,
+      "link_to": "CN Remittance Allocation",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Partidas complementarias",
+      "link_count": 0,
+      "link_to": "CN Complementary Item",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Excedentes de depósito",
+      "link_count": 0,
+      "link_to": "CN Deposit Surplus",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "description": "Revise saldos, excepciones y diferencias de conciliación.",
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Control y consultas",
+      "link_count": 5,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Control de Credinómina",
+      "link_count": 0,
+      "link_to": "control-credinomina",
+      "link_type": "Page",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Estado de cuenta operativo",
+      "link_count": 0,
+      "link_to": "Estado de Cuenta Operativo",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Resumen de conciliación",
+      "link_count": 0,
+      "link_to": "Resumen de Conciliacion",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Excepciones",
+      "link_count": 0,
+      "link_to": "CN Reconciliation Exception",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Movimientos de conciliación",
+      "link_count": 0,
+      "link_to": "CN Reconciliation Movement",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    }
   ],
-  "modified": "2026-09-22 00:00:00.000000",
+  "modified": "2026-09-22 18:33:43.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",
@@ -34,14 +164,68 @@
   "parent_page": "",
   "public": 1,
   "quick_lists": [],
-  "roles": [],
-  "sequence_id": 1.0,
-  "shortcuts": [
-    {"color": "Blue", "doc_view": "New", "label": "Nuevo periodo", "link_to": "CN Reconciliation Period", "type": "DocType"},
-    {"color": "Green", "doc_view": "New", "label": "Importar fuentes", "link_to": "CN Source Import", "type": "DocType"},
-    {"color": "Purple", "doc_view": "New", "label": "Partida complementaria", "link_to": "CN Complementary Item", "type": "DocType"},
-    {"color": "Orange", "label": "Estado de cuenta", "link_to": "Estado de Cuenta Operativo", "type": "Report"},
-    {"color": "Red", "doc_view": "List", "label": "Excepciones", "link_to": "CN Reconciliation Exception", "type": "DocType"}
+  "roles": [
+    {
+      "role": "System Manager"
+    },
+    {
+      "role": "Supervisor Credinomina"
+    },
+    {
+      "role": "Operador Credinomina"
+    }
   ],
-  "title": "Conciliación Credinómina"
+  "sequence_id": 1,
+  "shortcuts": [
+    {
+      "color": "Blue",
+      "doc_view": "List",
+      "label": "Control de Credinómina",
+      "link_to": "control-credinomina",
+      "type": "Page"
+    },
+    {
+      "color": "Green",
+      "doc_view": "New",
+      "label": "Nuevo período",
+      "link_to": "CN Reconciliation Period",
+      "type": "DocType"
+    },
+    {
+      "color": "Green",
+      "doc_view": "New",
+      "label": "Importar fuentes",
+      "link_to": "CN Source Import",
+      "type": "DocType"
+    },
+    {
+      "color": "Purple",
+      "doc_view": "New",
+      "label": "Distribuir remesa",
+      "link_to": "CN Remittance Allocation",
+      "type": "DocType"
+    },
+    {
+      "color": "Orange",
+      "label": "Estado de cuenta",
+      "link_to": "Estado de Cuenta Operativo",
+      "type": "Report"
+    },
+    {
+      "color": "Red",
+      "doc_view": "List",
+      "label": "Excepciones",
+      "link_to": "CN Reconciliation Exception",
+      "type": "DocType"
+    },
+    {
+      "color": "Grey",
+      "doc_view": "List",
+      "label": "Movimientos de conciliación",
+      "link_to": "CN Reconciliation Movement",
+      "type": "DocType"
+    }
+  ],
+  "title": "Conciliación Credinómina",
+  "restrict_to_domain": ""
 }

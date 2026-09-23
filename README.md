@@ -5,6 +5,9 @@ Aplicacion independiente para **Frappe Framework**. No depende de ERPNext ni de
 
 La página **Control de Credinómina** presenta una matriz real por empresa y mes,
 con indicadores, saldos parciales, excepciones y depósitos sin distribuir.
+El **Workspace Conciliación Credinómina** reúne el tablero, los accesos de
+operación y los reportes en `/app/conciliacion-credinomina` para los roles
+Operador Credinomina, Supervisor Credinomina y System Manager.
 
 La aplicacion mantiene un submayor operativo que separa tres hechos distintos:
 

@@ -18,6 +18,11 @@ bench --site sitio.local migrate
 
 La instalacion crea los roles `Operador Credinomina` y `Supervisor Credinomina`.
 Asigne uno de ellos a cada usuario y configure el idioma del usuario como Espanol.
+El Workspace **Conciliación Credinómina** aparece en el escritorio para esos
+roles y para `System Manager` después de instalar la app o ejecutar
+`bench --site sitio.local migrate`. También puede abrirse en
+`/app/conciliacion-credinomina`; contiene accesos al tablero, períodos,
+importaciones, distribuciones, excepciones, movimientos internos y reportes.
 
 ## Orden de uso
 
