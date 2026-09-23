@@ -29,13 +29,16 @@ def matching_name(value: Any, candidate: Mapping[str, Any]) -> bool:
 
 
 def choose_client(
-    record: Mapping[str, Any], clients: Iterable[Mapping[str, Any]],
+    record: Mapping[str, Any], clients: Iterable[Mapping[str, Any]], employer: str = "",
 ) -> tuple[Mapping[str, Any] | None, str]:
     """Return an existing client or a reason to create/review; never fuzzy merge."""
     clients = list(clients)
     number = canonical_identifier(record.get("client_number"))
     national_id = canonical_identifier(record.get("national_id"))
-    if number or national_id:
+    employee_number = canonical_identifier(record.get("employee_number"))
+    employer = clean_text(employer or record.get("employer"))
+    scoped = [row for row in clients if not employer or clean_text(row.get("employer")) == employer]
+    if number or national_id or employee_number:
         by_number = [
             row for row in clients
             if number and canonical_identifier(row.get("client_number")) == number
@@ -44,22 +47,31 @@ def choose_client(
             row for row in clients
             if national_id and canonical_identifier(row.get("national_id")) == national_id
         ]
-        combined = {row["name"]: row for row in by_number + by_id}
+        by_employee = [
+            row for row in scoped
+            if employee_number and canonical_identifier(row.get("employee_number")) == employee_number
+        ]
+        combined = {row["name"]: row for row in by_number + by_id + by_employee}
         if len(combined) > 1:
-            return None, "Conflicto: número de cliente y cédula pertenecen a clientes distintos"
+            return None, "Conflicto: los identificadores pertenecen a clientes distintos"
         if len(combined) == 1:
             found = next(iter(combined.values()))
+            if employer and clean_text(found.get("employer")) != employer:
+                return None, "Conflicto: el identificador pertenece a otra empresa"
             if (
                 number and found.get("client_number")
                 and canonical_identifier(found["client_number"]) != number
             ) or (
                 national_id and found.get("national_id")
                 and canonical_identifier(found["national_id"]) != national_id
+            ) or (
+                employee_number and found.get("employee_number")
+                and canonical_identifier(found["employee_number"]) != employee_number
             ):
                 return None, "Conflicto de identificadores del cliente"
             return found, "Identificador exacto"
         return None, "Crear cliente"
-    by_name = [row for row in clients if matching_name(record.get("client_name"), row)]
+    by_name = [row for row in scoped if matching_name(record.get("client_name"), row)]
     if len(by_name) == 1:
         return by_name[0], "Nombre o alias único"
     if len(by_name) > 1:

@@ -3,7 +3,7 @@
   "creation": "2026-09-23 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["usd_currency", "nio_currency", "source_row", "row_key", "client", "identity_reason", "client_number", "client_name", "national_id", "loan_number", "installment_number", "application_reference", "comments", "application_comment", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio", "amount_usd", "match_status", "match_reason", "matched_targets"],
+  "field_order": ["usd_currency", "nio_currency", "source_row", "row_key", "client", "identity_reason", "client_number", "employee_number", "client_name", "national_id", "loan_number", "installment_number", "application_reference", "comments", "application_comment", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio", "amount_usd", "match_status", "match_reason", "matched_targets"],
   "fields": [
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
@@ -12,6 +12,7 @@
     {"fieldname": "client", "fieldtype": "Link", "options": "CN Client", "label": "Cliente identificado", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "identity_reason", "fieldtype": "Data", "label": "Identificación", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
+    {"fieldname": "employee_number", "fieldtype": "Data", "label": "Nro. Empleado", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "reqd": 1, "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Cédula", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Crédito", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},

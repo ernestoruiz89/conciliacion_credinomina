@@ -10,18 +10,18 @@ from credinomina_reconciliation.parsers import (
 )
 from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.client_identity import choose_client
+from credinomina_reconciliation.reconciliation import remittance_fx_basis
 
 
 class CNRemittanceAllocation(Document):
     def validate(self):
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
-        if self.deposit_date:
-            self._validate_deposit()
-        else:
-            self._validate_target(self)
+        self._validate_deposit()
 
     def _validate_deposit(self):
+        if not self.deposit_date:
+            frappe.throw(_("Indique la fecha real del depósito."))
         if self.docstatus == 1:
             self._assert_open_related_periods()
         if not self.employer:
@@ -38,8 +38,11 @@ class CNRemittanceAllocation(Document):
         if flt(self.deposit_amount) <= 0:
             frappe.throw(_("El importe del depósito debe ser mayor que cero."))
         if self.deposit_currency == "NIO":
-            if flt(self.fx_rate) <= 0 or not clean_text(self.fx_evidence):
-                frappe.throw(_("Para un depósito en C$ indique la tasa C$/US$ y su fuente."))
+            if flt(self.fx_rate) <= 0 or not remittance_fx_basis(self):
+                frappe.throw(_(
+                    "Para un depósito en C$ indique la tasa C$/US$ y documente "
+                    "su fuente en Justificación o en el soporte adjunto."
+                ))
             equivalent = round(flt(self.deposit_amount) / flt(self.fx_rate), 4)
         elif self.deposit_currency == "USD":
             equivalent = round(flt(self.deposit_amount), 4)
@@ -64,8 +67,6 @@ class CNRemittanceAllocation(Document):
             for row in duplicates
         ):
             frappe.throw(_("Este depósito ya fue registrado. Si son dos depósitos distintos, indique comprobantes diferentes."))
-        if self.period or self.row_key or self.historical_application or self.complementary_item:
-            frappe.throw(_("Use la tabla Destinos del depósito; los campos inferiores son solo para registros anteriores."))
         assigned = 0
         for target in self.targets or []:
             self._validate_target(target)
@@ -145,19 +146,10 @@ class CNRemittanceAllocation(Document):
 
     def on_submit(self):
         self._reconcile()
-        if self.deposit_date:
-            return
-        result = frappe.db.get_value(self.doctype, self.name, "result")
-        if result != "Aplicada":
-            frappe.throw(
-                _("La distribucion no se pudo confirmar: {0}.").format(result or "Pendiente")
-            )
 
     def before_cancel(self):
-        if self.deposit_date:
-            self._assert_open_related_periods()
-        targets = self.targets if self.deposit_date else [self]
-        for target in targets:
+        self._assert_open_related_periods()
+        for target in self.targets or []:
             self._check_open_target(target)
 
     @staticmethod
@@ -191,9 +183,13 @@ class CNRemittanceAllocation(Document):
     def on_cancel(self):
         self._reconcile()
 
+    def before_update_after_submit(self):
+        self.deposit_reference = clean_text(self.deposit_reference)
+        self.deposit_voucher = clean_text(self.deposit_voucher)
+        self._validate_deposit()
+
     def on_update_after_submit(self):
-        if self.deposit_date:
-            self._reconcile()
+        self._reconcile()
 
     def _reconcile(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
@@ -238,10 +234,10 @@ def import_remittance_detail(remittance_name: str):
     document.set("detail_rows", [])
     clients = load_client_index()
     for record in records:
-        client, identity_reason = choose_client(record, clients)
+        client, identity_reason = choose_client(record, clients, document.employer)
         document.append("detail_rows", {
             key: record.get(key) for key in (
-                "source_row", "row_key", "client_number", "client_name",
+                "source_row", "row_key", "client_number", "employee_number", "client_name",
                 "national_id", "loan_number", "installment_number",
                 "application_reference", "comments", "application_comment",
                 "expected_usd", "expected_nio",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from collections import defaultdict
 
 import frappe
@@ -34,12 +35,14 @@ from credinomina_reconciliation.parsers import (
     parse_collection_file,
     source_key,
 )
+from credinomina_reconciliation.period_lock import current_period_write_action, period_write_action
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
     converted_amount,
     deposit_pair_result,
     match_collection_record,
     narrow_deposit_candidates_by_date,
+    remittance_fx_basis,
 )
 from credinomina_reconciliation.rounding import CASH_EPSILON
 
@@ -55,13 +58,30 @@ EXCEPTION_STATES = {
 
 
 class CNReconciliationPeriod(Document):
+    def on_trash(self):
+        if self.status == "Cerrado":
+            frappe.throw(_("Reabra el período antes de eliminarlo."))
+
     def validate(self):
+        self._validate_closed_transition()
         if self.payroll_month:
             self.payroll_month = getdate(self.payroll_month).replace(day=1)
         self._validate_mode()
         self._set_due_date()
         self._validate_unique_period()
         self.recalculate_totals()
+
+    def _validate_closed_transition(self):
+        previous = self.get_doc_before_save()
+        action = current_period_write_action()
+        if previous and previous.status == "Cerrado":
+            if action == "reopen" and self.status != "Cerrado":
+                return
+            if action == "reconcile" and self.status == "Cerrado":
+                return
+            frappe.throw(_("El período está cerrado. Use Reabrir período antes de modificarlo."))
+        if self.status == "Cerrado" and action != "close":
+            frappe.throw(_("Use Cerrar período para completar el cierre y dejarlo bloqueado."))
 
     def _validate_mode(self):
         if not self.payroll_month:
@@ -322,20 +342,19 @@ def _recognition_pairs():
         fields=[
             "name", "employer", "deposit_reference", "deposit_voucher",
             "deposit_date", "deposit_currency", "deposit_amount", "amount_usd",
-            "fx_rate", "fx_evidence", "allocated_usd", "unallocated_usd",
+            "fx_rate", "notes", "support_file", "allocated_usd", "unallocated_usd",
         ],
         limit_page_length=100000,
     ):
-        if not item.deposit_date:
-            continue
+        fx_basis = remittance_fx_basis(item) if item.deposit_currency == "NIO" else "Moneda original USD"
         deposit = frappe._dict(
             name=item.name, reference=item.deposit_reference,
             voucher=item.deposit_voucher, event_date=item.deposit_date,
             employer_text=item.employer, currency=item.deposit_currency,
             amount=item.deposit_amount, equivalent_currency="USD",
             equivalent_amount=item.amount_usd,
-            fx_basis=item.fx_evidence if item.deposit_currency == "NIO" else "Moneda original USD",
-            manual_fx_rate=item.fx_rate, manual_fx_evidence=item.fx_evidence,
+            fx_basis=fx_basis,
+            manual_fx_rate=item.fx_rate, manual_fx_evidence=fx_basis,
             allocated_usd=item.allocated_usd, justified_surplus_usd=0,
         )
         paired = [
@@ -548,12 +567,12 @@ def import_collection(period_name: str):
     for record in parsed:
         if not record.get("loan_number"):
             frappe.throw(_("La fila {0} de cobranza no tiene número de crédito.").format(record["source_row"]))
-        client = clients.ensure_from_collection(record)
+        client = clients.ensure_from_collection(record, period.employer)
         row_key = record.get("row_key") or source_key(
             period.employer,
             getdate(period.payroll_month).replace(day=1),
             period.collection_cycle,
-            record.get("client_number") or record.get("national_id") or record.get("client_name"),
+            record.get("client_number") or record.get("national_id") or record.get("employee_number") or record.get("client_name"),
             record.get("loan_number"),
             record.get("installment_number"),
         )[:24]
@@ -635,7 +654,7 @@ def import_employer_response(period_name: str):
         linked = by_client.get(row.get("client"))
         candidate["client_aliases"] = (
             [linked["client_name"], *(linked.get("client_aliases") or ())]
-            if linked else names_for_claim(candidate, client_catalog)
+            if linked else names_for_claim(candidate, client_catalog, period.employer)
         )
         candidates.append(candidate)
     matched_names = set()
@@ -777,6 +796,8 @@ def _pending_registered_targets(target_filters):
 def close_period(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
+    if period.status == "Cerrado":
+        frappe.throw(_("Este período ya está cerrado."))
     if frappe.db.count(
         "CN Remittance Allocation",
         {
@@ -799,15 +820,6 @@ def close_period(period_name: str):
             },
             pluck="name", limit_page_length=100000,
         )
-        if application_ids and frappe.db.count(
-            "CN Remittance Allocation",
-            {
-                "docstatus": 1,
-                "historical_application": ["in", application_ids],
-                "result": ["!=", "Aplicada"],
-            },
-        ):
-            frappe.throw(_("Hay distribuciones históricas pendientes o inválidas."))
         if application_ids and _pending_registered_targets(
             {"historical_application": ["in", application_ids]}
         ):
@@ -817,17 +829,9 @@ def close_period(period_name: str):
             {"docstatus": 1, "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
         ):
             frappe.throw(_("Hay excedentes históricos pendientes de validar."))
-        period.status = "Cerrado"
-        period.save()
+        _mark_period_closed(period)
         return {"period": period.name, "status": period.status}
     period.recalculate_totals()
-    if frappe.db.count(
-        "CN Remittance Allocation",
-        {"docstatus": 1, "period": period.name, "result": ["!=", "Aplicada"]},
-    ):
-        frappe.throw(
-            _("Hay distribuciones manuales pendientes o invalidas para este periodo.")
-        )
     if _pending_registered_targets({"period": period.name}):
         frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para este período."))
     if frappe.db.count(
@@ -849,13 +853,16 @@ def close_period(period_name: str):
             pluck="reference",
         )
     )
-    references.update(
-        frappe.get_all(
-            "CN Remittance Allocation",
-            filters={"period": period.name, "docstatus": 1},
-            pluck="deposit_reference",
-        )
+    target_deposits = frappe.get_all(
+        "CN Remittance Target", filters={"period": period.name},
+        pluck="parent", limit_page_length=100000,
     )
+    if target_deposits:
+        references.update(frappe.get_all(
+            "CN Remittance Allocation",
+            filters={"name": ["in", target_deposits], "docstatus": 1},
+            pluck="deposit_reference", limit_page_length=100000,
+        ))
     references.discard("")
     references.discard(None)
     if references:
@@ -899,8 +906,40 @@ def close_period(period_name: str):
         )
     if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):
         frappe.throw(_("Todas las filas deben estar aplicadas y remitidas antes del cierre."))
+    _mark_period_closed(period)
+    return {"period": period.name, "status": period.status}
+
+
+def _mark_period_closed(period):
+    period.status_before_close = period.status
+    period.closed_on = now_datetime()
+    period.closed_by = frappe.session.user
     period.status = "Cerrado"
-    period.save()
+    with period_write_action("close"):
+        period.save()
+
+
+@frappe.whitelist(methods=["POST"])
+def reopen_period(period_name: str, reason: str):
+    frappe.only_for(["System Manager", "Supervisor Credinomina"])
+    period = frappe.get_doc("CN Reconciliation Period", period_name)
+    period.check_permission("write")
+    if period.status != "Cerrado":
+        frappe.throw(_("Solo se puede reabrir un período cerrado."))
+    reason = clean_text(reason)
+    if not reason:
+        frappe.throw(_("Indique el motivo de la reapertura."))
+    previous_status = clean_text(period.status_before_close)
+    period.status = (
+        previous_status if previous_status and previous_status != "Cerrado"
+        else "Historico conciliado" if period.reconciliation_mode == "Historica"
+        else "Deposito conciliado"
+    )
+    period.reopened_on = now_datetime()
+    period.reopened_by = frappe.session.user
+    period.reopen_reason = reason
+    with period_write_action("reopen"):
+        period.save()
     return {"period": period.name, "status": period.status}
 
 
@@ -920,6 +959,7 @@ def export_collection(period_name: str):
 
     headers = [
         "Nro. Cliente",
+        "Nro. Empleado",
         "Nombre y Apellidos del Cliente",
         "Nro Cédula",
         "Nro. Crédito",
@@ -945,6 +985,7 @@ def export_collection(period_name: str):
         sheet.append(
             [
                 row.client_number,
+                row.employee_number,
                 row.client_name,
                 row.national_id,
                 row.loan_number,
@@ -962,7 +1003,7 @@ def export_collection(period_name: str):
         )
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    widths = [15, 38, 20, 16, 12, 20, 22, 22, 32, 26, 32, 18, 18, 28]
+    widths = [15, 17, 38, 20, 16, 12, 20, 22, 22, 32, 26, 32, 18, 18, 28]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[chr(64 + index)].width = width
     stream = io.BytesIO()

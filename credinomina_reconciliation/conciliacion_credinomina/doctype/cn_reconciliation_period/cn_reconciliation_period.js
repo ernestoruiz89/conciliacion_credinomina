@@ -3,16 +3,18 @@ frappe.ui.form.on("CN Reconciliation Period", {
         setRemittanceDateEditing(frm);
         if (frm.is_new()) return;
 
-        if (frm.doc.reconciliation_mode === "Historica") {
-            if (frm.doc.status !== "Cerrado") {
-                frm.add_custom_button(__("Cerrar período histórico"), () => {
-                    frappe.call({
-                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
-                        args: { period_name: frm.doc.name },
-                        freeze: true,
-                    }).then(() => frm.reload_doc());
-                });
+        if (frm.doc.reconciliation_mode !== "Historica") addExportButton(frm);
+        if (frm.doc.status === "Cerrado") {
+            frm.set_read_only();
+            frm.disable_save();
+            if (frappe.session.user === "Administrator" || frappe.user.has_role("System Manager") || frappe.user.has_role("Supervisor Credinomina")) {
+                frm.add_custom_button(__("Reabrir período"), () => showReopenDialog(frm));
             }
+            return;
+        }
+
+        if (frm.doc.reconciliation_mode === "Historica") {
+            frm.add_custom_button(__("Cerrar período histórico"), () => requestClose(frm));
             return;
         }
 
@@ -25,15 +27,6 @@ frappe.ui.form.on("CN Reconciliation Period", {
                 freeze_message: __("Cargando cobranza y clientes..."),
             }).then(() => frm.reload_doc());
         });
-
-        frm.add_custom_button(__("Exportar archivo empresa"), () => {
-            frappe.call({
-                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.export_collection",
-                args: { period_name: frm.doc.name },
-            }).then((response) => {
-                if (response.message?.file_url) window.open(response.message.file_url);
-            });
-        }, __("Más opciones"));
 
         if ((frm.doc.collection_rows || []).length) frm.add_custom_button(__("2. Cargar deducción de empresa"), async () => {
             if (frm.is_dirty()) await frm.save();
@@ -65,15 +58,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
             }, __("Más opciones"));
         }
 
-        if (frm.doc.status !== "Cerrado") {
-            frm.add_custom_button(__("Cerrar periodo"), () => {
-                frappe.call({
-                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
-                    args: { period_name: frm.doc.name },
-                    freeze: true,
-                }).then(() => frm.reload_doc());
-            });
-        }
+        frm.add_custom_button(__("Cerrar período"), () => requestClose(frm));
     },
     collection_cycle(frm) {
         setRemittanceDateEditing(frm);
@@ -101,6 +86,51 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+async function requestClose(frm) {
+    if (frm.is_dirty()) await frm.save();
+    await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
+        args: { period_name: frm.doc.name },
+        freeze: true,
+    });
+    frm.reload_doc();
+}
+
+function addExportButton(frm) {
+    frm.add_custom_button(__("Exportar archivo empresa"), () => {
+        frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.export_collection",
+            args: { period_name: frm.doc.name },
+        }).then((response) => {
+            if (response.message?.file_url) window.open(response.message.file_url);
+        });
+    }, __("Más opciones"));
+}
+
+function showReopenDialog(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __("Reabrir período"),
+        fields: [
+            {
+                fieldname: "reason", fieldtype: "Small Text",
+                label: __("Motivo de la reapertura"), reqd: 1,
+            },
+        ],
+        primary_action_label: __("Reabrir período"),
+        primary_action(values) {
+            frappe.call({
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.reopen_period",
+                args: { period_name: frm.doc.name, reason: values.reason },
+                freeze: true,
+            }).then(() => {
+                dialog.hide();
+                frm.reload_doc();
+            });
+        },
+    });
+    dialog.show();
+}
 
 function setRemittanceDateEditing(frm) {
     frm.set_df_property(

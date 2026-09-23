@@ -35,6 +35,21 @@ class ClientIdentityTests(unittest.TestCase):
         self.assertIsNone(found)
         self.assertIn("Conflicto", reason)
 
+    def test_name_and_employee_number_are_scoped_to_employer(self):
+        clients = [
+            {"name": "A", "employer": "Empresa A", "client_name": "ANA PEREZ",
+             "client_number": "100", "employee_number": "7", "national_id": "CED-A"},
+            {"name": "B", "employer": "Empresa B", "client_name": "PEREZ ANA",
+             "client_number": "200", "employee_number": "7", "national_id": "CED-B"},
+        ]
+        found, _ = choose_client({"client_name": "ANA PEREZ"}, clients, "Empresa A")
+        self.assertEqual(found["name"], "A")
+        found, _ = choose_client({"employee_number": "007"}, clients, "Empresa B")
+        self.assertEqual(found["name"], "B")
+        found, reason = choose_client({"client_number": "100"}, clients, "Empresa B")
+        self.assertIsNone(found)
+        self.assertIn("otra empresa", reason)
+
     def test_name_only_response_matches_unique_alias(self):
         rows = [
             {"name": "ROW-1", "client_name": "ANA MARIA PEREZ", "client_aliases": ["ANA M. PEREZ"], "loan_number": "111"},
@@ -66,6 +81,24 @@ class ClientIdentityTests(unittest.TestCase):
             "national_id": "CED-OTRA", "loan_number": "111",
         }, rows)
         self.assertIsNone(match)
+
+    def test_employee_number_matches_collection_and_rejects_conflicts(self):
+        rows = [{
+            "name": "ROW-1", "client_name": "ANA PEREZ", "employee_number": "007",
+            "loan_number": "111",
+        }]
+        match, _ = match_collection_record({"employee_number": "7"}, rows)
+        self.assertEqual(match["name"], "ROW-1")
+        match, _ = match_collection_record({
+            "employee_number": "008", "loan_number": "111",
+        }, rows)
+        self.assertIsNone(match)
+        self.assertTrue(application_matches_collection(
+            {"employee_number": "7"}, rows[0],
+        ))
+        self.assertFalse(application_matches_collection(
+            {"employee_number": "8"}, rows[0],
+        ))
 
     def test_row_key_does_not_override_conflicting_client_identity(self):
         rows = [{
@@ -127,6 +160,20 @@ class ClientIdentityTests(unittest.TestCase):
         )
         self.assertEqual(rows[0]["client_name"], "ANA PEREZ")
         self.assertEqual(rows[0]["loan_number"], "")
+
+    def test_parser_reads_employee_number_separately_from_client_number(self):
+        book = Workbook()
+        sheet = book.active
+        sheet.append(["Nro. Cliente", "Nro. Empleado", "Nombre y Apellidos del Cliente", "Deducido US$"])
+        sheet.append(["C-100", "E-7", "ANA PEREZ", 50])
+        buffer = io.BytesIO()
+        book.save(buffer)
+        rows = parse_collection_file(
+            "empresa.xlsx", buffer.getvalue(), require_deduction=True,
+            require_name=True,
+        )
+        self.assertEqual(rows[0]["client_number"], "C-100")
+        self.assertEqual(rows[0]["employee_number"], "E-7")
 
     def test_parser_rejects_amount_without_client_name(self):
         book = Workbook()

@@ -63,7 +63,7 @@ def _get_or_create_employer(name, code):
     return name
 
 
-def _get_or_create_clients(letter):
+def _get_or_create_clients(letter, employer):
     clients = {}
     for index in range(1, 21):
         number = _client_number(letter, index)
@@ -72,7 +72,8 @@ def _get_or_create_clients(letter):
             clients[index] = existing
             continue
         document = frappe.get_doc({
-            "doctype": "CN Client", "client_name": _client_name(letter, index),
+            "doctype": "CN Client", "employer": employer,
+            "client_name": _client_name(letter, index),
             "client_number": number, "national_id": f"SIM-{letter}-{index:04d}",
         })
         document.insert()
@@ -219,13 +220,13 @@ def run():
     frappe.set_user("Administrator")
     for employer, code, letter in EMPLOYERS:
         _get_or_create_employer(employer, code)
-        clients = _get_or_create_clients(letter)
+        clients = _get_or_create_clients(letter, employer)
         for month_index, month in enumerate(MONTHS):
             _get_or_create_period(employer, letter, month, month_index, clients)
             _get_or_create_import(employer, letter, month, month_index)
     first = reconcile_all_sources()
     for employer, _code, letter in EMPLOYERS:
-        clients = _get_or_create_clients(letter)
+        clients = _get_or_create_clients(letter, employer)
         for month in MONTHS:
             deposit = _get_or_create_deposit(employer, letter, month)
             if not deposit.detail_hash and (

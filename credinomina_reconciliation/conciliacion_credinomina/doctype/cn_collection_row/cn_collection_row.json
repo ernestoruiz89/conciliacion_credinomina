@@ -7,7 +7,7 @@
   "field_order": [
     "usd_currency",
     "nio_currency",
-    "row_key", "source_row", "client", "client_number", "client_name", "national_id",
+    "row_key", "source_row", "client", "client_number", "employee_number", "client_name", "national_id",
     "loan_number", "installment_number", "total_installments",
     "expected_usd", "expected_nio", "comments",
     "deducted_usd", "deducted_nio", "deduction_currency", "deduction_status", "deduction_evidence_date", "deduction_match_note",
@@ -21,6 +21,7 @@
     {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila de origen", "read_only": 1},
     {"fieldname": "client", "fieldtype": "Link", "options": "CN Client", "label": "Cliente", "read_only": 1},
     {"fieldname": "client_number", "fieldtype": "Data", "in_list_view": 1, "label": "Nro. Cliente"},
+    {"fieldname": "employee_number", "fieldtype": "Data", "in_list_view": 1, "label": "Nro. Empleado"},
     {"fieldname": "client_name", "fieldtype": "Data", "in_list_view": 1, "label": "Nombre y Apellidos del Cliente", "reqd": 1},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro Cédula"},
     {"fieldname": "loan_number", "fieldtype": "Data", "in_list_view": 1, "label": "Nro. Crédito", "reqd": 1},

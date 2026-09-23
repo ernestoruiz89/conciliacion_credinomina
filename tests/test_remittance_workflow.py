@@ -26,6 +26,15 @@ class RegisteredRemittanceWorkflowTest(unittest.TestCase):
         self.assertEqual(1, child["istable"])
         self.assertIn("support_file", fields)
         self.assertIn("deposit_date", fields)
+        self.assertEqual(1, fields["deposit_date"]["reqd"])
+        self.assertFalse({
+            "target_section", "period", "row_key", "historical_application",
+            "complementary_item",
+        } & fields.keys())
+        child_fields = {field["fieldname"] for field in child["fields"]}
+        self.assertTrue({
+            "period", "row_key", "historical_application", "complementary_item",
+        } <= child_fields)
         self.assertFalse(fields["support_file"].get("reqd"))
         self.assertEqual(1, fields["support_file"]["allow_on_submit"])
         self.assertEqual(1, fields["detail_file"]["allow_on_submit"])

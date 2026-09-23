@@ -78,12 +78,13 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 - Cuando llegue la evidencia, se importa al periodo original aunque el archivo llegue a finales de mayo.
 - Si el deposito llega antes que el detalle, puede quedar conciliado con el banco pero sin asignar a una cobranza hasta completar la primera conciliacion.
 - El cierre mensual puede hacerse con una lista explicita de partidas pendientes, pero el periodo no se marca `Cerrado` mientras existan excepciones.
+- Un período `Cerrado` queda en solo lectura. Si se descubre una corrección necesaria, un supervisor o administrador debe usar **Reabrir período** y documentar el motivo; después revisa nuevamente los saldos y ejecuta el cierre otra vez.
 
 ## Conciliacion 2: aplicaciones contra deposito
 
 1. Importar **Movimientos contables** como fuente principal de aplicaciones.
 2. Importar **Transacciones** como respaldo. Una aplicacion equivalente se ignora si ya existe en la fuente principal. Las `DISPENSAS` no se tratan como efectivo.
-3. Importar **Detalle de depósitos** como evidencia bancaria. Se usa la pestaña **Depósito** del archivo mensual completo, sin separar manualmente por empresa ni mes. Puede contener varias remesas de la misma empresa, otras empresas y pagos ajenos al convenio. Las filas claramente ajenas se conservan como **Ignoradas**, las no identificadas se revisan y los depósitos idénticos arrastrados de un archivo anterior no se duplican. Si la clasificación automática falla, ajustar **Tratamiento del depósito** en la fila bancaria y volver a reconciliar.
+3. Registrar cada depósito de convenio en **Distribución de Remesa**, con su fecha real, empresa, referencia, importe, moneda y soporte. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a esa misma remesa e importarlo allí. Las importaciones bancarias anteriores se conservan para consulta y conciliación, pero no admiten nuevas cargas.
 4. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
 5. El depósito bancario se concilia con el depósito contable por referencia e importe en su moneda original o equivalente documentado.
 6. La remesa se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.
@@ -96,7 +97,7 @@ El operador puede escribir la **Excepción de cobranza vs aplicación** en la cu
 
 Si todavía no existe depósito, no hay comentario trasladado. Si el faltante del pago es distinto, permanece para revisión por separado. Trasladar el antecedente no registra dinero, no resuelve la excepción original, no convierte un depósito parcial en completo y no altera el saldo pendiente. Editar posteriormente el comentario o la resolución recalcula el antecedente mostrado.
 
-La asignación automática procede cuando la referencia deja un único destino, cuando un depósito cubre íntegramente varios destinos identificados de la misma empresa o cuando las aplicaciones individuales identifican una distribución exacta. Si una referencia aparece en varias empresas o dos repartos son posibles, el supervisor crea una **Distribución de Remesa** por cada depósito y destino, indicando referencia bancaria, comprobante contable si hace falta distinguir depósitos, período, `Fila ID` e importe en US$. También puede destinar una distribución a una partida complementaria. El sistema rechaza importes que excedan el saldo del depósito o de la cobranza. No prorratea ni usa FIFO.
+La asignación automática de un depósito registrado requiere su detalle por cliente importado. Una referencia única sin ese detalle no basta; alternativamente, el supervisor puede documentar una distribución manual por depósito y destino, indicando referencia bancaria, comprobante contable si hace falta distinguir depósitos, período, `Fila ID` e importe en US$. También puede destinar una distribución a una partida complementaria. El sistema rechaza importes que excedan el saldo del depósito o de la cobranza. No prorratea ni usa FIFO.
 
 Cuando la tasa de la planilla difiere de la tasa del depósito, la diferencia en US$ se muestra por separado y requiere revisión de cada caso antes del cierre.
 

@@ -37,6 +37,7 @@ from credinomina_reconciliation.parsers import (
     file_sha256,
     parse_source_file,
 )
+from credinomina_reconciliation.period_lock import period_write_action
 from credinomina_reconciliation.reconciliation import (
     AMOUNT_TOLERANCE,
     application_matches_collection,
@@ -47,6 +48,7 @@ from credinomina_reconciliation.reconciliation import (
     duplicate_business_key,
     matching_exception_notes,
     narrow_deposit_candidates_by_date,
+    remittance_fx_basis,
     same_amount,
     source_priority,
 )
@@ -75,6 +77,7 @@ class _RegisteredDeposit(dict):
 
 class CNSourceImport(Document):
     def validate(self):
+        self._validate_source_type()
         self._validate_historical_periods()
         if any(
             row.deposit_scope and (
@@ -86,6 +89,19 @@ class CNSourceImport(Document):
         self._validate_duplicate_file()
         self._validate_manual_rates()
         self.recalculate_summary()
+
+    def _validate_source_type(self):
+        if self.source_type != SOURCE_DEPOSITS:
+            return
+        previous_type = (
+            frappe.db.get_value(self.doctype, self.name, "source_type")
+            if self.name else None
+        )
+        if previous_type != SOURCE_DEPOSITS:
+            frappe.throw(_(
+                "El detalle de depósitos ya no se carga en Importación de Fuente. "
+                "Registre cada depósito en Distribución de Remesa."
+            ))
 
     def _validate_historical_periods(self):
         if self.historical_period and self.source_type == "Detalle de depositos":
@@ -231,6 +247,11 @@ def _attached_file(document):
 def import_source_file(import_name: str):
     document = frappe.get_doc("CN Source Import", import_name)
     document.check_permission("write")
+    if document.source_type == SOURCE_DEPOSITS:
+        frappe.throw(_(
+            "Las fuentes bancarias anteriores se conservan para consulta y conciliación, "
+            "pero ya no admiten nuevas cargas. Registre el depósito en Distribución de Remesa."
+        ))
     file_doc, content = _attached_file(document)
     try:
         parsed = parse_source_file(document.source_type, file_doc.file_name, content)
@@ -361,10 +382,9 @@ def reconcile_all_sources():
         "CN Remittance Allocation",
         filters={"docstatus": 1},
         fields=[
-            "name", "deposit_reference", "deposit_voucher", "period",
-            "row_key", "complementary_item", "historical_application",
+            "name", "deposit_reference", "deposit_voucher",
             "amount_usd", "result", "employer", "deposit_date",
-            "deposit_currency", "deposit_amount", "fx_rate", "fx_evidence",
+            "deposit_currency", "deposit_amount", "fx_rate", "notes",
             "allocated_usd", "unallocated_usd",
             "support_file", "detail_file", "detail_source_file", "detail_hash", "detail_period",
             "detail_status", "detail_total_usd", "detail_count",
@@ -649,6 +669,10 @@ def _match_applications(
         if period.reconciliation_mode == "Historica"
     }
     period_by_name = {period.name: period for period in periods}
+    employer_labels, _ambiguous_employers = employer_alias_index(frappe.get_all(
+        "CN Employer", fields=["name", "employer_name", "employer_code"],
+        limit_page_length=100000,
+    ))
     pairs_by_reference = defaultdict(list)
     for account, bank in deposit_pairs:
         pairs_by_reference[clean_text(account.reference)].append((account, bank))
@@ -688,8 +712,17 @@ def _match_applications(
                 "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
             )
             continue
-        if not any((source.loan_number, source.client_number, source.national_id)):
-            _client, identity_reason = choose_client(source.as_dict(), clients)
+        source_employer = employer_labels.get(clean_text(source.employer_text).casefold())
+        if not source_employer and not any((
+            source.loan_number, source.client_number, source.national_id,
+        )):
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _(
+                "Falta identificar la empresa para conciliar por nombre o número de empleado."
+            )
+            continue
+        if not any((source.loan_number, source.client_number, source.employee_number, source.national_id)):
+            _client, identity_reason = choose_client(source.as_dict(), clients, source_employer)
             if identity_reason.startswith("Nombre ambiguo"):
                 source.match_status = "Ambiguo"
                 source.match_reason = _(
@@ -707,6 +740,11 @@ def _match_applications(
         pair_candidates = []
         application_values = source.as_dict()
         for target in collection_rows:
+            target_period = period_by_name.get(target.parent)
+            if source_employer and (
+                not target_period or target_period.employer != source_employer
+            ):
+                continue
             if not application_matches_collection(
                 application_values, collection_values[target.name],
                 aliases_by_target[target.name],
@@ -907,7 +945,7 @@ def _match_deposits(rows):
 
 def _registered_deposit_pairs(rows, allocations, legacy_pairs):
     """Use manually registered deposits as cash evidence; keep unmatched legacy pairs."""
-    registered = [item for item in allocations if item.deposit_date]
+    registered = list(allocations)
     if not registered:
         return legacy_pairs, {}
     accounting = [
@@ -919,6 +957,7 @@ def _registered_deposit_pairs(rows, allocations, legacy_pairs):
     pairs = []
     deposit_ids = {}
     for item in registered:
+        fx_basis = remittance_fx_basis(item) if item.deposit_currency == "NIO" else "Moneda original USD"
         registered_row = _RegisteredDeposit(
             name=item.name,
             reference=clean_text(item.deposit_reference),
@@ -928,10 +967,10 @@ def _registered_deposit_pairs(rows, allocations, legacy_pairs):
             amount=flt(item.deposit_amount),
             equivalent_currency="USD",
             equivalent_amount=flt(item.amount_usd),
-            fx_basis=clean_text(item.fx_evidence) if item.deposit_currency == "NIO" else "Moneda original USD",
+            fx_basis=fx_basis,
             fx_rate=flt(item.fx_rate),
             manual_fx_rate=flt(item.fx_rate),
-            manual_fx_evidence=clean_text(item.fx_evidence),
+            manual_fx_evidence=fx_basis,
             employer_text=item.employer,
             effective=1,
             allocated_usd=0,
@@ -1010,12 +1049,12 @@ def _prepare_remittance_details(
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
     by_deposit = {deposit["id"]: deposit for deposit in deposits}
-    names = [item.name for item in remittances if item.deposit_date]
+    names = [item.name for item in remittances]
     detail_rows = frappe.get_all(
         "CN Remittance Detail",
         filters={"parent": ["in", names]},
         fields=[
-            "name", "parent", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number",
+            "name", "parent", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number", "employee_number",
             "national_id", "loan_number", "installment_number",
             "application_reference", "deducted_usd", "deducted_nio",
             "amount_usd", "match_status", "match_reason", "matched_targets",
@@ -1034,8 +1073,6 @@ def _prepare_remittance_details(
     rounding_eligible = set()
     contexts = {}
     for item in remittances:
-        if not item.deposit_date:
-            continue
         deposit_id = registered_ids.get(item.name)
         if deposit_id not in by_deposit:
             continue
@@ -1069,7 +1106,7 @@ def _prepare_remittance_details(
             continue
         plans = []
         total_usd = 0.0
-        rate = flt(item.fx_rate) if clean_text(item.fx_evidence) else 0
+        rate = flt(item.fx_rate) if remittance_fx_basis(item) else 0
         for row in rows:
             amount, explanation = detail_amount_usd(row, rate)
             total_usd = round(total_usd + amount, 4)
@@ -1301,7 +1338,7 @@ def _distribute_deposits(
     for source in source_rows:
         if source.event_type != "Aplicacion" or source._source_type != SOURCE_TRANSACTIONS:
             continue
-        if not (source.client_number or source.national_id):
+        if not (source.client_number or source.employee_number or source.national_id):
             continue
         key = (
             canonical_identifier(source.loan_number), clean_text(source.reference),
@@ -1312,6 +1349,7 @@ def _distribute_deposits(
             clean_text(source.client_number), clean_text(source.national_id),
             clean_text(source.installment_number),
             clean_text(source.client_name),
+            clean_text(source.employee_number),
         ))
 
     claims = []
@@ -1327,7 +1365,8 @@ def _distribute_deposits(
             {"id": "C:" + row.name, "amount_usd": loan_amount,
              "kind": "C", "row_key": row.row_key,
              "client": row.get("client"), "client_name": row.client_name,
-             "client_number": row.client_number, "national_id": row.national_id,
+             "client_number": row.client_number, "employee_number": row.employee_number,
+             "national_id": row.national_id,
              "loan_number": row.loan_number,
              "installment_number": row.installment_number,
              "references": references, "hints": dict(hints_by_row[row.name]),
@@ -1353,12 +1392,13 @@ def _distribute_deposits(
             application.currency, str(application.event_date or "")[:10],
         )
         identity_options = fallback_identities.get(identity_key, set())
-        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "", "")
+        fallback_identity = next(iter(identity_options)) if len(identity_options) == 1 else ("", "", "", "", "")
         claims.append(
             {
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
                 "kind": "H", "client_number": application.client_number or fallback_identity[0],
+                "employee_number": application.employee_number or fallback_identity[4],
                 "national_id": application.national_id or fallback_identity[1],
                 "client_name": application.client_name or fallback_identity[3],
                 "loan_number": application.loan_number,
@@ -1373,16 +1413,14 @@ def _distribute_deposits(
         )
     client_catalog = load_client_index()
     for claim in claims:
-        claim["client_names"] = names_for_claim(claim, client_catalog)
-        client, reason = choose_client(claim, client_catalog)
+        claim["client_names"] = names_for_claim(claim, client_catalog, claim.get("group"))
+        client, reason = choose_client(claim, client_catalog, claim.get("group"))
         if client and reason in {"Identificador exacto", "Nombre o alias único"}:
             claim["client"] = client["name"]
             claim["client_number"] = claim.get("client_number") or client["client_number"]
+            claim["employee_number"] = claim.get("employee_number") or client["employee_number"]
             claim["national_id"] = claim.get("national_id") or client["national_id"]
 
-    deposits_by_reference = defaultdict(list)
-    for deposit in deposits:
-        deposits_by_reference[deposit["reference"]].append(deposit)
     claims_by_id = {claim["id"]: claim for claim in claims}
     instructions = []
     # A user-approved exact deposit is reserved for every row of its payroll
@@ -1420,7 +1458,7 @@ def _distribute_deposits(
     manually_ambiguous_deposits = (
         blocked_historical_deposits(claims, deposits) | ambiguous_deposit_ids
     )
-    registered_names = [item.name for item in manual_allocations if item.deposit_date]
+    registered_names = [item.name for item in manual_allocations]
     target_rows = frappe.get_all(
         "CN Remittance Target",
         filters={"parent": ["in", registered_names]},
@@ -1432,24 +1470,14 @@ def _distribute_deposits(
         limit_page_length=100000,
     ) if registered_names else []
     allocation_instructions = [
-        (item, target) for item in manual_allocations if item.deposit_date
+        (item, target) for item in manual_allocations
         for target in target_rows if target.parent == item.name
-    ] + [
-        (item, item) for item in manual_allocations if not item.deposit_date
     ]
     for parent, item in allocation_instructions:
-        if parent.deposit_date:
-            candidates = [
-                deposit for deposit in deposits
-                if deposit["id"] == registered_ids.get(parent.name)
-            ]
-        else:
-            candidates = [
-                deposit for deposit in deposits_by_reference[clean_text(parent.deposit_reference)]
-                if not parent.deposit_voucher
-                or clean_text(deposit_meta[deposit["id"]]["account"].voucher)
-                == clean_text(parent.deposit_voucher)
-            ]
+        candidates = [
+            deposit for deposit in deposits
+            if deposit["id"] == registered_ids.get(parent.name)
+        ]
         if len(candidates) != 1:
             manual_results[item.name] = (
                 "Falta deposito" if not candidates else "Deposito ambiguo"
@@ -1511,47 +1539,39 @@ def _distribute_deposits(
                 update_modified=False,
             )
     for item in manual_allocations:
-        if item.deposit_date:
-            deposit_id = registered_ids[item.name]
-            allocated = round(
-                flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd)), 4
+        deposit_id = registered_ids[item.name]
+        allocated = round(
+            flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd)), 4
+        )
+        remaining = round(flt(item.amount_usd) - allocated, 4)
+        statuses = [manual_results.get(row.name, "Pendiente") for row in target_rows if row.parent == item.name]
+        application_pending = any(
+            entry["deposit_id"] == deposit_id
+            and entry["claim_id"].startswith("C:")
+            and cash_by_claim[entry["claim_id"]]
+            > flt(claims_by_id[entry["claim_id"]]["core_applied_usd"]) + CASH_EPSILON
+            for entry in result["allocations"]
+        )
+        status = (
+            "Revisar destinos" if any(value != "Aplicada" for value in statuses)
+            else "Revisar detalle" if detail_statuses.get(item.name) in {
+                "Revisar filas", "Detalle supera depósito", "Importar detalle actualizado",
+            }
+            else "Detalle pendiente" if detail_statuses.get(item.name) == "Detalle pendiente"
+            else (
+                "Distribuido, aplicación pendiente" if remaining <= CASH_EPSILON
+                else "Parcial, aplicación pendiente"
+            ) if application_pending
+            else "Conciliado" if remaining <= CASH_EPSILON
+            else "Parcial" if allocated > CASH_EPSILON
+            else "Sin aplicación"
+        )
+        if item.result != status or flt(item.allocated_usd) != allocated or flt(item.unallocated_usd) != remaining:
+            frappe.db.set_value(
+                "CN Remittance Allocation", item.name,
+                {"result": status, "allocated_usd": allocated, "unallocated_usd": remaining},
+                update_modified=False,
             )
-            remaining = round(flt(item.amount_usd) - allocated, 4)
-            statuses = [manual_results.get(row.name, "Pendiente") for row in target_rows if row.parent == item.name]
-            application_pending = any(
-                entry["deposit_id"] == deposit_id
-                and entry["claim_id"].startswith("C:")
-                and cash_by_claim[entry["claim_id"]]
-                > flt(claims_by_id[entry["claim_id"]]["core_applied_usd"]) + CASH_EPSILON
-                for entry in result["allocations"]
-            )
-            status = (
-                "Revisar destinos" if any(value != "Aplicada" for value in statuses)
-                else "Revisar detalle" if detail_statuses.get(item.name) in {
-                    "Revisar filas", "Detalle supera depósito", "Importar detalle actualizado",
-                }
-                else "Detalle pendiente" if detail_statuses.get(item.name) == "Detalle pendiente"
-                else (
-                    "Distribuido, aplicación pendiente" if remaining <= CASH_EPSILON
-                    else "Parcial, aplicación pendiente"
-                ) if application_pending
-                else "Conciliado" if remaining <= CASH_EPSILON
-                else "Parcial" if allocated > CASH_EPSILON
-                else "Sin aplicación"
-            )
-            if item.result != status or flt(item.allocated_usd) != allocated or flt(item.unallocated_usd) != remaining:
-                frappe.db.set_value(
-                    "CN Remittance Allocation", item.name,
-                    {"result": status, "allocated_usd": allocated, "unallocated_usd": remaining},
-                    update_modified=False,
-                )
-        else:
-            status = manual_results.get(item.name, "Pendiente")
-            if item.result != status:
-                frappe.db.set_value(
-                    "CN Remittance Allocation", item.name, "result", status,
-                    update_modified=False,
-                )
 
     assigned_by_deposit = defaultdict(float)
     detail_by_deposit = defaultdict(list)
@@ -1985,7 +2005,11 @@ def _rebuild_period_balances(
                 period.status = "Deposito conciliado"
             elif period.status == "Deposito conciliado":
                 period.status = "Detalle empresa cargado"
-        period.save(ignore_permissions=True)
+        if period.status == "Cerrado":
+            with period_write_action("reconcile"):
+                period.save(ignore_permissions=True)
+        else:
+            period.save(ignore_permissions=True)
 
 
 def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation):
@@ -2212,7 +2236,11 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
                 if unclassified_deposits_by_period[period.name]
                 else historical_status(applied + adjustment, remitted)
             )
-        period.save(ignore_permissions=True)
+        if period.status == "Cerrado":
+            with period_write_action("reconcile"):
+                period.save(ignore_permissions=True)
+        else:
+            period.save(ignore_permissions=True)
 
 
 def _equivalent_amount(target, source, amount_usd):

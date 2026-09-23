@@ -64,7 +64,7 @@ empresa, y puede revertirse o sustituirse cuando llegue el detalle real.
 Se admiten archivos `.xlsx`, `.xls` y `.csv`. El archivo de cobranza que se
 envía a la empresa contiene estas columnas:
 
-`Nro. Cliente`, `Nombre y Apellidos del Cliente`, `Nro Cédula`,
+`Nro. Cliente`, `Nro. Empleado` (opcional), `Nombre y Apellidos del Cliente`, `Nro Cédula`,
 `Nro. Crédito`, `Nro. cuota`, `Nro. de cuotas totales`,
 `Monto de la cuota en US$`, `Monto de la cuota en C$`, `Comentarios`,
 `Referencia de Aplicación` y `Comentario de Aplicación`.
@@ -77,6 +77,10 @@ detalle del pago de la empresa se adjunta e importa **dentro de cada remesa**,
 no como fuente bancaria separada. Si contiene ambos deducidos, US$ es el
 importe de conciliación y C$ es informativo: no se suman. Si solo contiene C$,
 indique la tasa documentada en la remesa para convertirlo a US$.
+Cada cliente pertenece a una empresa de convenio. El número de empleado es
+su identificador interno en esa empresa, distinto del número de cliente; puede
+repetirse en otra empresa. Los nombres y alias se buscan solo dentro de la
+empresa correspondiente.
 
 ## Instalación
 
@@ -146,7 +150,8 @@ disponible la página `/app/control-credinomina`.
    remesas pueden cubrir una aplicación. El detalle se compara en US$ y no
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
    depósito. Un saldo restante queda sin distribuir o como saldo a favor
-   documentado. Un detalle solo en C$ requiere tasa y fuente documentadas.
+   documentado. Un detalle solo en C$ requiere tasa y fuente documentadas;
+   indique la fuente en **Justificación** o adjunte el **Soporte del depósito**.
 
 Para el **histórico de abril de 2025 a agosto de 2026** se omiten los pasos
 de cobranza y deducción: se asignan las aplicaciones a períodos históricos y

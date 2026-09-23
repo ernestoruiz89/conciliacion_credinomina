@@ -76,6 +76,14 @@ class WorkspaceTest(unittest.TestCase):
         for item in self.workspace["shortcuts"]:
             self.assertIn(item["link_to"], definitions[item["type"]])
 
+    def test_client_catalog_is_in_preparation_card(self):
+        links = self.workspace["links"]
+        start = next(index for index, item in enumerate(links)
+                     if item["type"] == "Card Break" and item["label"] == "Preparación y cobranza")
+        end = next((index for index in range(start + 1, len(links))
+                    if links[index]["type"] == "Card Break"), len(links))
+        self.assertIn("CN Client", {item.get("link_to") for item in links[start + 1:end]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,12 +28,17 @@ class EmployerNamingTest(unittest.TestCase):
         patches = configparser.ConfigParser(allow_no_value=True, delimiters="\n")
         patches.optionxform = str
         patches.read(root / "credinomina_reconciliation" / "patches.txt")
-        self.assertEqual([], list(patches["pre_model_sync"]))
+        self.assertEqual(
+            ["credinomina_reconciliation.patches.v1_0.move_remittance_fx_evidence_to_notes"],
+            list(patches["pre_model_sync"]),
+        )
         self.assertEqual(
             [
                 "credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name",
+                "credinomina_reconciliation.patches.v1_0.assign_client_employers",
                 "credinomina_reconciliation.patches.v1_0.backfill_clients",
                 "credinomina_reconciliation.patches.v1_0.add_aging_workspace_link",
+                "credinomina_reconciliation.patches.v1_0.ensure_client_workspace_link",
             ],
             list(patches["post_model_sync"]),
         )

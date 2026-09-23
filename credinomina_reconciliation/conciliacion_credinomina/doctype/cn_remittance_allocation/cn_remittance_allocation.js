@@ -19,7 +19,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
 });
 
 function updateUsdEquivalent(frm) {
-    if (!frm.doc.deposit_date) return; // Historical allocation documents keep their original amount.
     const nativeAmount = Number(frm.doc.deposit_amount || 0);
     const currency = frm.doc.deposit_currency;
     const rate = Number(frm.doc.fx_rate || 0);

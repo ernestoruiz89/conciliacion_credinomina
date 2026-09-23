@@ -185,6 +185,7 @@ def read_table(
 COLLECTION_ALIASES = {
     "row_key": ("fila_id", "row_id", "id_fila"),
     "client_number": ("nro_cliente", "numero_cliente", "no_cliente", "customer_id"),
+    "employee_number": ("nro_empleado", "numero_empleado", "no_empleado", "codigo_empleado", "cod_empleado", "nro_de_empleado"),
     "client_name": (
         "nombre_y_apellidos_del_cliente",
         "nombre_del_cliente",
@@ -252,13 +253,14 @@ def parse_collection_file(
             continue
         loan_number = clean_text(_value(row, mapping, "loan_number"))
         client_number = clean_text(_value(row, mapping, "client_number"))
+        employee_number = clean_text(_value(row, mapping, "employee_number"))
         national_id = clean_text(_value(row, mapping, "national_id"))
         client_name = clean_text(_value(row, mapping, "client_name"))
         expected_usd = parse_amount(_value(row, mapping, "expected_usd"))
         expected_nio = parse_amount(_value(row, mapping, "expected_nio"))
         deducted_usd = parse_amount(_value(row, mapping, "deducted_usd"))
         deducted_nio = parse_amount(_value(row, mapping, "deducted_nio"))
-        if not any((loan_number, client_number, national_id, client_name)):
+        if not any((loan_number, client_number, employee_number, national_id, client_name)):
             if require_name and any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
                 raise SourceFileError(
                     f"La fila {row_number} tiene importe pero no tiene Nombre y Apellidos del Cliente."
@@ -281,6 +283,7 @@ def parse_collection_file(
                 "source_row": row_number,
                 "row_key": clean_text(_value(row, mapping, "row_key")),
                 "client_number": client_number,
+                "employee_number": employee_number,
                 "client_name": client_name,
                 "national_id": national_id,
                 "loan_number": loan_number,
@@ -470,6 +473,10 @@ def parse_transactions(file_name: str, content: bytes) -> list[dict[str, Any]]:
                 receipt=record.get("nro_comprobante"),
                 employer=record.get("convenio"),
                 client_number=record.get("nrocliente"),
+                employee_number=(
+                    record.get("nro_empleado") or record.get("numero_empleado")
+                    or record.get("nroempleado") or record.get("numeroempleado")
+                ),
                 client_name=record.get("cliente"),
                 national_id=record.get("identificacion"),
                 loan_number=record.get("nrocredito"),
@@ -540,6 +547,7 @@ def _source_record(
     receipt: Any = None,
     employer: Any = None,
     client_number: Any = None,
+    employee_number: Any = None,
     client_name: Any = None,
     national_id: Any = None,
     loan_number: Any = None,
@@ -561,6 +569,7 @@ def _source_record(
         "receipt": clean_text(receipt),
         "employer_text": clean_text(employer),
         "client_number": clean_text(client_number),
+        "employee_number": clean_text(employee_number),
         "client_name": clean_text(client_name),
         "national_id": clean_text(national_id),
         "loan_number": clean_text(loan_number),

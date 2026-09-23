@@ -64,6 +64,17 @@ class RemittanceDetailTests(unittest.TestCase):
         targets, _ = suggest_detail_targets(row, [claim(1)], 1, "Empresa A")
         self.assertEqual(targets, [])
 
+    def test_employee_number_identifies_client_within_company(self):
+        destination = claim(1)
+        destination["employee_number"] = "E-7"
+        row = {"client_name": "ANA PEREZ", "employee_number": "E-7"}
+        targets, _ = suggest_detail_targets(row, [destination], 1, "Empresa A")
+        self.assertEqual(targets[0]["claim_id"], "H:1")
+        targets, _ = suggest_detail_targets(
+            row, [{**destination, "group": "Empresa B"}], 1, "Empresa A",
+        )
+        self.assertEqual(targets, [])
+
     def test_primary_accounting_without_client_uses_unique_loan_with_warning(self):
         destination = claim(1)
         destination["client_number"] = ""

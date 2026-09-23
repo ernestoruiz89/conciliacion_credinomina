@@ -238,12 +238,28 @@ def get_control_data(year=None, employer=None):
                 for link in json.loads(application.application_allocation_detail or "[]"):
                     if link.get("period") in period_names:
                         reference_periods[application.reference].add(link["period"])
-        for allocation in frappe.get_all(
-            "CN Remittance Allocation",
-            filters={"period": ["in", period_names], "docstatus": 1},
-            fields=["deposit_reference", "period"],
-        ):
-            reference_periods[allocation.deposit_reference].add(allocation.period)
+        target_links = frappe.get_all(
+            "CN Remittance Target",
+            filters={"period": ["in", period_names]},
+            fields=["parent", "period"], limit_page_length=100000,
+        )
+        if target_links:
+            deposit_references = {
+                allocation.name: allocation.deposit_reference
+                for allocation in frappe.get_all(
+                    "CN Remittance Allocation",
+                    filters={
+                        "name": ["in", list({row.parent for row in target_links})],
+                        "docstatus": 1,
+                    },
+                    fields=["name", "deposit_reference"],
+                    limit_page_length=100000,
+                )
+            }
+            for target in target_links:
+                reference = deposit_references.get(target.parent)
+                if reference:
+                    reference_periods[reference].add(target.period)
 
     deposits = []
     unassigned_historical_applications = []

@@ -13,21 +13,30 @@ from credinomina_reconciliation.parsers import (
 
 def execute():
     clients = ClientIndex()
+    employers = {
+        row.name: row.employer for row in frappe.get_all(
+            "CN Reconciliation Period", fields=["name", "employer"],
+            limit_page_length=100000,
+        )
+    }
     rows = frappe.get_all(
         "CN Collection Row",
         fields=[
-            "name", "source_row", "client", "client_name",
-            "client_number", "national_id",
+            "name", "parent", "source_row", "client", "client_name",
+            "client_number", "employee_number", "national_id",
         ],
         limit_page_length=100000,
     )
     for row in rows:
         if row.client or not clean_text(row.client_name):
             continue
-        _existing, reason = choose_client(row, clients.records)
+        employer = employers.get(row.parent)
+        if not employer:
+            continue
+        _existing, reason = choose_client(row, clients.records, employer)
         if reason.startswith("Conflicto") or reason.startswith("Nombre ambiguo"):
             continue  # Leave conflicting historical data for manual review.
-        client_name = clients.ensure_from_collection(row)
+        client_name = clients.ensure_from_collection(row, employer)
         frappe.db.set_value(
             "CN Collection Row", row.name, "client", client_name,
             update_modified=False,

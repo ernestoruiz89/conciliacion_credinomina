@@ -3,11 +3,13 @@
   "autoname": "naming_series:",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["naming_series", "client_name", "client_number", "national_id", "aliases"],
+  "field_order": ["naming_series", "employer", "client_name", "client_number", "employee_number", "national_id", "aliases"],
   "fields": [
     {"fieldname": "naming_series", "fieldtype": "Select", "options": "CN-CLIENT-.#####", "default": "CN-CLIENT-.#####", "hidden": 1, "reqd": 1, "label": "Serie"},
+    {"fieldname": "employer", "fieldtype": "Link", "options": "CN Employer", "label": "Empresa de convenio", "reqd": 1, "in_list_view": 1},
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "reqd": 1, "in_list_view": 1},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "in_list_view": 1},
+    {"fieldname": "employee_number", "fieldtype": "Data", "label": "Nro. Empleado", "in_list_view": 1, "description": "Identificador interno de la empresa; distinto del número de cliente y único dentro de esa empresa."},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Cédula", "in_list_view": 1},
     {"fieldname": "aliases", "fieldtype": "Table", "label": "Nombres alternativos", "options": "CN Client Alias", "description": "Use las variantes verificadas de nombre de las planillas. Los parecidos no se concilian automáticamente."}
   ],
@@ -19,7 +21,7 @@
     {"create": 1, "read": 1, "write": 1, "role": "Supervisor Credinomina"},
     {"create": 1, "read": 1, "write": 1, "role": "Operador Credinomina"}
   ],
-  "search_fields": "client_name,client_number,national_id",
+  "search_fields": "client_name,client_number,employee_number,national_id",
   "sort_field": "client_name",
   "sort_order": "ASC",
   "title_field": "client_name",

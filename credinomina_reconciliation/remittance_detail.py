@@ -41,25 +41,30 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
         return False
     loan = row.get("loan_number")
     client = row.get("client_number")
+    employee = row.get("employee_number")
     national_id = row.get("national_id")
     if loan and not _same_id(loan, claim.get("loan_number")):
         return False
-    if not loan and not (client or national_id or row.get("client_name")):
+    if not loan and not (client or employee or national_id or row.get("client_name")):
         return False
     identity_match = False
     if client and claim.get("client_number"):
         if not _same_id(client, claim["client_number"]):
             return False
         identity_match = True
+    if employee and claim.get("employee_number"):
+        if not _same_id(employee, claim["employee_number"]):
+            return False
+        identity_match = True
     if national_id and claim.get("national_id"):
         if clean_text(national_id).casefold() != clean_text(claim["national_id"]).casefold():
             return False
         identity_match = True
-    if (client or national_id) and not identity_match and (
-        not loan or claim.get("client_number") or claim.get("national_id")
+    if (client or employee or national_id) and not identity_match and (
+        not loan or claim.get("client_number") or claim.get("employee_number") or claim.get("national_id")
     ):
         return False
-    if not any((loan, client, national_id)) and not matching_name(
+    if not any((loan, client, employee, national_id)) and not matching_name(
         row.get("client_name"), {
             "client_name": claim.get("client_name"),
             "client_aliases": claim.get("client_names") or (),
@@ -109,7 +114,7 @@ def suggest_detail_targets(
         claim = matches[0]
         identity_note = (
             "; core sin identidad del cliente"
-            if not claim.get("client_number") and not claim.get("national_id")
+            if not claim.get("client_number") and not claim.get("employee_number") and not claim.get("national_id")
             else ""
         )
         if row.get("installment_number") and not claim.get("installment_number"):
@@ -129,7 +134,7 @@ def suggest_detail_targets(
     kinds = {claim.get("kind") for claim in matches}
     if "C" in kinds and "H" in kinds:
         return [], "Coincidencia entre histórico y operativo: seleccione período"
-    if not any((row.get("loan_number"), row.get("client_number"), row.get("national_id"))):
+    if not any((row.get("loan_number"), row.get("client_number"), row.get("employee_number"), row.get("national_id"))):
         people = {
             canonical_identifier(claim.get("client_number"))
             or canonical_identifier(claim.get("national_id"))
