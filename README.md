@@ -158,8 +158,22 @@ disponible la página `/app/control-credinomina`.
 Para el **histórico de abril de 2025 a agosto de 2026** se omiten los pasos
 de cobranza y deducción: se asignan las aplicaciones a períodos históricos y
 se concilian contra los depósitos. La fecha del depósito puede estar en el mes
-siguiente a la aplicación. Revise excepciones y saldos antes de cerrar un
-período; el tablero y los reportes muestran lo pendiente.
+siguiente a la aplicación. Las excepciones abiertas bloquean el cierre también
+en histórico; revise los saldos antes de cerrar un período. El tablero y los
+reportes muestran lo pendiente.
+
+En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
+si se seleccionó, la empresa filtrada. El libro separa el resumen de períodos,
+el detalle de clientes y aplicaciones, los cruces con depósitos y las partidas
+pendientes. Conserve ese archivo como evidencia del corte exportado; para ver
+el estado actualizado vuelva a descargarlo. En histórico, cobranza y deducción
+no se infieren: se muestra la aplicación frente al depósito.
+
+Las **excepciones** permiten registrar una causa clasificada, responsable,
+próxima gestión, fecha compromiso, referencia y soporte. Al pasar a **En
+revisión** se exige responsable, gestión y fecha; al resolver se exige causa
+confirmada y resolución. El historial de gestiones conserva quién registró
+cada acción y cuándo; las entradas ya guardadas no se editan ni eliminan.
 
 El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo

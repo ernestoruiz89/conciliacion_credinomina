@@ -753,6 +753,11 @@ def close_period(period_name: str):
         },
     ):
         frappe.throw(_("Hay detalles de depósito por cliente pendientes de revisión para este período."))
+    if frappe.db.count(
+        "CN Reconciliation Exception",
+        {"period": period.name, "status": ["in", ["Abierta", "En revision"]]},
+    ):
+        frappe.throw(_("Resuelva las excepciones antes de cerrar el periodo."))
     if period.reconciliation_mode == "Historica":
         if period.status != "Historico conciliado":
             frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
@@ -838,12 +843,6 @@ def close_period(period_name: str):
             for entry in json.loads(deposit.allocation_detail or "[]")
         ):
             frappe.throw(_("El depósito {0} tiene un saldo sin clasificar relacionado con este período.").format(deposit.name))
-    open_exceptions = frappe.db.count(
-        "CN Reconciliation Exception",
-        {"period": period.name, "status": ["in", ["Abierta", "En revision"]]},
-    )
-    if open_exceptions:
-        frappe.throw(_("Resuelva las excepciones antes de cerrar el periodo."))
     if any(abs(flt(row.fx_variance_usd)) > 0.01 for row in period.collection_rows):
         frappe.throw(
             _("Hay diferencias cambiarias pendientes de revisar y aplicar en el core.")

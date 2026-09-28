@@ -96,7 +96,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                         item.reconciliation_mode === "Historica" ? item.applied_usd || 0 : item.deducted_usd || 0
                     ), 0);
                     const monthState = ordered.every((item) => ["conciliado", "historico_conciliado"].includes(item.control_state)) ? "conciliado" :
-                        ordered.some((item) => ["diferencia", "excedente", "historico_excedente"].includes(item.control_state)) ? "diferencia" :
+                        ordered.some((item) => ["diferencia", "excedente", "historico_excedente", "historico_excepcion"].includes(item.control_state)) ? "diferencia" :
                         ordered.some((item) => ["parcial", "historico_parcial"].includes(item.control_state)) ? "parcial" : "en_transito";
                     return `<td class="cn-cell cn-${esc(ordered.length === 1 ? ordered[0].control_state : monthState)}">
                         ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))}: ${money(monthRemitted)} / ${money(monthCompared)}</div>` : ""}
@@ -156,7 +156,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         $root.html(`${styles()}
             <div class="cn-intro">
                 <div><h2>${esc(__("Matriz mensual de conciliación"))}</h2><p>${esc(__("Seleccione una celda para ver aplicaciones, depósitos y, desde septiembre de 2026, deducciones de planilla."))}</p></div>
-                <span class="cn-year">${esc(String(year))}</span>
+                <div class="cn-intro-actions">
+                    <button type="button" class="btn btn-default btn-sm" data-export>${esc(__("Exportar Excel"))}</button>
+                    <span class="cn-year">${esc(String(year))}</span>
+                </div>
             </div>
             <div class="cn-kpis">${cards}</div>
             <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
@@ -203,8 +206,20 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td>${esc(row.application_status || row.deduction_status)}${row.deduction_status === "Inferida por depósito" ? `<br><span class="cn-inherited-note">${esc(__("Deducción inferida, sin detalle de planilla"))}</span>` : ""}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin detalle de cobranza."))}</div>`;
         const exceptions = (period.exceptions || []).length ? `
-            <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Cliente"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Motivo"))}</th><th>${esc(__("Importe"))}</th></tr></thead><tbody>
-            ${period.exceptions.map((item) => `<tr><td>${esc(item.client_number)}</td><td>${esc(item.loan_number)}</td><td>${esc(item.exception_type)} · ${esc(item.description)}</td><td class="cn-number">${money(item.amount_usd)}</td></tr>`).join("")}
+            <div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
+                <th>${esc(__("Excepción"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Causa y motivo"))}</th>
+                <th>${esc(__("Importe"))}</th><th>${esc(__("Estado"))}</th><th>${esc(__("Responsable"))}</th>
+                <th>${esc(__("Próxima acción"))}</th><th>${esc(__("Compromiso"))}</th><th>${esc(__("Soporte"))}</th>
+            </tr></thead><tbody>
+            ${period.exceptions.map((item) => `<tr>
+                <td><button class="cn-text-link" type="button" data-exception="${esc(item.name)}">${esc(item.name)}</button></td>
+                <td>${esc(item.client_number)} / ${esc(item.loan_number)}</td>
+                <td>${esc(item.cause_category || item.exception_type)}<br>${esc(item.description)}</td>
+                <td class="cn-number">${money(item.amount_usd)}</td>
+                <td>${esc(item.status)}</td><td>${esc(item.assigned_to || "—")}</td>
+                <td>${esc(item.next_action || "—")}</td><td>${esc(item.commitment_date || "—")}</td>
+                <td>${esc(item.external_reference || (item.evidence_file ? __("Adjunto") : "—"))}</td>
+            </tr>`).join("")}
             </tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay excepciones abiertas."))}</div>`;
         const surplus = (period.surpluses || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Referencia"))}</th><th>${esc(__("Motivo"))}</th><th>${esc(__("Importe"))}</th><th>${esc(__("Control"))}</th></tr></thead><tbody>
@@ -256,6 +271,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <h4>${esc(__("Excedentes de depósito"))}</h4>${surplus}
             </div>
         `);
+        dialog.get_field("detail").$wrapper.on("click", "[data-exception]", function () {
+            dialog.hide();
+            frappe.set_route("Form", "CN Reconciliation Exception", $(this).attr("data-exception"));
+        });
     }
 
     $root.on("click", "[data-period]", function () { showPeriod($(this).attr("data-period")); });
@@ -268,6 +287,15 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     $root.on("click", "[data-movement]", function () {
         frappe.set_route("Form", "CN Reconciliation Movement", $(this).attr("data-movement"));
     });
+    $root.on("click", "[data-export]", downloadControlExcel);
+    function downloadControlExcel() {
+        const params = new URLSearchParams({ year: yearField.get_value() || String(currentYear) });
+        if (employerField.get_value()) params.set("employer", employerField.get_value());
+        window.open(
+            `/api/method/credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.export_control_excel?${params}`,
+            "_blank"
+        );
+    }
     page.add_button(__("Registrar depósito"), () => frappe.new_doc("CN Remittance Allocation"));
     page.add_button(__("Documentar excedente"), () => frappe.new_doc("CN Deposit Surplus"));
     page.set_primary_action(__("Actualizar"), refresh);
@@ -304,6 +332,7 @@ function stateLabel(state) {
         historico_parcial: __("Histórico parcial"),
         historico_pendiente: __("Histórico pendiente"),
         historico_excedente: __("Histórico con excedente"),
+        historico_excepcion: __("Histórico con excepción"),
     })[state] || __("Pendiente");
 }
 
@@ -346,6 +375,7 @@ function styles() {
     return `<style>
         .cn-control { padding: 12px 4px 32px; color: #334155; }
         .cn-intro { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin: 6px 0 18px; }
+        .cn-intro-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
         .cn-intro h2 { font-size: 21px; font-weight: 700; margin: 0 0 4px; color: #1e293b; }
         .cn-intro p, .cn-footnote { font-size: 12px; color: #64748b; margin: 0; }
         .cn-year { background: #dbeafe; border-radius: 8px; padding: 6px 12px; color: #1d4ed8; font-weight: 700; }
@@ -384,19 +414,21 @@ function styles() {
         .cn-historico_parcial { background: #eff6ff; border-left: 3px solid #3b82f6 !important; }
         .cn-historico_pendiente { background: #fff7ed; border-left: 3px solid #f97316 !important; }
         .cn-historico_excedente { background: #faf5ff; border-left: 3px solid #7c3aed !important; }
+        .cn-historico_excepcion { background: #fef2f2; border-left: 3px solid #dc2626 !important; }
         .cn-empty-cell { text-align: center; padding: 28px 4px !important; color: #cbd5e1; }
         .cn-empty, .cn-loading { padding: 24px; text-align: center; color: #94a3b8; font-size: 12px; }
         .cn-detail-table { width: 100%; border-collapse: collapse; font-size: 11px; }
         .cn-detail-table th { text-align: left; background: #f8fafc; color: #64748b; text-transform: uppercase; font-size: 9px; letter-spacing: .04em; }
         .cn-detail-table th, .cn-detail-table td { padding: 9px 10px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
+        .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
         .cn-text-link { border: 0; background: none; color: #2563eb; font-weight: 600; padding: 0; }
         .cn-footnote { margin-top: 12px; } .cn-dialog { max-height: 70vh; overflow: auto; }
         .cn-dialog h4 { font-size: 13px; font-weight: 700; margin: 20px 0 8px; }
         .cn-dialog-kpis { grid-template-columns: repeat(3, minmax(130px, 1fr)); }
         @media(max-width: 1100px) { .cn-kpis { grid-template-columns: repeat(3, minmax(130px, 1fr)); } }
-        @media(max-width: 650px) { .cn-kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); } }
+        @media(max-width: 650px) { .cn-kpis { grid-template-columns: repeat(2, minmax(120px, 1fr)); } .cn-intro { flex-wrap: wrap; } }
     </style>`;
 }
 })();

@@ -1,12 +1,71 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import now_datetime
+
+
+_ACTION_FIELDS = (
+    "idx", "action_at", "action_by", "action_type", "details",
+    "external_reference", "evidence_file",
+)
 
 
 class CNReconciliationException(Document):
     def validate(self):
+        previous = self.get_doc_before_save()
         if self.status in {"Resuelta", "Descartada"} and not self.resolution:
             frappe.throw(_("Escriba la resolucion antes de cerrar la excepcion."))
+        # Existing review/resolution records are grandfathered until edited,
+        # but a confirmed field may never be cleared after the transition.
+        newly_entered_status = not previous or self.status != previous.status
+        if self.status == "En revision" and any(
+            not self.get(field) and (newly_entered_status or previous.get(field))
+            for field in ("assigned_to", "next_action", "commitment_date")
+        ):
+            frappe.throw(_(
+                "Para poner la excepcion en revision indique responsable, proxima gestion y fecha compromiso."
+            ))
+        if self.status == "Resuelta" and (
+            (not self.assigned_to and (newly_entered_status or previous.assigned_to))
+            or (
+                self.cause_category in (None, "", "Por determinar")
+                and (newly_entered_status or previous.cause_category not in (None, "", "Por determinar"))
+            )
+        ):
+            frappe.throw(_(
+                "Para resolver la excepcion indique responsable y causa confirmada."
+            ))
+        self._validate_follow_up_actions(previous)
+
+    def _validate_follow_up_actions(self, previous):
+        old_actions = {
+            action.name: action
+            for action in (previous.follow_up_actions or [])
+        } if previous else {}
+        current_names = set()
+        for action in self.follow_up_actions or []:
+            if not (action.details or "").strip():
+                frappe.throw(_("Escriba el detalle de cada gestion de la excepcion."))
+            if action.name and action.name in current_names:
+                frappe.throw(_("No repita una gestion en el historial."))
+            if action.name:
+                current_names.add(action.name)
+            old = old_actions.get(action.name)
+            if old:
+                if any(
+                    str(action.get(field) or "") != str(old.get(field) or "")
+                    for field in _ACTION_FIELDS
+                ):
+                    frappe.throw(_(
+                        "Las gestiones guardadas no se pueden modificar; agregue una nueva."
+                    ))
+            else:
+                action.action_at = now_datetime().replace(microsecond=0)
+                action.action_by = frappe.session.user
+        if set(old_actions) - current_names:
+            frappe.throw(_(
+                "Las gestiones guardadas no se pueden eliminar; agregue una nueva."
+            ))
 
     def on_update(self):
         if not self.period:

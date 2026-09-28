@@ -1,0 +1,20 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["action_at", "action_by", "action_type", "details", "external_reference", "evidence_file"],
+  "fields": [
+    {"fieldname": "action_at", "fieldtype": "Datetime", "label": "Fecha y hora", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "action_by", "fieldtype": "Link", "label": "Registrado por", "options": "User", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "action_type", "fieldtype": "Select", "label": "Gestion", "options": "Contacto con empresa\nContacto con empleado\nInvestigacion\nAcuerdo\nEscalamiento\nSoporte recibido\nAjuste\nOtra", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "details", "fieldtype": "Small Text", "label": "Detalle", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "external_reference", "fieldtype": "Data", "label": "Referencia de soporte"},
+    {"fieldname": "evidence_file", "fieldtype": "Attach", "label": "Soporte"}
+  ],
+  "istable": 1,
+  "module": "Conciliacion Credinomina",
+  "name": "CN Exception Action",
+  "permissions": [],
+  "sort_field": "idx",
+  "sort_order": "ASC"
+}
