@@ -13,11 +13,11 @@
   "label": "Conciliacion Credinomina",
   "links": [
     {
-      "description": "1. Cree el período y cargue la cobranza; aquí se registran los clientes y sus alias.",
+      "description": "1. Cargue el corte mensual de cartera, cree el período y cargue la cobranza; aquí se validan clientes y empresas.",
       "hidden": 0,
       "is_query_report": 0,
       "label": "Preparación y cobranza",
-      "link_count": 3,
+      "link_count": 4,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -38,6 +38,16 @@
       "label": "Clientes y alias",
       "link_count": 0,
       "link_to": "CN Client",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Cortes mensuales de cartera",
+      "link_count": 0,
+      "link_to": "CN Credit Portfolio Snapshot",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"

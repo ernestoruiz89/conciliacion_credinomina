@@ -14,6 +14,7 @@ from credinomina_reconciliation.allocation import allocate_cash, can_document_su
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.client_registry import load_client_index, names_for_claim
 from credinomina_reconciliation.client_identity import choose_client
+from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
     resolved_deposit_employer,
@@ -83,6 +84,9 @@ _SOURCE_EVIDENCE_FIELDS = (
     "amount_nio", "equivalent_currency", "equivalent_amount", "fx_rate",
     "fx_basis", "manual_fx_rate", "manual_fx_evidence", "description",
     "processing_route", "historical_period",
+    "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client",
+    "portfolio_employer", "portfolio_credit_status", "portfolio_credit_lifecycle",
+    "portfolio_validation_status",
 )
 _SOURCE_DERIVED_FIELDS = (
     "historical_application_id", "effective", "match_status", "match_reason",
@@ -97,6 +101,7 @@ _SOURCE_DERIVED_FIELDS = (
 _IMPORT_EVIDENCE_FIELDS = (
     "source_type", "source_file", "file_hash", "historical_backfill",
     "historical_period",
+    "portfolio_snapshot",
 )
 
 
@@ -344,6 +349,7 @@ def import_source_file(import_name: str):
     file_doc, content = _attached_file(document)
     try:
         parsed = parse_source_file(document.source_type, file_doc.file_name, content)
+        parsed = enrich_accounting_records(parsed, document.portfolio_snapshot)
     except SourceFileError as exc:
         document.status = "Fallido"
         document.notes = str(exc)

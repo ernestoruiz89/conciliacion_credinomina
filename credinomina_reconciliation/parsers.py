@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 import re
 import unicodedata
 from datetime import date, datetime
@@ -344,7 +345,7 @@ def _extract_employer(description: str, fallback: Any = None) -> str:
 
 def _extract_application_client_name(description: str) -> str:
     match = re.search(
-        r"\bCLIENTE\s*[:=]?\s*(.+?)(?:\s+N\.?\s*C\.?(?:\s|$)|\s+CONVENIO\b|\s+-)",
+        r"\bCLIENTE\s*[:=]?\s*(.+?)(?:\s+N\.?\s*C\.?(?:\s|$)|\s+CONVENIO\b|\s+PAGO\s+APLICADO\b|\s+-)",
         description, re.IGNORECASE,
     )
     return clean_text(match.group(1)) if match else ""
@@ -353,6 +354,12 @@ def _extract_application_client_name(description: str) -> str:
 def _extract_receipt(description: str) -> str:
     match = re.search(r"\bNO\.?\s*DOCUM(?:ENTO)?\.?\s*[:#]?\s*([A-Z0-9-]+)", description, re.IGNORECASE)
     return clean_text(match.group(1)) if match else ""
+
+
+def _account_description(record: dict[str, Any]) -> str:
+    return clean_text(
+        record.get("descripcion_cta_contable") or record.get("descripcion_cuenta")
+    ).upper()
 
 
 def _native_deposit_amount(description: str, fallback: Any) -> tuple[str, float]:
@@ -375,15 +382,22 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         loan_number = ""
         reference = ""
         employer = ""
-        if "NOTA AL PRESTAMO" in upper:
+        source_loan_number = clean_text(record.get("no_credito"))
+        if "NOTA AL PRESTAMO" in upper or (
+            "PAGO APLICADO" in upper
+            and (source_loan_number or "PRESTAMO" in upper)
+        ):
             event_type = "Aplicacion"
-            match = re.search(r"NOTA\s+AL\s+PRESTAMO\s+0*([0-9]+)", description, re.IGNORECASE)
-            loan_number = clean_text(match.group(1) if match else "")
+            match = re.search(
+                r"(?:NOTA\s+AL\s+)?PRESTAMO\s+0*([A-Z0-9-]+)",
+                description, re.IGNORECASE,
+            )
+            loan_number = source_loan_number or clean_text(match.group(1) if match else "")
             reference = _extract_reference(description, record.get("no_ref"))
-            account_name = clean_text(record.get("descripcion_cta_contable")).upper()
+            account_name = _account_description(record)
             currency = "NIO" if "M.N" in account_name else "USD"
             amount = parse_amount(record.get("debito_del_mes"))
-            employer = _extract_employer(description)
+            employer = clean_text(record.get("empresa")) or _extract_employer(description)
         elif "DEPOSITO POR" in upper:
             event_type = "Deposito"
             reference = clean_text(record.get("no_ref"))
@@ -400,7 +414,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         equivalent_amount = 0.0
         fx_basis = ""
         if event_type == "Deposito":
-            account_name = clean_text(record.get("descripcion_cta_contable")).upper()
+            account_name = _account_description(record)
             accounting_currency = (
                 "USD" if "M.E." in account_name else "NIO" if "M.N." in account_name else ""
             )
@@ -419,7 +433,11 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 accounting_entry=record.get("no_cmpte") if event_type == "Aplicacion" else "",
                 receipt=_extract_receipt(description) if event_type == "Aplicacion" else "",
                 employer=employer,
-                client_name=_extract_application_client_name(description) if event_type == "Aplicacion" else "",
+                client_name=(
+                    clean_text(record.get("nombre_cliente"))
+                    or _extract_application_client_name(description)
+                    if event_type == "Aplicacion" else ""
+                ),
                 loan_number=loan_number,
                 currency=currency,
                 amount=amount,
@@ -502,3 +520,103 @@ def parse_source_file(source_type: str, file_name: str, content: bytes) -> list[
     if source_type == SOURCE_ACCOUNTING:
         return parse_accounting_movements(file_name, content)
     raise SourceFileError(f"Tipo de fuente no soportado: {source_type}")
+
+
+def _portfolio_json_value(value: Any) -> Any:
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, float) and not (float("-inf") < value < float("inf")):
+        return None
+    return value
+
+
+def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any]]:
+    """Parse a monthly credit cut while preserving every original column.
+
+    The source report is allowed to have title rows above the table. Operational
+    fields are extracted for lookups; ``raw_data`` retains the entire row so
+    new columns added by the core are not lost.
+    """
+    rows = read_table(file_name, content)
+    mapping = None
+    original_headers = []
+    parsed = []
+    seen_credits = set()
+
+    for row_number, row in enumerate(rows, start=1):
+        normalized = [normalize_header(value) for value in row]
+        if {"fecha_reporte", "no_credito", "nombre_cliente"}.issubset(normalized):
+            mapping = {header: index for index, header in enumerate(normalized) if header}
+            original_headers = []
+            used_headers = set()
+            for index, value in enumerate(row):
+                if value in (None, ""):
+                    original = f"Columna {index + 1}"
+                else:
+                    original = str(value).strip()
+                candidate = original
+                suffix = 2
+                while candidate in used_headers:
+                    candidate = f"{original} [{suffix}]"
+                    suffix += 1
+                used_headers.add(candidate)
+                original_headers.append(candidate)
+            continue
+
+        if not mapping or not any(value not in (None, "") for value in row):
+            continue
+
+        def value(fieldname):
+            index = mapping.get(fieldname)
+            return row[index] if index is not None and index < len(row) else None
+
+        credit_number = clean_text(value("no_credito"))
+        client_name = clean_text(value("nombre_cliente"))
+        if not credit_number and not client_name:
+            continue
+        if credit_number:
+            credit_key = canonical_identifier(credit_number)
+            if credit_key in seen_credits:
+                raise SourceFileError(
+                    f"El crédito {credit_number} aparece más de una vez en el archivo."
+                )
+            seen_credits.add(credit_key)
+
+        report_date = parse_date(value("fecha_reporte"))
+        if not report_date:
+            raise SourceFileError(
+                f"La fila {row_number} no tiene una FECHA_REPORTE válida."
+            )
+
+        raw_data = {
+            header: _portfolio_json_value(row[index] if index < len(row) else None)
+            for index, header in enumerate(original_headers)
+        }
+        parsed.append({
+            "source_row": row_number,
+            "report_date": report_date,
+            "credit_number": credit_number,
+            "client_number_migrated": clean_text(value("no_cliente_migrado")),
+            "client_number_core": clean_text(value("no_cliente_siaf")),
+            "client_name": client_name,
+            "credit_status": clean_text(value("estado_credito")),
+            "employer_text": clean_text(value("empresa_de_convenio")),
+            "national_id": clean_text(value("no_identificacion")),
+            "is_convenio": clean_text(value("es_convenio")),
+            "raw_data": json.dumps(raw_data, ensure_ascii=False, default=_portfolio_json_value),
+        })
+
+    if not parsed:
+        raise SourceFileError(
+            "No se encontraron filas de cartera. Se requieren FECHA_REPORTE, "
+            "NO_CREDITO y NOMBRE_CLIENTE."
+        )
+
+    report_dates = {record["report_date"] for record in parsed}
+    if len(report_dates) != 1:
+        raise SourceFileError(
+            "El archivo debe contener un solo corte: todas las filas deben compartir FECHA_REPORTE."
+        )
+    return parsed

@@ -1,0 +1,33 @@
+{
+  "actions": [],
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": ["source_row", "credit_number", "client_name", "credit_status", "credit_lifecycle", "client_number_migrated", "client_number_core", "national_id", "employer_text", "is_convenio", "matched_client", "client_match_status", "employer", "employer_match_status", "validation_status", "raw_data"],
+  "fields": [
+    {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila del archivo", "read_only": 1, "in_list_view": 1, "columns": 1},
+    {"fieldname": "credit_number", "fieldtype": "Data", "label": "Nro. Crédito", "read_only": 1, "in_list_view": 1, "columns": 2},
+    {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente (cartera)", "read_only": 1, "in_list_view": 1, "columns": 2},
+    {"fieldname": "credit_status", "fieldtype": "Data", "label": "Estado original del crédito", "read_only": 1, "in_list_view": 1, "columns": 1},
+    {"fieldname": "credit_lifecycle", "fieldtype": "Select", "label": "Situación", "options": "Activo\nCancelado\nSaneado\nPor revisar", "read_only": 1, "in_list_view": 1, "columns": 1, "description": "Corriente y Vencido se consideran activos. Saneado se conserva aparte; no se interpreta automáticamente como cancelado."},
+    {"fieldname": "client_number_migrated", "fieldtype": "Data", "label": "Nro. Cliente migrado", "read_only": 1},
+    {"fieldname": "client_number_core", "fieldtype": "Data", "label": "Nro. Cliente SIAF", "read_only": 1},
+    {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Identificación", "read_only": 1},
+    {"fieldname": "employer_text", "fieldtype": "Data", "label": "Empresa del archivo", "read_only": 1, "in_list_view": 1, "columns": 1},
+    {"fieldname": "is_convenio", "fieldtype": "Data", "label": "Es convenio (original)", "read_only": 1},
+    {"fieldname": "matched_client", "fieldtype": "Link", "options": "CN Client", "label": "Cliente en el sistema", "read_only": 1},
+    {"fieldname": "client_match_status", "fieldtype": "Data", "label": "Resultado de identificación", "read_only": 1},
+    {"fieldname": "employer", "fieldtype": "Link", "options": "CN Employer", "label": "Empresa identificada", "read_only": 1},
+    {"fieldname": "employer_match_status", "fieldtype": "Data", "label": "Validación de empresa", "read_only": 1},
+    {"fieldname": "validation_status", "fieldtype": "Data", "label": "Validación del registro", "read_only": 1, "in_list_view": 1, "columns": 2},
+    {"fieldname": "raw_data", "fieldtype": "Code", "options": "JSON", "label": "Datos originales (todas las columnas)", "read_only": 1, "description": "Conserva todas las columnas y valores que venían en esta fila del Excel."}
+  ],
+  "istable": 1,
+  "links": [],
+  "module": "Conciliacion Credinomina",
+  "name": "CN Credit Portfolio Row",
+  "permissions": [],
+  "sort_field": "idx",
+  "sort_order": "ASC",
+  "states": []
+}

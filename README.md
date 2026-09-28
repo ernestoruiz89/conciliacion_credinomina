@@ -117,13 +117,20 @@ disponible la página `/app/control-credinomina`.
 
 ## Primer uso
 
-1. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
+1. **Corte de cartera (opcional, recomendado).** En **Cortes mensuales de
+   cartera**, cree un registro, adjunte el reporte mensual del core y pulse
+   **Importar / actualizar corte**. El sistema detecta `FECHA_REPORTE`, conserva
+   todas las columnas originales de cada fila y muestra créditos, clientes y
+   empresas identificados o por revisar. `Corriente` y `Vencido` se consideran
+   activos; `Saneado` se conserva como estado distinto y no se presume
+   cancelado. La carga no crea clientes ni bloquea movimientos por una alerta.
+2. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
    o quincenal. En **Plantillas → Plantilla de cobranza** descargue el XLSX
    con las columnas esperadas; complételo, adjúntelo y pulse **1. Cargar cobranza**. Solo se
    cargan las cuotas y se crean o enlazan los clientes; todavía no se afirma
    que la empresa haya deducido ni pagado nada. Cada cliente tiene nombre,
    número, cédula y una tabla de nombres alternativos.
-2. **Deducción de la empresa.** En ese mismo período, adjunte el archivo
+3. **Deducción de la empresa.** En ese mismo período, adjunte el archivo
    devuelto con `Deducido C$` y/o `Deducido US$` y pulse **2. Cargar deducción
    de empresa**. Se compara con la cobranza. El nombre es obligatorio; si
    faltan crédito, cédula y número de cliente, se admite un nombre o alias
@@ -133,11 +140,20 @@ disponible la página `/app/control-credinomina`.
    **Plantilla de detalle empresa** descarga esas columnas y, si la cobranza
    ya se cargó, conserva sus clientes y `Fila ID` para que la empresa complete
    los importes deducidos.
-3. **Aplicación de pago.** Importe **Movimientos contables**. En la tabla de aplicaciones se ven
+4. **Aplicación de pago.** Importe **Movimientos contables**. Al encontrar un
+   número de crédito, la app toma el corte del mismo mes (aunque el archivo esté
+   fechado al cierre); si ese mes no tiene corte, usa el corte importado más
+   reciente de un mes anterior. También completa el nombre e identidad
+   desde la cartera cuando faltan en el asiento y muestra si el crédito, el
+   cliente o la empresa requieren revisión. Puede seleccionar un corte concreto
+   en **Corte de cartera para validar** al reprocesar un archivo histórico. Sin
+   corte aplicable, el movimiento se importa normalmente y queda indicado para
+   revisión; la cartera de meses futuros nunca se usa por defecto.
+   En la tabla de aplicaciones se ven
    nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
    y recibo cuando la fuente los proporciona. La aplicación puede registrarse
    antes o después de que llegue la deducción de la empresa.
-4. **Depósito y detalle integrador.** Registre una **Distribución de Remesa**
+5. **Depósito y detalle integrador.** Registre una **Distribución de Remesa**
    por depósito, con empresa, fecha real, moneda, importe y justificación. El
    soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la
    empresa envíe el detalle días después; la app conserva la fecha real del

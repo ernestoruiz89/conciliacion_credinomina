@@ -7,6 +7,9 @@ frappe.ui.form.on("CN Source Import", {
         frm.set_query("historical_period", "rows", () => ({
             filters: { reconciliation_mode: "Historica" },
         }));
+        frm.set_query("portfolio_snapshot", () => ({
+            filters: { status: ["in", ["Importado", "Importado con alertas"]] },
+        }));
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
         if (frm.is_new()) return;
 
