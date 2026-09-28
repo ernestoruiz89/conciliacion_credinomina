@@ -4,13 +4,13 @@ import json
 import re
 import unicodedata
 from collections import defaultdict
-from datetime import date
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 from credinomina_reconciliation.rounding import CASH_EPSILON
 
@@ -18,6 +18,17 @@ from credinomina_reconciliation.rounding import CASH_EPSILON
 def _row_limit(dashboard_limit: int, full_export: bool) -> int:
     # Frappe interprets zero as unlimited; the screen keeps its bounded payload.
     return 0 if full_export else dashboard_limit
+
+
+def _unassigned_application_is_historical(row, source_import):
+    """Mirror the routing priority used when accounting rows are reconciled."""
+    if row.processing_route == "Historica":
+        return True
+    if row.event_date and getdate(row.event_date) < OPERATIVE_START:
+        return True
+    if row.processing_route == "Operativa":
+        return False
+    return bool(source_import.historical_backfill or source_import.historical_period)
 
 
 @frappe.whitelist(methods=["GET"])
@@ -89,7 +100,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
         frappe.throw(_("No tiene permiso para consultar la conciliacion."))
-    year = cint(year or date.today().year)
+    year = cint(year or now_datetime().year)
     if not 2000 <= year <= 2100:
         frappe.throw(_("Indique un año valido."))
     filters = {"payroll_month": ["between", [f"{year}-01-01", f"{year}-12-31"]]}
@@ -99,7 +110,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         "CN Reconciliation Period",
         filters=filters,
         fields=[
-            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
+            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note", "control_cut_summary",
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
         ],
@@ -295,6 +306,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     # A deposit can fund several periods. Flag every related cell without
     # adding the same open cash twice to the headline total.
     reference_periods = defaultdict(set)
+    target_links = []
     for record in output:
         for row in record["rows"]:
             if row.application_reference:
@@ -338,42 +350,48 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
 
     deposits = []
     unassigned_historical_applications = []
+    unassigned_operational_applications = []
     unassigned_surpluses = []
     related_deposits = []
     if frappe.has_permission("CN Source Import", "read"):
-        historical_imports = frappe.get_list(
+        source_imports = frappe.get_list(
             "CN Source Import",
-            filters={"historical_backfill": 1},
-            pluck="name",
+            filters={
+                "source_type": SOURCE_ACCOUNTING,
+                "status": ["in", ["Importado", "Importado con excepciones"]],
+            },
+            fields=["name", "historical_backfill", "historical_period"],
             limit_page_length=_row_limit(3000, full_export),
         )
-        if historical_imports and not employer:
-            unassigned_historical_applications = frappe.get_all(
-                "CN Source Row",
-                filters={
-                    "parent": ["in", historical_imports],
-                    "event_type": "Aplicacion", "effective": 1,
-                    "historical_period": ["is", "not set"],
-                    "event_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
-                },
-                fields=[
-                    "parent", "event_date", "reference", "loan_number",
-                    "amount", "currency", "match_reason", "processing_route",
-                ],
-                order_by="event_date asc, idx asc",
-                limit_page_length=_row_limit(5000, full_export),
-            )
-            unassigned_historical_applications = [
-                row for row in unassigned_historical_applications
-                if row.processing_route != "Operativa"
-            ]
-        import_names = frappe.get_list(
-            "CN Source Import",
-            filters={"source_type": SOURCE_ACCOUNTING},
-            pluck="name",
-            limit_page_length=_row_limit(3000, full_export),
-        )
+        import_names = [item.name for item in source_imports]
         if import_names:
+            if not employer:
+                unassigned_applications = frappe.get_all(
+                    "CN Source Row",
+                    filters={
+                        "parent": ["in", import_names],
+                        "event_type": "Aplicacion", "effective": 1,
+                        "historical_period": ["is", "not set"],
+                        "collection_period": ["is", "not set"],
+                        "event_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
+                    },
+                    fields=[
+                        "parent", "event_date", "reference", "loan_number",
+                        "amount", "amount_usd", "currency", "match_reason",
+                        "processing_route",
+                    ],
+                    order_by="event_date asc, idx asc",
+                    limit_page_length=_row_limit(10000, full_export),
+                )
+                imports_by_name = {item.name: item for item in source_imports}
+                for row in unassigned_applications:
+                    target = (
+                        unassigned_historical_applications
+                        if _unassigned_application_is_historical(
+                            row, imports_by_name[row.parent]
+                        ) else unassigned_operational_applications
+                    )
+                    target.append(row)
             related_deposits = frappe.get_all(
                 "CN Source Row",
                 filters={
@@ -427,6 +445,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                     order_by="event_date desc",
                     limit_page_length=_row_limit(1000, full_export),
                 )
+    registered = []
     if frappe.has_permission("CN Remittance Allocation", "read"):
         manual_filters = {
             "docstatus": 1,
@@ -440,12 +459,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             fields=[
                 "name", "employer", "deposit_reference", "deposit_voucher",
                 "deposit_date", "deposit_currency", "deposit_amount",
+                "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
                 "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                 "unclassified_usd", "allocation_detail", "result",
             ],
             limit_page_length=_row_limit(10000, full_export),
         )
-        if full_export and period_names and target_links:
+        if period_names and target_links:
             # A December period may be funded by a registered January deposit.
             # Include its explicit targets even though the deposit year differs.
             known = {item.name for item in registered}
@@ -463,11 +483,63 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                     fields=[
                         "name", "employer", "deposit_reference", "deposit_voucher",
                         "deposit_date", "deposit_currency", "deposit_amount",
+                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
                         "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                         "unclassified_usd", "allocation_detail", "result",
                     ],
                     limit_page_length=0,
                 ))
+        if period_names:
+            # A December payroll may have its client detail or automatic cash
+            # split in a deposit dated the following year, without a manual
+            # CN Remittance Target. Keep those linked deposits visible.
+            known = {item.name for item in registered}
+            for offset in range(0, len(period_names), 500):
+                related_filters = {
+                    "docstatus": 1,
+                    "detail_period": ["in", period_names[offset:offset + 500]],
+                }
+                if employer:
+                    related_filters["employer"] = employer
+                for item in frappe.get_list(
+                    "CN Remittance Allocation", filters=related_filters,
+                    fields=[
+                        "name", "employer", "deposit_reference", "deposit_voucher",
+                        "deposit_date", "deposit_currency", "deposit_amount",
+                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                        "allocated_usd", "unallocated_usd", "justified_surplus_usd",
+                        "unclassified_usd", "allocation_detail", "result",
+                    ], limit_page_length=0,
+                ):
+                    if item.name not in known:
+                        registered.append(item)
+                        known.add(item.name)
+            visible_employers = sorted({period.employer for period in periods if period.employer})
+            if visible_employers:
+                next_year_filters = {
+                    "docstatus": 1,
+                    "employer": ["in", visible_employers],
+                    "deposit_date": ["between", [f"{year + 1}-01-01", f"{year + 1}-12-31"]],
+                }
+                for item in frappe.get_list(
+                    "CN Remittance Allocation", filters=next_year_filters,
+                    fields=[
+                        "name", "employer", "deposit_reference", "deposit_voucher",
+                        "deposit_date", "deposit_currency", "deposit_amount",
+                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                        "allocated_usd", "unallocated_usd", "justified_surplus_usd",
+                        "unclassified_usd", "allocation_detail", "result",
+                    ], limit_page_length=_row_limit(10000, full_export),
+                ):
+                    if item.name in known:
+                        continue
+                    try:
+                        links = json.loads(item.allocation_detail or "[]")
+                    except (TypeError, ValueError):
+                        links = []
+                    if any(link.get("periodo") in period_names for link in links):
+                        registered.append(item)
+                        known.add(item.name)
         imported_keys = {
             (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
             for row in [*deposits, *related_deposits]
@@ -490,8 +562,10 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 "voucher": item.deposit_voucher,
                 "event_date": item.deposit_date,
                 "employer_text": item.employer,
+                "employer": item.employer,
                 "currency": item.deposit_currency,
                 "amount": item.deposit_amount,
+                "amount_usd": item.amount_usd,
                 "allocated_usd": item.allocated_usd,
                 "unallocated_usd": item.unallocated_usd,
                 "justified_surplus_usd": justified,
@@ -538,11 +612,268 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             or (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
             not in registered_keys
         ]
+    missing_employers = {
+        item.employer for item in registered
+        if item.employer and item.employer not in employer_names
+    }
+    if missing_employers:
+        employer_names.update({
+            item.name: item.employer_name
+            for item in frappe.get_all(
+                "CN Employer",
+                filters={"name": ["in", list(missing_employers)]},
+                fields=["name", "employer_name"],
+            )
+        })
     return {
         "year": year,
         "periods": output,
         "totals": {key: round(value, 4) for key, value in totals.items()},
         "open_deposits": deposits,
         "unassigned_historical_applications": unassigned_historical_applications,
+        "unassigned_operational_applications": unassigned_operational_applications,
         "unassigned_surpluses": unassigned_surpluses,
+        "work_items": _build_work_items(
+            output, deposits, registered, target_links,
+            unassigned_historical_applications, unassigned_operational_applications,
+            employer_names,
+        ),
     }
+
+
+def _build_work_items(
+    periods, deposits, registered, target_links, historical_unassigned,
+    operational_unassigned, employer_names, *, as_of=None,
+):
+    """Actionable evidence, never an inferred receivable or automatic match."""
+    items = []
+    period_by_name = {period["name"]: period for period in periods}
+    registered_by_name = {item.name: item for item in registered}
+    linked_context_by_deposit = {}
+    targets_by_deposit = defaultdict(set)
+    for target in target_links:
+        if target.period in period_by_name:
+            targets_by_deposit[target.parent].add(target.period)
+
+    def period_label(period):
+        month = period.get("month") or str(period.get("payroll_month") or "")[:7]
+        if period.get("reconciliation_mode") == "Historica":
+            scope = period.get("historical_scope")
+            if scope == "Fecha exacta":
+                return f"{month} · {period.get('historical_application_date') or 'fecha exacta'}"
+            if scope == "Rango de fechas":
+                start = period.get("historical_start_date") or "?"
+                end = period.get("historical_end_date") or "?"
+                return f"{month} · {start}–{end}"
+            return f"{month} · histórico"
+        return f"{month} · {period.get('collection_cycle') or 'mensual'}"
+
+    def add(priority, kind, summary, next_action, *, period=None, employer=None,
+            amount_usd=None, count=None, due_date=None, target_doctype=None,
+            target_name=None):
+        period_record = period_by_name.get(period)
+        employer = employer or (period_record or {}).get("employer")
+        items.append({
+            "priority": priority,
+            "kind": kind,
+            "employer": employer,
+            "employer_name": (period_record or {}).get("employer_name")
+            or employer_names.get(employer, employer) or "Sin empresa confirmada",
+            "period": period,
+            "period_label": period_label(period_record) if period_record else "Sin período",
+            "control_cut_on": (period_record or {}).get("control_cut_on"),
+            "summary": summary,
+            "next_action": next_action,
+            "amount_usd": round(flt(amount_usd), 4) if amount_usd is not None else None,
+            "count": count,
+            "due_date": str(due_date)[:10] if due_date else None,
+            "target_doctype": target_doctype,
+            "target_name": target_name,
+        })
+
+    for period in periods:
+        name = period["name"]
+        target = {"period": name, "target_doctype": "CN Reconciliation Period",
+                  "target_name": name}
+        if period.get("reconciliation_mode") == "Historica":
+            pending = flt(period.get("historical_pending_usd"))
+            if pending > CASH_EPSILON:
+                add(3, "historical_cash", "Aplicaciones históricas sin depósito asignado",
+                    "Ubicar el depósito y vincularlo con estas aplicaciones.",
+                    amount_usd=pending, **target)
+        else:
+            missing = flt(period.get("pending_detail_usd"))
+            if missing > CASH_EPSILON:
+                action = ("Importar y validar el detalle recibido de la empresa."
+                          if period.get("employer_response_file") else
+                          "Solicitar e importar el detalle de deducción de la empresa.")
+                add(2, "company_detail", "Deducción sin detalle de empresa",
+                    action, amount_usd=missing, **target)
+            if period.get("deduction_basis") == "Depósito coincidente":
+                add(2, "inferred_deduction", "Deducción inferida del depósito",
+                    "Obtener el detalle de planilla para confirmar cada cliente.",
+                    amount_usd=period.get("inferred_deduction_usd"), **target)
+            employee_gap = flt(period.get("worker_gap_usd"))
+            if employee_gap > CASH_EPSILON:
+                add(3, "employee_shortfall", "Cuotas no deducidas según detalle",
+                    "Revisar motivo y seguimiento de las cuotas no deducidas.",
+                    amount_usd=employee_gap, **target)
+            employer_gap = flt(period.get("employer_gap_usd"))
+            if employer_gap > CASH_EPSILON:
+                add(2, "unlinked_remittance", "Deducción sin remesa asignada",
+                    "Ubicar el depósito o vincular la remesa; no es CxC confirmada.",
+                    amount_usd=employer_gap, **target)
+
+        difference_rows = [
+            row for row in period.get("rows", [])
+            if row.application_status in {
+                "Diferencia aplicacion vs deposito", "Diferencia cambiaria en revision",
+            }
+        ]
+        historical_differences = [
+            row for row in period.get("historical_rows", [])
+            if row.deposit_match_status in {
+                "Diferencia de importe", "Falta tipo de cambio", "Ambiguo",
+            }
+        ]
+        if difference_rows or historical_differences:
+            add(1, "difference", "Diferencias de conciliación por revisar",
+                "Abrir el período y resolver las filas señaladas.",
+                count=len(difference_rows) + len(historical_differences), **target)
+        for exception in period.get("exceptions", []):
+            due = exception.commitment_date
+            if due and as_of is None:
+                as_of = now_datetime().date()
+            if due and str(due)[:10] < as_of.isoformat():
+                add(0, "overdue_exception", "Excepción con compromiso vencido",
+                    exception.next_action or "Registrar la siguiente gestión y actualizar el compromiso.",
+                    period=name, amount_usd=exception.amount_usd,
+                    due_date=due, target_doctype="CN Reconciliation Exception",
+                    target_name=exception.name)
+
+    detail_pending_deposits = set()
+    for remittance in registered:
+        links = targets_by_deposit.get(remittance.name, set()).copy()
+        if remittance.detail_period in period_by_name:
+            links.add(remittance.detail_period)
+        try:
+            allocation_entries = json.loads(remittance.allocation_detail or "[]")
+        except (TypeError, ValueError):
+            allocation_entries = []
+        links.update(
+            entry.get("periodo") for entry in allocation_entries
+            if entry.get("periodo") in period_by_name
+        )
+        linked_period = next(iter(links)) if len(links) == 1 else None
+        period_text = (
+            ", ".join(period_label(period_by_name[name]) for name in sorted(links))
+            if len(links) > 1 else None
+        )
+        linked_context_by_deposit[remittance.name] = (linked_period, period_text)
+        # Explicit destinations plus documented surplus can cover the full
+        # deposit without a spreadsheet; do not request one as a false gap.
+        covered_without_detail = (
+            flt(remittance.allocated_usd) + flt(remittance.justified_surplus_usd)
+            >= flt(remittance.amount_usd) - CASH_EPSILON
+            and flt(remittance.unclassified_usd) <= CASH_EPSILON
+        )
+        review_statuses = {
+            "Revisar filas", "Detalle supera depósito",
+            "Importar detalle actualizado", "Parcial; saldo sin detalle",
+        }
+        if remittance.result == "Revisar destinos":
+            detail_pending_deposits.add(remittance.name)
+            item_count = len(items)
+            add(1, "review_targets",
+                f"Depósito {remittance.deposit_reference} con destinos por revisar",
+                "Corregir los destinos manuales inválidos y volver a conciliar.",
+                period=linked_period, employer=remittance.employer,
+                target_doctype="CN Remittance Allocation", target_name=remittance.name)
+            if period_text:
+                items[item_count]["period_label"] = period_text
+        elif (remittance.detail_status in review_statuses
+              and not (remittance.detail_status == "Parcial; saldo sin detalle"
+                       and covered_without_detail)):
+            detail_pending_deposits.add(remittance.name)
+            item_count = len(items)
+            add(1, "review_deposit_detail",
+                f"Depósito {remittance.deposit_reference} con detalle por revisar",
+                "Corregir las filas o importar el detalle actualizado antes de distribuir el saldo.",
+                period=linked_period, employer=remittance.employer,
+                amount_usd=remittance.amount_usd,
+                target_doctype="CN Remittance Allocation", target_name=remittance.name)
+            if period_text:
+                items[item_count]["period_label"] = period_text
+        elif (flt(remittance.amount_usd) > CASH_EPSILON
+                and not int(remittance.detail_count or 0)
+                and remittance.detail_status not in {
+                    "Distribución manual", "Distribución manual; excedente documentado",
+                }
+                and not covered_without_detail):
+            detail_pending_deposits.add(remittance.name)
+            item_count = len(items)
+            add(2, "deposit_detail", f"Depósito {remittance.deposit_reference} sin detalle por cliente",
+                "Importar el archivo adjunto de pagos por cliente." if remittance.detail_file
+                else "Solicitar y cargar el detalle del depósito por cliente.",
+                period=linked_period, employer=remittance.employer,
+                amount_usd=remittance.amount_usd,
+                target_doctype="CN Remittance Allocation", target_name=remittance.name)
+            if period_text:
+                items[item_count]["period_label"] = period_text
+
+    for deposit in deposits:
+        if deposit.get("parent") in detail_pending_deposits:
+            # Request the detail first; the same deposit needs only one task.
+            continue
+        unclassified = flt(deposit.get("unclassified_usd"))
+        if unclassified <= CASH_EPSILON:
+            continue
+        if deposit.get("source_doctype") == "CN Remittance Allocation":
+            remittance = registered_by_name.get(deposit["parent"])
+            linked_period, period_text = linked_context_by_deposit.get(
+                deposit["parent"], (None, None)
+            )
+            item_count = len(items)
+            add(2, "unassigned_deposit", f"Depósito {deposit.get('reference') or ''} sin distribuir",
+                "Identificar su destino o documentar el saldo a favor.",
+                period=linked_period, employer=(remittance.employer if remittance else deposit.get("employer")),
+                amount_usd=unclassified,
+                target_doctype="CN Remittance Allocation", target_name=deposit["parent"])
+            if period_text:
+                items[item_count]["period_label"] = period_text
+
+    # The bank file also contains non-convenio and operational deposits. Only a
+    # review task is justified until someone confirms a convenio relationship.
+    raw_by_import = defaultdict(list)
+    for deposit in deposits:
+        if deposit.get("source_doctype") != "CN Remittance Allocation" \
+                and flt(deposit.get("unclassified_usd")) > CASH_EPSILON:
+            raw_by_import[deposit["parent"]].append(deposit)
+    for source, rows in raw_by_import.items():
+        add(4, "classify_bank", "Depósitos bancarios sin clasificar",
+            "Verificar si son de convenio, de otro cliente u operativos.",
+            count=len(rows), amount_usd=sum(flt(row.unclassified_usd) for row in rows),
+            target_doctype="CN Source Import", target_name=source)
+
+    for label, rows in (
+        ("historical_application", historical_unassigned),
+        ("operational_application", operational_unassigned),
+    ):
+        by_import = defaultdict(list)
+        for row in rows:
+            by_import[row.parent].append(row)
+        for source, unmatched in by_import.items():
+            known_usd = [
+                flt(row.get("amount_usd") or row.amount)
+                for row in unmatched if row.currency == "USD"
+            ]
+            add(1, label, "Aplicaciones sin período enlazado",
+                "Identificar empresa, cliente y período; revisar el cruce en la importación.",
+                count=len(unmatched),
+                amount_usd=sum(known_usd) if len(known_usd) == len(unmatched) else None,
+                target_doctype="CN Source Import", target_name=source)
+
+    return sorted(items, key=lambda item: (
+        item["priority"], item["due_date"] or "9999-12-31",
+        item["employer_name"], item["period_label"], item["summary"],
+    ))

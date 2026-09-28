@@ -16,14 +16,13 @@ _FX_SOURCE_IN_NOTES = re.compile(r"\b(?:tasa|tipo de cambio|tc|fx)\b", re.IGNORE
 
 
 def remittance_fx_basis(remittance: Mapping[str, Any]) -> str:
-    """Find auditable rate evidence without a dedicated remittance field."""
+    """Require an explicit rate source in notes; an arbitrary attachment is not proof."""
     support = clean_text(remittance.get("support_file"))
     notes = clean_text(remittance.get("notes"))
-    if support:
-        return f"Soporte del depósito: {support}"
-    if notes and _FX_SOURCE_IN_NOTES.search(notes):
-        return f"Justificación de la remesa: {notes}"
-    return ""
+    if not notes or not _FX_SOURCE_IN_NOTES.search(notes):
+        return ""
+    basis = f"Justificación de la remesa: {notes}"
+    return f"{basis}; soporte: {support}" if support else basis
 
 
 def application_matches_collection(

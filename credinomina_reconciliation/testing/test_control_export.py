@@ -41,6 +41,9 @@ class TestControlExport(unittest.TestCase):
             "name": "O-2026-09", "employer": "EMP-1", "employer_name": "Empresa Uno",
             "month": "2026-09", "reconciliation_mode": "Operativa",
             "remittance_due_date": "2026-10-15", "control_state": "diferencia",
+            "control_cut_on": "2026-09-30 18:00:00",
+            "control_cut_note": "Solicitar pago parcial y detalle actualizado",
+            "control_cut_summary": "Cobranza US$ 100.00; deducido US$ 90.00",
             "expected_usd": 100, "deducted_usd": 90, "applied_usd": 90,
             "complementary_usd": 0, "rounding_adjustment_usd": 0,
             "remitted_usd": 90, "historical_pending_usd": 0,
@@ -91,6 +94,9 @@ class TestControlExport(unittest.TestCase):
         self.assertEqual(summary["J20"].value, "N/D")
         self.assertEqual(summary["K20"].value, "N/D")
         self.assertEqual(summary["H21"].value.year, 2026)
+        self.assertEqual(summary["U21"].value.year, 2026)
+        self.assertEqual(summary["V21"].value, "Solicitar pago parcial y detalle actualizado")
+        self.assertIn("Cobranza US$ 100.00", summary["W21"].value)
         detail = book["Detalle cliente"]
         self.assertEqual(detail["N5"].value, "N/D")
         self.assertEqual(detail["O5"].value, "N/D")

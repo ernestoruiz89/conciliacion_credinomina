@@ -141,19 +141,36 @@ disponible la página `/app/control-credinomina`.
    por depósito, con empresa, fecha real, moneda, importe y justificación. El
    soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la
    empresa envíe el detalle días después; la app conserva la fecha real del
-   depósito y registra por separado cuándo se importó el detalle.
+   depósito y registra por separado cuándo se importó el detalle. Después de
+   guardarlo, un supervisor debe pulsar **Confirmar depósito y conciliar**:
+   mientras siga en borrador no participa en la conciliación. Puede confirmarse
+   antes de recibir el detalle por cliente.
    Aunque la referencia identifique una sola aplicación, el depósito no se
    asigna automáticamente por cliente sin detalle o distribución manual
    documentada.
    En **Plantillas → Plantilla de detalle del depósito** descargue el mismo
    formato con deducidos (precargado si eligió **Período del detalle**).
-   Adjunte el archivo completado y pulse **4. Cargar
-   detalle del depósito**. Un depósito puede cubrir 200 aplicaciones; varias
+   Adjunte el archivo completado y pulse **Cargar detalle del depósito**. Un
+   depósito puede cubrir 200 aplicaciones; varias
    remesas pueden cubrir una aplicación. El detalle se compara en US$ y no
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
    depósito. Un saldo restante queda sin distribuir o como saldo a favor
    documentado. Un detalle solo en C$ requiere tasa y fuente documentadas;
-   indique la fuente en **Justificación** o adjunte el **Soporte del depósito**.
+   escriba la fuente y fecha de la tasa en **Justificación**, aunque adjunte el
+   **Soporte del depósito**. El adjunto por sí solo no acredita la tasa usada.
+
+La página **Control de Credinómina** abre con **Qué falta hacer**: evidencia de
+empresa, aplicaciones sin período, detalles de depósito por revisar y saldos
+sin clasificar. Los importes del tablero son un resumen; abra cada pendiente
+antes de interpretar una celda como conciliada. Una aplicación vinculada a una
+cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba
+que hubo descuento salarial.
+
+Al final del mes, si aún falta evidencia o dinero, use **Registrar corte de
+control** en el período. Guarda fecha, responsable, saldos y siguiente gestión
+sin bloquear archivos que lleguen después. **Cerrar período** es distinto:
+requiere las cuotas aplicadas y remitidas, sin saldos del empleado ni
+excepciones abiertas; después solo un supervisor puede reabrirlo con motivo.
 
 Para el **histórico de abril de 2025 a agosto de 2026** se omiten los pasos
 de cobranza y deducción: se asignan las aplicaciones a períodos históricos y

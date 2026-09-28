@@ -22,6 +22,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     const $root = $('<div class="cn-control"></div>').appendTo(page.main);
     $root.html(`${styles()}<div class="cn-loading">${esc(__("Cargando control..."))}</div>`);
     let currentData = null;
+    let workLimit = 100;
 
     function refresh() {
         frappe.call({
@@ -33,7 +34,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             freeze: true,
             freeze_message: __("Actualizando control..."),
         }).then((response) => {
-            currentData = response.message || { periods: [], totals: {}, open_deposits: [] };
+            currentData = response.message || { periods: [], totals: {}, open_deposits: [], work_items: [] };
             render(currentData);
         }).catch(() => {
             $root.html(`${styles()}<div class="cn-empty">${esc(__("No se pudo cargar el control."))}</div>`);
@@ -43,6 +44,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     function render(data) {
         const periods = data.periods || [];
         const totals = data.totals || {};
+        const workItems = data.work_items || [];
         const year = Number(data.year || currentYear);
         const companies = [...new Map(periods.map((period) => [period.employer, {
             id: period.employer,
@@ -80,6 +82,25 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <div class="cn-kpi-value">${money(value)}</div>
             </div>
         `).join("");
+        const visibleWork = workItems.slice(0, workLimit);
+        const overdueCount = workItems.filter((item) => item.kind === "overdue_exception").length;
+        const workTable = visibleWork.length ? `
+            <div class="cn-list-scroll"><table class="cn-detail-table cn-work-table"><thead><tr>
+                <th>${esc(__("Prioridad"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Período"))}</th>
+                <th>${esc(__("Qué falta"))}</th><th>${esc(__("Importe US$"))}</th><th>${esc(__("Siguiente acción"))}</th><th></th>
+            </tr></thead><tbody>${visibleWork.map((item, index) => `<tr>
+                <td><span class="cn-work-priority cn-work-priority-${Number(item.priority)}">${esc(item.priority === 0 ? __("Vencida") : item.priority <= 1 ? __("Revisar") : item.priority <= 2 ? __("Pendiente") : __("Seguimiento"))}</span></td>
+                <td>${esc(item.employer_name)}</td>
+                <td>${esc(item.period_label)}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(String(item.control_cut_on).slice(0, 10))}</span>` : ""}</td>
+                <td>${esc(item.summary)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(item.due_date)}</span>` : ""}</td>
+                <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
+                <td>${esc(item.next_action)}</td>
+                <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__("Abrir"))}</button></td>
+            </tr>`).join("")}</tbody></table></div>
+        ` : `<div class="cn-empty">${esc(__("No hay gestiones pendientes detectadas con la evidencia cargada."))}</div>`;
+        const workFooter = workItems.length > visibleWork.length ? `
+            <div class="cn-work-more"><span>${visibleWork.length} ${esc(__("de"))} ${workItems.length} ${esc(__("gestiones"))}</span>
+            <button type="button" class="btn btn-default btn-sm" data-more-work>${esc(__("Mostrar más"))}</button></div>` : "";
         const matrixRows = companies.map((company) => `
             <tr>
                 <th class="cn-company">${esc(company.name)}</th>
@@ -152,19 +173,20 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <td>${allocationLines(deposit.allocation_detail)}</td>
                 </tr>`).join("")}</tbody>
             </table></div>
-        ` : `<div class="cn-empty">${esc(__("No hay depósitos pendientes de distribuir en este año."))}</div>`;
+        ` : `<div class="cn-empty">${esc(__("No hay depósitos con saldo a favor o sin asignar en este año."))}</div>`;
         $root.html(`${styles()}
             <div class="cn-intro">
-                <div><h2>${esc(__("Matriz mensual de conciliación"))}</h2><p>${esc(__("Seleccione una celda para ver aplicaciones, depósitos y, desde septiembre de 2026, deducciones de planilla."))}</p></div>
+                <div><h2>${esc(__("Trabajo de conciliación"))}</h2><p>${esc(__("Priorice la evidencia faltante y abra el documento correspondiente. La matriz mensual queda abajo para consulta."))}</p></div>
                 <div class="cn-intro-actions">
                     <button type="button" class="btn btn-default btn-sm" data-export>${esc(__("Exportar Excel"))}</button>
                     <span class="cn-year">${esc(String(year))}</span>
                 </div>
             </div>
-            <div class="cn-kpis">${cards}</div>
+            <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workItems.length} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
+            <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
             <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
-            ${unassigned.length ? `<section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Aplicaciones históricas sin período"))}</h3><span>${unassigned.length} ${esc(__("filas"))}</span></div>${unassignedTable}</section>` : ""}
-            ${employerField.get_value() ? "" : `<section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Depósitos pendientes de distribuir"))}</h3><span>${deposits.length} ${esc(__("depósitos"))}</span></div>${depositTable}</section>`}
+            ${unassigned.length ? `<details class="cn-panel cn-collapsible"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassigned.length}</summary>${unassignedTable}</details>` : ""}
+            ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${deposits.length}</summary>${depositTable}</details>`}
             <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin remesa asignada y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
         `);
     }
@@ -249,6 +271,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         dialog.show();
         dialog.get_field("detail").$wrapper.html(`
             <div class="cn-dialog">
+                ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(String(period.control_cut_on).slice(0, 10))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
                 <div class="cn-kpis cn-dialog-kpis">
                     ${historical ? `
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
@@ -278,6 +301,16 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     }
 
     $root.on("click", "[data-period]", function () { showPeriod($(this).attr("data-period")); });
+    $root.on("click", "[data-work]", function () {
+        const item = (currentData?.work_items || [])[Number($(this).attr("data-work"))];
+        if (item?.target_doctype && item?.target_name) {
+            frappe.set_route("Form", item.target_doctype, item.target_name);
+        }
+    });
+    $root.on("click", "[data-more-work]", function () {
+        workLimit += 100;
+        if (currentData) render(currentData);
+    });
     $root.on("click", "[data-import]", function () {
         frappe.set_route("Form", "CN Source Import", $(this).attr("data-import"));
     });
@@ -390,6 +423,21 @@ function styles() {
         .cn-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
         .cn-panel-head h3 { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
         .cn-panel-head span { font-size: 11px; color: #64748b; }
+        .cn-work-panel { border-color: #bfdbfe; }
+        .cn-work-table td { vertical-align: top; }
+        .cn-work-table td:nth-child(3), .cn-work-table td:nth-child(4), .cn-work-table td:nth-child(6) { white-space: normal; min-width: 160px; }
+        .cn-work-table td:nth-child(6) { min-width: 220px; }
+        .cn-work-priority { display: inline-block; border-radius: 12px; padding: 3px 7px; font-weight: 700; background: #f1f5f9; color: #475569; }
+        .cn-work-priority-0 { background: #fee2e2; color: #991b1b; }
+        .cn-work-priority-1 { background: #fef3c7; color: #92400e; }
+        .cn-work-priority-2 { background: #dbeafe; color: #1e40af; }
+        .cn-work-context, .cn-cut-note { color: #64748b; font-size: 10px; }
+        .cn-cut-banner { border-left: 3px solid #0ea5e9; background: #f0f9ff; padding: 9px 12px; color: #0c4a6e; font-size: 11px; }
+        .cn-work-overdue { color: #b91c1c; font-size: 10px; font-weight: 700; }
+        .cn-work-more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 12px; color: #64748b; font-size: 11px; }
+        .cn-collapsible summary { cursor: pointer; padding: 13px 16px; color: #1e293b; font-size: 14px; font-weight: 700; }
+        .cn-collapsible[open] summary { border-bottom: 1px solid #e2e8f0; }
+        .cn-secondary-kpis { padding: 14px; margin-bottom: 0; }
         .cn-matrix-scroll, .cn-list-scroll { overflow-x: auto; }
         .cn-matrix { width: 100%; min-width: 1500px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
         .cn-matrix th { background: #1e293b; color: white; padding: 10px 6px; font-size: 11px; text-transform: uppercase; text-align: center; }

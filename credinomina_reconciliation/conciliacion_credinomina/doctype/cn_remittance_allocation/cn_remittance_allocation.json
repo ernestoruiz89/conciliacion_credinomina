@@ -14,7 +14,7 @@
     {"fieldname": "deposit_date", "fieldtype": "Date", "label": "Fecha del depósito", "in_list_view": 1, "reqd": 1},
     {"fieldname": "deposit_currency", "fieldtype": "Select", "label": "Moneda del depósito", "options": "USD\nNIO", "default": "USD"},
     {"fieldname": "deposit_amount", "fieldtype": "Currency", "label": "Importe del depósito", "options": "deposit_currency", "precision": "4"},
-    {"fieldname": "fx_rate", "fieldtype": "Float", "label": "Tipo de cambio C$ por US$", "precision": "8", "allow_on_submit": 1, "description": "Obligatorio si el depósito está en C$ o el detalle solo informa Deducido C$. Indique la fuente de la tasa en Justificación o adjunte el soporte."},
+    {"fieldname": "fx_rate", "fieldtype": "Float", "label": "Tipo de cambio C$ por US$", "precision": "8", "allow_on_submit": 1, "description": "Obligatorio si el depósito está en C$ o el detalle solo informa Deducido C$. Escriba la fuente y fecha de la tasa en Justificación; el adjunto es respaldo adicional."},
     {"fieldname": "amount_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Equivalente US$", "options": "usd_currency", "precision": "4", "read_only": 1, "allow_on_submit": 1, "description": "Calculado automáticamente: igual al importe del depósito en USD o importe del depósito dividido entre la tasa C$/US$ si es en NIO."},
     {"fieldname": "detail_file", "fieldtype": "Attach", "label": "Detalle de pago por cliente", "allow_on_submit": 1, "description": "Archivo de cobranza devuelto por la empresa, con Deducido C$ y/o Deducido US$. Importe las filas con el botón del formulario."},
     {"fieldname": "detail_imported_on", "fieldtype": "Datetime", "label": "Detalle importado el", "read_only": 1, "allow_on_submit": 1, "description": "Fecha real de recepción y carga del detalle, independiente de la fecha del depósito."},
@@ -33,8 +33,8 @@
     {"fieldname": "allocation_detail", "fieldtype": "Code", "label": "Detalle de conciliación", "options": "JSON", "read_only": 1},
     {"fieldname": "inherited_exception_comment", "fieldtype": "Small Text", "label": "Excepciones heredadas", "read_only": 1},
     {"default": "Pendiente", "fieldname": "result", "fieldtype": "Data", "in_list_view": 1, "label": "Resultado de conciliacion", "read_only": 1},
-    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Justificación", "reqd": 1, "description": "Si usa una tasa C$/US$ sin soporte adjunto, describa aquí la fuente de esa tasa (por ejemplo: Tasa según convenio)."},
-    {"fieldname": "support_file", "fieldtype": "Attach", "label": "Soporte del depósito", "allow_on_submit": 1, "description": "Puede adjuntar el comprobante después. Para depósitos en C$ sirve como evidencia de la tasa; el detalle por cliente se carga por separado."}
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Justificación", "reqd": 1, "allow_on_submit": 1, "description": "Para C$, indique aquí la fuente y fecha de la tasa C$/US$ aunque adjunte un comprobante (por ejemplo: Tasa según convenio del 15/05/2026)."},
+    {"fieldname": "support_file", "fieldtype": "Attach", "label": "Soporte del depósito", "allow_on_submit": 1, "description": "Puede adjuntar el comprobante después. Un archivo adjunto no sustituye la descripción de la fuente de tasa en Justificación; el detalle por cliente se carga por separado."}
   ],
   "is_submittable": 1,
   "links": [],

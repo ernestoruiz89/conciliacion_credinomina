@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from contextvars import ContextVar
 
 import frappe
 from frappe import _
@@ -70,13 +71,129 @@ class _RegisteredDeposit(dict):
         return dict(self)
 
 
+PROVISIONAL_APPLICATION = "Enlace provisional"
+LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
+_source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
+
+_SOURCE_EVIDENCE_FIELDS = (
+    "source_row", "source_key", "event_type", "event_date", "client_name",
+    "client_number", "employee_number", "loan_number", "amount",
+    "accounting_entry", "receipt", "reference", "voucher", "employer_text",
+    "national_id", "installment_number", "currency", "amount_usd",
+    "amount_nio", "equivalent_currency", "equivalent_amount", "fx_rate",
+    "fx_basis", "manual_fx_rate", "manual_fx_evidence", "description",
+    "processing_route", "historical_period",
+)
+_SOURCE_DERIVED_FIELDS = (
+    "historical_application_id", "effective", "match_status", "match_reason",
+    "collection_period", "collection_row_id", "application_allocation_detail",
+    "deposit_match_status", "deposit_match_reason", "historical_remitted_usd",
+    "historical_balance_usd", "historical_detail", "allocated_usd",
+    "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
+    "allocation_reason", "allocation_detail", "inherited_exception_comment",
+    "complementary_usd", "fx_variance_usd", "rounding_adjustment_usd",
+    "rounding_movement_detail",
+)
+_IMPORT_EVIDENCE_FIELDS = (
+    "source_type", "source_file", "file_hash", "historical_backfill",
+    "historical_period",
+)
+
+
+def _source_linked_periods(row):
+    """Resolve all persisted period links, not only the first payroll half."""
+    periods = {row.get("collection_period"), row.get("historical_period")}
+    for entry in _detail_entries(row.get("application_allocation_detail")):
+        if isinstance(entry, dict):
+            periods.add(entry.get("period") or entry.get("periodo"))
+            collection_row_id = entry.get("collection_row_id")
+            if collection_row_id:
+                periods.add(frappe.db.get_value(
+                    "CN Collection Row", collection_row_id, "parent"
+                ))
+    for entry in _detail_entries(row.get("allocation_detail")):
+        if not isinstance(entry, dict):
+            continue
+        periods.add(entry.get("periodo") or entry.get("period"))
+        if entry.get("partida"):
+            periods.add(frappe.db.get_value(
+                "CN Complementary Item", entry["partida"], "period"
+            ))
+    if row.get("collection_row_id"):
+        periods.add(frappe.db.get_value(
+            "CN Collection Row", row.collection_row_id, "parent"
+        ))
+    return sorted(period for period in periods if period)
+
+
 class CNSourceImport(Document):
+    def on_trash(self):
+        self._assert_no_closed_period_links(self.rows or [])
+
     def validate(self):
         self._validate_source_type()
         self._validate_historical_periods()
         self._validate_duplicate_file()
         self._validate_manual_rates()
+        self._validate_closed_source_edits()
         self.recalculate_summary()
+
+    def _validate_closed_source_edits(self):
+        previous = self.get_doc_before_save()
+        if self.historical_period and frappe.db.get_value(
+            "CN Reconciliation Period", self.historical_period, "status"
+        ) == "Cerrado" and (
+            not previous or previous.historical_period != self.historical_period
+        ):
+            frappe.throw(_(
+                "El período histórico {0} está cerrado. Use Reabrir período "
+                "antes de asignar una nueva importación."
+            ).format(self.historical_period))
+        if not previous:
+            self._assert_no_closed_period_links(self.rows or [])
+            return
+        old_rows = {row.name: row for row in previous.rows or [] if row.name}
+        new_rows = {row.name: row for row in self.rows or [] if row.name}
+        parent_changed = any(
+            str(previous.get(field) or "") != str(self.get(field) or "")
+            for field in _IMPORT_EVIDENCE_FIELDS
+        ) or (
+            previous.status != self.status
+            and not _source_reconcile_verified.get()
+        )
+        fields = _SOURCE_EVIDENCE_FIELDS
+        if not _source_reconcile_verified.get():
+            fields += _SOURCE_DERIVED_FIELDS
+        candidates = []
+        for name, old_row in old_rows.items():
+            new_row = new_rows.get(name)
+            if parent_changed or not new_row or any(
+                str(old_row.get(field) or "") != str(new_row.get(field) or "")
+                for field in fields
+            ):
+                candidates.append(old_row)
+        candidates.extend(
+            row for row in self.rows or []
+            if not row.name or row.name not in old_rows
+        )
+        self._assert_no_closed_period_links(candidates)
+
+    def _assert_no_closed_period_links(self, rows):
+        for row in rows:
+            linked_periods = set(_source_linked_periods(row))
+            # New application rows inherit the import's historical period at
+            # reconciliation time, even before a row-level link is persisted.
+            if row.get("event_type") == "Aplicacion" and self.historical_period:
+                linked_periods.add(self.historical_period)
+            for period_name in sorted(linked_periods):
+                if frappe.db.get_value(
+                    "CN Reconciliation Period", period_name, "status"
+                ) == "Cerrado":
+                    frappe.throw(_(
+                        "La importación {0} contiene la fila {1} vinculada al período "
+                        "cerrado {2}. Use Reabrir período antes de cambiar sus datos "
+                        "de origen o su ruta."
+                    ).format(self.name, row.name, period_name))
 
     def _validate_source_type(self):
         if self.source_type != SOURCE_ACCOUNTING:
@@ -291,6 +408,9 @@ def reconcile_all_sources():
         pluck="name",
     )
     imports = [frappe.get_doc("CN Source Import", name) for name in import_names]
+    original_source_rows = [
+        row.as_dict() for document in imports for row in document.rows
+    ]
     all_rows = []
     for document in imports:
         for row in document.rows:
@@ -337,6 +457,11 @@ def reconcile_all_sources():
 
     _deduplicate_applications(all_rows)
     periods = _load_open_periods()
+    closed_operative_state = {
+        period.name: _operative_period_state(period)
+        for period in periods
+        if period.reconciliation_mode != "Historica" and period.status == "Cerrado"
+    }
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
@@ -357,10 +482,15 @@ def reconcile_all_sources():
             "amount_usd", "result", "employer", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate", "notes",
             "allocated_usd", "unallocated_usd",
+            "allocation_detail",
             "support_file", "detail_file", "detail_source_file", "detail_hash", "detail_period",
             "detail_status", "detail_total_usd", "detail_count",
         ],
         order_by="creation asc",
+    )
+    closed_operative_links = _operative_links(
+        periods, original_source_rows, manual_allocations, complementary_items,
+        closed_operative_state,
     )
     surplus_items = frappe.get_all(
         "CN Deposit Surplus",
@@ -385,6 +515,7 @@ def reconcile_all_sources():
     _rebuild_period_balances(
         [period for period in periods if period.reconciliation_mode != "Historica"],
         all_rows, deposit_pairs, allocation,
+        closed_operative_state, closed_operative_links, complementary_items,
     )
     _rebuild_historical_balances(periods, all_rows, allocation)
     _sync_registered_deposit_detail(allocation)
@@ -394,7 +525,13 @@ def reconcile_all_sources():
         document.status = (
             "Importado con excepciones" if document.exception_count else "Importado"
         )
-        document.save(ignore_permissions=True)
+        # The closed-period snapshot was checked above. Only this internal
+        # recomputation may refresh the derived child fields after closure.
+        token = _source_reconcile_verified.set(True)
+        try:
+            document.save(ignore_permissions=True)
+        finally:
+            _source_reconcile_verified.reset(token)
 
     return {
         "imports": len(imports),
@@ -722,18 +859,24 @@ def _match_applications(
         if len(candidates) == 1:
             target, converted_match, _exact, detail_pending = candidates[0]
             applied_by_target[target.name] += flt(source.amount)
-            source.match_status = "Conciliado"
+            source.match_status = (
+                PROVISIONAL_APPLICATION if detail_pending else "Conciliado"
+            )
             if converted_match:
                 source.match_reason = _(
                     "Aplicacion parcial o total en US$ enlazada a la deduccion en C$ con tasa documentada de {0} C$ por US$."
                 ).format(round(payment_rate, 8))
             elif detail_pending:
                 source.match_reason = _(
-                    "Aplicacion enlazada de forma unica a la cobranza; falta confirmar la deduccion de la empresa."
+                    "Aplicación enlazada de forma única a la cobranza."
                 )
             else:
                 source.match_reason = _(
                     "Aplicacion parcial o total enlazada por credito y referencia cuando fue informada; no excede la deduccion disponible."
+                )
+            if detail_pending:
+                source.match_reason += " " + _(
+                    "Enlace provisional: falta confirmar la deducción de la empresa; no es conciliación final."
                 )
             source.collection_period = target.parent
             source.collection_row_id = target.name
@@ -755,13 +898,17 @@ def _match_applications(
                     "period": target.parent,
                     "amount_usd": amount,
                 })
-            source.match_status = "Conciliado"
+            source.match_status = (
+                PROVISIONAL_APPLICATION
+                if any(candidate["detail_pending"] for candidate in pair)
+                else "Conciliado"
+            )
             source.match_reason = _(
                 "Una aplicacion del core cubre las dos quincenas del mismo credito, empresa y mes; reparto completo por saldos disponibles."
             )
             if any(candidate["detail_pending"] for candidate in pair):
                 source.match_reason += " " + _(
-                    "Falta confirmar la deduccion de la empresa."
+                    "Enlace provisional: falta confirmar la deducción de la empresa; no es conciliación final."
                 )
             if any(candidate["converted_match"] for candidate in pair):
                 source.match_reason += " " + _(
@@ -1120,7 +1267,7 @@ def _distribute_deposits(
     for source in source_rows:
         if (
             source.event_type == "Aplicacion" and source.effective
-            and source.match_status == "Conciliado"
+            and source.match_status in LINKED_APPLICATION_STATUSES
         ):
             reference = clean_text(source.reference)
             for link in _application_allocations(source):
@@ -1466,6 +1613,9 @@ def _sync_registered_deposit_detail(allocation):
             continue
         source = meta["account"]
         current_result = frappe.db.get_value("CN Remittance Allocation", name, "result")
+        detail_status = frappe.db.get_value(
+            "CN Remittance Allocation", name, "detail_status"
+        )
         result = current_result
         if (
             current_result in {"Parcial", "Sin aplicación"}
@@ -1477,10 +1627,36 @@ def _sync_registered_deposit_detail(allocation):
                 "Parcial con saldo a favor" if flt(source.allocated_usd) > CASH_EPSILON
                 else "Saldo a favor documentado"
             )
+        if (
+            detail_status == "Parcial; saldo sin detalle"
+            and flt(source.unallocated_usd) > CASH_EPSILON
+            and flt(source.justified_surplus_usd) > CASH_EPSILON
+            and flt(source.unclassified_usd) <= CASH_EPSILON
+            and abs(flt(source.unallocated_usd) - flt(source.justified_surplus_usd))
+            <= CASH_EPSILON
+        ):
+            detail_status = "Conciliado; excedente documentado"
+        elif (
+            detail_status == "Detalle pendiente"
+            and current_result == "Detalle pendiente"
+            and flt(source.allocated_usd) > CASH_EPSILON
+            and flt(source.unallocated_usd) > CASH_EPSILON
+            and flt(source.justified_surplus_usd) > CASH_EPSILON
+            and flt(source.unclassified_usd) <= CASH_EPSILON
+            and abs(flt(source.unallocated_usd) - flt(source.justified_surplus_usd))
+            <= CASH_EPSILON
+            and not frappe.db.get_value("CN Remittance Allocation", name, "detail_file")
+            and not frappe.db.get_value("CN Remittance Allocation", name, "detail_hash")
+        ):
+            # Explicit targets (or recognized collection) document the loan
+            # portion; the submitted surplus explains the remaining cash.
+            detail_status = "Distribución manual; excedente documentado"
+            result = "Parcial con saldo a favor"
         frappe.db.set_value(
             "CN Remittance Allocation", name,
             {
                 "result": result,
+                "detail_status": detail_status,
                 "allocation_detail": source.allocation_detail,
                 "inherited_exception_comment": getattr(source, "inherited_exception_comment", ""),
                 "justified_surplus_usd": flt(source.justified_surplus_usd),
@@ -1570,8 +1746,145 @@ def _sync_rounding_movements(movements, allocation, source_rows):
             source.rounding_movement_detail = json.dumps(entries, ensure_ascii=False)
 
 
+_OPERATIVE_PERIOD_AMOUNTS = (
+    "expected_usd", "expected_nio", "deducted_usd", "deducted_nio",
+    "applied_usd", "applied_nio", "complementary_usd", "remitted_usd",
+    "remitted_nio", "fx_variance_usd", "rounding_adjustment_usd",
+)
+_OPERATIVE_ROW_AMOUNTS = _OPERATIVE_PERIOD_AMOUNTS
+_OPERATIVE_ROW_STATES = (
+    "deduction_currency", "deduction_status", "deduction_evidence_date",
+    "deduction_match_note", "application_status", "remittance_detail",
+    "inherited_exception_comment",
+)
+
+
+def _canonical_detail(value):
+    """Treat JSON order and harmless numeric formatting as immaterial."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value or "[]")
+        except (TypeError, ValueError):
+            return value
+    if isinstance(value, dict):
+        return tuple(sorted((key, _canonical_detail(item)) for key, item in value.items()))
+    if isinstance(value, list):
+        return tuple(sorted((_canonical_detail(item) for item in value), key=repr))
+    if isinstance(value, (float, int)) and not isinstance(value, bool):
+        return round(flt(value), 4)
+    return value
+
+
+def _detail_entries(value):
+    try:
+        parsed = json.loads(value or "[]") if isinstance(value, str) else value
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _operative_period_state(period):
+    """Snapshot persisted balances and per-client evidence before recomputation."""
+    rows = []
+    for row in period.collection_rows:
+        rows.append((
+            row.name,
+            tuple(round(flt(row.get(field)), 4) for field in _OPERATIVE_ROW_AMOUNTS),
+            tuple(
+                _canonical_detail(row.get(field)) if field == "remittance_detail"
+                else str(row.get(field) or "")
+                for field in _OPERATIVE_ROW_STATES
+            ),
+        ))
+    return (
+        period.status,
+        tuple(round(flt(period.get(field)), 4) for field in _OPERATIVE_PERIOD_AMOUNTS),
+        int(period.exception_count or 0),
+        period.deduction_basis or "",
+        period.deduction_recognition_deposit or "",
+        period.deduction_recognition_reference or "",
+        tuple(sorted(rows, key=lambda row: row[0])),
+    )
+
+
+def _operative_links(periods, source_rows, registered_deposits, complementary_items, closed_state):
+    """Identify application and cash edges, including their source document IDs.
+
+    Totals alone cannot reveal a deposit or application replaced by a different
+    one for the same amount. These edges protect that audit trail after closure.
+    """
+    closed_names = set(closed_state)
+    row_period = {
+        row.name: period.name
+        for period in periods if period.name in closed_names
+        for row in period.collection_rows
+    }
+    complementary_period = {
+        item.name: item.period for item in complementary_items
+        if item.period in closed_names
+    }
+    links = defaultdict(list)
+    for source in source_rows:
+        if source.get("event_type") == "Aplicacion":
+            details = _detail_entries(source.get("application_allocation_detail"))
+            if not details and source.get("collection_row_id"):
+                details = [{
+                    "collection_row_id": source.get("collection_row_id"),
+                    "amount_usd": source.get("amount"),
+                }]
+            for detail in details:
+                if not isinstance(detail, dict):
+                    continue
+                row_id = detail.get("collection_row_id")
+                period_name = row_period.get(row_id)
+                if period_name:
+                    links[period_name].append((
+                        "Aplicacion", source.get("name"), row_id,
+                        round(flt(detail.get("amount_usd")), 4),
+                        clean_text(source.get("reference")),
+                        clean_text(source.get("voucher")),
+                        clean_text(source.get("accounting_entry")),
+                        clean_text(source.get("receipt")),
+                        str(source.get("event_date") or ""),
+                    ))
+    registered_names = {item.name for item in registered_deposits}
+    for source in list(source_rows) + list(registered_deposits):
+        if source.get("event_type") != "Deposito" and source.get("name") not in registered_names:
+            continue
+        for detail in _detail_entries(source.get("allocation_detail")):
+            if not isinstance(detail, dict):
+                continue
+            period_name = detail.get("periodo")
+            if detail.get("tipo") == "Partida complementaria":
+                period_name = complementary_period.get(detail.get("partida"))
+            if period_name in closed_names:
+                links[period_name].append((
+                    "Deposito", source.get("name"), _canonical_detail(detail),
+                    clean_text(source.get("reference") or source.get("deposit_reference")),
+                    clean_text(source.get("voucher") or source.get("deposit_voucher")),
+                    str(source.get("event_date") or source.get("deposit_date") or ""),
+                    clean_text(source.get("currency") or source.get("deposit_currency")),
+                    round(flt(source.get("amount") or source.get("deposit_amount")), 4),
+                    round(flt(source.get("fx_rate")), 8),
+                ))
+    return {
+        name: tuple(sorted(links[name], key=repr)) for name in closed_names
+    }
+
+
+def _operative_period_fully_reconciled(period):
+    """A paid subset must not clear the entire payroll collection."""
+    rows = list(period.collection_rows or [])
+    return bool(rows) and not period.exception_count and all(
+        row.deduction_status in {"Deduccion total", "Inferida por depósito"}
+        and row.application_status == "Aplicado y remitido"
+        for row in rows
+    )
+
+
 def _rebuild_period_balances(
     periods, source_rows, deposit_pairs, allocation,
+    closed_state, closed_links, complementary_items,
 ):
     rows_by_name = {}
     for period in periods:
@@ -1591,7 +1904,7 @@ def _rebuild_period_balances(
     for source in source_rows:
         if (
             source.event_type != "Aplicacion" or not source.effective
-            or source.match_status != "Conciliado"
+            or source.match_status not in LINKED_APPLICATION_STATUSES
         ):
             continue
         for link in _application_allocations(source):
@@ -1695,6 +2008,7 @@ def _rebuild_period_balances(
         unexplained = loan_cash - flt(target.applied_usd) - rounding
         if (
             core_complete and cash_complete
+            and target.deduction_status not in {"", "Pendiente de detalle"}
             and not flt(target.fx_variance_usd)
             and abs(unexplained) > CASH_EPSILON
         ):
@@ -1738,6 +2052,17 @@ def _rebuild_period_balances(
                 "La aplicacion aun no se enlaza de forma unica con una cobranza."
             )
             continue
+        if source.match_status == PROVISIONAL_APPLICATION:
+            source.deposit_match_status = (
+                "Remesa parcial"
+                if any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets)
+                else "Pendiente"
+            )
+            source.deposit_match_reason = _(
+                "La aplicación está enlazada provisionalmente; confirme el detalle de deducción de la empresa antes de conciliar la remesa."
+            )
+            source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
+            continue
         complete = all(
             flt(target.remitted_usd) + max(flt(target.fx_variance_usd), 0)
             + max(-flt(target.rounding_adjustment_usd), 0)
@@ -1765,22 +2090,39 @@ def _rebuild_period_balances(
 
     for period in periods:
         period.recalculate_totals()
-        relevant = [
-            row for row in period.collection_rows
-            if flt(row.deducted_usd) > AMOUNT_TOLERANCE
-            or flt(row.deducted_nio) > AMOUNT_TOLERANCE
-        ]
         if period.status != "Cerrado":
-            if relevant and all(
-                row.application_status == "Aplicado y remitido" for row in relevant
-            ):
+            if _operative_period_fully_reconciled(period):
                 period.status = "Deposito conciliado"
             elif period.status == "Deposito conciliado":
-                period.status = "Detalle empresa cargado"
-        if period.status == "Cerrado":
-            with period_write_action("reconcile"):
-                period.save(ignore_permissions=True)
-        else:
+                period.status = (
+                    "Detalle empresa cargado"
+                    if period.deduction_basis == "Detalle de empresa"
+                    else "Cobranza cargada"
+                )
+    if closed_state:
+        registered_rows = [
+            allocation["deposit_meta"][deposit_id]["account"]
+            for deposit_id in allocation["registered_ids"].values()
+            if deposit_id in allocation["deposit_meta"]
+        ]
+        current_links = _operative_links(
+            periods, source_rows, registered_rows, complementary_items, closed_state,
+        )
+        for period in periods:
+            if period.name not in closed_state:
+                continue
+            if (
+                _operative_period_state(period) != closed_state[period.name]
+                or current_links[period.name] != closed_links[period.name]
+            ):
+                frappe.throw(_(
+                    "El período operativo {0} está cerrado y esta conciliación cambiaría "
+                    "sus saldos, estados o vínculos de aplicación y depósito. "
+                    "Use Reabrir período antes de recalcularlo."
+                ).format(period.name))
+
+    for period in periods:
+        if period.status != "Cerrado":
             period.save(ignore_permissions=True)
 
 

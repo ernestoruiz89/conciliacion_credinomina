@@ -8,6 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 
+from credinomina_reconciliation.aging import employee_receivable_usd, operational_balances
 from credinomina_reconciliation.cadence import (
     MONTHLY,
     cycle_code,
@@ -52,6 +53,12 @@ EXCEPTION_STATES = {
     "Importes inconsistentes",
     "Importe invalido",
 }
+
+PENDING_REMITTANCE_DETAILS = (
+    "Revisar filas", "Detalle supera depósito", "Detalle pendiente",
+    "Importar detalle actualizado", "Parcial; saldo sin detalle",
+    "Cargado; pendiente de conciliación",
+)
 
 
 class CNReconciliationPeriod(Document):
@@ -132,6 +139,17 @@ class CNReconciliationPeriod(Document):
             if self.is_new() and getdate(self.payroll_month) < OPERATIVE_START:
                 frappe.throw(_("Para abril de 2025 a agosto de 2026 seleccione la modalidad Histórica."))
             previous = self.get_doc_before_save()
+            if previous and (
+                previous.employer != self.employer
+                or getdate(previous.payroll_month) != getdate(self.payroll_month)
+            ) and (
+                previous.collection_rows or previous.status != "Borrador"
+                or frappe.db.exists("CN Source Row", {"collection_period": self.name})
+            ):
+                frappe.throw(_(
+                    "No cambie empresa ni mes después de cargar cobranza o enlazar aplicaciones. "
+                    "Cree un período nuevo para el contexto correcto."
+                ))
             previous_cycle = (previous.collection_cycle or MONTHLY) if previous else None
             if (
                 previous and previous_cycle != (self.collection_cycle or MONTHLY)
@@ -166,16 +184,9 @@ class CNReconciliationPeriod(Document):
             )
             for row in self.collection_rows or []
         )
-        if not changed or not frappe.db.exists(
-            "CN Source Import",
-            {"status": ["in", ["Importado", "Importado con excepciones"]]},
-        ):
+        if not changed:
             return
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
-            reconcile_all_sources,
-        )
-
-        reconcile_all_sources()
+        _reconcile_if_sources()
 
     def _set_due_date(self):
         if self.reconciliation_mode == "Historica":
@@ -504,10 +515,25 @@ def import_collection(period_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Archivo de cobranza invalido"))
 
-    _supersede_open_period_exceptions(period.name)
-    period.set("collection_rows", [])
+    import_hash = file_sha256(content)
+    if period.collection_import_sha256 == import_hash and period.collection_rows:
+        source_summary = _reconcile_if_sources()
+        return {
+            "period": period.name, "rows": len(period.collection_rows),
+            "status": period.status, "unchanged": True,
+            "source_reconciliation": source_summary,
+        }
+
+    existing = {row.row_key: row for row in period.collection_rows if row.row_key}
+    ordered_rows = []
     clients = ClientIndex()
     seen = set()
+    amount_changed = False
+    source_fields = (
+        "source_row", "client_number", "employee_number", "client_name",
+        "national_id", "loan_number", "installment_number", "total_installments",
+        "expected_usd", "expected_nio", "comments",
+    )
     for record in parsed:
         if not record.get("loan_number"):
             frappe.throw(_("La fila {0} de cobranza no tiene número de crédito.").format(record["source_row"]))
@@ -527,25 +553,78 @@ def import_collection(period_name: str):
                 )
             )
         seen.add(row_key)
-        period.append(
-            "collection_rows",
-            {
-                **record,
-                "client": client,
-                "row_key": row_key,
-                "deduction_status": "Pendiente de detalle",
-                "application_status": "Pendiente",
-            },
-        )
-    period.status = "Cobranza cargada"
+        row = existing.get(row_key)
+        if row:
+            amount_changed |= any(
+                abs(flt(row.get(field)) - flt(record.get(field))) > CASH_EPSILON
+                for field in ("expected_usd", "expected_nio")
+            )
+            row.update({field: record.get(field) for field in source_fields})
+            row.client = client
+            # Empty cells in a corrected cobranza are not instructions to erase
+            # comments or references already entered by an operator.
+            for field in ("application_reference", "application_comment"):
+                if record.get(field):
+                    row.set(field, record[field])
+        else:
+            row = period.append(
+                "collection_rows",
+                {
+                    **record,
+                    "client": client,
+                    "row_key": row_key,
+                    "deduction_status": "Pendiente de detalle",
+                    "application_status": "Pendiente",
+                },
+            )
+        ordered_rows.append(row)
+    removed = [row for key, row in existing.items() if key not in seen]
+    if any(
+        any(abs(flt(row.get(field))) > CASH_EPSILON for field in (
+            "applied_usd", "complementary_usd", "remitted_usd",
+            "rounding_adjustment_usd", "fx_variance_usd",
+        ))
+        for row in removed
+    ):
+        frappe.throw(_(
+            "La nueva cobranza elimina cuotas con aplicaciones o depósitos relacionados. "
+            "Revise esos enlaces antes de reemplazarla."
+        ))
+    if amount_changed and period.deduction_basis == "Detalle de empresa" and not period.employer_response_file:
+        frappe.throw(_(
+            "La cobranza cambia importes ya comparados. Adjunte el detalle de empresa "
+            "para recalcular la deducción junto con la nueva cobranza."
+        ))
+    period.set("collection_rows", ordered_rows)
+    for index, row in enumerate(period.collection_rows, 1):
+        row.idx = index
+    period.collection_import_sha256 = import_hash
+    if not period.employer_response_file:
+        period.status = "Cobranza cargada"
     period.notes = _append_note(
         period.notes,
         _("Cobranza importada: {0} filas; SHA-256 {1}.").format(
-            len(parsed), file_sha256(content)
+            len(parsed), import_hash
         ),
     )
+    period.flags.skip_comment_reconciliation = True
     period.save()
-    return {"period": period.name, "rows": len(parsed), "status": period.status}
+    # Files can arrive in any order. A corrected cobranza must be compared again
+    # with the existing employer detail before reconciling core applications.
+    detail_result = (
+        import_employer_response(period.name)
+        if period.employer_response_file and period.deduction_evidence_date
+        else None
+    )
+    source_summary = (
+        detail_result.get("source_reconciliation") if detail_result
+        else _reconcile_if_sources()
+    )
+    period.reload()
+    return {
+        "period": period.name, "rows": len(parsed), "status": period.status,
+        "detail_import": detail_result, "source_reconciliation": source_summary,
+    }
 
 
 @frappe.whitelist(methods=["POST"])
@@ -570,6 +649,18 @@ def import_employer_response(period_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de empresa invalido"))
 
+    client_catalog = load_client_index()
+    import_key = _employer_response_import_key(period, content, client_catalog)
+    if (
+        period.employer_response_import_key == import_key
+        and period.deduction_basis == "Detalle de empresa"
+    ):
+        source_summary = _reconcile_if_sources()
+        return {
+            "period": period.name, "status": period.status,
+            "unchanged": True, "source_reconciliation": source_summary,
+        }
+
     if period.deduction_basis == "Depósito coincidente":
         period.notes = _append_note(
             period.notes,
@@ -587,10 +678,8 @@ def import_employer_response(period_name: str):
                 row.deduction_evidence_date = None
                 row.deduction_match_note = ""
     period.deduction_basis = "Detalle de empresa"
-    _supersede_open_period_exceptions(period.name)
 
     rows_by_name = {row.name: row for row in period.collection_rows}
-    client_catalog = load_client_index()
     by_client = {client["name"]: client for client in client_catalog}
     candidates = []
     for row in period.collection_rows:
@@ -602,14 +691,32 @@ def import_employer_response(period_name: str):
         )
         candidates.append(candidate)
     matched_names = set()
+    seen_exceptions = set()
+    unmatched_keys = set()
     unmatched = 0
     for response in responses:
         match, reason = match_collection_record(response, candidates)
         if not match or match["name"] in matched_names:
             unmatched += 1
-            _create_exception(
+            exceptional_identity = (
+                response.get("row_key") or response.get("client_number")
+                or response.get("national_id") or response.get("employee_number")
+                or response.get("client_name"),
+                response.get("loan_number"), response.get("installment_number"),
+            )
+            exception_key = _deduction_exception_key(
+                period.name, "Detalle de empresa sin coincidencia", *exceptional_identity,
+            )
+            if exception_key in unmatched_keys:
+                exception_key = _deduction_exception_key(
+                    period.name, "Detalle de empresa sin coincidencia",
+                    *exceptional_identity, response.get("source_row"),
+                )
+            unmatched_keys.add(exception_key)
+            seen_exceptions.add(_create_exception(
                 period,
                 exception_type="Detalle de empresa sin coincidencia",
+                exception_key=exception_key,
                 source_row=response.get("source_row"),
                 client_number=response.get("client_number"),
                 loan_number=response.get("loan_number"),
@@ -620,7 +727,7 @@ def import_employer_response(period_name: str):
                     if match and match["name"] in matched_names
                     else reason
                 ),
-            )
+            ))
             continue
         row = rows_by_name[match["name"]]
         matched_names.add(row.name)
@@ -657,9 +764,12 @@ def import_employer_response(period_name: str):
         if response.get("application_comment"):
             row.application_comment = response["application_comment"]
         if row.deduction_status in EXCEPTION_STATES:
-            _create_exception(
+            seen_exceptions.add(_create_exception(
                 period,
                 exception_type=row.deduction_status,
+                exception_key=_deduction_exception_key(
+                    period.name, row.row_key or row.name,
+                ),
                 source_row=response.get("source_row"),
                 client_number=row.client_number,
                 loan_number=row.loan_number,
@@ -667,16 +777,19 @@ def import_employer_response(period_name: str):
                 amount_nio=row.deducted_nio,
                 description=row.application_comment or row.comments,
                 collection_row_id=row.name,
-            )
+            ))
 
     missing = 0
     for row in period.collection_rows:
         if row.name not in matched_names:
             missing += 1
             row.deduction_status = "Pendiente de detalle"
-            _create_exception(
+            seen_exceptions.add(_create_exception(
                 period,
                 exception_type="Pendiente de detalle de empresa",
+                exception_key=_deduction_exception_key(
+                    period.name, row.row_key or row.name,
+                ),
                 client_number=row.client_number,
                 loan_number=row.loan_number,
                 amount_usd=row.expected_usd,
@@ -685,13 +798,11 @@ def import_employer_response(period_name: str):
                     "La respuesta de la empresa no incluyo esta fila de cobranza."
                 ),
                 collection_row_id=row.name,
-            )
+            ))
 
-    period.status = (
-        "Deduccion conciliada"
-        if unmatched == 0 and missing == 0
-        else "Detalle empresa cargado"
-    )
+    _retire_obsolete_deduction_exceptions(period.name, seen_exceptions)
+    period.status = _deduction_stage_status(period.collection_rows, unmatched, missing)
+    period.employer_response_import_key = import_key
     period.notes = _append_note(
         period.notes,
         _(
@@ -702,16 +813,8 @@ def import_employer_response(period_name: str):
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    source_summary = None
-    if frappe.db.exists(
-        "CN Source Import",
-        {"status": ["in", ["Importado", "Importado con excepciones"]]},
-    ):
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
-            reconcile_all_sources,
-        )
-
-        source_summary = reconcile_all_sources()
+    source_summary = _reconcile_if_sources()
+    if source_summary is not None:
         period.reload()
     return {
         "period": period.name,
@@ -736,22 +839,206 @@ def _pending_registered_targets(target_filters):
     ))
 
 
+def _has_operative_application(period):
+    if frappe.db.exists(
+        "CN Source Row",
+        {
+            "event_type": "Aplicacion", "effective": 1,
+            "collection_period": period.name,
+        },
+    ):
+        return True
+    # One core application can cover both quincenas; its primary period is the
+    # first one, while the audited split records the second period too.
+    row_names = {row.name for row in period.collection_rows}
+    if not row_names:
+        return False
+    for source in frappe.get_all(
+        "CN Source Row",
+        filters={"event_type": "Aplicacion", "effective": 1},
+        fields=["application_allocation_detail"], limit_page_length=100000,
+    ):
+        try:
+            detail = json.loads(source.application_allocation_detail or "[]")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(detail, list) and any(
+            isinstance(item, dict) and item.get("collection_row_id") in row_names
+            for item in detail
+        ):
+            return True
+    return False
+
+
+def _pending_remittance_details_for_period(period):
+    """Find problematic cash detail linked by period, target or actual allocation."""
+    remittances = frappe.get_all(
+        "CN Remittance Allocation",
+        filters={
+            "docstatus": 1, "employer": period.employer,
+            "detail_status": ["in", list(PENDING_REMITTANCE_DETAILS)],
+        },
+        fields=["name", "detail_period", "allocation_detail"],
+        limit_page_length=100000,
+    )
+    if not remittances:
+        return []
+    related = {
+        item.name for item in remittances if item.detail_period == period.name
+    }
+    names = [item.name for item in remittances]
+    targets = frappe.get_all(
+        "CN Remittance Target", filters={"parent": ["in", names]},
+        fields=["parent", "period", "historical_application", "complementary_item"],
+        limit_page_length=100000,
+    )
+    related.update(item.parent for item in targets if item.period == period.name)
+    historical_ids = {
+        item.historical_application for item in targets if item.historical_application
+    }
+    complementary_ids = {
+        item.complementary_item for item in targets if item.complementary_item
+    }
+    allocation_entries = {}
+    for item in remittances:
+        try:
+            entries = json.loads(item.allocation_detail or "[]")
+        except (TypeError, ValueError):
+            entries = []
+        if not isinstance(entries, list):
+            entries = []
+        allocation_entries[item.name] = entries
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("periodo") == period.name:
+                related.add(item.name)
+            if entry.get("partida"):
+                complementary_ids.add(entry["partida"])
+    matching_historical_ids = set()
+    if historical_ids:
+        matching_historical_ids = set(frappe.get_all(
+            "CN Source Row",
+            filters={
+                "name": ["in", list(historical_ids)],
+                "historical_period": period.name,
+            },
+            pluck="name", limit_page_length=100000,
+        ))
+    matching_complementary_ids = set()
+    if complementary_ids:
+        matching_complementary_ids = set(frappe.get_all(
+            "CN Complementary Item",
+            filters={"name": ["in", list(complementary_ids)], "period": period.name},
+            pluck="name", limit_page_length=100000,
+        ))
+    related.update(
+        item.parent for item in targets
+        if item.historical_application in matching_historical_ids
+        or item.complementary_item in matching_complementary_ids
+    )
+    related.update(
+        name for name, entries in allocation_entries.items()
+        if any(
+            isinstance(entry, dict) and entry.get("partida") in matching_complementary_ids
+            for entry in entries
+        )
+    )
+    return sorted(related)
+
+
+def _control_cut_summary(period, open_exceptions, pending_details):
+    """A dated operational snapshot, not a claim that balances are settled."""
+    rows = list(period.collection_rows or []) if period.reconciliation_mode != "Historica" else []
+    awaiting_detail = sum(
+        row.deduction_status in (None, "", "Pendiente de detalle") for row in rows
+    )
+    worker_receivable = sum(
+        employee_receivable_usd(row) or 0 for row in rows
+    )
+    deducted_unremitted = sum(
+        balance["amount_usd"]
+        for row in rows
+        for balance in operational_balances(row, {
+            "cutoff_date": getattr(period, "cutoff_date", None),
+            "remittance_due_date": getattr(period, "remittance_due_date", None),
+        })
+        if balance["balance_type"] == "Deducido sin remesa asignada"
+    )
+    unsettled_rows = sum(
+        row.application_status != "Aplicado y remitido" for row in rows
+    )
+    figures = (
+        f"Cobranza US$ {flt(period.expected_usd):.2f}; "
+        f"deducido US$ {flt(period.deducted_usd):.2f}; "
+        f"aplicado US$ {flt(period.applied_usd):.2f}; "
+        f"remitido US$ {flt(period.remitted_usd):.2f}; "
+        f"excepciones abiertas {open_exceptions}; "
+        f"detalles de depósito pendientes {pending_details}"
+    )
+    if period.reconciliation_mode == "Historica":
+        return figures
+    return (
+        f"{figures}; cuotas sin detalle {awaiting_detail}; "
+        f"cuotas sin liquidar {unsettled_rows}; "
+        f"CxC empleados confirmada US$ {worker_receivable:.2f}; "
+        f"deducido sin remesa asignada US$ {deducted_unremitted:.2f}"
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def record_control_cut(period_name: str, note: str):
+    """Record month-end evidence while keeping late detail, applications and cash admissible."""
+    period = frappe.get_doc("CN Reconciliation Period", period_name)
+    period.check_permission("write")
+    if period.status == "Cerrado":
+        frappe.throw(_("El período ya está cerrado. Reábralo antes de registrar otro corte."))
+    note = clean_text(note)
+    if len(note) < 12:
+        frappe.throw(_("Indique el motivo y la siguiente gestión del corte (mínimo 12 caracteres)."))
+    if _reconcile_if_sources() is not None:
+        period.reload()
+    if period.status == "Borrador" and not period.collection_rows:
+        frappe.throw(_("Cargue la cobranza o las aplicaciones históricas antes del corte."))
+    period.recalculate_totals()
+    open_exceptions = frappe.db.count(
+        "CN Reconciliation Exception",
+        {"period": period.name, "status": ["in", ["Abierta", "En revision"]]},
+    )
+    pending_details = len(_pending_remittance_details_for_period(period))
+    summary = _control_cut_summary(period, open_exceptions, pending_details)
+    period.control_cut_on = now_datetime().replace(microsecond=0)
+    period.control_cut_by = frappe.session.user
+    period.control_cut_note = note
+    period.control_cut_summary = summary
+    period.notes = _append_note(
+        period.notes,
+        _("CORTE DE CONTROL {0} por {1}. {2}. Seguimiento: {3}. El período permanece abierto.").format(
+            period.control_cut_on, period.control_cut_by, summary, note,
+        ),
+    )
+    period.flags.skip_comment_reconciliation = True
+    period.save()
+    return {
+        "period": period.name, "status": period.status,
+        "control_cut_on": period.control_cut_on, "summary": summary,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def close_period(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
     if period.status == "Cerrado":
         frappe.throw(_("Este período ya está cerrado."))
-    if frappe.db.count(
-        "CN Remittance Allocation",
-        {
-            "docstatus": 1, "detail_period": period.name,
-            "detail_status": ["in", [
-                "Revisar filas", "Detalle supera depósito", "Detalle pendiente",
-                "Importar detalle actualizado",
-            ]],
-        },
-    ):
+    # Closure must evaluate the latest imports, not the totals left by the
+    # last manual reconciliation. A late core edit can change both balances
+    # and open exceptions.
+    if _reconcile_if_sources() is not None:
+        period.reload()
+    if period.reconciliation_mode != "Historica" and not period.collection_rows:
+        frappe.throw(_("Cargue la cobranza antes de cerrar el período operativo."))
+    if _pending_remittance_details_for_period(period):
         frappe.throw(_("Hay detalles de depósito por cliente pendientes de revisión para este período."))
     if frappe.db.count(
         "CN Reconciliation Exception",
@@ -759,8 +1046,6 @@ def close_period(period_name: str):
     ):
         frappe.throw(_("Resuelva las excepciones antes de cerrar el periodo."))
     if period.reconciliation_mode == "Historica":
-        if period.status != "Historico conciliado":
-            frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
         application_ids = frappe.get_all(
             "CN Source Row",
             filters={
@@ -769,6 +1054,12 @@ def close_period(period_name: str):
             },
             pluck="name", limit_page_length=100000,
         )
+        if not application_ids:
+            frappe.throw(_(
+                "No se puede cerrar un período histórico sin aplicaciones efectivas asignadas."
+            ))
+        if period.status != "Historico conciliado":
+            frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
         if application_ids and _pending_registered_targets(
             {"historical_application": ["in", application_ids]}
         ):
@@ -781,6 +1072,10 @@ def close_period(period_name: str):
         _mark_period_closed(period)
         return {"period": period.name, "status": period.status}
     period.recalculate_totals()
+    if not _has_operative_application(period):
+        frappe.throw(_(
+            "No se puede cerrar el período sin aplicaciones efectivas del core enlazadas a la cobranza."
+        ))
     if _pending_registered_targets({"period": period.name}):
         frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para este período."))
     if frappe.db.count(
@@ -847,8 +1142,20 @@ def close_period(period_name: str):
         frappe.throw(
             _("Hay diferencias cambiarias pendientes de revisar y aplicar en el core.")
         )
+    if any(
+        employee_receivable_usd(row) is None
+        or employee_receivable_usd(row) > CASH_EPSILON
+        for row in period.collection_rows
+    ):
+        frappe.throw(_(
+            "Hay cuotas sin detalle confirmado o saldos a empleados por recuperar. "
+            "Registre un corte de control y mantenga abierto el período para su seguimiento."
+        ))
     if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):
-        frappe.throw(_("Todas las filas deben estar aplicadas y remitidas antes del cierre."))
+        frappe.throw(_(
+            "El cierre definitivo requiere todas las filas aplicadas y remitidas. "
+            "Si hay cuotas no deducidas o pagos pendientes, registre un corte de control y continúe el seguimiento."
+        ))
     _mark_period_closed(period)
     return {"period": period.name, "status": period.status}
 
@@ -950,10 +1257,80 @@ def export_collection(period_name: str):
     return {"file_url": file_doc.file_url, "file_name": file_name}
 
 
+def _reconcile_if_sources():
+    imported_core = frappe.db.exists(
+        "CN Source Import",
+        {"status": ["in", ["Importado", "Importado con excepciones"]]},
+    )
+    confirmed_cash = frappe.db.exists(
+        "CN Remittance Allocation", {"docstatus": 1},
+    )
+    confirmed_complement = frappe.db.exists(
+        "CN Complementary Item", {"docstatus": 1},
+    )
+    confirmed_surplus = frappe.db.exists(
+        "CN Deposit Surplus", {"docstatus": 1},
+    )
+    if not (imported_core or confirmed_cash or confirmed_complement or confirmed_surplus):
+        return None
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+        reconcile_all_sources,
+    )
+
+    return reconcile_all_sources()
+
+
+def _deduction_stage_status(rows, unmatched, missing):
+    return (
+        "Deduccion conciliada"
+        if not unmatched and not missing
+        and all(row.deduction_status == "Deduccion total" for row in rows)
+        else "Detalle empresa cargado"
+    )
+
+
+def _employer_response_import_key(period, content, client_catalog=()):
+    identities = sorted(
+        (
+            clean_text(row.row_key or row.name),
+            clean_text(row.client), clean_text(row.client_number),
+            clean_text(row.employee_number), clean_text(row.client_name),
+            clean_text(row.national_id), clean_text(row.loan_number),
+            clean_text(row.installment_number), flt(row.expected_usd),
+            flt(row.expected_nio),
+        )
+        for row in period.collection_rows
+    )
+    linked_names = {row.client for row in period.collection_rows if row.client}
+    include_all_employer_clients = len(linked_names) < len(period.collection_rows)
+    relevant_clients = sorted(
+        (
+            clean_text(client["name"]), clean_text(client["client_name"]),
+            clean_text(client.get("client_number")),
+            clean_text(client.get("employee_number")),
+            clean_text(client.get("national_id")),
+            tuple(sorted(clean_text(alias) for alias in client.get("client_aliases") or ())),
+        )
+        for client in client_catalog
+        if client.get("employer") == period.employer
+        and (include_all_employer_clients or client["name"] in linked_names)
+    )
+    return source_key(
+        file_sha256(content), period.deduction_evidence_date,
+        period.collection_import_sha256,
+        json.dumps((identities, relevant_clients), ensure_ascii=False),
+    )
+
+
+def _deduction_exception_key(*parts):
+    return "DED-" + source_key(*parts)[:40]
+
+
 def _create_exception(
     period,
     *,
     exception_type,
+    exception_key,
     source_row=None,
     client_number=None,
     loan_number=None,
@@ -962,24 +1339,94 @@ def _create_exception(
     description=None,
     collection_row_id=None,
 ):
-    exception = frappe.get_doc(
-        {
-            "doctype": "CN Reconciliation Exception",
-            "exception_type": exception_type,
-            "period": period.name,
-            "employer": period.employer,
-            "source_row": source_row,
-            "client_number": client_number,
-            "loan_number": loan_number,
-            "amount_usd": amount_usd,
-            "amount_nio": amount_nio,
-            "collection_row_id": collection_row_id,
-            "description": description,
-            "status": "Abierta",
-        }
+    doctype = "CN Reconciliation Exception"
+    existing_name = frappe.db.get_value(
+        doctype, {"period": period.name, "exception_key": exception_key}, "name",
     )
+    if not existing_name:
+        # Adopt pre-key records when possible; do not discard prior follow-up.
+        legacy_filters = {
+            "period": period.name, "source_import": ["is", "not set"],
+        }
+        if collection_row_id:
+            legacy_filters["collection_row_id"] = collection_row_id
+            legacy_filters["exception_type"] = ["in", sorted(EXCEPTION_STATES | {
+                "Pendiente de detalle de empresa",
+            })]
+        elif source_row:
+            legacy_filters.update({
+                "source_row": source_row, "client_number": client_number,
+                "loan_number": loan_number, "exception_type": exception_type,
+                "exception_key": ["is", "not set"],
+            })
+        else:
+            legacy_filters = None
+        if legacy_filters:
+            candidates = frappe.get_all(
+                doctype, filters=legacy_filters,
+                fields=["name", "status", "modified"],
+                limit_page_length=1000,
+            )
+            if candidates:
+                # Older installations keyed each classification separately.
+                # Keep the case carrying the most follow-up, archive the rest.
+                existing_name = max(
+                    candidates,
+                    key=lambda item: (
+                        frappe.db.count("CN Exception Action", {"parent": item.name}),
+                        item.status in {"Abierta", "En revision"},
+                        str(item.modified or ""),
+                    ),
+                ).name
+    if existing_name:
+        exception = frappe.get_doc(doctype, existing_name)
+        old_type = clean_text(exception.exception_type)
+        type_changed = old_type != exception_type
+        old_usd, old_nio = flt(exception.amount_usd), flt(exception.amount_nio)
+        amount_changed = (
+            abs(old_usd - flt(amount_usd)) > CASH_EPSILON
+            or abs(old_nio - flt(amount_nio)) > CASH_EPSILON
+        )
+        if type_changed:
+            exception.append("follow_up_actions", {
+                "action_type": "Ajuste",
+                "details": _(
+                    "El detalle actualizado reclasificó la excepción de {0} a {1}."
+                ).format(old_type, exception_type),
+            })
+        if exception.status == "Descartada" or (
+            exception.status == "Resuelta" and (amount_changed or type_changed)
+        ):
+            previous_resolution = clean_text(exception.resolution)
+            exception.append("follow_up_actions", {
+                "action_type": "Ajuste",
+                "details": _(
+                    "Nueva importación vuelve a mostrar esta diferencia; se reabre. Resolución previa: {0}"
+                ).format(previous_resolution or "—"),
+            })
+            exception.status = "Abierta"
+            exception.resolution = ""
+    else:
+        exception = frappe.get_doc({"doctype": doctype, "status": "Abierta"})
+    exception.update({
+        "exception_type": exception_type,
+        "exception_key": exception_key,
+        "period": period.name,
+        "employer": period.employer,
+        "source_row": source_row,
+        "client_number": client_number,
+        "loan_number": loan_number,
+        "amount_usd": amount_usd,
+        "amount_nio": amount_nio,
+        "collection_row_id": collection_row_id,
+        "description": description,
+    })
     exception.flags.skip_comment_reconciliation = True
-    exception.insert(ignore_permissions=True)
+    if existing_name:
+        exception.save(ignore_permissions=True)
+    else:
+        exception.insert(ignore_permissions=True)
+    return exception.name
 
 
 def _append_note(existing, line):
@@ -1013,23 +1460,53 @@ def _deduction_equivalents(row, response):
     return round(deducted_usd, 4), round(deducted_nio, 4), note
 
 
-def _supersede_open_period_exceptions(period_name):
-    names = frappe.get_all(
-        "CN Reconciliation Exception",
+def _retire_obsolete_deduction_exceptions(period_name, seen_names):
+    doctype = "CN Reconciliation Exception"
+    names = set(frappe.get_all(
+        doctype,
         filters={
             "period": period_name,
             "source_import": ["is", "not set"],
-            "status": ["in", ["Abierta", "En revision"]],
+            "exception_key": ["like", "DED-%"],
+            "status": ["in", ["Abierta", "En revision", "Resuelta"]],
         },
         pluck="name",
+    ))
+    # Older imports had no stable key. Adopt those still present above; retire
+    # only unmatched system-generated rows, retaining their audit trail.
+    legacy_names = frappe.get_all(
+        doctype,
+        filters={
+            "period": period_name,
+            "source_import": ["is", "not set"],
+            "exception_key": ["is", "not set"],
+            "exception_type": ["in", sorted(EXCEPTION_STATES | {
+                "Pendiente de detalle de empresa", "Detalle de empresa sin coincidencia",
+            })],
+            "status": ["in", ["Abierta", "En revision", "Resuelta"]],
+        },
+        fields=["name", "collection_row_id", "source_row"],
+    )
+    names.update(
+        item.name for item in legacy_names
+        if item.collection_row_id or item.source_row
     )
     for name in names:
-        frappe.db.set_value(
-            "CN Reconciliation Exception",
-            name,
-            {
-                "status": "Descartada",
-                "resolution": _("Reemplazada por una nueva importacion del detalle de empresa."),
-            },
-            update_modified=False,
+        if name in seen_names:
+            continue
+        exception = frappe.get_doc(doctype, name)
+        if exception.status == "Resuelta":
+            previous_resolution = clean_text(exception.resolution)
+            exception.append("follow_up_actions", {
+                "action_type": "Ajuste",
+                "details": _(
+                    "La diferencia resuelta dejó de aparecer en el detalle actualizado. "
+                    "Resolución humana previa: {0}"
+                ).format(previous_resolution or "—"),
+            })
+        exception.status = "Descartada"
+        exception.resolution = _(
+            "La diferencia ya no aparece en el detalle de empresa importado nuevamente."
         )
+        exception.flags.skip_comment_reconciliation = True
+        exception.save(ignore_permissions=True)

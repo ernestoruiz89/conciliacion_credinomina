@@ -76,14 +76,14 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 - El periodo permanece como `Pendiente de detalle` y se reporta en excepciones.
 - No se simula una deduccion para cuadrar el deposito.
 - Cuando llegue la evidencia, se importa al periodo original aunque el archivo llegue a finales de mayo.
-- Si el deposito llega antes que el detalle, puede quedar conciliado con el banco pero sin asignar a una cobranza hasta completar la primera conciliacion.
-- El cierre mensual puede hacerse con una lista explicita de partidas pendientes, pero el periodo no se marca `Cerrado` mientras existan excepciones.
+- Si el deposito llega antes que el detalle, puede quedar registrado y confirmado sin asignar todavía a una cobranza. Cuando llegue evidencia posterior, se recalcula la conciliación; una aplicación enlazada antes de comprobar la deducción se muestra como **provisional**, no como descuento salarial confirmado.
+- Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` solo corresponde cuando todas las cuotas y remesas están liquidadas y no quedan saldos del empleado ni excepciones abiertas.
 - Un período `Cerrado` queda en solo lectura. Si se descubre una corrección necesaria, un supervisor o administrador debe usar **Reabrir período** y documentar el motivo; después revisa nuevamente los saldos y ejecuta el cierre otra vez.
 
 ## Conciliacion 2: aplicaciones contra deposito
 
 1. Importar solo **Movimientos contables** para las aplicaciones. Las `DISPENSAS` no se tratan como efectivo.
-2. Registrar cada depósito de convenio en **Distribución de Remesa**, con su fecha real, empresa, referencia, importe, moneda y soporte. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a esa misma remesa e importarlo allí.
+2. Registrar cada depósito de convenio en **Distribución de Remesa**, con su fecha real, empresa, referencia, importe y moneda. Un supervisor lo **confirma** para que participe en la conciliación; el borrador no tiene ese efecto. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a esa misma remesa e importarlo allí. Si el depósito es en C$, indicar la tasa C$/US$ y describir su fuente y fecha en **Justificación**; el soporte adjunto es adicional.
 3. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
 4. El depósito registrado puede cotejarse con un movimiento contable de depósito por referencia e importe en su moneda original o equivalente documentado.
 5. La remesa se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.
@@ -117,7 +117,7 @@ El depósito se registra en la remesa por su importe total, aunque supere las co
 
 ## Página de control
 
-**Control de Credinómina** muestra una matriz por empresa y mes de planilla, inspirada en el tablero facilitado. Cada celda presenta remitido frente a deducido, estado y cuenta por cobrar; al abrirla se ven las cuotas, excepciones y saldos a favor del período. La parte inferior lista depósitos pendientes de distribuir con su porción documentada y sin clasificar. Usa datos reales de esta app; no reproduce cifras ficticias ni envía datos a Gemini u otro servicio externo.
+**Control de Credinómina** abre con **Qué falta hacer**, una lista de evidencia y acciones pendientes ordenada para la operación diaria: detalle de empresa, aplicaciones sin período, detalle de depósito por revisar y saldos sin clasificar. Debajo muestra una matriz por empresa y mes de planilla, inspirada en el tablero facilitado. Cada celda presenta remitido frente a deducido, estado y cuenta por cobrar; al abrirla se ven las cuotas, excepciones y saldos a favor del período. También lista depósitos con saldo a favor documentado o sin asignar, mostrando cada porción por separado. Usa datos reales de esta app; no reproduce cifras ficticias ni envía datos a Gemini u otro servicio externo.
 
 El ejemplo HTML divide cada mes en dos quincenas. Esta versión conserva una celda mensual por empresa que suma los períodos disponibles y muestra cada quincena como acceso separado al detalle; no muestra una quincena inexistente como si ya estuviera conciliada.
 
@@ -150,6 +150,7 @@ Ante una consulta, el saldo operativo del trabajador excluye cualquier deduccion
 
 - Resolver o justificar todas las excepciones.
 - Verificar que las aplicaciones conciliadas tengan evidencia de deposito.
-- Cerrar el periodo solo cuando todas las filas con deduccion esten aplicadas y remitidas.
+- Registrar un corte de control mensual si aún hay partidas abiertas, sin presentarlo como liquidación.
+- Cerrar el periodo solo cuando todas las filas estén aplicadas y remitidas y no quede CxC de empleados sin resolver.
 - Conservar los archivos originales, su hash, usuario y fecha de importacion.
 - Restringir acceso porque los archivos contienen cedulas e informacion salarial.

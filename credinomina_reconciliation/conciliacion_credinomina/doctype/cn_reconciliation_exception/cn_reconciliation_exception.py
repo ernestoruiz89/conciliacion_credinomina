@@ -13,6 +13,7 @@ _ACTION_FIELDS = (
 class CNReconciliationException(Document):
     def validate(self):
         previous = self.get_doc_before_save()
+        self._assert_related_periods_open(previous)
         if self.status in {"Resuelta", "Descartada"} and not self.resolution:
             frappe.throw(_("Escriba la resolucion antes de cerrar la excepcion."))
         # Existing review/resolution records are grandfathered until edited,
@@ -36,6 +37,49 @@ class CNReconciliationException(Document):
                 "Para resolver la excepcion indique responsable y causa confirmada."
             ))
         self._validate_follow_up_actions(previous)
+
+    def _assert_related_periods_open(self, previous=None):
+        periods = {self.period}
+        if previous and previous.period:
+            periods.add(previous.period)
+        for period_name in periods - {None, ""}:
+            if frappe.db.get_value(
+                "CN Reconciliation Period", period_name, "status"
+            ) == "Cerrado":
+                frappe.throw(_(
+                    "El período {0} está cerrado. Use Reabrir período antes de modificar "
+                    "sus excepciones o gestiones."
+                ).format(period_name))
+
+    def on_trash(self):
+        self._assert_related_periods_open()
+
+    def before_cancel(self):
+        self._assert_related_periods_open()
+
+    def before_update_after_submit(self):
+        self._assert_related_periods_open(self.get_doc_before_save())
+
+    def after_delete(self):
+        self._refresh_period_exception_count(self.period)
+
+    @staticmethod
+    def _refresh_period_exception_count(period_name):
+        if not period_name or frappe.db.get_value(
+            "CN Reconciliation Period", period_name, "reconciliation_mode"
+        ) == "Historica":
+            return
+        count = frappe.db.count(
+            "CN Reconciliation Exception",
+            {
+                "period": period_name,
+                "status": ["in", ["Abierta", "En revision"]],
+            },
+        )
+        frappe.db.set_value(
+            "CN Reconciliation Period", period_name, "exception_count", count,
+            update_modified=False,
+        )
 
     def _validate_follow_up_actions(self, previous):
         old_actions = {
@@ -68,28 +112,17 @@ class CNReconciliationException(Document):
             ))
 
     def on_update(self):
+        previous = self.get_doc_before_save()
+        self._assert_related_periods_open(previous)
         if not self.period:
+            if previous and previous.period:
+                self._refresh_period_exception_count(previous.period)
             return
-        count = frappe.db.count(
-            self.doctype,
-            {
-                "period": self.period,
-                "status": ["in", ["Abierta", "En revision"]],
-            },
-        )
-        if frappe.db.get_value(
-            "CN Reconciliation Period", self.period, "reconciliation_mode"
-        ) != "Historica":
-            frappe.db.set_value(
-                "CN Reconciliation Period",
-                self.period,
-                "exception_count",
-                count,
-                update_modified=False,
-            )
+        self._refresh_period_exception_count(self.period)
+        if previous and previous.period and previous.period != self.period:
+            self._refresh_period_exception_count(previous.period)
         if self.flags.get("skip_comment_reconciliation"):
             return
-        previous = self.get_doc_before_save()
         if (
             self.collection_row_id
             and (

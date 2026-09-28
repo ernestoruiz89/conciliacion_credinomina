@@ -1,4 +1,4 @@
-"""The remittance FX source lives in notes or its support, not a separate field."""
+"""The remittance FX source is explicit in notes, not inferred from any attachment."""
 
 import json
 import unittest
@@ -28,14 +28,18 @@ class RemittanceFxFieldTest(unittest.TestCase):
             "fx_evidence", {field["fieldname"] for field in metadata["fields"]}
         )
 
-    def test_source_must_be_in_notes_or_support(self):
+    def test_source_must_be_explicit_in_notes(self):
         self.assertEqual("", remittance_fx_basis({"notes": "Pago de mayo"}))
         self.assertIn("Tasa", remittance_fx_basis({
             "notes": "Tasa según convenio empresarial del 1 de mayo"
         }))
-        self.assertIn("/private/files/", remittance_fx_basis({
+        self.assertEqual("", remittance_fx_basis({
             "support_file": "/private/files/comprobante.pdf",
             "notes": "Pago de mayo",
+        }))
+        self.assertIn("/private/files/", remittance_fx_basis({
+            "support_file": "/private/files/comprobante.pdf",
+            "notes": "Tasa según convenio empresarial del 1 de mayo",
         }))
 
     def test_old_evidence_is_appended_once_to_notes(self):

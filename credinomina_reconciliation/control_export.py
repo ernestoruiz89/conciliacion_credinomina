@@ -166,7 +166,8 @@ SUMMARY_HEADERS = (
     "Estado", "Cobranza USD", "Deducido USD", "Aplicado USD",
     "Complementario USD", "Ajuste USD", "Depósito asignado USD",
     "Pendiente histórico USD", "CxC empleado USD", "Sin remesa asignada USD",
-    "Sin clasificar USD", "Excepciones abiertas",
+    "Sin clasificar USD", "Excepciones abiertas", "Último corte de control",
+    "Motivo y próxima gestión", "Resumen guardado en el corte",
 )
 
 DETAIL_HEADERS = (
@@ -251,12 +252,18 @@ def _write_summary(sheet, data, employer_label, generated_at):
             NA if historical_mode else _money(period.get("employer_gap_usd")),
             _money(period.get("unclassified_deposit_usd")),
             len(period.get("exceptions") or []),
+            _date(period.get("control_cut_on")),
+            period.get("control_cut_note"),
+            period.get("control_cut_summary"),
         ))
     _table(sheet, SUMMARY_HEADERS, summary_rows, header_row=19,
-           money_columns=set(range(10, 20)), date_columns={6, 7, 8})
+           money_columns=set(range(10, 20)), date_columns={6, 7, 8, 21})
     sheet.column_dimensions["A"].width = 31
     sheet.column_dimensions["B"].width = 24
     sheet.column_dimensions["E"].width = 27
+    sheet.column_dimensions["U"].width = 23
+    sheet.column_dimensions["V"].width = 40
+    sheet.column_dimensions["W"].width = 65
     sheet.tabColor = NAVY
 
 

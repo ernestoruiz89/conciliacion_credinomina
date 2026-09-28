@@ -14,6 +14,8 @@ frappe.ui.form.on("CN Reconciliation Period", {
             return;
         }
 
+        frm.add_custom_button(__("Registrar corte de control"), () => showControlCutDialog(frm));
+
         if (frm.doc.reconciliation_mode === "Historica") {
             frm.add_custom_button(__("Cerrar período histórico"), () => requestClose(frm));
             return;
@@ -96,6 +98,34 @@ async function requestClose(frm) {
         freeze: true,
     });
     frm.reload_doc();
+}
+
+function showControlCutDialog(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __("Registrar corte de control"),
+        fields: [
+            {
+                fieldname: "notice", fieldtype: "HTML",
+                options: `<p>${__("Este corte guarda los importes y pendientes actuales para rendición. No cierra el período, no afirma que esté conciliado y permite cargar detalles o depósitos posteriores.")}</p>`,
+            },
+            {
+                fieldname: "note", fieldtype: "Small Text",
+                label: __("Motivo y próxima gestión de los pendientes"), reqd: 1,
+            },
+        ],
+        primary_action_label: __("Registrar corte"),
+        async primary_action(values) {
+            if (frm.is_dirty()) await frm.save();
+            await frappe.call({
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.record_control_cut",
+                args: { period_name: frm.doc.name, note: values.note },
+                freeze: true,
+            });
+            dialog.hide();
+            frm.reload_doc();
+        },
+    });
+    dialog.show();
 }
 
 function addExportButton(frm) {
