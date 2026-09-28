@@ -1,6 +1,6 @@
 {
   "charts": [],
-  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":4}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":4}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":4}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir remesa\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movimientos de conciliación\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de remesas\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
+  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":3}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir remesa\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movimientos de conciliación\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de remesas\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
   "creation": "2026-09-22 00:00:00.000000",
   "custom_blocks": [],
   "docstatus": 0,
@@ -227,6 +227,13 @@
       "doc_view": "New",
       "label": "Importar fuentes",
       "link_to": "CN Source Import",
+      "type": "DocType"
+    },
+    {
+      "color": "Blue",
+      "doc_view": "New",
+      "label": "Cargar corte de cartera",
+      "link_to": "CN Credit Portfolio Snapshot",
       "type": "DocType"
     },
     {
