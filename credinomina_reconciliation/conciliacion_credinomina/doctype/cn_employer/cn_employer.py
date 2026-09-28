@@ -3,6 +3,8 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from credinomina_reconciliation.employer_naming import employer_label_key
+
 
 class CNEmployer(Document):
     def validate(self):
@@ -18,6 +20,13 @@ class CNEmployer(Document):
         tolerance = flt(self.rounding_tolerance_usd, 4)
         if tolerance < 0 or tolerance > 0.10:
             frappe.throw(_("La tolerancia automática debe estar entre US$ 0.00 y US$ 0.10."))
+        seen_aliases = set()
+        for alias in self.aliases or []:
+            alias.alias_name = (alias.alias_name or "").strip()
+            key = employer_label_key(alias.alias_name)
+            if not key or key in seen_aliases:
+                frappe.throw(_("Los nombres alternativos deben ser distintos y no vacíos."))
+            seen_aliases.add(key)
 
     def before_rename(self, old, new, merge=False):
         if merge:
@@ -30,10 +39,20 @@ class CNEmployer(Document):
 
     def on_update(self):
         previous = self.get_doc_before_save()
-        if not previous or (
-            flt(previous.rounding_tolerance_usd, 4) == flt(self.rounding_tolerance_usd, 4)
-            and previous.employer_code == self.employer_code
-        ):
+        if previous:
+            previous_aliases = sorted(
+                employer_label_key(row.alias_name) for row in previous.aliases or []
+            )
+            current_aliases = sorted(
+                employer_label_key(row.alias_name) for row in self.aliases or []
+            )
+            if (
+                flt(previous.rounding_tolerance_usd, 4) == flt(self.rounding_tolerance_usd, 4)
+                and previous.employer_code == self.employer_code
+                and previous_aliases == current_aliases
+            ):
+                return
+        if not previous and not (self.aliases or []):
             return
         if not frappe.db.exists(
             "CN Source Import",

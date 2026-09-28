@@ -8,8 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from credinomina_reconciliation.employer_naming import (
+    attach_employer_aliases,
     build_employer_rename_plan,
     employer_alias_index,
+    employer_label_key,
 )
 
 
@@ -24,6 +26,8 @@ class EmployerNamingTest(unittest.TestCase):
         fields = {field["fieldname"]: field for field in doctype["fields"]}
         self.assertEqual("field:employer_name", doctype["autoname"])
         self.assertEqual(1, fields["employer_code"]["unique"])
+        self.assertEqual("Table", fields["aliases"]["fieldtype"])
+        self.assertEqual("CN Employer Alias", fields["aliases"]["options"])
         self.assertEqual("employer_code", doctype["search_fields"])
         patches = configparser.ConfigParser(allow_no_value=True, delimiters="\n")
         patches.optionxform = str
@@ -139,6 +143,46 @@ class EmployerNamingTest(unittest.TestCase):
         self.assertEqual("Empresa A", aliases["empresa a"])
         self.assertNotIn("a-01", aliases)
         self.assertIn("a-01", ambiguous)
+
+    def test_registered_alias_resolves_accents_and_collision_is_not_guessed(self):
+        aliases, ambiguous = employer_alias_index([
+            {
+                "name": "Empresa Norte", "employer_name": "Empresa Norte",
+                "employer_code": "N-01", "aliases": ["Compañía del Norte"],
+            },
+            {
+                "name": "Empresa Sur", "employer_name": "Empresa Sur",
+                "employer_code": "S-01", "aliases": ["Empresa vieja"],
+            },
+            {
+                "name": "Empresa Central", "employer_name": "Empresa Central",
+                "employer_code": "C-01", "aliases": ["Empresa vieja"],
+            },
+        ])
+
+        self.assertEqual("Empresa Norte", aliases[employer_label_key("Compania del Norte")])
+        self.assertNotIn(employer_label_key("Empresa vieja"), aliases)
+        self.assertIn(employer_label_key("Empresa vieja"), ambiguous)
+
+    def test_loads_registered_aliases_from_child_table(self):
+        class Row(dict):
+            __getattr__ = dict.__getitem__
+
+        requested = {}
+        frappe = types.ModuleType("frappe")
+
+        def get_all(doctype, **kwargs):
+            requested["doctype"] = doctype
+            requested.update(kwargs)
+            return [Row(parent="Empresa Norte", alias_name="Compañía Norte")]
+
+        frappe.get_all = get_all
+        employers = [Row(name="Empresa Norte", employer_name="Empresa Norte")]
+        with patch.dict(sys.modules, {"frappe": frappe}):
+            attach_employer_aliases(employers)
+
+        self.assertEqual("CN Employer Alias", requested["doctype"])
+        self.assertEqual(["Compañía Norte"], employers[0]["aliases"])
 
 
 if __name__ == "__main__":

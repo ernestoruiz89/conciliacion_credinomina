@@ -18,7 +18,11 @@ from credinomina_reconciliation.cadence import (
 )
 from credinomina_reconciliation.client_registry import ClientIndex, load_client_index, names_for_claim
 from credinomina_reconciliation.deduction_recognition import recognition_reason
-from credinomina_reconciliation.employer_naming import employer_alias_index
+from credinomina_reconciliation.employer_naming import (
+    attach_employer_aliases,
+    employer_alias_index,
+    employer_label_key,
+)
 from credinomina_reconciliation.historical import (
     HISTORICAL_MONTHLY,
     OPERATIVE_START,
@@ -339,6 +343,7 @@ def _recognition_candidates(period):
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,
     )
+    attach_employer_aliases(known_employers)
     employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
     rows = [row.as_dict() for row in period.collection_rows]
     candidates = []
@@ -346,7 +351,7 @@ def _recognition_candidates(period):
         if account.name in used:
             continue
         source_labels = {
-            clean_text(item.employer_text).casefold()
+            employer_label_key(item.employer_text)
             for item in (account, bank) if clean_text(item.employer_text)
         }
         if source_labels & ambiguous_labels:

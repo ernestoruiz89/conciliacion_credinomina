@@ -19,7 +19,11 @@ from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
     resolved_deposit_employer,
 )
-from credinomina_reconciliation.employer_naming import employer_alias_index
+from credinomina_reconciliation.employer_naming import (
+    attach_employer_aliases,
+    employer_alias_index,
+    employer_label_key,
+)
 from credinomina_reconciliation.historical import (
     blocked_historical_deposits,
     historical_balance,
@@ -85,7 +89,7 @@ _SOURCE_EVIDENCE_FIELDS = (
     "fx_basis", "manual_fx_rate", "manual_fx_evidence", "description",
     "processing_route", "historical_period",
     "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client",
-    "portfolio_employer", "portfolio_credit_status", "portfolio_credit_lifecycle",
+    "client_registry_status", "portfolio_employer", "portfolio_credit_status", "portfolio_credit_lifecycle",
     "portfolio_validation_status",
 )
 _SOURCE_DERIVED_FIELDS = (
@@ -725,10 +729,12 @@ def _match_applications(
         if period.reconciliation_mode == "Historica"
     }
     period_by_name = {period.name: period for period in periods}
-    employer_labels, _ambiguous_employers = employer_alias_index(frappe.get_all(
+    known_employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,
-    ))
+    )
+    attach_employer_aliases(known_employers)
+    employer_labels, _ambiguous_employers = employer_alias_index(known_employers)
     pairs_by_reference = defaultdict(list)
     for account, bank in deposit_pairs:
         pairs_by_reference[clean_text(account.reference)].append((account, bank))
@@ -768,7 +774,7 @@ def _match_applications(
                 "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
             )
             continue
-        source_employer = employer_labels.get(clean_text(source.employer_text).casefold())
+        source_employer = employer_labels.get(employer_label_key(source.employer_text))
         if not source_employer and not any((
             source.loan_number, source.client_number, source.national_id,
         )):
@@ -1196,6 +1202,7 @@ def _distribute_deposits(
         fields=["name", "employer_name", "employer_code", "rounding_tolerance_usd"],
         limit_page_length=100000,
     )
+    attach_employer_aliases(known_employers)
     tolerance_by_employer = {
         employer.name: flt(employer.rounding_tolerance_usd, 4)
         for employer in known_employers

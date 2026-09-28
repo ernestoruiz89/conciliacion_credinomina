@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.employer_naming import employer_label_key
 
 
 def resolved_deposit_employer(
@@ -15,7 +16,7 @@ def resolved_deposit_employer(
 ) -> tuple[str | None, bool]:
     """Return unique employer and whether automatic distribution must be blocked."""
     labels = {
-        clean_text(value).casefold()
+        employer_label_key(value)
         for value in (account.get("employer_text"), bank.get("employer_text"))
         if clean_text(value)
     }

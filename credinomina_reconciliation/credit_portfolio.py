@@ -9,8 +9,12 @@ from frappe import _
 from frappe.utils import getdate
 
 from credinomina_reconciliation.client_identity import name_key
-from credinomina_reconciliation.client_registry import load_client_index
-from credinomina_reconciliation.employer_naming import employer_alias_index
+from credinomina_reconciliation.client_registry import ClientIndex, load_client_index
+from credinomina_reconciliation.employer_naming import (
+    attach_employer_aliases,
+    employer_alias_index,
+    employer_label_key,
+)
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 
 
@@ -35,7 +39,7 @@ def credit_lifecycle(status):
 
 
 def _employer_for(text, aliases, ambiguous):
-    key = clean_text(text).casefold()
+    key = employer_label_key(text)
     if not key:
         return "", "Empresa no informada"
     if key in ambiguous:
@@ -92,6 +96,7 @@ def analyze_portfolio_rows(rows):
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,
     )
+    attach_employer_aliases(employers)
     aliases, ambiguous = employer_alias_index(employers)
 
     for row in rows:
@@ -147,18 +152,120 @@ def _load_snapshot_rows(snapshot_name):
         limit_page_length=100000,
     )
     by_credit = defaultdict(list)
+    by_client_number = defaultdict(list)
     for row in rows:
-        by_credit[canonical_identifier(row.credit_number)].append(row)
-    return by_credit
+        credit_number = canonical_identifier(row.credit_number)
+        if credit_number:
+            by_credit[credit_number].append(row)
+        client_number_siaf = canonical_identifier(row.get("client_number_core"))
+        if client_number_siaf:
+            by_client_number[client_number_siaf].append(row)
+    return {"credit": by_credit, "client_number_siaf": by_client_number}
+
+
+def _portfolio_client_identity(row):
+    """Group several credit rows only when they clearly belong to one client."""
+    if row.get("matched_client"):
+        return (
+            "client", row.matched_client,
+            canonical_identifier(row.get("national_id")),
+            canonical_identifier(row.get("employer")),
+        )
+    identity = (
+        canonical_identifier(row.get("national_id")),
+        name_key(row.get("client_name")),
+        canonical_identifier(row.get("employer")),
+    )
+    return ("snapshot", *identity) if any(identity) else ("row", row.name)
+
+
+def _unique_client_portfolio_row(index, client_number):
+    candidates = index["client_number_siaf"].get(client_number, [])
+    if not candidates:
+        return None, "Cliente no encontrado por número de cliente"
+    if len({_portfolio_client_identity(row) for row in candidates}) > 1:
+        return None, "Número de cliente ambiguo en el corte"
+    return candidates[0], ""
+
+
+def _copy_portfolio_client(record, portfolio):
+    record.update({
+        "portfolio_client_name": portfolio.client_name,
+        "portfolio_client": portfolio.matched_client or "",
+        "portfolio_employer": portfolio.employer or "",
+    })
+    if not clean_text(record.get("client_name")):
+        record["client_name"] = portfolio.client_name
+    if not clean_text(record.get("client_number")):
+        record["client_number"] = portfolio.client_number_core or ""
+    if not clean_text(record.get("national_id")):
+        record["national_id"] = portfolio.national_id
+    if not clean_text(record.get("employer_text")):
+        record["employer_text"] = portfolio.employer_text
+
+
+def _movement_employer_issue(movement_employer_text, portfolio, employer_aliases):
+    movement_employer_text = clean_text(movement_employer_text)
+    if not movement_employer_text or not portfolio.employer:
+        return ""
+    movement_employer = employer_aliases.get(employer_label_key(movement_employer_text))
+    if movement_employer:
+        return (
+            "Empresa del movimiento distinta a la del corte"
+            if movement_employer != portfolio.employer else ""
+        )
+    return (
+        "Empresa del movimiento no identificada"
+        if movement_employer_text.casefold() != clean_text(
+            portfolio.employer_text
+        ).casefold() else ""
+    )
+
+
+def _register_portfolio_client(record, portfolio, client_index, allow_create=True):
+    """Validate a client link and create a missing one from the matched cut row."""
+    if (
+        not portfolio.employer
+        or portfolio.employer_match_status != "Empresa identificada"
+    ):
+        record["portfolio_client"] = portfolio.matched_client or ""
+        record["client_registry_status"] = (
+            "Cliente existente; convenio o empresa no confirmado"
+            if portfolio.matched_client
+            else "No creado: convenio o empresa de cartera no confirmado"
+        )
+        return client_index
+    if not allow_create:
+        record["portfolio_client"] = portfolio.matched_client or ""
+        record["client_registry_status"] = (
+            "Revisar: número de cliente del movimiento no coincide con SIAF"
+        )
+        return client_index
+
+    if client_index is None:
+        client_index = ClientIndex()
+    client_name, resolution = client_index.ensure_from_portfolio(
+        {
+            "client_name": portfolio.client_name,
+            "client_number": portfolio.client_number_core,
+            "national_id": portfolio.national_id,
+            "portfolio_client": portfolio.matched_client or "",
+        },
+        portfolio.employer,
+    )
+    record["portfolio_client"] = client_name
+    record["client_registry_status"] = resolution
+    return client_index
 
 
 def enrich_accounting_records(records, selected_snapshot=""):
-    """Enrich payment movements by loan number using the cut as of its date.
+    """Enrich payment movements by loan or client number using the dated cut.
 
     A monthly cut applies to movements in that same month even when the report
     date is month-end. If no cut exists for that month, use the newest earlier
     month. An explicit selection overrides this rule for historical corrections.
-    Missing or canceled credits are warnings, never silently discarded.
+    Client numbers validate identity even when a credit number is missing; a
+    mismatch is a warning and never silently discards the accounting movement.
     """
     if selected_snapshot:
         selected = frappe.db.get_value(
@@ -208,35 +315,103 @@ def enrich_accounting_records(records, selected_snapshot=""):
     row_indexes = {
         name: _load_snapshot_rows(name) for name in used_snapshots
     }
+    client_index = None
     employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,
     )
+    attach_employer_aliases(employers)
     employer_aliases, _ambiguous_employers = employer_alias_index(employers)
 
     for record in records:
         if record.get("event_type") != "Aplicacion":
             continue
-        credit_key = canonical_identifier(record.get("loan_number"))
-        if not credit_key:
-            record["portfolio_validation_status"] = "Movimiento sin número de crédito"
-            continue
-
         snapshot = snapshot_by_record.get(id(record))
         if not snapshot:
             record["portfolio_validation_status"] = "Sin corte de cartera aplicable"
+            record["client_registry_status"] = "No validado: sin corte aplicable"
             continue
 
         record["portfolio_snapshot_used"] = snapshot.name
-        matches = row_indexes[snapshot.name].get(credit_key, [])
-        if len(matches) != 1:
-            record["portfolio_validation_status"] = (
-                "Crédito duplicado en corte" if matches
-                else "Crédito no encontrado en el corte"
+        index = row_indexes[snapshot.name]
+        credit_key = canonical_identifier(record.get("loan_number"))
+        client_key = canonical_identifier(record.get("client_number"))
+        if not credit_key:
+            if not client_key:
+                record["portfolio_validation_status"] = (
+                    "Movimiento sin número de crédito ni número de cliente"
+                )
+                record["client_registry_status"] = (
+                    "No creado: faltan número de crédito y de cliente"
+                )
+                continue
+            portfolio, reason = _unique_client_portfolio_row(index, client_key)
+            if not portfolio:
+                record["portfolio_validation_status"] = reason
+                record["client_registry_status"] = "No creado: cliente no identificado en el corte"
+                continue
+            movement_employer_text = record.get("employer_text")
+            _copy_portfolio_client(record, portfolio)
+            employer_issue = _movement_employer_issue(
+                movement_employer_text, portfolio, employer_aliases
+            )
+            if employer_issue:
+                record["portfolio_validation_status"] = employer_issue
+            elif portfolio.validation_status == "Cliente y empresa validados":
+                record["portfolio_validation_status"] = _(
+                    "Cliente y empresa validados por número de cliente; falta número de crédito"
+                )
+            else:
+                record["portfolio_validation_status"] = _(
+                    "{0}; falta número de crédito"
+                ).format(portfolio.validation_status or _("Cliente identificado"))
+            client_index = _register_portfolio_client(
+                record, portfolio, client_index
             )
             continue
 
+        matches = index["credit"].get(credit_key, [])
+        if len(matches) != 1:
+            if matches:
+                record["portfolio_validation_status"] = "Crédito duplicado en corte"
+                record["client_registry_status"] = "No creado: crédito duplicado en el corte"
+            elif client_key:
+                portfolio, reason = _unique_client_portfolio_row(index, client_key)
+                if portfolio:
+                    movement_employer_text = record.get("employer_text")
+                    _copy_portfolio_client(record, portfolio)
+                    employer_issue = _movement_employer_issue(
+                        movement_employer_text, portfolio, employer_aliases
+                    )
+                    if employer_issue:
+                        record["portfolio_validation_status"] = employer_issue
+                    else:
+                        record["portfolio_validation_status"] = _(
+                            "Crédito no encontrado en el corte; cliente identificado por número de cliente"
+                        )
+                    client_index = _register_portfolio_client(
+                        record, portfolio, client_index
+                    )
+                else:
+                    record["portfolio_validation_status"] = (
+                        "Crédito no encontrado en el corte; {0}"
+                    ).format(_(reason).lower())
+                    record["client_registry_status"] = (
+                        "No creado: cliente no identificado en el corte"
+                    )
+            else:
+                record["portfolio_validation_status"] = "Crédito no encontrado en el corte"
+                record["client_registry_status"] = "No creado: crédito no encontrado en el corte"
+            continue
+
         portfolio = matches[0]
+        movement_employer_text = record.get("employer_text")
+        client_number_mismatch = bool(
+            client_key
+            and client_key != canonical_identifier(
+                portfolio.get("client_number_core")
+            )
+        )
         record.update({
             "portfolio_client_name": portfolio.client_name,
             "portfolio_client": portfolio.matched_client or "",
@@ -245,16 +420,7 @@ def enrich_accounting_records(records, selected_snapshot=""):
             "portfolio_credit_lifecycle": portfolio.credit_lifecycle,
             "portfolio_validation_status": portfolio.validation_status,
         })
-        if not clean_text(record.get("client_name")):
-            record["client_name"] = portfolio.client_name
-        if not clean_text(record.get("client_number")):
-            record["client_number"] = (
-                portfolio.client_number_migrated or portfolio.client_number_core
-            )
-        if not clean_text(record.get("national_id")):
-            record["national_id"] = portfolio.national_id
-        if not clean_text(record.get("employer_text")):
-            record["employer_text"] = portfolio.employer_text
+        _copy_portfolio_client(record, portfolio)
 
         if credit_lifecycle(portfolio.credit_status) == "Cancelado":
             record["portfolio_validation_status"] = "Crédito cancelado; revisar antes de conciliar"
@@ -264,18 +430,18 @@ def enrich_accounting_records(records, selected_snapshot=""):
             record["portfolio_validation_status"] = "Estado de crédito por revisar"
         elif portfolio.validation_status != "Cliente y empresa validados":
             record["portfolio_validation_status"] = portfolio.validation_status
-        elif clean_text(record.get("employer_text")) and portfolio.employer:
-            movement_employer_text = clean_text(record.get("employer_text"))
-            movement_employer = employer_aliases.get(movement_employer_text.casefold())
-            if movement_employer and movement_employer != portfolio.employer:
-                record["portfolio_validation_status"] = (
-                    "Empresa del movimiento distinta a la del corte"
-                )
-            elif (
-                not movement_employer
-                and movement_employer_text.casefold() != portfolio.employer_text.casefold()
-            ):
-                record["portfolio_validation_status"] = (
-                    "Empresa del movimiento no identificada"
-                )
+        else:
+            employer_issue = _movement_employer_issue(
+                movement_employer_text, portfolio, employer_aliases
+            )
+            if employer_issue:
+                record["portfolio_validation_status"] = employer_issue
+        if client_number_mismatch:
+            record["portfolio_validation_status"] = _(
+                "Número de cliente del movimiento no coincide con el crédito en cartera"
+            )
+        client_index = _register_portfolio_client(
+            record, portfolio, client_index,
+            allow_create=not client_number_mismatch,
+        )
     return records

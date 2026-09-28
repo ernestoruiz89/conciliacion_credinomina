@@ -168,7 +168,7 @@ class SourceParserTest(unittest.TestCase):
         self.assertEqual(46.72, rows[0]["equivalent_amount"])
         self.assertAlmostEqual(1711 / 46.72, rows[0]["fx_rate"], places=6)
         self.assertEqual("USD", rows[1]["currency"])
-        self.assertEqual("109367", rows[1]["loan_number"])
+        self.assertEqual("109367-1", rows[1]["loan_number"])
         self.assertEqual("321001591", rows[1]["reference"])
         self.assertEqual("ANA PEREZ", rows[1]["client_name"])
         self.assertEqual("002", rows[1]["accounting_entry"])
