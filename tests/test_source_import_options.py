@@ -31,6 +31,19 @@ class SourceImportOptionsTest(unittest.TestCase):
         self.assertEqual(source_type["options"], SOURCE_ACCOUNTING)
         self.assertEqual(source_type["default"], SOURCE_ACCOUNTING)
         self.assertEqual(source_type["read_only"], 1)
+        self.assertNotIn("manual_fx_evidence", metadata["field_order"])
+        self.assertNotIn(
+            "manual_fx_evidence", {field["fieldname"] for field in metadata["fields"]}
+        )
+        row_metadata = json.loads(
+            (SOURCE_DIR.parent / "cn_source_row" / "cn_source_row.json")
+            .read_text(encoding="utf-8")
+        )
+        self.assertNotIn("manual_fx_evidence", row_metadata["field_order"])
+        self.assertNotIn(
+            "manual_fx_evidence",
+            {field["fieldname"] for field in row_metadata["fields"]},
+        )
 
     def test_form_has_only_accounting_import_action(self):
         script = (SOURCE_DIR / "cn_source_import.js").read_text(encoding="utf-8")

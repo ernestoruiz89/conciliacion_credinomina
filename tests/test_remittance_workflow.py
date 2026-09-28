@@ -99,11 +99,10 @@ class RegisteredRemittanceWorkflowTest(unittest.TestCase):
         self.assertEqual("Aplicada", result["instruction_results"]["line-2"])
         self.assertEqual(10, result["claim_remaining"]["H:b"])
 
-    def test_nio_deposit_requires_documented_rate_for_usd_equivalent(self):
-        deposit = {"currency": "NIO", "amount": 3653,
-                   "manual_fx_rate": 36.53, "manual_fx_evidence": "Comprobante bancario"}
+    def test_nio_deposit_uses_manual_rate_for_usd_equivalent(self):
+        deposit = {"currency": "NIO", "amount": 3653, "manual_fx_rate": 36.53}
         self.assertAlmostEqual(100, converted_amount(deposit, "USD"))
-        deposit["manual_fx_evidence"] = ""
+        deposit["manual_fx_rate"] = 0
         self.assertIsNone(converted_amount(deposit, "USD"))
 
 

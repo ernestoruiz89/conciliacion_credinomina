@@ -461,26 +461,22 @@ def apply_accounting_currency_override(
     records: list[dict[str, Any]],
     currency: Any,
     manual_fx_rate: Any = 0,
-    manual_fx_evidence: Any = "",
 ) -> list[dict[str, Any]]:
     """Normalize an accounting file to the currency selected on its import.
 
     Applications and deposits are reconciled in USD. For a NIO file, preserve
     the original amount in ``amount_nio`` and use a source-provided USD
-    equivalent where available; otherwise use the documented file-level rate.
+    equivalent where available; otherwise use the file-level rate.
     """
     selected_currency = clean_text(currency).upper()
     rate = parse_amount(manual_fx_rate)
-    evidence = clean_text(manual_fx_evidence)
     if not selected_currency:
         raise SourceFileError("Seleccione la moneda reportada en el archivo antes de cargarlo.")
     if selected_currency not in {"USD", "NIO"}:
         raise SourceFileError("La moneda del archivo debe ser USD o NIO.")
     if selected_currency == "NIO" and rate <= 0:
         raise SourceFileError("Ingrese el tipo de cambio manual en C$ por US$ para el archivo NIO.")
-    if selected_currency == "NIO" and not evidence:
-        raise SourceFileError("Documente la fuente del tipo de cambio manual del archivo.")
-    if selected_currency == "USD" and (rate or evidence):
+    if selected_currency == "USD" and rate:
         raise SourceFileError("La tasa manual solo se utiliza cuando la moneda del archivo es NIO.")
 
     for record in records:
@@ -498,7 +494,6 @@ def apply_accounting_currency_override(
                 "fx_rate": 0,
                 "fx_basis": "",
                 "manual_fx_rate": 0,
-                "manual_fx_evidence": "",
             })
             continue
 
@@ -526,7 +521,6 @@ def apply_accounting_currency_override(
             ),
             "fx_basis": source_fx_basis if used_source_equivalent else "",
             "manual_fx_rate": 0 if used_source_equivalent else rate,
-            "manual_fx_evidence": "" if used_source_equivalent else evidence,
         })
     return records
 

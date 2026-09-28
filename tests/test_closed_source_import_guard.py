@@ -14,7 +14,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_impor
 def _row(**values):
     return frappe._dict({
         "name": "APP-1", "event_type": "Aplicacion",
-        "manual_fx_rate": 0, "manual_fx_evidence": "",
+        "manual_fx_rate": 0,
         "processing_route": "Operativa", "historical_period": "",
         "collection_period": "PER-OPEN", "collection_row_id": "",
         "application_allocation_detail": "[]", "allocation_detail": "[]",
@@ -60,8 +60,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
             {"period": "PER-OPEN", "collection_row_id": "ROW-OPEN", "amount_usd": 50},
             {"period": "PER-CLOSED", "collection_row_id": "ROW-CLOSED", "amount_usd": 50},
         ]))
-        edited = _row(**{**original, "manual_fx_rate": 36.9,
-                         "manual_fx_evidence": "Tasa convenio del 30/09/2026"})
+        edited = _row(**{**original, "manual_fx_rate": 36.9})
         with patch.object(source_module.frappe, "throw", side_effect=ValueError) as reject:
             with self.assertRaises(ValueError):
                 self._check(_document([original], [edited]))
@@ -149,7 +148,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
             ]),
         )
         for old in (historical, deposit):
-            changed = _row(**{**old, "manual_fx_evidence": "Fuente alterada"})
+            changed = _row(**{**old, "manual_fx_rate": 36.9})
             with self.subTest(row=old.name):
                 with patch.object(source_module.frappe, "throw", side_effect=ValueError):
                     with self.assertRaises(ValueError):

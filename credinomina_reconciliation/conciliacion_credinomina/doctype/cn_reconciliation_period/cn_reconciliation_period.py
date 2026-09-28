@@ -317,7 +317,7 @@ def _recognition_pairs():
             amount=item.deposit_amount, equivalent_currency="USD",
             equivalent_amount=item.amount_usd,
             fx_basis=fx_basis,
-            manual_fx_rate=item.fx_rate, manual_fx_evidence=fx_basis,
+            manual_fx_rate=item.fx_rate,
             allocated_usd=item.allocated_usd, justified_surplus_usd=0,
         )
         paired.append((deposit, deposit))

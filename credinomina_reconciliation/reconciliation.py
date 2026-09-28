@@ -60,10 +60,10 @@ def same_exact_money(left: Any, right: Any) -> bool:
 
 
 def converted_amount(row: Mapping[str, Any], target_currency: str) -> float | None:
-    """Value a deposit in the requested currency using documented evidence.
+    """Value a deposit in the requested currency using its conversion rate.
 
     The rate is NIO per USD. The source-file equivalent has priority over a
-    manually entered rate; an undocumented rate is never used for matching.
+    manually entered rate.
     """
     native_currency = clean_text(row.get("currency")).upper()
     target_currency = clean_text(target_currency).upper()
@@ -79,7 +79,7 @@ def converted_amount(row: Mapping[str, Any], target_currency: str) -> float | No
     ):
         return float(row.get("equivalent_amount") or 0)
     rate = float(row.get("manual_fx_rate") or 0)
-    if rate <= 0 or not clean_text(row.get("manual_fx_evidence")):
+    if rate <= 0:
         return None
     return amount / rate if native_currency == "NIO" else amount * rate
 
@@ -89,7 +89,7 @@ def documented_rate(row: Mapping[str, Any]) -> float | None:
     if rate > 0 and clean_text(row.get("fx_basis")):
         return rate
     rate = float(row.get("manual_fx_rate") or 0)
-    if rate > 0 and clean_text(row.get("manual_fx_evidence")):
+    if rate > 0:
         return rate
     return None
 

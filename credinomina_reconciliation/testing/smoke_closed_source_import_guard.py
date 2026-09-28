@@ -61,7 +61,6 @@ def run():
 
         source.reload()
         source.rows[0].manual_fx_rate = 36.9
-        source.rows[0].manual_fx_evidence = "Tasa convenio del 05/05/2027"
         try:
             source.save(ignore_permissions=True)
         except frappe.ValidationError as exc:

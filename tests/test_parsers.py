@@ -221,9 +221,7 @@ class SourceParserTest(unittest.TestCase):
             },
         ]
 
-        result = apply_accounting_currency_override(
-            records, "NIO", 36.6, "Tasa autorizada según comprobante bancario"
-        )
+        result = apply_accounting_currency_override(records, "NIO", 36.6)
 
         application, deposit = result
         self.assertEqual("USD", application["currency"])
@@ -238,7 +236,7 @@ class SourceParserTest(unittest.TestCase):
         self.assertEqual(0, deposit["manual_fx_rate"])
         self.assertEqual("Importe del movimiento contable", deposit["fx_basis"])
 
-    def test_nio_import_requires_rate_and_evidence(self):
+    def test_nio_import_requires_rate_but_not_rate_evidence(self):
         with self.assertRaisesRegex(SourceFileError, "Seleccione la moneda"):
             apply_accounting_currency_override(
                 [{"event_type": "Aplicacion", "amount": 3660}], ""
@@ -249,10 +247,10 @@ class SourceParserTest(unittest.TestCase):
                 [{"event_type": "Aplicacion", "amount": 3660}], "NIO"
             )
 
-        with self.assertRaisesRegex(SourceFileError, "Documente la fuente"):
-            apply_accounting_currency_override(
-                [{"event_type": "Aplicacion", "amount": 3660}], "NIO", 36.6
-            )
+        converted = apply_accounting_currency_override(
+            [{"event_type": "Aplicacion", "amount": 3660}], "NIO", 36.6
+        )[0]
+        self.assertEqual(100, converted["amount_usd"])
 
     def test_usd_override_uses_reported_amount_without_fx_rate(self):
         result = apply_accounting_currency_override(
@@ -374,7 +372,6 @@ class ReconciliationTest(unittest.TestCase):
         bank = {"reference": "REF-3", "currency": "USD", "amount": 100}
         self.assertFalse(deposit_pair_result(accounting, bank)[0])
         accounting["manual_fx_rate"] = 36.6
-        accounting["manual_fx_evidence"] = "Constancia bancaria"
         self.assertTrue(deposit_pair_result(accounting, bank)[0])
         result = settlement_result(
             [{"currency": "USD", "amount": 98}], [(accounting, bank)]

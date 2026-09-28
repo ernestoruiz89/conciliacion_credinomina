@@ -87,7 +87,7 @@ _SOURCE_EVIDENCE_FIELDS = (
     "accounting_entry", "receipt", "reference", "voucher", "employer_text",
     "national_id", "installment_number", "currency", "amount_usd",
     "amount_nio", "equivalent_currency", "equivalent_amount", "fx_rate",
-    "fx_basis", "manual_fx_rate", "manual_fx_evidence", "description",
+    "fx_basis", "manual_fx_rate", "description",
     "processing_route", "historical_period",
     "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client",
     "client_registry_status", "portfolio_employer", "portfolio_credit_status", "portfolio_credit_lifecycle",
@@ -105,7 +105,7 @@ _SOURCE_DERIVED_FIELDS = (
 )
 _IMPORT_EVIDENCE_FIELDS = (
     "source_type", "source_file", "file_hash", "historical_backfill",
-    "historical_period", "currency", "manual_fx_rate", "manual_fx_evidence",
+    "historical_period", "currency", "manual_fx_rate",
     "portfolio_snapshot",
 )
 
@@ -271,10 +271,6 @@ class CNSourceImport(Document):
             rate = flt(row.manual_fx_rate)
             if rate < 0:
                 frappe.throw(_("La fila {0} tiene un tipo de cambio negativo.").format(row.idx))
-            if rate and not clean_text(row.manual_fx_evidence):
-                frappe.throw(
-                    _("Documente la fuente del tipo de cambio autorizado en la fila {0}.").format(row.idx)
-                )
             if rate and row.fx_basis:
                 frappe.throw(
                     _("La fila {0} ya tiene un tipo de cambio documentado en el archivo.").format(row.idx)
@@ -358,7 +354,6 @@ def import_source_file(import_name: str):
             parsed,
             document.currency,
             document.manual_fx_rate,
-            document.manual_fx_evidence,
         )
         parsed = enrich_accounting_records(parsed, document.portfolio_snapshot)
     except SourceFileError as exc:
@@ -373,7 +368,7 @@ def import_source_file(import_name: str):
             existing_settings[row.source_key].append(
                 (
                     row.name, row.manual_fx_rate,
-                    row.manual_fx_evidence, row.historical_period,
+                    row.historical_period,
                     row.processing_route,
                 )
             )
@@ -381,8 +376,8 @@ def import_source_file(import_name: str):
     document.set("rows", [])
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, manual_evidence, prior_period, prior_route = (
-            previous.pop(0) if previous else (None, 0, "", "", "")
+        preserved_name, manual_rate, prior_period, prior_route = (
+            previous.pop(0) if previous else (None, 0, "", "")
         )
         document.append(
             "rows",
@@ -390,9 +385,6 @@ def import_source_file(import_name: str):
                 **record,
                 **({"name": preserved_name} if preserved_name else {}),
                 "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
-                "manual_fx_evidence": record.get(
-                    "manual_fx_evidence", manual_evidence
-                ),
                 "processing_route": prior_route,
                 "historical_period": (
                     prior_period or document.historical_period
@@ -976,7 +968,6 @@ def _registered_deposit_pairs(rows, allocations):
             fx_basis=fx_basis,
             fx_rate=flt(item.fx_rate),
             manual_fx_rate=flt(item.fx_rate),
-            manual_fx_evidence=fx_basis,
             employer_text=item.employer,
             effective=1,
             allocated_usd=0,
