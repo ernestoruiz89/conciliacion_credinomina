@@ -6,12 +6,17 @@ from openpyxl import Workbook
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.parsers import (
     SOURCE_ACCOUNTING,
+    SourceFileError,
+    apply_accounting_currency_override,
+    has_legacy_numeric_credit_numbers,
     parse_collection_file,
+    parse_credit_portfolio,
     parse_source_file,
 )
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
     complementary_matches_collection,
+    converted_amount,
     deposit_pair_result,
     match_collection_record,
     matching_exception_notes,
@@ -123,6 +128,38 @@ class CollectionParserTest(unittest.TestCase):
 
 
 class SourceParserTest(unittest.TestCase):
+    def test_portfolio_appends_default_loan_suffix_to_numeric_credit_numbers(self):
+        records = parse_credit_portfolio(
+            "cartera.xlsx",
+            workbook_bytes([
+                ["FECHA_REPORTE", "NO_CREDITO", "NOMBRE_CLIENTE", "NO_CLIENTE_SIAF"],
+                ["2026-08-31", 109136, "Cliente A", 1001],
+                ["2026-08-31", "109137-1", "Cliente B", 1002],
+            ]),
+        )
+
+        self.assertEqual(["109136-1", "109137-1"], [row["credit_number"] for row in records])
+        self.assertIn('"NO_CREDITO": 109136', records[0]["raw_data"])
+        movements = parse_source_file(
+            SOURCE_ACCOUNTING,
+            "movimientos.xlsx",
+            workbook_bytes([
+                [
+                    "FECHA_APLICA", "CUENTA_CONTABLE", "DESCRIPCION_CTA_CONTABLE",
+                    "DESCRIPCION", "DEBITO_DEL_MES", "CREDITO_DEL_MES", "NO_CREDITO",
+                ],
+                [
+                    "2026-08-31", "1602", "Créditos M.E.",
+                    "NOTA AL PRESTAMO 109136-1 PAGO APLICADO", 100, 0, "109136-1",
+                ],
+            ]),
+        )
+        self.assertEqual(records[0]["credit_number"], movements[0]["loan_number"])
+
+    def test_legacy_portfolio_numbers_are_reimported_but_suffixed_numbers_are_not(self):
+        self.assertTrue(has_legacy_numeric_credit_numbers(["109136", "109137-1"]))
+        self.assertFalse(has_legacy_numeric_credit_numbers(["109136-1", "ABC-2", ""]))
+
     def test_accounting_parser_keeps_native_deposit_currency(self):
         content = workbook_bytes(
             [
@@ -173,6 +210,60 @@ class SourceParserTest(unittest.TestCase):
         self.assertEqual("ANA PEREZ", rows[1]["client_name"])
         self.assertEqual("002", rows[1]["accounting_entry"])
         self.assertEqual("7541", rows[1]["receipt"])
+
+    def test_nio_import_currency_converts_to_usd_and_keeps_original_amount(self):
+        records = [
+            {"event_type": "Aplicacion", "amount": 3660, "currency": "USD"},
+            {
+                "event_type": "Deposito", "amount": 3653, "currency": "NIO",
+                "equivalent_currency": "USD", "equivalent_amount": 100,
+                "fx_basis": "Importe del movimiento contable",
+            },
+        ]
+
+        result = apply_accounting_currency_override(
+            records, "NIO", 36.6, "Tasa autorizada según comprobante bancario"
+        )
+
+        application, deposit = result
+        self.assertEqual("USD", application["currency"])
+        self.assertEqual(100, application["amount"])
+        self.assertEqual(100, application["amount_usd"])
+        self.assertEqual(3660, application["amount_nio"])
+        self.assertEqual(36.6, application["manual_fx_rate"])
+        self.assertEqual(3660, converted_amount(application, "NIO"))
+        self.assertEqual("USD", deposit["currency"])
+        self.assertEqual(100, deposit["amount_usd"])
+        self.assertEqual(3653, deposit["amount_nio"])
+        self.assertEqual(0, deposit["manual_fx_rate"])
+        self.assertEqual("Importe del movimiento contable", deposit["fx_basis"])
+
+    def test_nio_import_requires_rate_and_evidence(self):
+        with self.assertRaisesRegex(SourceFileError, "Seleccione la moneda"):
+            apply_accounting_currency_override(
+                [{"event_type": "Aplicacion", "amount": 3660}], ""
+            )
+
+        with self.assertRaisesRegex(SourceFileError, "tipo de cambio manual"):
+            apply_accounting_currency_override(
+                [{"event_type": "Aplicacion", "amount": 3660}], "NIO"
+            )
+
+        with self.assertRaisesRegex(SourceFileError, "Documente la fuente"):
+            apply_accounting_currency_override(
+                [{"event_type": "Aplicacion", "amount": 3660}], "NIO", 36.6
+            )
+
+    def test_usd_override_uses_reported_amount_without_fx_rate(self):
+        result = apply_accounting_currency_override(
+            [{"event_type": "Aplicacion", "amount": 100, "currency": "NIO"}],
+            "USD",
+        )[0]
+
+        self.assertEqual("USD", result["currency"])
+        self.assertEqual(100, result["amount"])
+        self.assertEqual(100, result["amount_usd"])
+        self.assertEqual(0, result["amount_nio"])
 
 
 class ReconciliationTest(unittest.TestCase):

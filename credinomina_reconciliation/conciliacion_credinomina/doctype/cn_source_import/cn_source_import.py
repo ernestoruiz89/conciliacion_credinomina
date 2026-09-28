@@ -37,6 +37,7 @@ from credinomina_reconciliation.parsers import (
     canonical_identifier,
     clean_text,
     file_sha256,
+    apply_accounting_currency_override,
     parse_source_file,
 )
 from credinomina_reconciliation.period_lock import period_write_action
@@ -104,7 +105,7 @@ _SOURCE_DERIVED_FIELDS = (
 )
 _IMPORT_EVIDENCE_FIELDS = (
     "source_type", "source_file", "file_hash", "historical_backfill",
-    "historical_period",
+    "historical_period", "currency", "manual_fx_rate", "manual_fx_evidence",
     "portfolio_snapshot",
 )
 
@@ -353,6 +354,12 @@ def import_source_file(import_name: str):
     file_doc, content = _attached_file(document)
     try:
         parsed = parse_source_file(document.source_type, file_doc.file_name, content)
+        parsed = apply_accounting_currency_override(
+            parsed,
+            document.currency,
+            document.manual_fx_rate,
+            document.manual_fx_evidence,
+        )
         parsed = enrich_accounting_records(parsed, document.portfolio_snapshot)
     except SourceFileError as exc:
         document.status = "Fallido"
@@ -382,8 +389,10 @@ def import_source_file(import_name: str):
             {
                 **record,
                 **({"name": preserved_name} if preserved_name else {}),
-                "manual_fx_rate": manual_rate,
-                "manual_fx_evidence": manual_evidence,
+                "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
+                "manual_fx_evidence": record.get(
+                    "manual_fx_evidence", manual_evidence
+                ),
                 "processing_route": prior_route,
                 "historical_period": (
                     prior_period or document.historical_period

@@ -9,6 +9,7 @@ from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows
 from credinomina_reconciliation.parsers import (
     SourceFileError,
     file_sha256,
+    has_legacy_numeric_credit_numbers,
     parse_credit_portfolio,
 )
 
@@ -72,6 +73,17 @@ def _attached_file(document):
     return file_doc, content
 
 
+def _has_legacy_numeric_credit_numbers(snapshot_name):
+    """Detect snapshots that need the default ``-1`` loan suffix reapplied."""
+    credit_numbers = frappe.get_all(
+        "CN Credit Portfolio Row",
+        filters={"parent": snapshot_name},
+        pluck="credit_number",
+        limit_page_length=100000,
+    )
+    return has_legacy_numeric_credit_numbers(credit_numbers)
+
+
 @frappe.whitelist(methods=["POST"])
 def import_portfolio_snapshot(snapshot_name: str):
     snapshot = frappe.get_doc("CN Credit Portfolio Snapshot", snapshot_name)
@@ -80,7 +92,7 @@ def import_portfolio_snapshot(snapshot_name: str):
     digest = file_sha256(content)
     if snapshot.file_hash == digest and snapshot.status in {
         "Importado", "Importado con alertas"
-    }:
+    } and not _has_legacy_numeric_credit_numbers(snapshot.name):
         return {"snapshot_name": snapshot.name, "unchanged": True}
 
     duplicate = frappe.db.get_value(

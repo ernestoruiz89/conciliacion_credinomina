@@ -1,5 +1,13 @@
+function update_currency_fields(frm) {
+    const is_nio = frm.doc.currency === "NIO";
+    frm.toggle_reqd("currency", frm.is_new() || frm.doc.status === "Borrador");
+    frm.toggle_display(["manual_fx_rate", "manual_fx_evidence"], is_nio);
+    frm.toggle_reqd(["manual_fx_rate", "manual_fx_evidence"], is_nio);
+}
+
 frappe.ui.form.on("CN Source Import", {
     refresh(frm) {
+        update_currency_fields(frm);
         frm.set_df_property("source_type", "read_only", 1);
         frm.set_query("historical_period", () => ({
             filters: { reconciliation_mode: "Historica" },
@@ -30,5 +38,13 @@ frappe.ui.form.on("CN Source Import", {
                 freeze_message: __("Recalculando conciliaciones..."),
             }).then(() => frm.reload_doc());
         }, __("Más opciones"));
+    },
+
+    currency(frm) {
+        if (frm.doc.currency !== "NIO") {
+            frm.set_value("manual_fx_rate", 0);
+            frm.set_value("manual_fx_evidence", "");
+        }
+        update_currency_fields(frm);
     },
 });

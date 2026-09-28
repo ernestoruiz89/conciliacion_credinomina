@@ -74,6 +74,11 @@ detalle del pago de la empresa se adjunta e importa **dentro de cada remesa**,
 no como fuente bancaria separada. Si contiene ambos deducidos, US$ es el
 importe de conciliación y C$ es informativo: no se suman. Si solo contiene C$,
 indique la tasa documentada en la remesa para convertirlo a US$.
+Antes de cargar **Movimientos contables**, seleccione la **Moneda reportada en
+el archivo**. Si es NIO, indique el tipo de cambio manual en C$ por US$ y su
+evidencia; las filas se normalizan a US$ para conciliar y conservan el monto
+original en C$. Una importación debe contener una sola moneda; separe archivos
+que mezclen monedas.
 Cada cliente pertenece a una empresa de convenio. El número de empleado es
 su identificador interno en esa empresa, distinto del número de cliente; puede
 repetirse en otra empresa. Los nombres y alias se buscan solo dentro de la

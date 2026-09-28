@@ -54,6 +54,11 @@ def clean_text(value: Any) -> str:
     return str(value).strip().lstrip("'")
 
 
+def has_legacy_numeric_credit_numbers(credit_numbers: Iterable[Any]) -> bool:
+    """Return whether stored portfolio rows still need the default ``-1`` suffix."""
+    return any(clean_text(number).isdigit() for number in credit_numbers)
+
+
 def canonical_identifier(value: Any) -> str:
     """Normalize deterministic spreadsheet formatting, never names or fuzzy text."""
     text = clean_text(value)
@@ -452,6 +457,80 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
     return parsed
 
 
+def apply_accounting_currency_override(
+    records: list[dict[str, Any]],
+    currency: Any,
+    manual_fx_rate: Any = 0,
+    manual_fx_evidence: Any = "",
+) -> list[dict[str, Any]]:
+    """Normalize an accounting file to the currency selected on its import.
+
+    Applications and deposits are reconciled in USD. For a NIO file, preserve
+    the original amount in ``amount_nio`` and use a source-provided USD
+    equivalent where available; otherwise use the documented file-level rate.
+    """
+    selected_currency = clean_text(currency).upper()
+    rate = parse_amount(manual_fx_rate)
+    evidence = clean_text(manual_fx_evidence)
+    if not selected_currency:
+        raise SourceFileError("Seleccione la moneda reportada en el archivo antes de cargarlo.")
+    if selected_currency not in {"USD", "NIO"}:
+        raise SourceFileError("La moneda del archivo debe ser USD o NIO.")
+    if selected_currency == "NIO" and rate <= 0:
+        raise SourceFileError("Ingrese el tipo de cambio manual en C$ por US$ para el archivo NIO.")
+    if selected_currency == "NIO" and not evidence:
+        raise SourceFileError("Documente la fuente del tipo de cambio manual del archivo.")
+    if selected_currency == "USD" and (rate or evidence):
+        raise SourceFileError("La tasa manual solo se utiliza cuando la moneda del archivo es NIO.")
+
+    for record in records:
+        if record.get("event_type") not in {"Aplicacion", "Deposito"}:
+            continue
+        source_amount = round(float(record.get("amount") or 0), 4)
+        if selected_currency == "USD":
+            record.update({
+                "currency": "USD",
+                "amount": source_amount,
+                "amount_usd": source_amount,
+                "amount_nio": 0,
+                "equivalent_currency": "",
+                "equivalent_amount": 0,
+                "fx_rate": 0,
+                "fx_basis": "",
+                "manual_fx_rate": 0,
+                "manual_fx_evidence": "",
+            })
+            continue
+
+        source_fx_basis = clean_text(record.get("fx_basis"))
+        source_usd_equivalent = (
+            float(record.get("equivalent_amount") or 0)
+            if record.get("equivalent_currency") == "USD" and source_fx_basis
+            else 0
+        )
+        used_source_equivalent = source_usd_equivalent > 0
+        amount_usd = round(
+            source_usd_equivalent if used_source_equivalent else source_amount / rate,
+            4,
+        )
+        record.update({
+            "currency": "USD",
+            "amount": amount_usd,
+            "amount_usd": amount_usd,
+            "amount_nio": source_amount,
+            "equivalent_currency": "NIO",
+            "equivalent_amount": source_amount,
+            "fx_rate": (
+                round(source_amount / amount_usd, 8) if used_source_equivalent and amount_usd
+                else 0
+            ),
+            "fx_basis": source_fx_basis if used_source_equivalent else "",
+            "manual_fx_rate": 0 if used_source_equivalent else rate,
+            "manual_fx_evidence": "" if used_source_equivalent else evidence,
+        })
+    return records
+
+
 def _source_record(
     *,
     row_number: int,
@@ -573,6 +652,8 @@ def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any
             return row[index] if index is not None and index < len(row) else None
 
         credit_number = clean_text(value("no_credito"))
+        if re.fullmatch(r"\d+", credit_number):
+            credit_number = f"{credit_number}-1"
         client_name = clean_text(value("nombre_cliente"))
         if not credit_number and not client_name:
             continue
