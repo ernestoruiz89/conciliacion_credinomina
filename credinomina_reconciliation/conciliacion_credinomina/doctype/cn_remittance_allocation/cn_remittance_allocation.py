@@ -141,13 +141,16 @@ class CNRemittanceAllocation(Document):
         else:
             if target.period or target.row_key:
                 frappe.throw(_("No combine una partida complementaria con una fila de cobranza."))
-            if frappe.db.get_value(
-                "CN Complementary Item", target.complementary_item, "docstatus"
-            ) != 1:
+            complementary = frappe.db.get_value(
+                "CN Complementary Item", target.complementary_item,
+                ["docstatus", "period"], as_dict=True,
+            )
+            if not complementary or complementary.docstatus != 1:
                 frappe.throw(_("Confirme primero la partida complementaria."))
-
-    def on_submit(self):
-        self._reconcile()
+            if complementary.period and frappe.db.get_value(
+                "CN Reconciliation Period", complementary.period, "status"
+            ) == "Cerrado":
+                frappe.throw(_("El período de la partida complementaria está cerrado."))
 
     def before_cancel(self):
         self._assert_open_related_periods()
@@ -189,16 +192,52 @@ class CNRemittanceAllocation(Document):
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
+        previous = self.get_doc_before_save()
+        if previous and self._reconciliation_inputs_changed(previous):
+            self.result = "Pendiente"
 
-    def on_update_after_submit(self):
-        self._reconcile()
+    def _reconciliation_inputs_changed(self, previous):
+        fields = (
+            "employer", "deposit_reference", "deposit_voucher", "deposit_date",
+            "deposit_currency", "deposit_amount", "fx_rate", "detail_period",
+            "detail_file", "detail_hash",
+        )
+        if any(
+            str(self.get(fieldname) or "") != str(previous.get(fieldname) or "")
+            for fieldname in fields
+        ):
+            return True
+        target_fields = (
+            "period", "row_key", "historical_application", "complementary_item",
+            "amount_usd",
+        )
+        current_targets = [
+            tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
+            for target in self.targets or []
+        ]
+        previous_targets = [
+            tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
+            for target in previous.targets or []
+        ]
+        return current_targets != previous_targets
 
     def _reconcile(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
             reconcile_all_sources,
         )
 
-        reconcile_all_sources()
+        return reconcile_all_sources()
+
+
+@frappe.whitelist(methods=["POST"])
+def reconcile_remittance(remittance_name: str):
+    """Run reconciliation only when the user explicitly requests it."""
+    document = frappe.get_doc("CN Remittance Allocation", remittance_name)
+    document.check_permission("write")
+    if document.docstatus != 1:
+        frappe.throw(_("Confirme el depósito antes de conciliarlo."))
+    document._validate_deposit()
+    return document._reconcile()
 
 
 @frappe.whitelist(methods=["POST"])

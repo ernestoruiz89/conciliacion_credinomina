@@ -13,10 +13,22 @@ frappe.ui.form.on("CN Remittance Allocation", {
             );
         }, __("Plantillas"));
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
-            frm.add_custom_button(__("Confirmar depósito y conciliar"), async () => {
+            frm.add_custom_button(__("Confirmar depósito"), async () => {
                 if (frm.is_dirty()) await frm.save();
                 await frm.savesubmit();
             });
+        }
+        if (!frm.is_new() && frm.doc.docstatus === 1 && frm.get_perm(0, "write")) {
+            frm.add_custom_button(__("Conciliar"), async () => {
+                if (frm.is_dirty()) await frm.save();
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.reconcile_remittance",
+                    args: { remittance_name: frm.doc.name },
+                    freeze: true,
+                    freeze_message: __("Conciliando depósito…"),
+                });
+                await frm.reload_doc();
+            }, __("Conciliación"));
         }
         const file = frm.doc.detail_file || frm.doc.support_file || "";
         if (frm.is_new() || frm.doc.docstatus === 2 || !/\.(xlsx|xls|csv)(\?|$)/i.test(file)) return;
@@ -38,18 +50,22 @@ frappe.ui.form.on("CN Remittance Allocation", {
 
 function showDepositStage(frm) {
     if (frm.is_new()) {
-        frm.set_intro(__("Guarde el depósito. Puede confirmarlo antes de recibir el detalle por cliente; el detalle podrá cargarse después."), "blue");
+        frm.set_intro(__("Guarde el depósito y confírmelo cuando sus datos estén completos. Confirmar no ejecuta la conciliación; podrá conciliar por separado."), "blue");
     } else if (frm.doc.docstatus === 0) {
         frm.set_intro(
             frm.get_perm(0, "submit")
-                ? __("Depósito en borrador: todavía no participa en la conciliación. Cargar el detalle no lo confirma; use Confirmar depósito y conciliar.")
+                ? __("Depósito en borrador: todavía no participa en la conciliación. Cargar el detalle no lo confirma; use Confirmar depósito y luego Conciliar.")
                 : __("Depósito en borrador: todavía no participa en la conciliación. Cargar el detalle no lo confirma; solicite a un supervisor que confirme el depósito."),
             "orange"
         );
     } else if (frm.doc.docstatus === 2) {
         frm.set_intro(__("Depósito cancelado: no participa en la conciliación."), "red");
+    } else if (frm.doc.detail_status === "Cargado; pendiente de conciliación") {
+        frm.set_intro(__("Depósito confirmado; el detalle está cargado y pendiente de conciliación. Use Conciliar cuando quiera actualizar el resultado."), "orange");
+    } else if (frm.doc.result === "Pendiente") {
+        frm.set_intro(__("Depósito confirmado, pendiente de conciliación. Use Conciliar para calcular la distribución y el resultado."), "orange");
     } else if (!frm.doc.detail_count && !(frm.doc.targets || []).length) {
-        frm.set_intro(__("Depósito confirmado, pendiente de detalle por cliente o distribución manual documentada."), "orange");
+        frm.set_intro(__("Depósito confirmado, pendiente de detalle por cliente o distribución manual documentada. La conciliación se ejecuta por separado."), "orange");
     } else if (["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(frm.doc.result)) {
         frm.set_intro(__("Depósito confirmado, pero hay detalle o destinos pendientes de revisión."), "orange");
     } else if (frm.doc.result === "Conciliado") {

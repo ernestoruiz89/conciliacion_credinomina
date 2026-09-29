@@ -12,7 +12,11 @@ from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
-from credinomina_reconciliation.client_registry import load_client_index, names_for_claim
+from credinomina_reconciliation.client_registry import (
+    enrich_source_import_clients,
+    load_client_index,
+    names_for_claim,
+)
 from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.deduction_recognition import recognition_reason
@@ -91,7 +95,7 @@ _SOURCE_EVIDENCE_FIELDS = (
     "amount_nio", "equivalent_currency", "equivalent_amount", "fx_rate",
     "fx_basis", "manual_fx_rate", "description",
     "processing_route", "historical_period",
-    "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client",
+    "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client", "client",
     "client_registry_status", "portfolio_employer", "portfolio_credit_status", "portfolio_credit_lifecycle",
     "portfolio_validation_status",
 )
@@ -358,6 +362,7 @@ def import_source_file(import_name: str):
             document.manual_fx_rate,
         )
         parsed = enrich_accounting_records(parsed, document.portfolio_snapshot)
+        parsed = enrich_source_import_clients(parsed)
     except SourceFileError as exc:
         document.status = "Fallido"
         document.notes = str(exc)
@@ -1338,7 +1343,7 @@ def _distribute_deposits(
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
                 "kind": "H", "client_number": application.client_number,
-                "client": application.portfolio_client,
+                "client": application.client or application.portfolio_client,
                 "employee_number": application.employee_number,
                 "national_id": application.national_id,
                 "client_name": application.client_name,
