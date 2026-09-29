@@ -160,10 +160,14 @@ class SourceParserTest(unittest.TestCase):
             "FECHA_REPORTE": "2026-08-31T00:00:00",
             "SALDO_PRINCIPAL": 1250.75,
             "NO_CREDITO": "109136",
+            "MONTO_INTERES_DEVENGADO": None,
+            "MONTO_MORA_DEVENGADA": "",
         })
         self.assertEqual("2026-08-31", values["fecha_reporte"].isoformat())
         self.assertEqual(1250.75, values["saldo_principal"])
         self.assertEqual("109136", values["no_credito"])
+        self.assertNotIn("monto_interes_devengado", values)
+        self.assertNotIn("monto_mora_devengada", values)
 
     def test_all_portfolio_source_columns_exist_in_child_doctype(self):
         metadata_path = (

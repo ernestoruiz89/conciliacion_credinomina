@@ -641,13 +641,20 @@ def portfolio_source_values_from_raw_data(raw_data: dict[str, Any]) -> dict[str,
         fieldname = normalize_header(header)
         if fieldname not in PORTFOLIO_SOURCE_FIELD_SET:
             continue
-        if fieldname in PORTFOLIO_DATE_FIELDS and value not in (None, ""):
+        # Frappe stores numeric fields as NOT NULL columns. Empty source cells
+        # should leave the DocField default untouched (and remain available in
+        # raw_data), rather than writing SQL NULL during import or backfill.
+        if value in (None, ""):
+            continue
+        if fieldname in PORTFOLIO_DATE_FIELDS:
             parsed = parse_date(value)
             if parsed is None and isinstance(value, str):
                 try:
                     parsed = datetime.fromisoformat(value).date()
                 except ValueError:
                     pass
+            if parsed is None:
+                continue
             value = parsed
         values[fieldname] = value
     return values
