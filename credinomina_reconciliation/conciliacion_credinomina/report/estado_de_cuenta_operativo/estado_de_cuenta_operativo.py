@@ -4,6 +4,7 @@ from frappe.utils import flt
 
 from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.reconciliation import AMOUNT_TOLERANCE
+from credinomina_reconciliation.rounding import MONEY_EPSILON, decimal_value, money, money_float
 
 
 def execute(filters=None):
@@ -52,13 +53,12 @@ def execute(filters=None):
     for row in rows:
         period = period_map[row.parent]
         rate = (
-            flt(row.expected_nio) / flt(row.expected_usd)
-            if flt(row.expected_usd) > AMOUNT_TOLERANCE
-            else 0
+            decimal_value(row.expected_nio) / decimal_value(row.expected_usd)
+            if money(row.expected_usd) > decimal_value(AMOUNT_TOLERANCE) else 0
         )
-        classified_usd = flt(row.complementary_usd) + max(flt(row.fx_variance_usd), 0)
-        rounding = flt(row.rounding_adjustment_usd)
-        classified_nio = classified_usd * rate
+        classified_usd = money(row.complementary_usd) + max(money(row.fx_variance_usd), 0)
+        rounding = money(row.rounding_adjustment_usd)
+        classified_nio = money(classified_usd * decimal_value(rate))
         employee_pending = employee_receivable_usd(row)
         item = frappe._dict(
             {
@@ -72,25 +72,26 @@ def execute(filters=None):
                 "employer": period.employer,
                 "employee_pending_usd": employee_pending,
                 "employee_pending_nio": (
-                    round(employee_pending * rate, 4)
+                    money_float(decimal_value(employee_pending) * decimal_value(rate))
                     if employee_pending is not None else None
                 ),
-                "pending_core_usd": max(
-                    flt(row.deducted_usd) - flt(row.applied_usd) - classified_usd
+                "pending_core_usd": money_float(max(
+                    money(row.deducted_usd) - money(row.applied_usd) - classified_usd
                     - max(rounding, 0), 0
-                ),
-                "pending_core_nio": max(
-                    flt(row.deducted_nio) - flt(row.applied_nio) - classified_nio
-                    - max(rounding, 0) * rate, 0
-                ),
-                "employer_receivable_usd": max(
-                    flt(row.deducted_usd) - flt(row.remitted_usd)
-                    - max(flt(row.fx_variance_usd), 0) - max(-rounding, 0), 0
-                ),
-                "employer_receivable_nio": max(
-                    flt(row.deducted_nio) - flt(row.remitted_nio)
-                    - (max(flt(row.fx_variance_usd), 0) + max(-rounding, 0)) * rate, 0
-                ),
+                )),
+                "pending_core_nio": money_float(max(
+                    money(row.deducted_nio) - money(row.applied_nio) - classified_nio
+                    - max(rounding, 0) * decimal_value(rate), 0
+                )),
+                "employer_receivable_usd": money_float(max(
+                    money(row.deducted_usd) - money(row.remitted_usd)
+                    - max(money(row.fx_variance_usd), 0) - max(-rounding, 0), 0
+                )),
+                "employer_receivable_nio": money_float(max(
+                    money(row.deducted_nio) - money(row.remitted_nio)
+                    - (max(money(row.fx_variance_usd), 0) + max(-rounding, 0))
+                    * decimal_value(rate), 0
+                )),
                 "operational_status": get_status(row),
             }
         )
@@ -125,7 +126,7 @@ def get_periods(filters):
 
 def get_status(row):
     status = _base_status(row)
-    if status == "Conciliado" and abs(flt(row.rounding_adjustment_usd)) > 0.00005:
+    if status == "Conciliado" and abs(money(row.rounding_adjustment_usd)) > MONEY_EPSILON:
         status = "Conciliado con movimiento de conciliación {0:+.4f} US$".format(
             flt(row.rounding_adjustment_usd)
         )

@@ -39,7 +39,8 @@ class RemittanceAmountUsdTest(unittest.TestCase):
         for event in ("deposit_amount", "deposit_currency", "fx_rate"):
             self.assertIn(f"{event}: updateUsdEquivalent", script)
         self.assertIn('currency === "USD" ? nativeAmount', script)
-        self.assertIn('nativeAmount / rate', script)
+        self.assertIn('const numerator = amountCents * 100000000n', script)
+        self.assertIn('rateScaled / 2n', script)
         self.assertIn('frm.set_value("amount_usd"', script)
 
     def test_submitted_rate_change_revalidates_the_derived_amount(self):

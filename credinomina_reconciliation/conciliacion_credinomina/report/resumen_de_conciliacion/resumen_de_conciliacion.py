@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import flt
 
 from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.rounding import decimal_value, money, money_float
 
 
 def execute(filters=None):
@@ -78,7 +79,10 @@ def execute(filters=None):
             employee_by_period[item.parent][0] += amount
             if flt(item.expected_usd) > 0:
                 employee_by_period[item.parent][1] += (
-                    amount * flt(item.expected_nio) / flt(item.expected_usd)
+                    money_float(
+                        decimal_value(amount) * decimal_value(item.expected_nio)
+                        / decimal_value(item.expected_usd)
+                    )
                 )
     for row in data:
         row["usd_currency"] = "USD"
@@ -95,22 +99,30 @@ def execute(filters=None):
             row["employer_receivable_usd"] = 0
             row["employee_shortfall_nio"] = 0
             row["employer_receivable_nio"] = 0
-            row["historical_pending_usd"] = max(flt(row.applied_usd) + flt(row.rounding_adjustment_usd) - flt(row.remitted_usd), 0)
-            row["company_credit_usd"] = credit_by_period.get(row.name, 0)
+            row["historical_pending_usd"] = money_float(max(
+                decimal_value(row.applied_usd) + decimal_value(row.rounding_adjustment_usd)
+                - decimal_value(row.remitted_usd), 0
+            ))
+            row["company_credit_usd"] = money_float(credit_by_period.get(row.name, 0))
             continue
-        rate = flt(row.expected_nio) / flt(row.expected_usd) if flt(row.expected_usd) else 0
-        row["employee_shortfall_usd"] = round(employee_by_period[row.name][0], 4)
-        row["employer_receivable_usd"] = max(
-            flt(row.deducted_usd) - flt(row.remitted_usd) - max(flt(row.fx_variance_usd), 0)
-            - max(-flt(row.rounding_adjustment_usd), 0), 0
+        rate = (
+            decimal_value(row.expected_nio) / decimal_value(row.expected_usd)
+            if money(row.expected_usd) else 0
         )
-        row["employee_shortfall_nio"] = round(employee_by_period[row.name][1], 4)
-        row["employer_receivable_nio"] = max(
-            flt(row.deducted_nio) - flt(row.remitted_nio) - (
-                max(flt(row.fx_variance_usd), 0) + max(-flt(row.rounding_adjustment_usd), 0)
-            ) * rate, 0
-        )
-        row["company_credit_usd"] = credit_by_period.get(row.name, 0)
+        row["employee_shortfall_usd"] = money_float(employee_by_period[row.name][0])
+        row["employer_receivable_usd"] = money_float(max(
+            money(row.deducted_usd) - money(row.remitted_usd)
+            - max(money(row.fx_variance_usd), 0)
+            - max(-money(row.rounding_adjustment_usd), 0), 0
+        ))
+        row["employee_shortfall_nio"] = money_float(employee_by_period[row.name][1])
+        row["employer_receivable_nio"] = money_float(max(
+            money(row.deducted_nio) - money(row.remitted_nio) - (
+                max(money(row.fx_variance_usd), 0)
+                + max(-money(row.rounding_adjustment_usd), 0)
+            ) * decimal_value(rate), 0
+        ))
+        row["company_credit_usd"] = money_float(credit_by_period.get(row.name, 0))
         row["historical_pending_usd"] = 0
     return get_columns(), data
 

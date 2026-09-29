@@ -9,6 +9,7 @@ from credinomina_reconciliation.parsers import (
     canonical_identifier,
     clean_text,
 )
+from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 
 
 AMOUNT_TOLERANCE = 0.01
@@ -51,12 +52,12 @@ def application_matches_collection(
 
 
 def same_amount(left: Any, right: Any, tolerance: float = AMOUNT_TOLERANCE) -> bool:
-    return abs(float(left or 0) - float(right or 0)) <= tolerance
+    return abs(money(left) - money(right)) <= decimal_value(tolerance)
 
 
 def same_exact_money(left: Any, right: Any) -> bool:
-    """Four-decimal equality, before any explicit reconciliation tolerance."""
-    return abs(round(float(left or 0), 4) - round(float(right or 0), 4)) <= 0.00005
+    """Compare amounts at the persisted two-decimal monetary precision."""
+    return money(left) == money(right)
 
 
 def converted_amount(row: Mapping[str, Any], target_currency: str) -> float | None:
@@ -67,21 +68,22 @@ def converted_amount(row: Mapping[str, Any], target_currency: str) -> float | No
     """
     native_currency = clean_text(row.get("currency")).upper()
     target_currency = clean_text(target_currency).upper()
-    amount = float(row.get("amount") or 0)
+    amount = decimal_value(row.get("amount"))
     if native_currency == target_currency:
-        return amount
+        return money_float(amount)
     if {native_currency, target_currency} != {"NIO", "USD"}:
         return None
     if (
         clean_text(row.get("equivalent_currency")).upper() == target_currency
-        and float(row.get("equivalent_amount") or 0) > 0
+        and money(row.get("equivalent_amount")) > 0
         and clean_text(row.get("fx_basis"))
     ):
-        return float(row.get("equivalent_amount") or 0)
-    rate = float(row.get("manual_fx_rate") or 0)
+        return money_float(row.get("equivalent_amount"))
+    rate = decimal_value(row.get("manual_fx_rate"))
     if rate <= 0:
         return None
-    return amount / rate if native_currency == "NIO" else amount * rate
+    converted = amount / rate if native_currency == "NIO" else amount * rate
+    return money_float(converted)
 
 
 def documented_rate(row: Mapping[str, Any]) -> float | None:
@@ -146,7 +148,7 @@ def settlement_result(
     if (not applications and not complementary_items) or not deposit_pairs:
         return {"matched": False, "reason": "Faltan aplicaciones o depositos conciliados."}
     target_currency = "USD"
-    applied = 0.0
+    applied_values = []
     for row in applications:
         value = converted_amount(row, target_currency)
         if value is None:
@@ -154,11 +156,10 @@ def settlement_result(
                 "matched": False,
                 "reason": "Falta tipo de cambio documentado para expresar la aplicacion en US$.",
             }
-        applied += value
-    complementary_usd = sum(
-        float(item.get("amount_usd") or 0) for item in complementary_items
-    )
-    deposited = 0.0
+        applied_values.append(value)
+    applied = sum_money(applied_values)
+    complementary_usd = sum_money(item.get("amount_usd") for item in complementary_items)
+    deposited_values = []
     for accounting, bank in deposit_pairs:
         account_value = converted_amount(accounting, target_currency)
         bank_value = converted_amount(bank, target_currency)
@@ -176,9 +177,10 @@ def settlement_result(
                 "matched": False,
                 "reason": "El equivalente cambiario del banco difiere del movimiento contable.",
             }
-        deposited += account_value if account_value is not None else bank_value
+        deposited_values.append(account_value if account_value is not None else bank_value)
+    deposited = sum_money(deposited_values)
     reconciled_total = applied + complementary_usd
-    difference = round(deposited - reconciled_total, 4)
+    difference = money(deposited - reconciled_total)
     return {
         "matched": same_exact_money(reconciled_total, deposited),
         "reason": (
@@ -187,11 +189,11 @@ def settlement_result(
             else "El deposito difiere de las aplicaciones y partidas complementarias."
         ),
         "currency": target_currency,
-        "applied": round(applied, 4),
-        "complementary": round(complementary_usd, 4),
-        "reconciled_total": round(reconciled_total, 4),
-        "deposited": round(deposited, 4),
-        "difference": difference,
+        "applied": money_float(applied),
+        "complementary": money_float(complementary_usd),
+        "reconciled_total": money_float(reconciled_total),
+        "deposited": money_float(deposited),
+        "difference": money_float(difference),
     }
 
 
@@ -230,16 +232,13 @@ def matching_exception_notes(
     Notes are references to an existing exception/comment, not a new payment
     or a newly resolved exception. No remittance means nothing to annotate.
     """
-    expected = float(expected_usd or 0)
-    remitted = float(remitted_usd or 0)
-    payment_gap = round(max(expected - remitted, 0), 4)
+    expected = money(expected_usd)
+    remitted = money(remitted_usd)
+    payment_gap = money(max(expected - remitted, 0))
     if remitted <= AMOUNT_TOLERANCE or payment_gap <= AMOUNT_TOLERANCE:
         return []
-    deduction_gap = round(max(expected - float(deducted_usd or 0), 0), 4)
-    application_gap = round(
-        max(expected - float(applied_usd or 0) - float(complementary_usd or 0), 0),
-        4,
-    )
+    deduction_gap = money(max(expected - money(deducted_usd), 0))
+    application_gap = money(max(expected - money(applied_usd) - money(complementary_usd), 0))
     matched = []
     seen_comments = set()
     for origin, gap, notes in (
@@ -272,10 +271,10 @@ def classify_deduction(
     deducted_usd: float = 0,
     deducted_nio: float = 0,
 ) -> str:
-    expected_usd = float(expected_usd or 0)
-    expected_nio = float(expected_nio or 0)
-    deducted_usd = float(deducted_usd or 0)
-    deducted_nio = float(deducted_nio or 0)
+    expected_usd = money_float(expected_usd)
+    expected_nio = money_float(expected_nio)
+    deducted_usd = money_float(deducted_usd)
+    deducted_nio = money_float(deducted_nio)
     if deducted_usd < 0 or deducted_nio < 0:
         return "Importe invalido"
     if deducted_usd <= AMOUNT_TOLERANCE and deducted_nio <= AMOUNT_TOLERANCE:
@@ -444,7 +443,7 @@ def duplicate_business_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
             canonical_identifier(row.get("loan_number")),
             clean_text(row.get("reference")),
             clean_text(row.get("currency")).upper(),
-            round(float(row.get("amount") or 0), 2),
+            money(row.get("amount")),
             str(row.get("event_date") or "")[:10],
             clean_text(row.get("voucher")),
         )
@@ -452,7 +451,7 @@ def duplicate_business_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
         event_type,
         clean_text(row.get("reference")),
         clean_text(row.get("currency")).upper(),
-        round(float(row.get("amount") or 0), 2),
+        money(row.get("amount")),
     )
 
 

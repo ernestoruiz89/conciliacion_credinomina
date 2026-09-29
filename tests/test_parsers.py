@@ -14,6 +14,8 @@ from credinomina_reconciliation.parsers import (
     has_legacy_numeric_credit_numbers,
     parse_collection_file,
     parse_credit_portfolio,
+    parse_amount,
+    parse_exchange_rate,
     parse_source_file,
     portfolio_source_values_from_raw_data,
 )
@@ -39,6 +41,10 @@ def workbook_bytes(rows):
 
 
 class CollectionParserTest(unittest.TestCase):
+    def test_imported_money_rounds_half_up_but_fx_rate_keeps_precision(self):
+        self.assertEqual(1.01, parse_amount("1.005"))
+        self.assertEqual(36.6101, parse_exchange_rate("36,6101"))
+
     def test_reads_repeated_spanish_header_blocks(self):
         headers = [
             "Nro. Cliente",
@@ -317,6 +323,18 @@ class SourceParserTest(unittest.TestCase):
 
 
 class ReconciliationTest(unittest.TestCase):
+    def test_currency_conversion_is_rounded_to_cents_without_rounding_fx_rate(self):
+        converted = converted_amount(
+            {"currency": "NIO", "amount": 100, "manual_fx_rate": 36.6101},
+            "USD",
+        )
+        self.assertEqual(2.73, converted)
+        imported = apply_accounting_currency_override(
+            [{"event_type": "Aplicacion", "amount": 100}], "NIO", "36.6101"
+        )[0]
+        self.assertEqual(2.73, imported["amount_usd"])
+        self.assertEqual(36.6101, imported["manual_fx_rate"])
+
     def test_application_exception_is_reused_for_equal_payment_shortfall(self):
         notes = matching_exception_notes(
             expected_usd=100, deducted_usd=100, applied_usd=90,
@@ -455,7 +473,7 @@ class ReconciliationTest(unittest.TestCase):
                     [(accounting, bank)],
                 )
                 self.assertFalse(result["matched"])
-                self.assertEqual(round(deposited - applied, 4), result["difference"])
+                self.assertEqual(round(deposited - applied, 2), result["difference"])
 
     def test_complementary_entry_needs_explicit_unique_loan_allocation(self):
         target = {

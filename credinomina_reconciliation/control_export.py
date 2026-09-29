@@ -17,7 +17,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
 
 
 NA = "N/D"
@@ -409,7 +409,7 @@ def _json_list(value):
 
 
 def _money(value):
-    return round(float(value or 0), 4)
+    return money_float(value)
 
 
 def _date(value):

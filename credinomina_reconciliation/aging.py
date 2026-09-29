@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Mapping
 
+from credinomina_reconciliation.rounding import money, money_float
+
 
 BUCKETS = ("not_due", "days_1_30", "days_31_60", "days_61_90", "days_over_90")
 
@@ -19,7 +21,7 @@ def _date(value: Any) -> date | None:
 
 def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]:
     """Put one positive USD balance into exactly one non-overlapping band."""
-    amount = round(max(float(amount or 0), 0), 4)
+    amount = money_float(max(money(amount), 0))
     due = _date(due_date)
     as_of = _date(as_of_date)
     if as_of is None:
@@ -42,24 +44,24 @@ def employee_receivable_usd(row: Mapping[str, Any]) -> float | None:
     status = row.get("deduction_status")
     if not status or status == "Pendiente de detalle":
         return None
-    return round(max(
-        float(row.get("expected_usd") or 0) - float(row.get("deducted_usd") or 0), 0
-    ), 4)
+    return money_float(max(
+        money(row.get("expected_usd")) - money(row.get("deducted_usd")), 0
+    ))
 
 
 def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
     """Return distinct exposures; never add unconfirmed detail to a receivable."""
-    expected = float(row.get("expected_usd") or 0)
-    deducted = float(row.get("deducted_usd") or 0)
-    remitted = float(row.get("remitted_usd") or 0)
-    fx = max(float(row.get("fx_variance_usd") or 0), 0)
-    rounding_short = max(-float(row.get("rounding_adjustment_usd") or 0), 0)
+    expected = money(row.get("expected_usd"))
+    deducted = money(row.get("deducted_usd"))
+    remitted = money(row.get("remitted_usd"))
+    fx = max(money(row.get("fx_variance_usd")), 0)
+    rounding_short = max(-money(row.get("rounding_adjustment_usd")), 0)
     worker_shortfall = employee_receivable_usd(row)
     if worker_shortfall is None:
         if expected > 0:
             yield {
                 "balance_type": "Detalle de empresa pendiente",
-                "amount_usd": round(expected, 4),
+                "amount_usd": money_float(expected),
                 "due_date": period.get("cutoff_date"),
                 "provision_review_usd": 0,
             }
@@ -71,7 +73,7 @@ def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
             "due_date": period.get("cutoff_date"),
             "provision_review_usd": worker_shortfall,
         }
-    unassigned_deduction = round(max(deducted - remitted - fx - rounding_short, 0), 4)
+    unassigned_deduction = money_float(max(deducted - remitted - fx - rounding_short, 0))
     if unassigned_deduction > 0:
         yield {
             "balance_type": "Deducido sin remesa asignada",

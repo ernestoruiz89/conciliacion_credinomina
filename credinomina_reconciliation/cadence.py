@@ -5,6 +5,8 @@ from __future__ import annotations
 from calendar import monthrange
 from datetime import date
 
+from credinomina_reconciliation.rounding import money
+
 MONTHLY = "Mensual"
 FIRST_HALF = "Primera quincena"
 SECOND_HALF = "Segunda quincena"
@@ -64,9 +66,6 @@ def unique_full_quincena_pair(candidates: list[dict], amount_usd: float) -> list
                 second["employer"], second["month"]
             ):
                 continue
-            if abs(
-                round(first["available_usd"] + second["available_usd"], 4)
-                - round(amount_usd, 4)
-            ) <= 0.0001:
+            if money(first["available_usd"]) + money(second["available_usd"]) == money(amount_usd):
                 matches.append([first, second])
     return matches[0] if len(matches) == 1 else []

@@ -7,9 +7,10 @@ from typing import Any
 
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 from credinomina_reconciliation.client_identity import matching_name
+from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 
 
-EPSILON = 0.00005
+EPSILON = 0.005
 
 
 def detail_amount_usd(row: Mapping[str, Any], nio_per_usd: float = 0) -> tuple[float, str]:
@@ -19,16 +20,16 @@ def detail_amount_usd(row: Mapping[str, Any], nio_per_usd: float = 0) -> tuple[f
     presents the same deduction in both currencies. A NIO-only row needs a
     documented deposit FX rate, never a guessed current market rate.
     """
-    usd = float(row.get("deducted_usd") or 0)
-    nio = float(row.get("deducted_nio") or 0)
+    usd = money_float(row.get("deducted_usd"))
+    nio = money_float(row.get("deducted_nio"))
     if usd < 0 or nio < 0:
         return 0, "Importe negativo"
     if usd > EPSILON:
-        return round(usd, 4), "US$ informado; C$ no se suma" if nio > EPSILON else "US$ informado"
+        return money_float(usd), "US$ informado; C$ no se suma" if nio > EPSILON else "US$ informado"
     if nio > EPSILON:
         if nio_per_usd <= 0:
             return 0, "Falta tasa C$/US$ documentada"
-        return round(nio / nio_per_usd, 4), "C$ convertido con tasa documentada"
+        return money_float(decimal_value(nio) / decimal_value(nio_per_usd)), "C$ convertido con tasa documentada"
     return 0, "No deducido"
 
 
@@ -119,18 +120,19 @@ def suggest_detail_targets(
         )
         if row.get("installment_number") and not claim.get("installment_number"):
             identity_note += "; core sin número de cuota"
-        if amount_usd > float(claim["amount_usd"]) + EPSILON:
+        if money(amount_usd) > money(claim["amount_usd"]) + decimal_value(EPSILON):
             if (
                 claim.get("kind") not in {"C", "H"}
                 or len(claim.get("application_ids") or ()) != 1
-                or amount_usd - float(claim["amount_usd"]) > tolerance_usd + EPSILON
+                or money(amount_usd) - money(claim["amount_usd"])
+                > money(tolerance_usd) + decimal_value(EPSILON)
             ):
                 return [], "Importe supera el destino; revise partidas complementarias"
             return [{
                 "claim_id": claim["id"],
-                "amount_usd": round(float(claim["amount_usd"]), 4),
+                "amount_usd": money_float(claim["amount_usd"]),
             }], "Coincidencia única con diferencia de tolerancia" + identity_note
-        return [{"claim_id": claim["id"], "amount_usd": round(amount_usd, 4)}], "Coincidencia única" + identity_note
+        return [{"claim_id": claim["id"], "amount_usd": money_float(amount_usd)}], "Coincidencia única" + identity_note
     kinds = {claim.get("kind") for claim in matches}
     if "C" in kinds and "H" in kinds:
         return [], "Coincidencia entre histórico y operativo: seleccione período"
@@ -143,10 +145,10 @@ def suggest_detail_targets(
         }
         if len(people) != 1 or "" in people:
             return [], "Nombre compartido o sin identidad única; indique destinos manuales"
-    total = round(sum(float(claim["amount_usd"]) for claim in matches), 4)
-    if abs(total - amount_usd) > EPSILON:
+    total = sum_money(claim["amount_usd"] for claim in matches)
+    if abs(total - money(amount_usd)) > decimal_value(EPSILON):
         return [], "Varias aplicaciones posibles; indique destinos manuales"
     return [
-        {"claim_id": claim["id"], "amount_usd": round(float(claim["amount_usd"]), 4)}
+        {"claim_id": claim["id"], "amount_usd": money_float(claim["amount_usd"])}
         for claim in matches
     ], "Varias aplicaciones cubiertas íntegramente"

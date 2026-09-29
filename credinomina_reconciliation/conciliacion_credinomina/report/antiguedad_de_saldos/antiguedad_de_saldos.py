@@ -9,6 +9,7 @@ from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
 from credinomina_reconciliation.aging import age_balance, operational_balances
+from credinomina_reconciliation.rounding import money_float
 
 
 def execute(filters=None):
@@ -94,7 +95,7 @@ def execute(filters=None):
     ))
     report_summary = [
         {
-            "label": _(label), "value": round(summary[label], 4),
+            "label": _(label), "value": money_float(summary[label]),
             "indicator": indicator, "datatype": "Currency", "currency": "USD",
         }
         for label, indicator in (

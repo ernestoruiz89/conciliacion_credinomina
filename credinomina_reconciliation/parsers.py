@@ -13,9 +13,13 @@ import json
 import re
 import unicodedata
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Iterable
+
+from credinomina_reconciliation.rounding import (
+    RATE_PRECISION, decimal_value, money, money_float,
+)
 
 
 SOURCE_ACCOUNTING = "Movimientos contables"
@@ -67,17 +71,17 @@ def canonical_identifier(value: Any) -> str:
     return text.casefold()
 
 
-def parse_amount(value: Any) -> float:
+def _parse_decimal(value: Any, *, is_rate: bool = False) -> Decimal:
     if value in (None, ""):
-        return 0.0
+        return Decimal(0)
     if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
-        return float(value)
+        return decimal_value(value)
     text = clean_text(value)
     text = re.sub(r"[^0-9,().+\-]", "", text)
     negative = text.startswith("(") and text.endswith(")")
     text = text.strip("()")
     if not text:
-        return 0.0
+        return Decimal(0)
     if "," in text and "." in text:
         if text.rfind(",") > text.rfind("."):
             text = text.replace(".", "").replace(",", ".")
@@ -85,12 +89,28 @@ def parse_amount(value: Any) -> float:
             text = text.replace(",", "")
     elif "," in text:
         last = text.rsplit(",", 1)[-1]
-        text = text.replace(",", ".") if len(last) <= 2 else text.replace(",", "")
+        text = (
+            text.replace(",", ".")
+            if is_rate or len(last) <= 2 else text.replace(",", "")
+        )
     try:
-        result = float(Decimal(text))
+        result = Decimal(text)
     except (InvalidOperation, ValueError) as exc:
         raise SourceFileError(f"Importe no valido: {value!r}") from exc
     return -result if negative else result
+
+
+def parse_amount(value: Any) -> float:
+    """Parse a monetary value and round it half-up to the nearest cent."""
+    return money_float(_parse_decimal(value))
+
+
+def parse_exchange_rate(value: Any) -> float:
+    """Parse an exchange rate without applying the two-decimal money rule."""
+    try:
+        return float(_parse_decimal(value, is_rate=True))
+    except SourceFileError as exc:
+        raise SourceFileError(f"Tipo de cambio no valido: {value!r}") from exc
 
 
 def parse_date(value: Any) -> date | None:
@@ -469,7 +489,8 @@ def apply_accounting_currency_override(
     equivalent where available; otherwise use the file-level rate.
     """
     selected_currency = clean_text(currency).upper()
-    rate = parse_amount(manual_fx_rate)
+    rate_decimal = _parse_decimal(manual_fx_rate, is_rate=True)
+    rate = float(rate_decimal)
     if not selected_currency:
         raise SourceFileError("Seleccione la moneda reportada en el archivo antes de cargarlo.")
     if selected_currency not in {"USD", "NIO"}:
@@ -482,12 +503,12 @@ def apply_accounting_currency_override(
     for record in records:
         if record.get("event_type") not in {"Aplicacion", "Deposito"}:
             continue
-        source_amount = round(float(record.get("amount") or 0), 4)
+        source_amount = money(record.get("amount"))
         if selected_currency == "USD":
             record.update({
                 "currency": "USD",
-                "amount": source_amount,
-                "amount_usd": source_amount,
+                "amount": float(source_amount),
+                "amount_usd": float(source_amount),
                 "amount_nio": 0,
                 "equivalent_currency": "",
                 "equivalent_amount": 0,
@@ -499,24 +520,25 @@ def apply_accounting_currency_override(
 
         source_fx_basis = clean_text(record.get("fx_basis"))
         source_usd_equivalent = (
-            float(record.get("equivalent_amount") or 0)
+            money(record.get("equivalent_amount"))
             if record.get("equivalent_currency") == "USD" and source_fx_basis
-            else 0
+            else Decimal(0)
         )
         used_source_equivalent = source_usd_equivalent > 0
-        amount_usd = round(
-            source_usd_equivalent if used_source_equivalent else source_amount / rate,
-            4,
+        amount_usd = money(
+            source_usd_equivalent
+            if used_source_equivalent else source_amount / rate_decimal
         )
         record.update({
             "currency": "USD",
-            "amount": amount_usd,
-            "amount_usd": amount_usd,
-            "amount_nio": source_amount,
+            "amount": float(amount_usd),
+            "amount_usd": float(amount_usd),
+            "amount_nio": float(source_amount),
             "equivalent_currency": "NIO",
-            "equivalent_amount": source_amount,
+            "equivalent_amount": float(source_amount),
             "fx_rate": (
-                round(source_amount / amount_usd, 8) if used_source_equivalent and amount_usd
+                float((source_amount / amount_usd).quantize(RATE_PRECISION, rounding=ROUND_HALF_UP))
+                if used_source_equivalent and amount_usd
                 else 0
             ),
             "fx_basis": source_fx_basis if used_source_equivalent else "",
@@ -564,18 +586,18 @@ def _source_record(
         "loan_number": clean_text(loan_number),
         "installment_number": clean_text(installment_number),
         "currency": currency,
-        "amount": round(float(amount), 4),
+        "amount": money_float(amount),
         "description": clean_text(description),
         "equivalent_currency": equivalent_currency,
-        "equivalent_amount": round(float(equivalent_amount or 0), 4),
+        "equivalent_amount": money_float(equivalent_amount or 0),
         "fx_basis": fx_basis,
     }
     cleaned["fx_rate"] = 0.0
     if cleaned["amount"] > 0 and cleaned["equivalent_amount"] > 0:
         if currency == "NIO" and equivalent_currency == "USD":
-            cleaned["fx_rate"] = round(cleaned["amount"] / cleaned["equivalent_amount"], 8)
+            cleaned["fx_rate"] = float((money(cleaned["amount"]) / money(cleaned["equivalent_amount"])).quantize(RATE_PRECISION, rounding=ROUND_HALF_UP))
         elif currency == "USD" and equivalent_currency == "NIO":
-            cleaned["fx_rate"] = round(cleaned["equivalent_amount"] / cleaned["amount"], 8)
+            cleaned["fx_rate"] = float((money(cleaned["equivalent_amount"]) / money(cleaned["amount"])).quantize(RATE_PRECISION, rounding=ROUND_HALF_UP))
     cleaned["amount_usd"] = cleaned["amount"] if currency == "USD" else 0
     cleaned["amount_nio"] = cleaned["amount"] if currency == "NIO" else 0
     cleaned["source_key"] = source_key(
@@ -632,6 +654,25 @@ PORTFOLIO_DATE_FIELDS = frozenset({
     "fecha_saneamiento", "fecha_estado_vencido", "fecha_ult_pago_principal",
     "fecha_ult_pago_interes",
 })
+PORTFOLIO_MONEY_FIELDS = frozenset({
+    "comision_desembolso", "saldo_principal", "saldo_mant_valor",
+    "saldo_intereses", "saldo_intereses_mora", "saldo_cargos",
+    "saldo_comision", "monto_desembolsado", "monto_garantia",
+    "provision_principal", "provision_interes", "monto_mant_valor_dev",
+    "monto_interes_devengado", "monto_mora_devengada",
+    "monto_comis_devengada", "monto_cargo_devengado", "monto_princ_pag_total",
+    "monto_mant_v_pag_total", "monto_interes_pag_total", "monto_mora_pag_total",
+    "monto_com_pag_total", "monto_cargo_pag_total", "monto_princ_pagado_mes",
+    "monto_mant_pagado_mes", "monto_interes_pag_mes", "monto_int_mora_pag_mes",
+    "monto_comision_pag_mes", "monto_cargo_pagado_mes", "monto_mora_dispensado",
+    "monto_int_dispensado", "monto_cargo_dispensado", "monto_princ_saneado",
+    "monto_mant_v_saneado", "monto_interes_saneado", "monto_int_mora_saneado",
+    "monto_cargo_saneado", "principal_vencido", "interes_vencido",
+    "monto_refinanciado", "garantia_hipotecaria", "garantia_prendaria",
+    "garantia_fiduciaria", "otras_garantias", "monto_garantia_hipotecaria",
+    "monto_garantia_prendaria", "monto_garantia_fiduciaria", "monto_otras_garantias",
+    "monto_refinanciado_principal",
+})
 
 
 def portfolio_source_values_from_raw_data(raw_data: dict[str, Any]) -> dict[str, Any]:
@@ -656,6 +697,8 @@ def portfolio_source_values_from_raw_data(raw_data: dict[str, Any]) -> dict[str,
             if parsed is None:
                 continue
             value = parsed
+        elif fieldname in PORTFOLIO_MONEY_FIELDS:
+            value = parse_amount(value)
         values[fieldname] = value
     return values
 

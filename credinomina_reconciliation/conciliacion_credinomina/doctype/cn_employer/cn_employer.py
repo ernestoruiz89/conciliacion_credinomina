@@ -1,9 +1,8 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
-
 from credinomina_reconciliation.employer_naming import employer_label_key
+from credinomina_reconciliation.rounding import money
 
 
 class CNEmployer(Document):
@@ -17,7 +16,8 @@ class CNEmployer(Document):
             and self.name != self.employer_name
         ):
             frappe.throw(_("Para cambiar el nombre de la empresa, use Renombrar."))
-        tolerance = flt(self.rounding_tolerance_usd, 4)
+        tolerance = money(self.rounding_tolerance_usd)
+        self.rounding_tolerance_usd = tolerance
         if tolerance < 0 or tolerance > 0.10:
             frappe.throw(_("La tolerancia automática debe estar entre US$ 0.00 y US$ 0.10."))
         seen_aliases = set()
@@ -47,7 +47,7 @@ class CNEmployer(Document):
                 employer_label_key(row.alias_name) for row in self.aliases or []
             )
             if (
-                flt(previous.rounding_tolerance_usd, 4) == flt(self.rounding_tolerance_usd, 4)
+                money(previous.rounding_tolerance_usd) == money(self.rounding_tolerance_usd)
                 and previous.employer_code == self.employer_code
                 and previous_aliases == current_aliases
             ):

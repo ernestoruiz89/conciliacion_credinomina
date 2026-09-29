@@ -57,10 +57,26 @@ function showDepositStage(frm) {
 }
 
 function updateUsdEquivalent(frm) {
-    const nativeAmount = Number(frm.doc.deposit_amount || 0);
+    const amountCents = toScaledInteger(frm.doc.deposit_amount, 2);
     const currency = frm.doc.deposit_currency;
-    const rate = Number(frm.doc.fx_rate || 0);
-    const usd = currency === "USD" ? nativeAmount :
-        currency === "NIO" && rate > 0 ? nativeAmount / rate : 0;
-    frm.set_value("amount_usd", Number(usd.toFixed(4)));
+    const rateScaled = toScaledInteger(frm.doc.fx_rate, 8);
+    let usdCents = 0n;
+    if (currency === "USD") {
+        usdCents = amountCents;
+    } else if (currency === "NIO" && rateScaled > 0n) {
+        // amountCents / (rateScaled / 1e8), rounded half-up to USD cents.
+        const numerator = amountCents * 100000000n;
+        usdCents = (numerator + rateScaled / 2n) / rateScaled;
+    }
+    frm.set_value("amount_usd", Number(usdCents) / 100);
+}
+
+function toScaledInteger(value, decimalPlaces) {
+    const raw = String(value || 0).trim();
+    const match = raw.match(/^([+-]?)(\d+)(?:\.(\d*))?$/);
+    if (!match) return 0n;
+    const factor = 10n ** BigInt(decimalPlaces);
+    const fraction = ((match[3] || "") + "0".repeat(decimalPlaces)).slice(0, decimalPlaces);
+    const scaled = BigInt(match[2]) * factor + BigInt(fraction || "0");
+    return match[1] === "-" ? -scaled : scaled;
 }

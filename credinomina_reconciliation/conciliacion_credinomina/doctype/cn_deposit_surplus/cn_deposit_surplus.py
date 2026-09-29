@@ -3,9 +3,8 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
-
 from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.rounding import money
 
 
 class CNDepositSurplus(Document):
@@ -55,6 +54,7 @@ class CNDepositSurplus(Document):
             ).format(", ".join(sorted(closed))))
 
     def validate(self):
+        self.amount_usd = money(self.amount_usd)
         if not self.period and not self.registered_deposit:
             frappe.throw(_("Indique un período o seleccione un depósito registrado."))
         if self.period:
@@ -76,7 +76,7 @@ class CNDepositSurplus(Document):
             self.deposit_voucher = deposit.deposit_voucher
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
-        if flt(self.amount_usd) <= 0:
+        if money(self.amount_usd) <= 0:
             frappe.throw(_("El excedente debe ser mayor que cero."))
         if not clean_text(self.explanation):
             frappe.throw(_("Documente el motivo y tratamiento del excedente."))

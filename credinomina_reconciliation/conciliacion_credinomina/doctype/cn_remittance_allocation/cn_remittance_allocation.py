@@ -11,6 +11,9 @@ from credinomina_reconciliation.parsers import (
 from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.reconciliation import remittance_fx_basis
+from credinomina_reconciliation.rounding import (
+    MONEY_EPSILON, decimal_value, money, money_float,
+)
 
 
 class CNRemittanceAllocation(Document):
@@ -20,6 +23,7 @@ class CNRemittanceAllocation(Document):
         self._validate_deposit()
 
     def _validate_deposit(self):
+        self.deposit_amount = money(self.deposit_amount)
         if not self.deposit_date:
             frappe.throw(_("Indique la fecha real del depósito."))
         if self.docstatus == 1:
@@ -35,7 +39,7 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("El período del detalle debe pertenecer a la empresa del depósito."))
             if period.status == "Cerrado":
                 frappe.throw(_("No se puede asignar un detalle a un período cerrado."))
-        if flt(self.deposit_amount) <= 0:
+        if money(self.deposit_amount) <= 0:
             frappe.throw(_("El importe del depósito debe ser mayor que cero."))
         if self.deposit_currency == "NIO":
             if flt(self.fx_rate) <= 0 or not remittance_fx_basis(self):
@@ -43,9 +47,9 @@ class CNRemittanceAllocation(Document):
                     "Para un depósito en C$ indique la tasa C$/US$ y escriba "
                     "su fuente en Justificación; el soporte adjunto es complementario."
                 ))
-            equivalent = round(flt(self.deposit_amount) / flt(self.fx_rate), 4)
+            equivalent = money_float(decimal_value(self.deposit_amount) / decimal_value(self.fx_rate))
         elif self.deposit_currency == "USD":
-            equivalent = round(flt(self.deposit_amount), 4)
+            equivalent = money_float(self.deposit_amount)
         else:
             frappe.throw(_("La moneda del depósito debe ser USD o NIO."))
         self.amount_usd = equivalent
@@ -67,7 +71,7 @@ class CNRemittanceAllocation(Document):
             for row in duplicates
         ):
             frappe.throw(_("Este depósito ya fue registrado. Si son dos depósitos distintos, indique comprobantes diferentes."))
-        assigned = 0
+        assigned = decimal_value(0)
         for target in self.targets or []:
             self._validate_target(target)
             target_period = target.period
@@ -89,15 +93,16 @@ class CNRemittanceAllocation(Document):
                 ) or target_employer
             if target_employer and target_employer != self.employer:
                 frappe.throw(_("Un destino pertenece a una empresa diferente del depósito."))
-            assigned += flt(target.amount_usd)
-        if assigned > equivalent + 0.00005:
+            assigned += money(target.amount_usd)
+        if assigned > money(equivalent) + MONEY_EPSILON:
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
 
     @staticmethod
     def _validate_target(target):
+        target.amount_usd = money(target.amount_usd)
         target.row_key = clean_text(target.row_key)
         target.historical_application = clean_text(target.historical_application)
-        if flt(target.amount_usd) <= 0:
+        if money(target.amount_usd) <= 0:
             frappe.throw(_("El importe a distribuir debe ser mayor que cero."))
         collection_target = bool(target.row_key)
         target_count = sum(

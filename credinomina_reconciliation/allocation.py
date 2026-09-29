@@ -10,8 +10,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.rounding import MONEY_EPSILON, money, money_float
 
-CAPACITY_EPSILON = 0.00005  # Half of the stored four-decimal USD precision.
+CAPACITY_EPSILON = MONEY_EPSILON
 
 
 def allocate_cash(
@@ -29,23 +30,23 @@ def allocate_cash(
     """
     deposits = {str(row["id"]): row for row in deposits}
     claims = {str(row["id"]): row for row in claims}
-    deposit_left = {key: round(float(row["amount_usd"]), 4) for key, row in deposits.items()}
-    claim_left = {key: round(float(row["amount_usd"]), 4) for key, row in claims.items()}
+    deposit_left = {key: money(row["amount_usd"]) for key, row in deposits.items()}
+    claim_left = {key: money(row["amount_usd"]) for key, row in claims.items()}
     ledger = []
     instruction_results = {}
     blocked_deposits = {str(value) for value in blocked_deposit_ids}
 
     def book(deposit_id: str, claim_id: str, amount: float, origin: str):
-        amount = round(amount, 4)
+        amount = money(amount)
         if amount <= CAPACITY_EPSILON:
             return
-        deposit_left[deposit_id] = round(deposit_left[deposit_id] - amount, 4)
-        claim_left[claim_id] = round(claim_left[claim_id] - amount, 4)
+        deposit_left[deposit_id] = money(deposit_left[deposit_id] - amount)
+        claim_left[claim_id] = money(claim_left[claim_id] - amount)
         ledger.append(
             {
                 "deposit_id": deposit_id,
                 "claim_id": claim_id,
-                "amount_usd": amount,
+                "amount_usd": money_float(amount),
                 "origin": origin,
             }
         )
@@ -54,7 +55,7 @@ def allocate_cash(
         name = str(instruction["id"])
         deposit_id = str(instruction.get("deposit_id") or "")
         claim_id = str(instruction.get("claim_id") or "")
-        amount = round(float(instruction.get("amount_usd") or 0), 4)
+        amount = money(instruction.get("amount_usd"))
         if deposit_id not in deposits or claim_id not in claims:
             instruction_results[name] = "Falta deposito o cobranza"
             if deposit_id in deposits:
@@ -118,7 +119,7 @@ def allocate_cash(
             hints = {
                 claim_id: min(
                     claim_left[claim_id],
-                    float(claims[claim_id].get("hints", {}).get(reference) or 0),
+                    money(claims[claim_id].get("hints", {}).get(reference)),
                 )
                 for claim_id in candidates
             }
@@ -133,8 +134,12 @@ def allocate_cash(
 
     return {
         "allocations": ledger,
-        "deposit_remaining": deposit_left,
-        "claim_remaining": claim_left,
+        "deposit_remaining": {
+            key: money_float(value) for key, value in deposit_left.items()
+        },
+        "claim_remaining": {
+            key: money_float(value) for key, value in claim_left.items()
+        },
         "instruction_results": instruction_results,
         "blocked_deposits": blocked_deposits,
     }
@@ -144,10 +149,10 @@ def can_document_surplus(
     unallocated_usd: float, already_documented_usd: float, requested_usd: float
 ) -> bool:
     """A company credit can only classify cash left after all distributions."""
-    requested = float(requested_usd or 0)
+    requested = money(requested_usd)
     return (
         requested > CAPACITY_EPSILON
         and requested
-        <= float(unallocated_usd or 0) - float(already_documented_usd or 0)
+        <= money(unallocated_usd) - money(already_documented_usd)
         + CAPACITY_EPSILON
     )

@@ -12,7 +12,7 @@ from frappe.utils import cint, flt, getdate, now_datetime
 from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
-from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
 
 
 def _row_limit(dashboard_limit: int, full_export: bool) -> int:
@@ -271,18 +271,18 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             {
                 "month": str(period.payroll_month)[:7],
                 "employer_name": employer_names.get(period.employer, period.employer),
-                "worker_gap_usd": round(worker_gap, 4),
-                "pending_detail_usd": round(pending_detail, 4),
-                "employer_gap_usd": round(employer_gap, 4),
-                "historical_pending_usd": round(historical_pending, 4),
-                "rounding_adjustment_usd": round(adjustment, 4),
-                "rounding_movement_abs_usd": round(
-                    sum(abs(flt(item.signed_amount_usd)) for item in period_movements), 4
+                "worker_gap_usd": money_float(worker_gap),
+                "pending_detail_usd": money_float(pending_detail),
+                "employer_gap_usd": money_float(employer_gap),
+                "historical_pending_usd": money_float(historical_pending),
+                "rounding_adjustment_usd": money_float(adjustment),
+                "rounding_movement_abs_usd": money_float(
+                    sum(abs(flt(item.signed_amount_usd)) for item in period_movements)
                 ),
-                "inferred_deduction_usd": round(
-                    deducted if period.deduction_basis == "Depósito coincidente" else 0, 4
+                "inferred_deduction_usd": money_float(
+                    deducted if period.deduction_basis == "Depósito coincidente" else 0
                 ),
-                "documented_credit_usd": round(documented_credit, 4),
+                "documented_credit_usd": money_float(documented_credit),
                 "unclassified_deposit_usd": 0,
                 "control_state": control_state,
                 "rows": period_rows,
@@ -541,7 +541,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                         registered.append(item)
                         known.add(item.name)
         imported_keys = {
-            (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
+            (row.reference, row.voucher, row.currency, money_float(row.amount))
             for row in [*deposits, *related_deposits]
         }
         period_records = {record["name"]: record for record in output}
@@ -550,7 +550,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 continue
             key = (
                 item.deposit_reference, item.deposit_voucher,
-                item.deposit_currency, round(flt(item.deposit_amount), 4),
+                item.deposit_currency, money_float(item.deposit_amount),
             )
             already_in_imports = key in imported_keys
             justified = flt(item.justified_surplus_usd)
@@ -603,13 +603,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             )
         registered_keys = {
             (item.deposit_reference, item.deposit_voucher,
-             item.deposit_currency, round(flt(item.deposit_amount), 4))
+             item.deposit_currency, money_float(item.deposit_amount))
             for item in registered
         }
         deposits = [
             row for row in deposits
             if row.get("source_doctype") == "CN Remittance Allocation"
-            or (row.reference, row.voucher, row.currency, round(flt(row.amount), 4))
+            or (row.reference, row.voucher, row.currency, money_float(row.amount))
             not in registered_keys
         ]
     missing_employers = {
@@ -628,7 +628,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     return {
         "year": year,
         "periods": output,
-        "totals": {key: round(value, 4) for key, value in totals.items()},
+        "totals": {key: money_float(value) for key, value in totals.items()},
         "open_deposits": deposits,
         "unassigned_historical_applications": unassigned_historical_applications,
         "unassigned_operational_applications": unassigned_operational_applications,
@@ -684,7 +684,7 @@ def _build_work_items(
             "control_cut_on": (period_record or {}).get("control_cut_on"),
             "summary": summary,
             "next_action": next_action,
-            "amount_usd": round(flt(amount_usd), 4) if amount_usd is not None else None,
+            "amount_usd": money_float(amount_usd) if amount_usd is not None else None,
             "count": count,
             "due_date": str(due_date)[:10] if due_date else None,
             "target_doctype": target_doctype,

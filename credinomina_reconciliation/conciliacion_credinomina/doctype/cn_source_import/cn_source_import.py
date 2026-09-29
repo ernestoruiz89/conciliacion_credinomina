@@ -54,7 +54,9 @@ from credinomina_reconciliation.reconciliation import (
     remittance_fx_basis,
     same_amount,
 )
-from credinomina_reconciliation.rounding import CASH_EPSILON, rounding_movements
+from credinomina_reconciliation.rounding import (
+    CASH_EPSILON, decimal_value, money_float, rounding_movements, sum_money,
+)
 from credinomina_reconciliation.remittance_detail import (
     detail_amount_usd,
     suggest_detail_targets,
@@ -673,13 +675,19 @@ def _deducted_amount(row, currency):
         if direct > AMOUNT_TOLERANCE:
             return direct
         if flt(row.deducted_nio) and flt(row.expected_nio) and flt(row.expected_usd):
-            return flt(row.expected_usd) * flt(row.deducted_nio) / flt(row.expected_nio)
+            return money_float(
+                decimal_value(row.expected_usd) * decimal_value(row.deducted_nio)
+                / decimal_value(row.expected_nio)
+            )
     if currency == "NIO":
         direct = flt(row.deducted_nio)
         if direct > AMOUNT_TOLERANCE:
             return direct
         if flt(row.deducted_usd) and flt(row.expected_usd) and flt(row.expected_nio):
-            return flt(row.expected_nio) * flt(row.deducted_usd) / flt(row.expected_usd)
+            return money_float(
+                decimal_value(row.expected_nio) * decimal_value(row.deducted_usd)
+                / decimal_value(row.expected_usd)
+            )
     return 0
 
 
@@ -837,7 +845,7 @@ def _match_applications(
                 0,
             )
             converted_capacity = (
-                max(flt(target.deducted_nio) / payment_rate - complementary, 0)
+                money_float(max(decimal_value(target.deducted_nio) / decimal_value(payment_rate) - decimal_value(complementary), 0))
                 if target.deduction_currency == "NIO" and payment_rate
                 else 0
             )
@@ -852,7 +860,7 @@ def _match_applications(
                 if target_period and target_period.reconciliation_mode != "Historica":
                     pair_candidates.append({
                         "target": target,
-                        "available_usd": round(available, 4),
+                        "available_usd": money_float(available),
                         "cycle": target_period.collection_cycle,
                         "employer": target_period.employer,
                         "month": str(target_period.payroll_month)[:7],
@@ -878,7 +886,7 @@ def _match_applications(
             if converted_match:
                 source.match_reason = _(
                     "Aplicacion parcial o total en US$ enlazada a la deduccion en C$ con tasa documentada de {0} C$ por US$."
-                ).format(round(payment_rate, 8))
+                ).format(payment_rate)
             elif detail_pending:
                 source.match_reason = _(
                     "Aplicación enlazada de forma única a la cobranza."
@@ -896,7 +904,7 @@ def _match_applications(
             source.application_allocation_detail = json.dumps([{
                 "collection_row_id": target.name,
                 "period": target.parent,
-                "amount_usd": round(flt(source.amount), 4),
+                "amount_usd": money_float(source.amount),
             }], ensure_ascii=False)
         elif not candidates and (
             pair := unique_full_quincena_pair(pair_candidates, flt(source.amount))
@@ -926,7 +934,7 @@ def _match_applications(
             if any(candidate["converted_match"] for candidate in pair):
                 source.match_reason += " " + _(
                     "Conversion con tasa documentada de {0} C$ por US$."
-                ).format(round(payment_rate, 8))
+                ).format(payment_rate)
             source.collection_period = detail[0]["period"]
             source.application_allocation_detail = json.dumps(detail, ensure_ascii=False)
         elif len(candidates) > 1:
@@ -1065,7 +1073,7 @@ def _prepare_remittance_details(
         rate = flt(item.fx_rate) if remittance_fx_basis(item) else 0
         for row in rows:
             amount, explanation = detail_amount_usd(row, rate)
-            total_usd = round(total_usd + amount, 4)
+            total_usd = money_float(total_usd + amount)
             plans.append({
                 "row": row, "amount_usd": amount, "explanation": explanation,
                 "targets": [], "status": "", "reason": "",
@@ -1204,7 +1212,7 @@ def _distribute_deposits(
     )
     attach_employer_aliases(known_employers)
     tolerance_by_employer = {
-        employer.name: flt(employer.rounding_tolerance_usd, 4)
+        employer.name: money_float(employer.rounding_tolerance_usd)
         for employer in known_employers
     }
     employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
@@ -1249,7 +1257,7 @@ def _distribute_deposits(
                 source.match_status = "Sin coincidencia"
                 source.match_reason = source.allocation_reason
             continue
-        amount_usd = round(account_usd if account_usd is not None else bank_usd, 4)
+        amount_usd = money_float(account_usd if account_usd is not None else bank_usd)
         native_nio = (
             flt(account.amount) if account.currency == "NIO"
             else flt(bank.amount) if bank.currency == "NIO" else 0
@@ -1311,7 +1319,7 @@ def _distribute_deposits(
              "references": references, "hints": dict(hints_by_row[row.name]),
              "group": employer_by_period.get(row.parent),
              "period": row.parent,
-             "core_applied_usd": round(core_amount_by_row[row.name], 4),
+             "core_applied_usd": money_float(core_amount_by_row[row.name]),
              "application_ids": sorted(application_ids_by_row[row.name])}
         )
     for item in complementary_items:
@@ -1455,9 +1463,9 @@ def _distribute_deposits(
     result["rounding_movements"] = movements
     for movement in movements:
         deposit_id = movement["deposit_id"]
-        result["deposit_remaining"][deposit_id] = round(
+        result["deposit_remaining"][deposit_id] = money_float(
             result["deposit_remaining"][deposit_id]
-            - movement["consumed_residual_usd"], 4
+            - movement["consumed_residual_usd"]
         )
     manual_results.update(result["instruction_results"])
     cash_by_claim = defaultdict(float)
@@ -1472,10 +1480,10 @@ def _distribute_deposits(
             )
     for item in manual_allocations:
         deposit_id = registered_ids[item.name]
-        allocated = round(
-            flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd)), 4
+        allocated = money_float(
+            flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd))
         )
-        remaining = round(flt(item.amount_usd) - allocated, 4)
+        remaining = money_float(flt(item.amount_usd) - allocated)
         statuses = [manual_results.get(row.name, "Pendiente") for row in target_rows if row.parent == item.name]
         application_pending = any(
             entry["deposit_id"] == deposit_id
@@ -1544,8 +1552,8 @@ def _distribute_deposits(
             "origen": "Tolerancia automática",
         })
     for deposit_id, meta in deposit_meta.items():
-        assigned = round(assigned_by_deposit[deposit_id], 4)
-        remaining = round(result["deposit_remaining"][deposit_id], 4)
+        assigned = money_float(assigned_by_deposit[deposit_id])
+        remaining = money_float(result["deposit_remaining"][deposit_id])
         reason = _("Distribuido {0} US$; pendiente de distribuir {1} US$.").format(
             assigned, remaining
         )
@@ -1608,8 +1616,8 @@ def _classify_surplus(allocation, surplus_items):
             )
     for deposit_id, meta in meta_by_id.items():
         total = flt(allocation["deposit_remaining"][deposit_id])
-        company_credit = round(justified[deposit_id], 4)
-        unclassified = round(max(total - company_credit, 0), 4)
+        company_credit = money_float(justified[deposit_id])
+        unclassified = money_float(max(total - company_credit, 0))
         for source in (meta["account"], meta["bank"]):
             source.justified_surplus_usd = company_credit
             source.unclassified_usd = unclassified
@@ -1753,8 +1761,8 @@ def _sync_rounding_movements(movements, allocation, source_rows):
     for source_id, entries in detail_by_source.items():
         source = source_by_name.get(source_id)
         if source:
-            source.rounding_adjustment_usd = round(
-                sum(flt(entry["diferencia_usd"]) for entry in entries), 4
+            source.rounding_adjustment_usd = money_float(
+                sum(flt(entry["diferencia_usd"]) for entry in entries)
             )
             source.rounding_movement_detail = json.dumps(entries, ensure_ascii=False)
 
@@ -1784,7 +1792,7 @@ def _canonical_detail(value):
     if isinstance(value, list):
         return tuple(sorted((_canonical_detail(item) for item in value), key=repr))
     if isinstance(value, (float, int)) and not isinstance(value, bool):
-        return round(flt(value), 4)
+        return money_float(value)
     return value
 
 
@@ -1802,7 +1810,7 @@ def _operative_period_state(period):
     for row in period.collection_rows:
         rows.append((
             row.name,
-            tuple(round(flt(row.get(field)), 4) for field in _OPERATIVE_ROW_AMOUNTS),
+            tuple(money_float(row.get(field)) for field in _OPERATIVE_ROW_AMOUNTS),
             tuple(
                 _canonical_detail(row.get(field)) if field == "remittance_detail"
                 else str(row.get(field) or "")
@@ -1811,7 +1819,7 @@ def _operative_period_state(period):
         ))
     return (
         period.status,
-        tuple(round(flt(period.get(field)), 4) for field in _OPERATIVE_PERIOD_AMOUNTS),
+        tuple(money_float(period.get(field)) for field in _OPERATIVE_PERIOD_AMOUNTS),
         int(period.exception_count or 0),
         period.deduction_basis or "",
         period.deduction_recognition_deposit or "",
@@ -1853,7 +1861,7 @@ def _operative_links(periods, source_rows, registered_deposits, complementary_it
                 if period_name:
                     links[period_name].append((
                         "Aplicacion", source.get("name"), row_id,
-                        round(flt(detail.get("amount_usd")), 4),
+                        money_float(detail.get("amount_usd")),
                         clean_text(source.get("reference")),
                         clean_text(source.get("voucher")),
                         clean_text(source.get("accounting_entry")),
@@ -1877,7 +1885,7 @@ def _operative_links(periods, source_rows, registered_deposits, complementary_it
                     clean_text(source.get("voucher") or source.get("deposit_voucher")),
                     str(source.get("event_date") or source.get("deposit_date") or ""),
                     clean_text(source.get("currency") or source.get("deposit_currency")),
-                    round(flt(source.get("amount") or source.get("deposit_amount")), 4),
+                    money_float(source.get("amount") or source.get("deposit_amount")),
                     round(flt(source.get("fx_rate")), 8),
                 ))
     return {
@@ -1960,8 +1968,9 @@ def _rebuild_period_balances(
             flt(target.expected_nio) / flt(target.expected_usd)
             if flt(target.expected_usd) > AMOUNT_TOLERANCE else 0
         )
-        target.remitted_nio = flt(target.remitted_nio) + amount * (
-            deposit_rate or collection_rate
+        target.remitted_nio = money_float(
+            decimal_value(target.remitted_nio)
+            + decimal_value(amount) * decimal_value(deposit_rate or collection_rate)
         )
 
     for movement in allocation["rounding_movements"]:
@@ -1977,7 +1986,9 @@ def _rebuild_period_balances(
         rate = allocation["deposit_meta"][movement["deposit_id"]]["nio_per_usd"]
         if not rate and flt(target.expected_usd) > CASH_EPSILON:
             rate = flt(target.expected_nio) / flt(target.expected_usd)
-        target.remitted_nio = flt(target.remitted_nio) + consumed * rate
+        target.remitted_nio = money_float(
+            decimal_value(target.remitted_nio) + decimal_value(consumed) * decimal_value(rate)
+        )
         account = allocation["deposit_meta"][movement["deposit_id"]]["account"]
         detail_by_target[target.name].append({
             "referencia": account.reference,
@@ -2004,7 +2015,7 @@ def _rebuild_period_balances(
             and flt(target.remitted_usd) > AMOUNT_TOLERANCE
             and same_amount(target.remitted_nio, target.deducted_nio)
         ):
-            variance = round(deducted_usd - flt(target.remitted_usd), 4)
+            variance = money_float(deducted_usd - flt(target.remitted_usd))
             if abs(variance) > AMOUNT_TOLERANCE:
                 target.fx_variance_usd = variance
                 target.application_status = "Diferencia cambiaria en revision"
@@ -2094,10 +2105,10 @@ def _rebuild_period_balances(
             "{0} cobranza(s): {1} US$ deducidos, {2} US$ remitidos; {3} US$ aplicados al credito; ajuste de conciliación {4} US$."
         ).format(
             len(targets),
-            round(sum(_deducted_amount(target, "USD") for target in targets), 4),
-            round(sum(flt(target.remitted_usd) for target in targets), 4),
-            round(sum(flt(target.applied_usd) for target in targets), 4),
-            round(sum(flt(target.rounding_adjustment_usd) for target in targets), 4),
+            money_float(sum_money(_deducted_amount(target, "USD") for target in targets)),
+            money_float(sum_money(target.remitted_usd for target in targets)),
+            money_float(sum_money(target.applied_usd for target in targets)),
+            money_float(sum_money(target.rounding_adjustment_usd for target in targets)),
         )
         source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
 
@@ -2288,9 +2299,9 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
     apps_by_period = defaultdict(list)
     for application in applications.values():
         details = deposits_by_application[application.name]
-        remitted = round(sum(flt(item["importe_usd"]) for item in details), 4)
+        remitted = money_float(sum_money(item["importe_usd"] for item in details))
         applied = flt(application.amount)
-        adjustment = round(rounding_by_application[application.name], 4)
+        adjustment = money_float(rounding_by_application[application.name])
         application.historical_remitted_usd = remitted
         application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
         application.historical_detail = json.dumps(details, ensure_ascii=False)
@@ -2302,19 +2313,19 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         application.deposit_match_reason = _(
             "Histórico: {0} US$ aplicados al crédito; ajuste {1} US$; {2} US$ vinculados a depósitos; {3} US$ pendientes de evidencia de depósito."
         ).format(
-            round(applied, 4), adjustment, remitted, application.historical_balance_usd,
+            money_float(applied), adjustment, remitted, application.historical_balance_usd,
         )
         apps_by_period[application.historical_period].append(application)
 
     for period in historical_periods.values():
         related = apps_by_period[period.name]
-        applied = round(sum(flt(row.amount) for row in related), 4)
-        remitted = round(sum(flt(row.historical_remitted_usd) for row in related), 4)
-        adjustment = round(sum(rounding_by_application[row.name] for row in related), 4)
+        applied = money_float(sum_money(row.amount for row in related))
+        remitted = money_float(sum_money(row.historical_remitted_usd for row in related))
+        adjustment = money_float(sum_money(rounding_by_application[row.name] for row in related))
         fingerprint_data = [
             {
                 "application_id": row.name,
-                "amount_usd": round(flt(row.amount), 4),
+                "amount_usd": money_float(row.amount),
                 "deposits": sorted(
                     deposits_by_application[row.name],
                     key=lambda item: (
@@ -2376,11 +2387,17 @@ def _equivalent_amount(target, source, amount_usd):
         and flt(target.expected_usd) > AMOUNT_TOLERANCE
         and flt(target.expected_nio) > AMOUNT_TOLERANCE
     ):
-        return "NIO", amount_usd * flt(target.expected_nio) / flt(target.expected_usd)
+        return "NIO", money_float(
+            decimal_value(amount_usd) * decimal_value(target.expected_nio)
+            / decimal_value(target.expected_usd)
+        )
     if (
         source.currency == "NIO"
         and flt(target.expected_nio) > AMOUNT_TOLERANCE
         and flt(target.expected_usd) > AMOUNT_TOLERANCE
     ):
-        return "USD", amount_usd * flt(target.expected_usd) / flt(target.expected_nio)
+        return "USD", money_float(
+            decimal_value(amount_usd) * decimal_value(target.expected_usd)
+            / decimal_value(target.expected_nio)
+        )
     return None, 0

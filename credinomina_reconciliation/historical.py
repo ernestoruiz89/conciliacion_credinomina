@@ -11,7 +11,9 @@ from datetime import date, datetime
 from collections import defaultdict
 
 from credinomina_reconciliation.parsers import clean_text
-from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.rounding import (
+    MONEY_EPSILON, money, money_float,
+)
 
 HISTORICAL_START = date(2025, 4, 1)
 HISTORICAL_END = date(2026, 8, 31)
@@ -75,17 +77,17 @@ def is_historical_date(value) -> bool:
 
 
 def historical_balance(applied_usd, remitted_usd) -> float:
-    return round(max(float(applied_usd or 0) - float(remitted_usd or 0), 0), 4)
+    return money_float(max(money(applied_usd) - money(remitted_usd), 0))
 
 
 def historical_status(applied_usd, remitted_usd) -> str:
-    applied = float(applied_usd or 0)
-    remitted = float(remitted_usd or 0)
-    if applied <= CASH_EPSILON:
+    applied = money(applied_usd)
+    remitted = money(remitted_usd)
+    if applied <= MONEY_EPSILON:
         return "Historico pendiente"
-    if historical_balance(applied, remitted) <= CASH_EPSILON:
+    if max(applied - remitted, 0) <= MONEY_EPSILON:
         return "Historico conciliado"
-    if remitted > CASH_EPSILON:
+    if remitted > MONEY_EPSILON:
         return "Historico parcial"
     return "Historico pendiente"
 

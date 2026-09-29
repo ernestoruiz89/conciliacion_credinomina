@@ -1,6 +1,36 @@
 import unittest
+from decimal import Decimal
+from types import SimpleNamespace
 
-from credinomina_reconciliation.rounding import rounding_movements
+from credinomina_reconciliation.rounding import money, round_document_money, rounding_movements
+
+
+class MonetaryPrecisionTest(unittest.TestCase):
+    def test_half_up_uses_decimal_text_not_binary_float_round(self):
+        self.assertEqual(Decimal("1.01"), money(1.005))
+        self.assertEqual(Decimal("2.68"), money(2.675))
+        self.assertEqual(Decimal("-2.68"), money(-2.675))
+
+    def test_document_amounts_round_but_exchange_rates_do_not(self):
+        child = SimpleNamespace(
+            meta=SimpleNamespace(fields=[
+                SimpleNamespace(fieldname="amount", fieldtype="Currency", precision="2"),
+                SimpleNamespace(fieldname="fx_rate", fieldtype="Float", precision="8"),
+            ]),
+            amount=1.005, fx_rate=36.61012345,
+            get=lambda field: getattr(child, field),
+            set=lambda field, value: setattr(child, field, value),
+        )
+        parent = SimpleNamespace(
+            meta=SimpleNamespace(fields=[
+                SimpleNamespace(fieldname="items", fieldtype="Table"),
+            ]),
+            items=[child],
+            get=lambda field: getattr(parent, field),
+        )
+        round_document_money(parent)
+        self.assertEqual(1.01, child.amount)
+        self.assertEqual(36.61012345, child.fx_rate)
 
 
 class RoundingMovementTest(unittest.TestCase):

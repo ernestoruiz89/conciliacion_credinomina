@@ -1,4 +1,5 @@
 (function () {
+const MONEY_EPSILON = 0.005;
 frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     const page = frappe.ui.make_app_page({
         parent: wrapper,
@@ -127,11 +128,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Depósito / aplicación histórica") : __("Remitido / deducido"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
                             ${(period.rounding_movements || []).length ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
-                            ${Number(period.historical_pending_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
-                            ${Number(period.worker_gap_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("CxC empleados"))}: ${money(period.worker_gap_usd)}</span>` : ""}
-                            ${Number(period.employer_gap_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Sin remesa asignada"))}: ${money(period.employer_gap_usd)}</span>` : ""}
-                            ${Number(period.documented_credit_usd) > 0.00005 ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(period.documented_credit_usd)}</span>` : ""}
-                            ${Number(period.unclassified_deposit_usd) > 0.00005 ? `<span class="cn-cell-gap">${esc(__("Depósito sin asignar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
+                            ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
+                            ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("CxC empleados"))}: ${money(period.worker_gap_usd)}</span>` : ""}
+                            ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin remesa asignada"))}: ${money(period.employer_gap_usd)}</span>` : ""}
+                            ${Number(period.documented_credit_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(period.documented_credit_usd)}</span>` : ""}
+                            ${Number(period.unclassified_deposit_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Depósito sin asignar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
                         </button>`).join("")}
                     </td>`;
                 }).join("")}

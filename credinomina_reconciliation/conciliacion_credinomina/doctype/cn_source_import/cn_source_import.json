@@ -43,8 +43,8 @@
     {"fieldname": "matched_count", "fieldtype": "Int", "label": "Conciliadas", "read_only": 1},
     {"fieldname": "exception_count", "fieldtype": "Int", "label": "Excepciones", "read_only": 1},
     {"fieldname": "ignored_count", "fieldtype": "Int", "label": "Ignoradas", "read_only": 1},
-    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "usd_currency", "precision": "4", "read_only": 1},
-    {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "4", "read_only": 1},
+    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
+    {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "2", "read_only": 1},
     {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row"},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
   ],

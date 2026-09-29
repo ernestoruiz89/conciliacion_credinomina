@@ -45,7 +45,7 @@ from credinomina_reconciliation.reconciliation import (
     match_collection_record,
     remittance_fx_basis,
 )
-from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.rounding import CASH_EPSILON, decimal_value, money_float
 from credinomina_reconciliation.templates import DETAIL_HEADERS
 
 
@@ -379,7 +379,7 @@ def _recognition_candidates(period):
             "event_date": str(event_date),
             "currency": account.currency,
             "amount": flt(account.amount),
-            "amount_usd": round(usd, 4),
+            "amount_usd": money_float(usd),
             "account": account,
             "bank": bank,
         })
@@ -1448,7 +1448,10 @@ def _deduction_equivalents(row, response):
         and flt(row.expected_nio) > 0
         and flt(row.expected_usd) > 0
     ):
-        deducted_usd = deducted_nio * flt(row.expected_usd) / flt(row.expected_nio)
+        deducted_usd = money_float(
+            decimal_value(deducted_nio) * decimal_value(row.expected_usd)
+            / decimal_value(row.expected_nio)
+        )
         note = _(
             "El equivalente US$ se calculo con la relacion congelada del archivo de cobranza."
         )
@@ -1458,11 +1461,14 @@ def _deduction_equivalents(row, response):
         and flt(row.expected_usd) > 0
         and flt(row.expected_nio) > 0
     ):
-        deducted_nio = deducted_usd * flt(row.expected_nio) / flt(row.expected_usd)
+        deducted_nio = money_float(
+            decimal_value(deducted_usd) * decimal_value(row.expected_nio)
+            / decimal_value(row.expected_usd)
+        )
         note = _(
             "El equivalente C$ se calculo con la relacion congelada del archivo de cobranza."
         )
-    return round(deducted_usd, 4), round(deducted_nio, 4), note
+    return money_float(deducted_usd), money_float(deducted_nio), note
 
 
 def _retire_obsolete_deduction_exceptions(period_name, seen_names):

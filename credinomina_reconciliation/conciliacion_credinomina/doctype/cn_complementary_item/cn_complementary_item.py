@@ -3,22 +3,25 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 
+from credinomina_reconciliation.rounding import decimal_value, money, money_float
+
 
 class CNComplementaryItem(Document):
     def validate(self):
+        self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
-        if flt(self.amount) <= 0:
+        if money(self.amount) <= 0:
             frappe.throw(_("El importe complementario debe ser mayor que cero."))
         if self.currency == "NIO":
             if flt(self.fx_rate) <= 0 or not (self.fx_evidence or "").strip():
                 frappe.throw(
                     _("Para un asiento en C$ indique la tasa C$ por US$ y su fuente.")
                 )
-            self.amount_usd = round(flt(self.amount) / flt(self.fx_rate), 4)
+            self.amount_usd = money_float(decimal_value(self.amount) / decimal_value(self.fx_rate))
         else:
-            self.amount_usd = round(flt(self.amount), 4)
+            self.amount_usd = money_float(self.amount)
         duplicate = frappe.db.get_value(
             self.doctype,
             {
