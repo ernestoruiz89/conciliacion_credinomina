@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -13,17 +12,19 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 
 
 AMOUNT_TOLERANCE = 0.01
-_FX_SOURCE_IN_NOTES = re.compile(r"\b(?:tasa|tipo de cambio|tc|fx)\b", re.IGNORECASE)
-
-
 def remittance_fx_basis(remittance: Mapping[str, Any]) -> str:
-    """Require an explicit rate source in notes; an arbitrary attachment is not proof."""
+    """Use the entered positive remittance rate; a written source is optional."""
+    rate = decimal_value(remittance.get("fx_rate") or remittance.get("manual_fx_rate"))
+    if rate <= 0:
+        return ""
     support = clean_text(remittance.get("support_file"))
     notes = clean_text(remittance.get("notes"))
-    if not notes or not _FX_SOURCE_IN_NOTES.search(notes):
-        return ""
-    basis = f"Justificación de la remesa: {notes}"
-    return f"{basis}; soporte: {support}" if support else basis
+    basis = f"Tasa C$/US$ ingresada: {rate}"
+    if notes:
+        basis += f"; observación: {notes}"
+    if support:
+        basis += f"; soporte: {support}"
+    return basis
 
 
 def application_matches_collection(
@@ -117,9 +118,9 @@ def deposit_pair_result(
     if bank_in_account is not None:
         comparisons.append(same_exact_money(bank_in_account, accounting.get("amount")))
     if not comparisons:
-        return False, "Falta un tipo de cambio documentado para conciliar las monedas."
+        return False, "Falta un tipo de cambio para conciliar las monedas."
     if all(comparisons):
-        return True, "Referencia e importes equivalentes coinciden con tipo de cambio documentado."
+        return True, "Referencia e importes equivalentes coinciden tras convertir las monedas."
     return False, "Los importes convertidos o tipos de cambio no coinciden."
 
 
@@ -154,7 +155,7 @@ def settlement_result(
         if value is None:
             return {
                 "matched": False,
-                "reason": "Falta tipo de cambio documentado para expresar la aplicacion en US$.",
+                "reason": "Falta tipo de cambio para expresar la aplicacion en US$.",
             }
         applied_values.append(value)
     applied = sum_money(applied_values)
@@ -166,7 +167,7 @@ def settlement_result(
         if account_value is None and bank_value is None:
             return {
                 "matched": False,
-                "reason": "Falta tipo de cambio documentado para comparar deposito y aplicaciones.",
+                "reason": "Falta tipo de cambio para comparar deposito y aplicaciones.",
             }
         if (
             account_value is not None

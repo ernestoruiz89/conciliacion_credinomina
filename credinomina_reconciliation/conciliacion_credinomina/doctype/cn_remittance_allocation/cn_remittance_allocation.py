@@ -42,11 +42,8 @@ class CNRemittanceAllocation(Document):
         if money(self.deposit_amount) <= 0:
             frappe.throw(_("El importe del depósito debe ser mayor que cero."))
         if self.deposit_currency == "NIO":
-            if flt(self.fx_rate) <= 0 or not remittance_fx_basis(self):
-                frappe.throw(_(
-                    "Para un depósito en C$ indique la tasa C$/US$ y escriba "
-                    "su fuente en Justificación; el soporte adjunto es complementario."
-                ))
+            if flt(self.fx_rate) <= 0:
+                frappe.throw(_("Para un depósito en C$ indique la tasa C$/US$."))
             equivalent = money_float(decimal_value(self.deposit_amount) / decimal_value(self.fx_rate))
         elif self.deposit_currency == "USD":
             equivalent = money_float(self.deposit_amount)

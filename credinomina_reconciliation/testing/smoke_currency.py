@@ -39,14 +39,12 @@ def run():
     deposit.validate()
     if round(deposit.amount_usd, 4) != 100:
         raise AssertionError({"converted_usd": deposit.amount_usd})
+    deposit.notes = ""
+    deposit.amount_usd = 999
+    deposit.validate()
+    if round(deposit.amount_usd, 4) != 100:
+        raise AssertionError("La conversión exigió una justificación escrita de la tasa.")
     deposit.notes = "Validación sin guardar."
-    try:
-        deposit.validate()
-    except frappe.ValidationError:
-        pass
-    else:
-        raise AssertionError("Un depósito C$ sin fuente de tasa documentada fue aceptado.")
-    deposit.notes = "Tasa según comprobante bancario del ensayo."
     deposit.fx_rate = 73
     deposit.amount_usd = 999
     deposit.validate()

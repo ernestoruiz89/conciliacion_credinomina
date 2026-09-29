@@ -34,7 +34,7 @@ def recognition_reason(
     account_usd = converted_amount(accounting, "USD")
     bank_usd = converted_amount(bank, "USD")
     if account_usd is None and bank_usd is None:
-        return "Falta tipo de cambio documentado para expresar el depósito en US$."
+        return "Falta tipo de cambio para expresar el depósito en US$."
     if account_usd is not None and bank_usd is not None and not same_exact_money(account_usd, bank_usd):
         return "Los equivalentes en US$ del depósito difieren."
     expected_usd = sum(float(row.get("expected_usd") or 0) for row in rows)

@@ -1240,7 +1240,7 @@ def _distribute_deposits(
         bank_usd = converted_amount(bank.as_dict(), "USD")
         if account_usd is None and bank_usd is None:
             account.allocation_reason = bank.allocation_reason = _(
-                "Falta tipo de cambio documentado para distribuir el deposito."
+                "Falta tipo de cambio para distribuir el deposito."
             )
             for source in (account, bank):
                 source.match_status = "Sin coincidencia"

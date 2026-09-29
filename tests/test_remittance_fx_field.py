@@ -1,4 +1,4 @@
-"""The remittance FX source is explicit in notes, not inferred from any attachment."""
+"""A remittance rate is usable without a written source justification."""
 
 import json
 import unittest
@@ -28,19 +28,31 @@ class RemittanceFxFieldTest(unittest.TestCase):
             "fx_evidence", {field["fieldname"] for field in metadata["fields"]}
         )
 
-    def test_source_must_be_explicit_in_notes(self):
-        self.assertEqual("", remittance_fx_basis({"notes": "Pago de mayo"}))
-        self.assertIn("Tasa", remittance_fx_basis({
-            "notes": "Tasa según convenio empresarial del 1 de mayo"
+    def test_positive_rate_is_usable_without_justification(self):
+        self.assertIn("36.5", remittance_fx_basis({"fx_rate": 36.5}))
+        self.assertIn("36.5", remittance_fx_basis({
+            "fx_rate": 36.5, "notes": "Pago de mayo",
         }))
+        self.assertEqual("", remittance_fx_basis({"notes": "Tasa del convenio"}))
         self.assertEqual("", remittance_fx_basis({
             "support_file": "/private/files/comprobante.pdf",
-            "notes": "Pago de mayo",
         }))
-        self.assertIn("/private/files/", remittance_fx_basis({
-            "support_file": "/private/files/comprobante.pdf",
-            "notes": "Tasa según convenio empresarial del 1 de mayo",
-        }))
+
+    def test_nio_deposit_only_requires_a_positive_rate(self):
+        source = (
+            ROOT / "credinomina_reconciliation" / "conciliacion_credinomina"
+            / "doctype" / "cn_remittance_allocation"
+            / "cn_remittance_allocation.py"
+        ).read_text(encoding="utf-8")
+        metadata = json.loads((
+            ROOT / "credinomina_reconciliation" / "conciliacion_credinomina"
+            / "doctype" / "cn_remittance_allocation"
+            / "cn_remittance_allocation.json"
+        ).read_text(encoding="utf-8"))
+        self.assertIn('if flt(self.fx_rate) <= 0:', source)
+        self.assertNotIn("not remittance_fx_basis(self)", source)
+        notes = next(field for field in metadata["fields"] if field["fieldname"] == "notes")
+        self.assertFalse(notes.get("reqd"))
 
     def test_old_evidence_is_appended_once_to_notes(self):
         rows = [SimpleNamespace(
