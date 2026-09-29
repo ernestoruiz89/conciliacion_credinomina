@@ -16,6 +16,12 @@ from credinomina_reconciliation.rounding import (
 )
 
 
+@frappe.whitelist()
+def get_pending_targets(remittance_name, targets=None):
+    from credinomina_reconciliation.remittance_selection import get_pending_targets as load
+    return load(remittance_name, targets)
+
+
 class CNRemittanceAllocation(Document):
     def validate(self):
         self.deposit_reference = clean_text(self.deposit_reference)
@@ -281,7 +287,6 @@ def import_remittance_detail(remittance_name: str):
                 "source_row", "row_key", "client_number", "employee_number", "client_name",
                 "national_id", "loan_number", "installment_number",
                 "application_reference", "comments", "application_comment",
-                "expected_usd", "expected_nio",
                 "deducted_usd", "deducted_nio",
             )
         } | {

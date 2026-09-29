@@ -7,11 +7,19 @@ from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 
 
 class CNClient(Document):
+    def before_naming(self):
+        self.client_number = clean_text(self.client_number)
+
     def validate(self):
         self.client_name = clean_text(self.client_name)
         self.client_number = clean_text(self.client_number)
         self.employee_number = clean_text(self.employee_number)
         self.national_id = clean_text(self.national_id)
+        if not self.client_number:
+            frappe.throw(_("Indique el número de cliente; será el nombre del documento."))
+        previous = self.get_doc_before_save()
+        if previous and previous.name == previous.client_number and self.name != self.client_number:
+            frappe.throw(_("Para cambiar el número de cliente, use Renombrar."))
         if not self.employer:
             frappe.throw(_("Seleccione la empresa de convenio del cliente."))
         if not self.client_name:
@@ -51,3 +59,18 @@ class CNClient(Document):
             if not key or key in seen:
                 frappe.throw(_("Los alias deben ser nombres distintos y no vacíos."))
             seen.add(key)
+
+    def before_rename(self, old, new, merge=False):
+        if merge:
+            frappe.throw(_("No se pueden fusionar clientes Credinómina."))
+        new = clean_text(new)
+        if not new:
+            frappe.throw(_("Indique el número de cliente."))
+        for row in frappe.get_all("CN Client", fields=["name", "client_number"], limit_page_length=0):
+            if row.name != old and canonical_identifier(row.client_number) == canonical_identifier(new):
+                frappe.throw(_("Ya existe otro cliente con este número de cliente."))
+        return new
+
+    def after_rename(self, old, new, merge=False):
+        frappe.db.set_value(self.doctype, new, "client_number", new, update_modified=False)
+        self.client_number = new

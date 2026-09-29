@@ -47,6 +47,8 @@ class ClientIndex:
         if reason.startswith("Conflicto") or reason.startswith("Nombre ambiguo"):
             frappe.throw(_("Fila {0}: {1}.").format(record.get("source_row"), reason))
         if client is None:
+            if not clean_text(record.get("client_number")):
+                return ""  # Keep the collection row; never invent a core client number.
             document = frappe.get_doc({
                 "doctype": "CN Client",
                 "employer": employer,
@@ -163,6 +165,8 @@ class ClientIndex:
 
         if not candidate["client_name"]:
             return "", "No creado: falta nombre de cliente"
+        if not candidate["client_number"]:
+            return "", "No creado: falta número de cliente"
 
         document = frappe.get_doc({
             "doctype": "CN Client",
@@ -268,6 +272,9 @@ class ClientIndex:
                 if changed:
                     document.save(ignore_permissions=True)
             return client["name"], "Cliente existente"
+
+        if not candidate["client_number"]:
+            return "", "No creado: falta número de cliente en cartera"
 
         document = frappe.get_doc({
             "doctype": "CN Client",

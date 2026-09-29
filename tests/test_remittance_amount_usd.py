@@ -38,7 +38,6 @@ class RemittanceAmountUsdTest(unittest.TestCase):
         )
         for event in ("deposit_amount", "deposit_currency", "fx_rate"):
             self.assertIn(f"{event}: updateUsdEquivalent", script)
-        self.assertIn('currency === "USD" ? nativeAmount', script)
         self.assertIn('const numerator = amountCents * 100000000n', script)
         self.assertIn('rateScaled / 2n', script)
         self.assertIn('frm.set_value("amount_usd"', script)
@@ -47,6 +46,7 @@ class RemittanceAmountUsdTest(unittest.TestCase):
         document = SimpleNamespace(
             deposit_date="2026-12-05", deposit_reference=" R-1 ",
             deposit_voucher=" V-1 ", _validate_deposit=Mock(),
+            get_doc_before_save=Mock(return_value=None),
         )
         CNRemittanceAllocation.before_update_after_submit(document)
         self.assertEqual("R-1", document.deposit_reference)

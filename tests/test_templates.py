@@ -57,7 +57,8 @@ class TemplateTests(unittest.TestCase):
         sheet = workbook.active
         self.assertEqual(tuple(cell.value for cell in sheet[1]), DETAIL_HEADERS)
         self.assertEqual(sheet["C2"].value, "ANA PÉREZ")
-        self.assertEqual(sheet["O2"].value, "FILA-1")
+        headers = [cell.value for cell in sheet[1]]
+        self.assertEqual(sheet.cell(2, headers.index("Fila ID") + 1).value, "FILA-1")
         self.assertIsNone(sheet["M2"].value)
         self.assertIsNone(sheet["N2"].value)
         sheet["N2"] = 46.52
@@ -126,7 +127,8 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(response.type, "download")
         self.assertEqual(response.filename, "plantilla_detalle_deposito.xlsx")
         sheet = load_workbook(io.BytesIO(response.filecontent)).active
-        self.assertEqual(sheet["O2"].value, "FILA-1")
+        headers = [cell.value for cell in sheet[1]]
+        self.assertEqual(sheet.cell(2, headers.index("Fila ID") + 1).value, "FILA-1")
 
 
 if __name__ == "__main__":

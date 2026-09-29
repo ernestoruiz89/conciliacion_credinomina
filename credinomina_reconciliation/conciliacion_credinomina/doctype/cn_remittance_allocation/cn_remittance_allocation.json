@@ -4,7 +4,7 @@
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["naming_series", "usd_currency", "employer", "bank_account", "deposit_reference", "deposit_voucher", "deposit_date", "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "support_file", "detail_file", "detail_imported_on", "detail_period", "detail_hash", "detail_source_file", "detail_count", "detail_total_usd", "detail_status", "detail_rows", "targets", "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd", "result", "notes", "allocation_detail", "inherited_exception_comment"],
+  "field_order": ["naming_series", "usd_currency", "employer", "bank_account", "deposit_reference", "deposit_voucher", "deposit_date", "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "support_file", "detail_file", "detail_imported_on", "detail_period", "detail_hash", "detail_source_file", "detail_count", "detail_total_usd", "detail_status", "detail_rows", "select_pending_targets", "targets", "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd", "result", "notes", "allocation_detail", "inherited_exception_comment"],
   "fields": [
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda de conciliación", "read_only": 1},
     {"default": "CN-ALLOC-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-ALLOC-.YYYY.-.#####", "reqd": 1},
@@ -26,7 +26,8 @@
     {"fieldname": "detail_total_usd", "fieldtype": "Currency", "label": "Total identificado US$", "options": "usd_currency", "precision": "2", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "detail_status", "fieldtype": "Data", "label": "Estado del detalle", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "detail_rows", "fieldtype": "Table", "label": "Pagos por cliente", "options": "CN Remittance Detail", "read_only": 1, "allow_on_submit": 1},
-    {"fieldname": "targets", "fieldtype": "Table", "label": "Destinos del depósito", "options": "CN Remittance Target", "allow_on_submit": 1, "description": "Opcional al registrar el depósito. Puede agregar destinos cuando llegue la aplicación, aun en otro mes."},
+    {"fieldname": "select_pending_targets", "fieldtype": "Button", "label": "Seleccionar partidas pendientes", "allow_on_submit": 1},
+    {"fieldname": "targets", "fieldtype": "Table", "label": "Destinos del depósito", "options": "CN Remittance Target", "allow_on_submit": 1, "description": "Use Seleccionar partidas pendientes para buscar clientes y distribuir importes parciales o de varios períodos. Agregar destinos no confirma ni concilia el depósito."},
     {"fieldname": "allocated_usd", "fieldtype": "Currency", "label": "Distribuido US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "unallocated_usd", "fieldtype": "Currency", "label": "Sin distribuir US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "justified_surplus_usd", "fieldtype": "Currency", "label": "Saldo a favor documentado US$", "options": "usd_currency", "precision": "2", "read_only": 1},

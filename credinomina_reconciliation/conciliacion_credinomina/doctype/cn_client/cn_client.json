@@ -1,21 +1,21 @@
 {
   "actions": [],
-  "autoname": "naming_series:",
+  "autoname": "field:client_number",
+  "allow_rename": 1,
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["naming_series", "employer", "client_name", "client_number", "employee_number", "national_id", "aliases"],
+  "field_order": ["client_number", "employer", "client_name", "employee_number", "national_id", "aliases"],
   "fields": [
-    {"fieldname": "naming_series", "fieldtype": "Select", "options": "CN-CLIENT-.#####", "default": "CN-CLIENT-.#####", "hidden": 1, "reqd": 1, "label": "Serie"},
     {"fieldname": "employer", "fieldtype": "Link", "options": "CN Employer", "label": "Empresa de convenio", "reqd": 1, "in_list_view": 1},
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "reqd": 1, "in_list_view": 1},
-    {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "in_list_view": 1},
+    {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "reqd": 1, "in_list_view": 1, "description": "Identificador único del cliente y nombre del documento. Para corregirlo después de crear el cliente, use Renombrar."},
     {"fieldname": "employee_number", "fieldtype": "Data", "label": "Nro. Empleado", "in_list_view": 1, "description": "Identificador interno de la empresa; distinto del número de cliente y único dentro de esa empresa."},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Cédula", "in_list_view": 1},
     {"fieldname": "aliases", "fieldtype": "Table", "label": "Nombres alternativos", "options": "CN Client Alias", "description": "Use las variantes verificadas de nombre de las planillas. Los parecidos no se concilian automáticamente."}
   ],
   "module": "Conciliacion Credinomina",
   "name": "CN Client",
-  "naming_rule": "By naming series",
+  "naming_rule": "By fieldname",
   "permissions": [
     {"create": 1, "delete": 1, "read": 1, "write": 1, "role": "System Manager"},
     {"create": 1, "read": 1, "write": 1, "role": "Supervisor Credinomina"},

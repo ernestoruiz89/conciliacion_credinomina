@@ -47,6 +47,8 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.ensure_client_workspace_link",
                 "credinomina_reconciliation.patches.v1_0.backfill_credit_portfolio_source_columns",
                 "credinomina_reconciliation.patches.v1_0.backfill_source_import_clients",
+                "credinomina_reconciliation.patches.v1_0.rename_cn_clients_by_number",
+                "credinomina_reconciliation.patches.v1_0.rename_cn_bank_accounts_by_name",
                 "credinomina_reconciliation.patches.v1_0.round_existing_money_to_cents",
             ],
             list(patches["post_model_sync"]),

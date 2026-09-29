@@ -30,10 +30,19 @@ DETAIL_HEADERS = (
     COLLECTION_HEADERS[-1],
 )
 
+_DEPOSIT_OMITTED_HEADERS = {
+    "Nro. de cuotas totales",
+    "Monto de la cuota en US$",
+    "Monto de la cuota en C$",
+}
+DEPOSIT_HEADERS = tuple(
+    header for header in DETAIL_HEADERS if header not in _DEPOSIT_OMITTED_HEADERS
+)
+
 TEMPLATE_TYPES = {
     "cobranza": ("Cobranza", COLLECTION_HEADERS, "plantilla_cobranza.xlsx"),
     "empresa": ("Detalle empresa", DETAIL_HEADERS, "plantilla_detalle_empresa.xlsx"),
-    "deposito": ("Detalle depósito", DETAIL_HEADERS, "plantilla_detalle_deposito.xlsx"),
+    "deposito": ("Detalle depósito", DEPOSIT_HEADERS, "plantilla_detalle_deposito.xlsx"),
 }
 
 _ROW_FIELDS = (
@@ -62,6 +71,12 @@ _HEADER_NOTES = {
 
 _COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 22, 24, 24, 32, 27, 32, 19, 19, 28)
 _TEXT_COLUMNS = (1, 2, 4, 5, 6, 7, 11)
+_DEPOSIT_ROW_FIELDS = tuple(
+    field for field in _ROW_FIELDS
+    if field not in {"total_installments", "expected_usd", "expected_nio"}
+)
+_DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 32, 27, 32, 19, 19, 19)
+_DEPOSIT_TEXT_COLUMNS = (1, 2, 4, 5, 6, 8, 12)
 
 
 def build_template_xlsx(
@@ -77,6 +92,9 @@ def build_template_xlsx(
     from openpyxl.utils import get_column_letter
 
     sheet_name, headers, _filename = TEMPLATE_TYPES[template_type]
+    row_fields = _DEPOSIT_ROW_FIELDS if template_type == "deposito" else _ROW_FIELDS
+    column_widths = _DEPOSIT_COLUMN_WIDTHS if template_type == "deposito" else _COLUMN_WIDTHS
+    text_columns = _DEPOSIT_TEXT_COLUMNS if template_type == "deposito" else _TEXT_COLUMNS
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = sheet_name
@@ -86,15 +104,15 @@ def build_template_xlsx(
         cell.fill = PatternFill("solid", fgColor="1F4E78")
         cell.alignment = Alignment(vertical="center", wrap_text=True)
         cell.comment = Comment(_HEADER_NOTES[cell.value], "Credinómina")
-        sheet.column_dimensions[cell.column_letter].width = _COLUMN_WIDTHS[cell.column - 1]
+        sheet.column_dimensions[cell.column_letter].width = column_widths[cell.column - 1]
     sheet.row_dimensions[1].height = 34
 
     if template_type != "cobranza":
         for row in collection_rows:
-            values = [row.get(field) for field in _ROW_FIELDS]
+            values = [row.get(field) for field in row_fields]
             sheet.append([*values, None, None, row.get("row_key")])
 
-    for column in (*_TEXT_COLUMNS, len(headers)):
+    for column in (*text_columns, len(headers)):
         sheet.column_dimensions[get_column_letter(column)].number_format = "@"
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(2, sheet.max_row)}"
