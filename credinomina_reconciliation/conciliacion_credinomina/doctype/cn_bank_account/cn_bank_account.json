@@ -1,0 +1,37 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "naming_series:",
+  "creation": "2026-09-29 00:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": ["naming_series", "account_name", "bank_name", "account_number", "currency", "active", "notes"],
+  "fields": [
+    {"default": "CN-CTA-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-CTA-.#####", "reqd": 1},
+    {"fieldname": "account_name", "fieldtype": "Data", "in_list_view": 1, "label": "Nombre de la cuenta", "reqd": 1},
+    {"fieldname": "bank_name", "fieldtype": "Data", "in_list_view": 1, "label": "Banco", "reqd": 1},
+    {"fieldname": "account_number", "fieldtype": "Data", "in_list_view": 1, "label": "Número de cuenta", "reqd": 1},
+    {"default": "USD", "fieldname": "currency", "fieldtype": "Select", "in_list_view": 1, "label": "Moneda", "options": "USD\nNIO", "reqd": 1},
+    {"default": "1", "fieldname": "active", "fieldtype": "Check", "in_list_view": 1, "label": "Activa"},
+    {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2026-09-29 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Bank Account",
+  "naming_rule": "By naming series",
+  "owner": "Administrator",
+  "permissions": [
+    {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
+    {"create": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "write": 1},
+    {"read": 1, "role": "Operador Credinomina"}
+  ],
+  "search_fields": "account_name,bank_name,account_number",
+  "sort_field": "account_name",
+  "sort_order": "ASC",
+  "states": [],
+  "title_field": "account_name",
+  "track_changes": 1
+}

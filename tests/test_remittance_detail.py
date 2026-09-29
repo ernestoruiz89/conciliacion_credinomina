@@ -64,6 +64,60 @@ class RemittanceDetailTests(unittest.TestCase):
         targets, _ = suggest_detail_targets(row, [claim(1)], 1, "Empresa A")
         self.assertEqual(targets, [])
 
+    def test_name_only_uses_normalized_name_and_reports_fallback(self):
+        row = {"client_name": "PEREZ ANA", "loan_number": "", "client_number": ""}
+        destination = claim(1)
+        destination["client_name"] = "ANA PEREZ"
+        targets, reason = suggest_detail_targets(row, [destination], 1, "Empresa A")
+        self.assertEqual(targets[0]["claim_id"], "H:1")
+        self.assertIn("nombre/alias", reason)
+
+    def test_name_fallback_never_overrides_a_conflicting_credit_number(self):
+        row = {"client_name": "ANA PEREZ", "loan_number": "OTHER-LOAN"}
+        targets, _reason = suggest_detail_targets(row, [claim(1)], 1, "Empresa A")
+        self.assertEqual(targets, [])
+
+    def test_name_only_uses_registered_alias_for_linked_client(self):
+        row = {"client_name": "ANA M. PEREZ", "client": "CLIENT-1"}
+        destination = claim(1)
+        destination.update({
+            "client": "CLIENT-1", "client_name": "ANA MARIA PEREZ",
+            "client_names": ["ANA MARIA PEREZ", "ANA M. PEREZ"],
+        })
+        targets, reason = suggest_detail_targets(row, [destination], 1, "Empresa A")
+        self.assertEqual(targets[0]["claim_id"], "H:1")
+        self.assertIn("nombre/alias", reason)
+
+    def test_name_only_can_cover_multiple_applications_for_one_client(self):
+        first = claim(1, amount=40)
+        second = claim(2, amount=60)
+        for destination in (first, second):
+            destination.update({
+                "client": "CLIENT-1",
+                "client_name": "ANA MARIA PEREZ",
+                "client_number": "1",
+                "client_names": ["ANA MARIA PEREZ", "ANA M. PEREZ"],
+            })
+        targets, reason = suggest_detail_targets(
+            {"client_name": "ANA M. PEREZ"},
+            [first, second], 100, "Empresa A",
+        )
+        self.assertEqual(
+            {target["claim_id"] for target in targets}, {"H:1", "H:2"},
+        )
+        self.assertIn("nombre/alias", reason)
+
+    def test_name_only_does_not_choose_between_clients_with_same_name(self):
+        first = claim(1, amount=40)
+        second = claim(2, amount=60)
+        first["client_name"] = second["client_name"] = "ANA PEREZ"
+        targets, reason = suggest_detail_targets(
+            {"client_name": "ANA PEREZ"},
+            [first, second], 100, "Empresa A",
+        )
+        self.assertEqual(targets, [])
+        self.assertIn("Nombre compartido", reason)
+
     def test_employee_number_identifies_client_within_company(self):
         destination = claim(1)
         destination["employee_number"] = "E-7"

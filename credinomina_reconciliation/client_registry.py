@@ -154,8 +154,18 @@ class ClientIndex:
 
 def names_for_claim(claim, clients, employer=""):
     """Return verified names for a claim, or its own source name if unknown."""
-    found, reason = choose_client(claim, clients, employer)
     names = [clean_text(claim.get("client_name"))]
-    if found and reason in {"Identificador exacto", "Nombre o alias único"}:
+    linked_name = claim.get("client") or claim.get("portfolio_client")
+    found = next(
+        (row for row in clients if linked_name and row.get("name") == linked_name),
+        None,
+    )
+    if found and employer and clean_text(found.get("employer")) != clean_text(employer):
+        found = None
+    if found:
         names.extend([found["client_name"], *(found.get("client_aliases") or ())])
+    else:
+        found, reason = choose_client(claim, clients, employer)
+        if found and reason in {"Identificador exacto", "Nombre o alias único"}:
+            names.extend([found["client_name"], *(found.get("client_aliases") or ())])
     return [name for name in dict.fromkeys(names) if name]

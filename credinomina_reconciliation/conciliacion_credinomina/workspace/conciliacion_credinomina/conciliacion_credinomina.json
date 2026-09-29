@@ -67,7 +67,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "Conciliación de remesas",
-      "link_count": 4,
+      "link_count": 5,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -88,6 +88,16 @@
       "label": "Distribuciones de remesas",
       "link_count": 0,
       "link_to": "CN Remittance Allocation",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Cuentas bancarias",
+      "link_count": 0,
+      "link_to": "CN Bank Account",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
@@ -186,7 +196,7 @@
       "type": "Link"
     }
   ],
-  "modified": "2026-09-28 16:06:31.000000",
+  "modified": "2026-09-29 00:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",

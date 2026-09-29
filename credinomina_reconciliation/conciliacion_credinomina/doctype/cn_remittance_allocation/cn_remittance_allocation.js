@@ -1,4 +1,7 @@
 frappe.ui.form.on("CN Remittance Allocation", {
+    setup(frm) {
+        frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
+    },
     refresh(frm) {
         showDepositStage(frm);
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => {

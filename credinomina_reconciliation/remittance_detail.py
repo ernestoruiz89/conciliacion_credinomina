@@ -40,13 +40,14 @@ def _same_id(left: Any, right: Any) -> bool:
 def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
     if row.get("client") and claim.get("client") and row["client"] != claim["client"]:
         return False
-    loan = row.get("loan_number")
-    client = row.get("client_number")
-    employee = row.get("employee_number")
-    national_id = row.get("national_id")
+    loan = clean_text(row.get("loan_number"))
+    client = clean_text(row.get("client_number"))
+    employee = clean_text(row.get("employee_number"))
+    national_id = clean_text(row.get("national_id"))
+    has_identifier = any((loan, client, employee, national_id))
     if loan and not _same_id(loan, claim.get("loan_number")):
         return False
-    if not loan and not (client or employee or national_id or row.get("client_name")):
+    if not has_identifier and not clean_text(row.get("client_name")):
         return False
     identity_match = False
     if client and claim.get("client_number"):
@@ -65,7 +66,10 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
         not loan or claim.get("client_number") or claim.get("employee_number") or claim.get("national_id")
     ):
         return False
-    if not any((loan, client, employee, national_id)) and not matching_name(
+    # Company details often contain only the employee's name. Use an exact
+    # normalized name or registered alias in that case, but never override a
+    # conflicting credit/client identifier with a name match.
+    if not has_identifier and not matching_name(
         row.get("client_name"), {
             "client_name": claim.get("client_name"),
             "client_aliases": claim.get("client_names") or (),
@@ -96,6 +100,9 @@ def suggest_detail_targets(
         if clean_text(claim.get("group")) == clean_text(employer)
         and (not period or clean_text(claim.get("period")) == clean_text(period))
     ]
+    name_only = not any(clean_text(row.get(field)) for field in (
+        "loan_number", "client_number", "employee_number", "national_id",
+    ))
     row_key = clean_text(row.get("row_key"))
     if row_key:
         keyed = [
@@ -110,7 +117,10 @@ def suggest_detail_targets(
             claims = keyed + [claim for claim in claims if claim.get("kind") == "X"]
     matches = [claim for claim in claims if _candidate_matches(row, claim)]
     if not matches:
-        return [], "Sin aplicación o cobranza identificable"
+        return [], (
+            "Sin coincidencia exacta por nombre/alias"
+            if name_only else "Sin aplicación o cobranza identificable"
+        )
     if len(matches) == 1:
         claim = matches[0]
         identity_note = (
@@ -132,7 +142,8 @@ def suggest_detail_targets(
                 "claim_id": claim["id"],
                 "amount_usd": money_float(claim["amount_usd"]),
             }], "Coincidencia única con diferencia de tolerancia" + identity_note
-        return [{"claim_id": claim["id"], "amount_usd": money_float(amount_usd)}], "Coincidencia única" + identity_note
+        reason = "Coincidencia única por nombre/alias" if name_only else "Coincidencia única"
+        return [{"claim_id": claim["id"], "amount_usd": money_float(amount_usd)}], reason + identity_note
     kinds = {claim.get("kind") for claim in matches}
     if "C" in kinds and "H" in kinds:
         return [], "Coincidencia entre histórico y operativo: seleccione período"
@@ -151,4 +162,7 @@ def suggest_detail_targets(
     return [
         {"claim_id": claim["id"], "amount_usd": money_float(claim["amount_usd"])}
         for claim in matches
-    ], "Varias aplicaciones cubiertas íntegramente"
+    ], (
+        "Varias aplicaciones cubiertas íntegramente por nombre/alias"
+        if name_only else "Varias aplicaciones cubiertas íntegramente"
+    )

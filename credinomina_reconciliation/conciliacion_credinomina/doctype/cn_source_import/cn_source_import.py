@@ -1338,6 +1338,7 @@ def _distribute_deposits(
                 "id": "H:" + application.name,
                 "amount_usd": flt(application.amount),
                 "kind": "H", "client_number": application.client_number,
+                "client": application.portfolio_client,
                 "employee_number": application.employee_number,
                 "national_id": application.national_id,
                 "client_name": application.client_name,
