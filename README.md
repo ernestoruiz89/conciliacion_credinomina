@@ -125,8 +125,11 @@ disponible la página `/app/control-credinomina`.
 1. **Corte de cartera (opcional, recomendado).** En **Cortes mensuales de
    cartera**, cree un registro, adjunte el reporte mensual del core y pulse
    **Importar / actualizar corte**. El sistema detecta `FECHA_REPORTE`, conserva
-   todas las columnas originales de cada fila y muestra créditos, clientes y
-   empresas identificados o por revisar. `Corriente` y `Vencido` se consideran
+   las 100 columnas del reporte en campos individuales de cada fila de
+   `CN Credit Portfolio Row`; así están disponibles para reportes de consulta y
+   tableros personalizados. También conserva un respaldo JSON de los valores
+   originales. Muestra créditos, clientes y empresas identificados o por revisar.
+   `Corriente` y `Vencido` se consideran
    activos; `Saneado` se conserva como estado distinto y no se presume
    cancelado. La carga no crea clientes ni bloquea movimientos por una alerta.
 2. **Cobranza.** Cree un período operativo para la empresa y el corte mensual

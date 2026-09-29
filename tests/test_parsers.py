@@ -1,10 +1,13 @@
 import io
+import json
 import unittest
+from pathlib import Path
 
 from openpyxl import Workbook
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.parsers import (
+    PORTFOLIO_SOURCE_FIELDS,
     SOURCE_ACCOUNTING,
     SourceFileError,
     apply_accounting_currency_override,
@@ -12,6 +15,7 @@ from credinomina_reconciliation.parsers import (
     parse_collection_file,
     parse_credit_portfolio,
     parse_source_file,
+    portfolio_source_values_from_raw_data,
 )
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
@@ -128,6 +132,50 @@ class CollectionParserTest(unittest.TestCase):
 
 
 class SourceParserTest(unittest.TestCase):
+    def test_portfolio_source_columns_are_queryable_and_typed(self):
+        records = parse_credit_portfolio(
+            "cartera.xlsx",
+            workbook_bytes([
+                [
+                    "FECHA_REPORTE", "FECHA_DESEMBOLSO", "NO_CREDITO",
+                    "NOMBRE_CLIENTE", "SALDO_PRINCIPAL", "MONTO_GARANTIA HIPOTECARIA",
+                    "DIRECC_DOMICILIO",
+                ],
+                ["2026-08-31", "2026-07-15", "109136", "Cliente A", 1250.75, 3000, "Barrio Centro"],
+            ]),
+        )
+        record = records[0]
+
+        self.assertEqual("2026-08-31", record["fecha_reporte"].isoformat())
+        self.assertEqual("2026-07-15", record["fecha_desembolso"].isoformat())
+        self.assertEqual("109136", record["no_credito"])
+        self.assertEqual("109136-1", record["credit_number"])
+        self.assertEqual(1250.75, record["saldo_principal"])
+        self.assertEqual(3000, record["monto_garantia_hipotecaria"])
+        self.assertEqual("Barrio Centro", record["direcc_domicilio"])
+        self.assertIn('"NO_CREDITO": "109136"', record["raw_data"])
+
+    def test_existing_portfolio_json_migrates_to_source_column_values(self):
+        values = portfolio_source_values_from_raw_data({
+            "FECHA_REPORTE": "2026-08-31T00:00:00",
+            "SALDO_PRINCIPAL": 1250.75,
+            "NO_CREDITO": "109136",
+        })
+        self.assertEqual("2026-08-31", values["fecha_reporte"].isoformat())
+        self.assertEqual(1250.75, values["saldo_principal"])
+        self.assertEqual("109136", values["no_credito"])
+
+    def test_all_portfolio_source_columns_exist_in_child_doctype(self):
+        metadata_path = (
+            Path(__file__).resolve().parents[1]
+            / "credinomina_reconciliation" / "conciliacion_credinomina"
+            / "doctype" / "cn_credit_portfolio_row" / "cn_credit_portfolio_row.json"
+        )
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        doctype_fields = {field["fieldname"] for field in metadata["fields"]}
+        self.assertEqual(100, len(PORTFOLIO_SOURCE_FIELDS))
+        self.assertTrue(set(PORTFOLIO_SOURCE_FIELDS).issubset(doctype_fields))
+
     def test_portfolio_appends_default_loan_suffix_to_numeric_credit_numbers(self):
         records = parse_credit_portfolio(
             "cartera.xlsx",

@@ -20,7 +20,7 @@
     {"fieldname": "file_hash", "fieldtype": "Data", "label": "SHA-256", "hidden": 1, "read_only": 1},
     {"fieldname": "imported_on", "fieldtype": "Datetime", "label": "Importado el", "read_only": 1},
     {"fieldname": "imported_by", "fieldtype": "Link", "options": "User", "label": "Importado por", "read_only": 1},
-    {"fieldname": "rows", "fieldtype": "Table", "label": "Detalle del corte (columnas originales)", "options": "CN Credit Portfolio Row", "read_only": 1, "description": "Cada fila conserva todas las columnas del archivo en Datos originales y muestra aquí los campos para búsqueda y validación."},
+    {"fieldname": "rows", "fieldtype": "Table", "label": "Detalle del corte", "options": "CN Credit Portfolio Row", "read_only": 1, "description": "Cada crédito guarda las columnas originales en campos individuales para consultas y tableros; el respaldo JSON conserva los encabezados y valores fuente."},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
   ],
   "index_web_pages_for_search": 1,

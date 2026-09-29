@@ -595,6 +595,64 @@ def parse_source_file(source_type: str, file_name: str, content: bytes) -> list[
     raise SourceFileError(f"Tipo de fuente no soportado: {source_type}")
 
 
+PORTFOLIO_SOURCE_FIELDS = (
+    "fecha_reporte", "sucursal", "codigo_verificacion", "agencia", "metodologia",
+    "fecha_desembolso", "fecha_vencimiento", "no_credito", "ciclo",
+    "no_cliente_migrado", "no_cliente_siaf", "nombre_cliente", "genero",
+    "direcc_domicilio", "direcc_trabajo", "estado_credito",
+    "agrupacion_crediticia", "actividad_economica", "producto_credito", "moneda",
+    "dias_en_mora", "cuotas_mora", "tasa_interes_corriente",
+    "tasa_interes_moratoria", "comision_desembolso", "tcea", "saldo_principal",
+    "saldo_mant_valor", "saldo_intereses", "saldo_intereses_mora", "saldo_cargos",
+    "saldo_comision", "monto_desembolsado", "segregacion", "empresa_de_convenio",
+    "no_identificacion", "tipo_identificacion", "fecha_nacimiento", "destino_credito",
+    "no_dependientes", "generacion_de_empleo", "es_reestructurado", "tipo_garantia",
+    "monto_garantia", "plazo_credito", "numero_cuotas", "cuotas_pagadas", "municipio",
+    "departamento", "asesor_credito", "periodicidad", "clasificacion", "porc_provision",
+    "provision_principal", "provision_interes", "fecha_saneamiento",
+    "fecha_estado_vencido", "monto_mant_valor_dev", "monto_interes_devengado",
+    "monto_mora_devengada", "monto_comis_devengada", "monto_cargo_devengado",
+    "monto_princ_pag_total", "monto_mant_v_pag_total", "monto_interes_pag_total",
+    "monto_mora_pag_total", "monto_com_pag_total", "monto_cargo_pag_total",
+    "monto_princ_pagado_mes", "monto_mant_pagado_mes", "monto_interes_pag_mes",
+    "monto_int_mora_pag_mes", "monto_comision_pag_mes", "monto_cargo_pagado_mes",
+    "monto_mora_dispensado", "monto_int_dispensado", "monto_cargo_dispensado",
+    "monto_princ_saneado", "monto_mant_v_saneado", "monto_interes_saneado",
+    "monto_int_mora_saneado", "monto_cargo_saneado", "principal_vencido",
+    "interes_vencido", "tipo_cambio_fecha_desemb", "tipo_cambio_fecha_reporte",
+    "creditos_refinanciados", "monto_refinanciado", "garantia_hipotecaria",
+    "garantia_prendaria", "garantia_fiduciaria", "otras_garantias",
+    "monto_garantia_hipotecaria", "monto_garantia_prendaria",
+    "monto_garantia_fiduciaria", "monto_otras_garantias", "fecha_ult_pago_principal",
+    "fecha_ult_pago_interes", "monto_refinanciado_principal", "es_convenio",
+)
+PORTFOLIO_SOURCE_FIELD_SET = frozenset(PORTFOLIO_SOURCE_FIELDS)
+PORTFOLIO_DATE_FIELDS = frozenset({
+    "fecha_reporte", "fecha_desembolso", "fecha_vencimiento", "fecha_nacimiento",
+    "fecha_saneamiento", "fecha_estado_vencido", "fecha_ult_pago_principal",
+    "fecha_ult_pago_interes",
+})
+
+
+def portfolio_source_values_from_raw_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    """Map original portfolio headers to typed child-row fields."""
+    values = {}
+    for header, value in (raw_data or {}).items():
+        fieldname = normalize_header(header)
+        if fieldname not in PORTFOLIO_SOURCE_FIELD_SET:
+            continue
+        if fieldname in PORTFOLIO_DATE_FIELDS and value not in (None, ""):
+            parsed = parse_date(value)
+            if parsed is None and isinstance(value, str):
+                try:
+                    parsed = datetime.fromisoformat(value).date()
+                except ValueError:
+                    pass
+            value = parsed
+        values[fieldname] = value
+    return values
+
+
 def _portfolio_json_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
@@ -609,8 +667,8 @@ def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any
     """Parse a monthly credit cut while preserving every original column.
 
     The source report is allowed to have title rows above the table. Operational
-    fields are extracted for lookups; ``raw_data`` retains the entire row so
-    new columns added by the core are not lost.
+    fields are extracted for lookups, each recognized source column is mapped
+    to a child-row field, and ``raw_data`` retains source values for traceability.
     """
     rows = read_table(file_name, content)
     mapping = None
@@ -669,7 +727,9 @@ def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any
             header: _portfolio_json_value(row[index] if index < len(row) else None)
             for index, header in enumerate(original_headers)
         }
+        source_fields = portfolio_source_values_from_raw_data(raw_data)
         parsed.append({
+            **source_fields,
             "source_row": row_number,
             "report_date": report_date,
             "credit_number": credit_number,
