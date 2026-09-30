@@ -3,7 +3,7 @@
   "creation": "2026-09-23 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["usd_currency", "nio_currency", "source_row", "row_key", "client", "identity_reason", "client_number", "employee_number", "client_name", "national_id", "loan_number", "installment_number", "application_reference", "comments", "application_comment", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio", "amount_usd", "match_status", "match_reason", "matched_targets"],
+  "field_order": ["usd_currency", "nio_currency", "source_row", "row_key", "client", "identity_reason", "client_number", "employee_number", "client_name", "national_id", "loan_number", "loan_selection_snapshot", "loan_selection_note", "installment_number", "application_reference", "comments", "application_comment", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio", "amount_usd", "match_status", "match_reason", "matched_targets_summary", "targets_technical_section", "matched_targets"],
   "fields": [
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
@@ -16,6 +16,8 @@
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "reqd": 1, "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Cédula", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Crédito", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
+    {"fieldname": "loan_selection_snapshot", "fieldtype": "Link", "options": "CN Credit Portfolio Snapshot", "label": "Corte de cartera seleccionado", "read_only": 1, "allow_on_submit": 1},
+    {"fieldname": "loan_selection_note", "fieldtype": "Small Text", "label": "Registro de selección de crédito", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "installment_number", "fieldtype": "Data", "label": "Nro. cuota", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "application_reference", "fieldtype": "Data", "label": "Referencia de aplicación", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "comments", "fieldtype": "Small Text", "label": "Comentarios", "read_only": 1, "allow_on_submit": 1},
@@ -27,11 +29,13 @@
     {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Equivalente US$", "options": "usd_currency", "precision": "2", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "match_status", "fieldtype": "Data", "label": "Estado", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "match_reason", "fieldtype": "Small Text", "label": "Motivo", "read_only": 1, "allow_on_submit": 1},
-    {"fieldname": "matched_targets", "fieldtype": "Code", "label": "Destinos propuestos", "options": "JSON", "read_only": 1, "allow_on_submit": 1}
+    {"fieldname": "matched_targets_summary", "fieldtype": "Long Text", "label": "Destinos identificados", "read_only": 1, "allow_on_submit": 1, "description": "Cliente, crédito, período e importe de cada destino. Consulte Estado y Motivo para saber si la asignación quedó conciliada."},
+    {"fieldname": "targets_technical_section", "fieldtype": "Section Break", "label": "Información técnica de los destinos", "collapsible": 1},
+    {"fieldname": "matched_targets", "fieldtype": "Code", "label": "Identificadores técnicos (JSON)", "options": "JSON", "read_only": 1, "allow_on_submit": 1}
   ],
   "istable": 1,
   "links": [],
-  "modified": "2026-09-23 00:00:00.000000",
+  "modified": "2026-09-29 21:20:01.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Remittance Detail",

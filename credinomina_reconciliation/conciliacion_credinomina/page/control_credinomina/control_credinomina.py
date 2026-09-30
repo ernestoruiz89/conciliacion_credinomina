@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
@@ -77,6 +78,7 @@ def export_control_excel(year=None, employer=None):
     content = build_control_workbook(
         data, exceptions=exceptions, actions=actions, employer_label=employer_label,
         generated_at=now_datetime(),
+        date_format=frappe.db.get_single_value("System Settings", "date_format") or "yyyy-mm-dd",
     )
     ascii_name = unicodedata.normalize("NFKD", employer or "todas").encode(
         "ascii", "ignore"
@@ -660,10 +662,10 @@ def _build_work_items(
         if period.get("reconciliation_mode") == "Historica":
             scope = period.get("historical_scope")
             if scope == "Fecha exacta":
-                return f"{month} · {period.get('historical_application_date') or 'fecha exacta'}"
+                return f"{month} · {display_date(period.get('historical_application_date')) or 'fecha exacta'}"
             if scope == "Rango de fechas":
-                start = period.get("historical_start_date") or "?"
-                end = period.get("historical_end_date") or "?"
+                start = display_date(period.get("historical_start_date")) or "?"
+                end = display_date(period.get("historical_end_date")) or "?"
                 return f"{month} · {start}–{end}"
             return f"{month} · histórico"
         return f"{month} · {period.get('collection_cycle') or 'mensual'}"

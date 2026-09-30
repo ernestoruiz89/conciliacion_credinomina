@@ -22,6 +22,18 @@ def get_pending_targets(remittance_name, targets=None):
     return load(remittance_name, targets)
 
 
+@frappe.whitelist()
+def get_detail_credits(remittance_name, detail_row_name):
+    from credinomina_reconciliation.remittance_credit_selection import get_detail_credits as load
+    return load(remittance_name, detail_row_name)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modified):
+    from credinomina_reconciliation.remittance_credit_selection import set_detail_credit as assign
+    return assign(remittance_name, detail_row_name, portfolio_row_name, modified)
+
+
 class CNRemittanceAllocation(Document):
     def validate(self):
         self.deposit_reference = clean_text(self.deposit_reference)
@@ -36,6 +48,9 @@ class CNRemittanceAllocation(Document):
             self._assert_open_related_periods()
         if not self.employer:
             frappe.throw(_("Indique la empresa del depósito."))
+        if self.get("detail_rows"):
+            from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
+            complete_detail_clients(self.detail_rows, load_client_index(), self.employer)
         if self.detail_period:
             period = frappe.db.get_value(
                 "CN Reconciliation Period", self.detail_period,
@@ -225,7 +240,13 @@ class CNRemittanceAllocation(Document):
             tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
             for target in previous.targets or []
         ]
-        return current_targets != previous_targets
+        if current_targets != previous_targets:
+            return True
+        detail_fields = ("name", "client", "client_number", "loan_number")
+        def detail_identity(document):
+            return [tuple(row.get(field) or "" for field in detail_fields)
+                    for row in (document.get("detail_rows") or [])]
+        return detail_identity(self) != detail_identity(previous)
 
     def _reconcile(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
@@ -292,6 +313,7 @@ def import_remittance_detail(remittance_name: str):
         } | {
             "client": client["name"] if client else "",
             "identity_reason": identity_reason,
+            "client_number": record.get("client_number") or (client.get("client_number") if client else ""),
         })
     document.detail_hash = file_sha256(content)
     document.detail_source_file = source_url

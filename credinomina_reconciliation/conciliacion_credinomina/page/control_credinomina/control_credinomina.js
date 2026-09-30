@@ -92,8 +92,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </tr></thead><tbody>${visibleWork.map((item, index) => `<tr>
                 <td><span class="cn-work-priority cn-work-priority-${Number(item.priority)}">${esc(item.priority === 0 ? __("Vencida") : item.priority <= 1 ? __("Revisar") : item.priority <= 2 ? __("Pendiente") : __("Seguimiento"))}</span></td>
                 <td>${esc(item.employer_name)}</td>
-                <td>${esc(item.period_label)}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(String(item.control_cut_on).slice(0, 10))}</span>` : ""}</td>
-                <td>${esc(item.summary)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(item.due_date)}</span>` : ""}</td>
+                <td>${esc(item.period_label)}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
+                <td>${esc(item.summary)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
                 <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
                 <td>${esc(item.next_action)}</td>
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__("Abrir"))}</button></td>
@@ -152,7 +152,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Motivo"))}</th>
             </tr></thead><tbody>${unassigned.map((row) => `<tr>
-                <td>${esc(row.event_date)}</td>
+                <td>${esc(displayDate(row.event_date))}</td>
                 <td><button class="cn-text-link" type="button" data-import="${esc(row.parent)}">${esc(row.reference)}</button></td>
                 <td>${esc(row.loan_number)}</td>
                 <td class="cn-number">${money(row.amount)}</td>
@@ -162,7 +162,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <div class="cn-list-scroll"><table class="cn-detail-table">
                 <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin asignar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
                 <tbody>${deposits.map((deposit) => `<tr>
-                    <td>${esc(deposit.event_date)}</td>
+                    <td>${esc(displayDate(deposit.event_date))}</td>
                     <td>${esc(deposit.employer_text)}</td>
                     <td><button class="cn-text-link" type="button" ${deposit.source_doctype === "CN Remittance Allocation" ? `data-remittance="${esc(deposit.parent)}"` : `data-import="${esc(deposit.parent)}"`}>${esc(deposit.reference)}</button></td>
                     <td>${esc(deposit.voucher)}</td>
@@ -201,7 +201,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Referencia"))}</th>
                 <th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Sin depósito US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("ID para distribución"))}</th>
             </tr></thead><tbody>${(period.historical_rows || []).map((row) => `<tr>
-                <td>${esc(row.event_date)}</td>
+                <td>${esc(displayDate(row.event_date))}</td>
                 <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}</td>
                 <td>${esc(row.reference)}</td>
                 <td class="cn-number">${money(row.amount)}</td>
@@ -240,7 +240,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td>${esc(item.cause_category || item.exception_type)}<br>${esc(item.description)}</td>
                 <td class="cn-number">${money(item.amount_usd)}</td>
                 <td>${esc(item.status)}</td><td>${esc(item.assigned_to || "—")}</td>
-                <td>${esc(item.next_action || "—")}</td><td>${esc(item.commitment_date || "—")}</td>
+                <td>${esc(item.next_action || "—")}</td><td>${esc(displayDate(item.commitment_date) || "—")}</td>
                 <td>${esc(item.external_reference || (item.evidence_file ? __("Adjunto") : "—"))}</td>
             </tr>`).join("")}
             </tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay excepciones abiertas."))}</div>`;
@@ -272,7 +272,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         dialog.show();
         dialog.get_field("detail").$wrapper.html(`
             <div class="cn-dialog">
-                ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(String(period.control_cut_on).slice(0, 10))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
+                ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
                 <div class="cn-kpis cn-dialog-kpis">
                     ${historical ? `
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
@@ -378,12 +378,16 @@ function historicalSortDate(period) {
     return period.historical_application_date || period.historical_start_date || period.payroll_month || "";
 }
 
+function displayDate(value) {
+    return value ? frappe.datetime.str_to_user(String(value).slice(0, 10)) : "";
+}
+
 function historicalLabel(period) {
     if (period.historical_scope === "Fecha exacta") {
-        return `${__("Histórico")} · ${period.historical_application_date || ""}`;
+        return `${__("Histórico")} · ${displayDate(period.historical_application_date)}`;
     }
     if (period.historical_scope === "Rango de fechas") {
-        return `${__("Histórico")} · ${period.historical_start_date || ""} – ${period.historical_end_date || ""}`;
+        return `${__("Histórico")} · ${displayDate(period.historical_start_date)} – ${displayDate(period.historical_end_date)}`;
     }
     return `${__("Histórico")} · ${__("Mensual")}`;
 }

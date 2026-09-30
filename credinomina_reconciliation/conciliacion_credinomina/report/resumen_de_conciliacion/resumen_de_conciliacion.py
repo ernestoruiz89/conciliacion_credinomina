@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import flt
 
 from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 
 
@@ -89,9 +90,9 @@ def execute(filters=None):
         row["nio_currency"] = "NIO"
         if row.reconciliation_mode == "Historica":
             row["historical_label"] = (
-                f"Fecha {row.historical_application_date}"
+                f"Fecha {display_date(row.historical_application_date)}"
                 if row.historical_scope == "Fecha exacta"
-                else f"{row.historical_start_date} – {row.historical_end_date}"
+                else f"{display_date(row.historical_start_date)} – {display_date(row.historical_end_date)}"
                 if row.historical_scope == "Rango de fechas"
                 else "Mensual"
             )

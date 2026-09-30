@@ -200,7 +200,7 @@ function showDepositRecognition(frm) {
             return;
         }
         const labels = deposits.map((item) =>
-            `${item.reference} · ${item.amount_usd} US$ · ${item.event_date} · ${item.source_row_id}`
+            `${item.reference} · ${item.amount_usd} US$ · ${frappe.datetime.str_to_user(item.event_date || "")} · ${item.source_row_id}`
         );
         const dialog = new frappe.ui.Dialog({
             title: __("Reconocer deducción por depósito coincidente"),

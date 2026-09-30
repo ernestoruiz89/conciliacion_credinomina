@@ -4,6 +4,7 @@ import json
 from collections import defaultdict
 
 from credinomina_reconciliation.rounding import money
+from credinomina_reconciliation.date_display import display_date
 
 
 def target_key(row):
@@ -107,11 +108,11 @@ def get_pending_targets(remittance_name, targets=None):
         complementary[row_name] += sum((money(item.amount_usd) for item in linked), money(0))
 
     def period_label(period):
-        dates = (str(period.historical_application_date or "")
+        dates = (display_date(period.historical_application_date)
                  if period.historical_scope == "Fecha exacta" else
-                 " – ".join(str(d) for d in [period.historical_start_date, period.historical_end_date] if d)
+                 " – ".join(display_date(d) for d in [period.historical_start_date, period.historical_end_date] if d)
                  if period.historical_scope == "Rango de fechas" else
-                 str(period.cutoff_date or period.payroll_month or ""))
+                 display_date(period.cutoff_date or period.payroll_month))
         return f"{dates} · {period.name}"
 
     def identity(row):

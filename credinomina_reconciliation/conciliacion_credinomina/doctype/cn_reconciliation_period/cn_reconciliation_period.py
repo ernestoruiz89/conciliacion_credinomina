@@ -18,6 +18,7 @@ from credinomina_reconciliation.cadence import (
 )
 from credinomina_reconciliation.client_registry import ClientIndex, load_client_index, names_for_claim
 from credinomina_reconciliation.deduction_recognition import recognition_reason
+from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.employer_naming import (
     attach_employer_aliases,
     employer_alias_index,
@@ -428,7 +429,7 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
         period.notes = _append_note(
             period.notes,
             _("Fecha de evidencia de planilla previamente indicada ({0}); no usada para la inferencia por depósito.").format(
-                period.deduction_evidence_date
+                display_date(period.deduction_evidence_date)
             ),
         )
     period.deduction_evidence_date = None

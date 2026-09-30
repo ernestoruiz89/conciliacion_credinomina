@@ -1146,7 +1146,13 @@ def _prepare_remittance_details(
     }
 
 
-def _sync_remittance_details(context, allocation):
+def _sync_remittance_details(context, allocation, claims=()):
+    from credinomina_reconciliation.remittance_target_summary import describe_targets, load_target_descriptions
+
+    descriptions = load_target_descriptions([
+        target for state in context["contexts"].values()
+        for plan in state["rows"] for target in plan["targets"]
+    ], claims)
     statuses = {}
     for parent, state in context["contexts"].items():
         if state["rows"]:
@@ -1173,6 +1179,7 @@ def _sync_remittance_details(context, allocation):
                         "match_status": plan["status"],
                         "match_reason": plan["reason"],
                         "matched_targets": json.dumps(targets, ensure_ascii=False),
+                        "matched_targets_summary": describe_targets(targets, descriptions),
                     },
                     update_modified=False,
                 )
@@ -1458,7 +1465,7 @@ def _distribute_deposits(
     result = allocate_cash(
         deposits, claims, instructions, manually_ambiguous_deposits
     )
-    detail_statuses = _sync_remittance_details(detail_context, result)
+    detail_statuses = _sync_remittance_details(detail_context, result, claims)
     movements = rounding_movements(
         deposits, claims, result["allocations"], result["deposit_remaining"],
         result["claim_remaining"], tolerance_by_employer,

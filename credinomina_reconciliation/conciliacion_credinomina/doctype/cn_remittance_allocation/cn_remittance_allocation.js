@@ -8,6 +8,8 @@ frappe.ui.form.on("CN Remittance Allocation", {
         renderRemittanceAllocations(frm);
         toggleRemittanceDetailActions(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
+        frm.toggle_display("select_detail_credit", !frm.is_new() && frm.doc.docstatus !== 2 &&
+            !!frm.get_perm(0, "write") && !!(frm.doc.detail_rows || []).length);
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Confirmar depósito"), async () => {
@@ -35,6 +37,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
     },
     download_detail_template: downloadRemittanceTemplate,
     load_deposit_detail: importRemittanceDetail,
+    select_detail_credit: selectRemittanceDetailCredit,
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
@@ -80,6 +83,83 @@ function downloadRemittanceTemplate(frm) {
         `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,
         "_blank"
     );
+}
+
+async function selectRemittanceDetailCredit(frm) {
+    if (frm.is_dirty()) await frm.save();
+    const rows = frm.doc.detail_rows || [];
+    if (!rows.length) return;
+    const labels = new Map(rows.map(row => [
+        `${row.idx}. ${row.client_name} · Cliente ${row.client_number || row.client || "sin identificar"} · Crédito ${row.loan_number || "sin asignar"}`,
+        row.name,
+    ]));
+    let dialog, credits = new Map(), current = null, requestId = 0, busy = false;
+    const escape = value => frappe.utils.escape_html(String(value || ""));
+    async function loadCredits() {
+        if (!dialog) return;
+        const id = ++requestId;
+        credits = new Map();
+        current = null;
+        dialog.get_primary_btn().prop("disabled", true);
+        dialog.set_df_property("credit", "options", [""]);
+        await dialog.set_value("credit", "");
+        const rowName = labels.get(dialog.get_value("detail_row"));
+        if (!rowName) return;
+        dialog.fields_dict.help.$wrapper.html('<p class="text-muted" role="status">Consultando créditos del cliente…</p>');
+        try {
+            const response = await frappe.call({
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.get_detail_credits",
+                args: { remittance_name: frm.doc.name, detail_row_name: rowName },
+            });
+            if (id !== requestId) return;
+            const data = response.message;
+            current = { ...data, rowName };
+            credits = new Map(data.credits.map(credit => [
+                `${credit.credit_number} · ${credit.credit_status} · Corte ${frappe.datetime.str_to_user(credit.report_date || "")} · ${credit.snapshot}`,
+                credit.row_name,
+            ]));
+            dialog.set_df_property("credit", "options", ["", ...credits.keys()]);
+            dialog.fields_dict.help.$wrapper.html(`<p><strong>${escape(data.client_name)}</strong> · Nro. Cliente: ${escape(data.client_number)}</p>
+                <p class="text-muted">${credits.size
+                    ? "Seleccione el crédito y el corte que respaldan este pago. Se incluyen créditos cancelados para el histórico. No se aplica dinero automáticamente."
+                    : "No hay créditos identificados para este cliente y empresa en los cortes de cartera que puede consultar. Revise la carga de cartera y su identificación."}</p>
+                <p class="small text-muted">Volver a importar el archivo reemplaza las filas y sus selecciones manuales. El archivo original no se modifica.</p>`);
+        } catch (error) {
+            if (id === requestId) dialog.fields_dict.help.$wrapper.text("No se pudieron consultar los créditos. Revise la identificación del cliente y sus permisos.");
+        }
+    }
+    dialog = new frappe.ui.Dialog({
+        title: __("Vincular crédito desde cartera"), size: "large",
+        fields: [
+            { fieldname: "detail_row", fieldtype: "Select", label: __("Fila del detalle"), options: [...labels.keys()], onchange: loadCredits },
+            { fieldname: "help", fieldtype: "HTML" },
+            { fieldname: "credit", fieldtype: "Select", label: __("Nro. Crédito / corte de cartera"), options: [""],
+                onchange: () => { if (dialog) dialog.get_primary_btn().prop("disabled", busy || !credits.has(dialog.get_value("credit"))); } },
+        ],
+        primary_action_label: __("Guardar vínculo"),
+        primary_action: async () => {
+            const credit = credits.get(dialog.get_value("credit"));
+            if (!credit || !current || busy) return;
+            busy = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.set_detail_credit",
+                    args: { remittance_name: frm.doc.name, detail_row_name: current.rowName,
+                        portfolio_row_name: credit, modified: current.modified },
+                    freeze: true, freeze_message: __("Guardando vínculo del crédito…"),
+                });
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({ message: __("Crédito vinculado. Use Conciliar para actualizar el resultado."), indicator: "green" });
+            } finally {
+                busy = false;
+                dialog.get_primary_btn().prop("disabled", !credits.has(dialog.get_value("credit")));
+            }
+        },
+    });
+    dialog.show();
+    await loadCredits();
 }
 
 function toggleRemittanceDetailActions(frm) {

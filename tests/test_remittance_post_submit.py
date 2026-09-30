@@ -80,6 +80,13 @@ class RemittancePostSubmitTests(unittest.TestCase):
         self.assertEqual(doc.result, "Pendiente")
         self.check_frappe_guard(doc)
 
+    def test_detail_credit_selection_marks_pending_after_confirmation(self):
+        self.previous["detail_rows"] = [{"name": "ROW-1", "client": "3538", "loan_number": ""}]
+        doc = self.current(detail_rows=[{"name": "ROW-1", "client": "3538", "client_number": "3538", "loan_number": "108331-1"}])
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Pendiente")
+        self.check_frappe_guard(doc)
+
     def test_notes_only_preserve_the_existing_result(self):
         doc = self.current(notes="Soporte recibido")
         CNRemittanceAllocation.before_update_after_submit(doc)

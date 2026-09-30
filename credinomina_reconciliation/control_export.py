@@ -31,7 +31,7 @@ DATE_FORMAT = "dd/mm/yyyy"
 
 def build_control_workbook(
     data: dict, *, exceptions: list, actions: list, employer_label: str,
-    generated_at: datetime,
+    generated_at: datetime, date_format: str = DATE_FORMAT,
 ) -> bytes:
     """Return a read-only-in-practice, value-based audit snapshot as XLSX bytes."""
     book = Workbook()
@@ -155,6 +155,15 @@ def build_control_workbook(
         ACTION_HEADERS, _action_rows(actions, exceptions, period_by_name),
         date_columns={4},
     )
+    # System Settings uses the same numeric day/month/year tokens as Excel.
+    # Keep native dates (sortable/filterable), changing only their display style.
+    for sheet in book:
+        for row in sheet:
+            for cell in row:
+                if isinstance(cell.value, datetime):
+                    cell.number_format = f"{date_format} hh:mm"
+                elif isinstance(cell.value, date):
+                    cell.number_format = date_format
     stream = io.BytesIO()
     book.save(stream)
     return stream.getvalue()
