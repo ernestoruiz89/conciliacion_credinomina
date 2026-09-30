@@ -181,6 +181,11 @@ disponible la página `/app/control-credinomina`.
    `Corriente` y `Vencido` se consideran
    activos; `Saneado` se conserva como estado distinto y no se presume
    cancelado. La carga no crea clientes ni bloquea movimientos por una alerta.
+   Cada importación deja en la actividad una constancia compacta con archivo,
+   usuario, fecha, cantidad de créditos y huellas SHA-256 anterior y nueva.
+   Se conservan todas las filas sin duplicarlas en el historial de versiones;
+   las ediciones normales mantienen su historial. Al finalizar, el formulario
+   muestra el resultado de la carga o un mensaje explícito si falla.
 2. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
    o quincenal. En **Plantillas → Plantilla de cobranza** descargue el XLSX
    con las columnas esperadas; complételo, adjúntelo y pulse **1. Cargar cobranza**. Solo se

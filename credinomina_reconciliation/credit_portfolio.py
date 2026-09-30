@@ -48,7 +48,26 @@ def _employer_for(text, aliases, ambiguous):
     return (employer, "Empresa identificada") if employer else ("", "Empresa no registrada")
 
 
+class PortfolioClientLookup:
+    """Normalize the catalog once, not once per credit in a monthly cut."""
+
+    def __init__(self, clients):
+        self.by_number = defaultdict(dict)
+        self.by_id = defaultdict(dict)
+        self.by_name = defaultdict(dict)
+        for client in clients:
+            for index, value in ((self.by_number, client.get("client_number")),
+                                 (self.by_id, client.get("national_id"))):
+                key = canonical_identifier(value)
+                if key:
+                    index[key][client["name"]] = client
+            for key in {name_key(client.get("client_name")),
+                        *(name_key(alias) for alias in client.get("client_aliases", []))} - {""}:
+                self.by_name[key][client["name"]] = client
+
+
 def _client_for_portfolio_row(row, clients, employer):
+    lookup = clients if isinstance(clients, PortfolioClientLookup) else PortfolioClientLookup(clients)
     identifiers = {
         canonical_identifier(row.get(field))
         for field in ("client_number_migrated", "client_number_core")
@@ -56,12 +75,10 @@ def _client_for_portfolio_row(row, clients, employer):
     }
     national_id = canonical_identifier(row.get("national_id"))
     found = {}
-    for client in clients:
-        if (
-            (identifiers and canonical_identifier(client.get("client_number")) in identifiers)
-            or (national_id and canonical_identifier(client.get("national_id")) == national_id)
-        ):
-            found[client["name"]] = client
+    for identifier in identifiers:
+        found.update(lookup.by_number.get(identifier, {}))
+    if national_id:
+        found.update(lookup.by_id.get(national_id, {}))
 
     if len(found) > 1:
         return None, "Identificadores en conflicto", "Identificación ambigua"
@@ -75,12 +92,8 @@ def _client_for_portfolio_row(row, clients, employer):
     if not key:
         return None, "Sin identificadores", "Cliente no identificado"
     candidates = [
-        client for client in clients
+        client for client in lookup.by_name.get(key, {}).values()
         if (not employer or client.get("employer") == employer)
-        and key in {
-            name_key(client.get("client_name")),
-            *(name_key(alias) for alias in client.get("client_aliases", [])),
-        }
     ]
     if len(candidates) == 1:
         return candidates[0], "Nombre o alias exacto", "Cliente identificado por nombre"
@@ -91,7 +104,7 @@ def _client_for_portfolio_row(row, clients, employer):
 
 def analyze_portfolio_rows(rows):
     """Add client/employer checks without creating or changing client records."""
-    clients = load_client_index()
+    clients = PortfolioClientLookup(load_client_index())
     employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,

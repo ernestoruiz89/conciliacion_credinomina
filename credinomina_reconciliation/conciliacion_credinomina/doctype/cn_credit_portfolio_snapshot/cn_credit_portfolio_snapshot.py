@@ -1,4 +1,5 @@
 from calendar import monthrange
+from html import escape
 
 import frappe
 from frappe import _
@@ -92,8 +93,8 @@ def import_portfolio_snapshot(snapshot_name: str):
     digest = file_sha256(content)
     if snapshot.file_hash == digest and snapshot.status in {
         "Importado", "Importado con alertas"
-    } and not _has_legacy_numeric_credit_numbers(snapshot.name):
-        return {"snapshot_name": snapshot.name, "unchanged": True}
+    } and snapshot.rows and not _has_legacy_numeric_credit_numbers(snapshot.name):
+        return {"snapshot_name": snapshot.name, "unchanged": True, "row_count": len(snapshot.rows)}
 
     duplicate = frappe.db.get_value(
         "CN Credit Portfolio Snapshot",
@@ -116,6 +117,8 @@ def import_portfolio_snapshot(snapshot_name: str):
         frappe.throw(str(exc), title=_("No se pudo importar el corte"))
 
     analyze_portfolio_rows(parsed)
+    previous_hash = snapshot.file_hash
+    previous_count = len(snapshot.rows or [])
     snapshot.report_date = parsed[0]["report_date"]
     snapshot.file_hash = digest
     snapshot.set("rows", [])
@@ -140,7 +143,13 @@ def import_portfolio_snapshot(snapshot_name: str):
     snapshot.notes = _("Se importaron {0} créditos de {1}.").format(
         len(parsed), file_doc.file_name
     )
-    snapshot.save()
+    # Version serializes all added/removed child rows into one SQL value. A
+    # monthly cut can exceed MariaDB's packet limit even though every row is
+    # valid. Keep normal validation/transactions and audit the import compactly.
+    snapshot.save(ignore_version=True)
+    snapshot.add_comment("Comment", _portfolio_import_audit(
+        snapshot, file_doc.file_name, previous_hash, previous_count,
+    ))
     return {
         "snapshot_name": snapshot.name,
         "row_count": snapshot.row_count,
@@ -148,3 +157,22 @@ def import_portfolio_snapshot(snapshot_name: str):
         "unmatched_client_count": snapshot.unmatched_client_count,
         "status": snapshot.status,
     }
+
+
+def _portfolio_import_audit(snapshot, file_name, previous_hash, previous_count):
+    """Bounded audit evidence, independent of the size of the child table."""
+    details = (
+        (_("Archivo"), file_name),
+        (_("Fecha del corte"), snapshot.report_date),
+        (_("Créditos importados"), snapshot.row_count),
+        (_("Estado"), snapshot.status),
+        (_("Importado por"), snapshot.imported_by),
+        (_("Importado el"), snapshot.imported_on),
+        ("SHA-256", snapshot.file_hash),
+        (_("Créditos anteriores"), previous_count),
+        (_("SHA-256 anterior"), previous_hash or _("Sin importación anterior")),
+    )
+    return "<p>" + escape(_("Importación de cartera completada.")) + "</p><ul>" + "".join(
+        "<li>" + escape(str(label)) + ": " + escape(str(value or "0")) + "</li>"
+        for label, value in details
+    ) + "</ul>"
