@@ -11,6 +11,7 @@ from credinomina_reconciliation.parsers import (
 from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.reconciliation import remittance_fx_basis
+from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.rounding import (
     MONEY_EPSILON, decimal_value, money, money_float,
 )
@@ -202,6 +203,8 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("Confirme primero la partida complementaria."))
             if complementary.category == "Saldo a favor de la empresa":
                 frappe.throw(_("El saldo a favor se vincula desde la partida al depósito; no se asigna como pago en Destinos."))
+            if complementary.category == TOLERANCE_CATEGORY:
+                frappe.throw(_("La diferencia por tolerancia ya se aplica automáticamente; no se puede agregar a Destinos."))
             if money(target.amount_usd) * money(complementary.amount_usd) <= 0 or abs(money(target.amount_usd)) > abs(money(complementary.amount_usd)):
                 frappe.throw(_("El destino debe tener el signo de la partida complementaria y no superar su importe."))
             if complementary.period and frappe.db.get_value(

@@ -67,9 +67,10 @@ class CompanyReconciliationTests(unittest.TestCase):
         self.assertEqual([p.name for p in history.call_args.args[0]], ["PA"])
         self.assertEqual(rebuild.call_args.args[0], [])
         item_filters = [kwargs["filters"]["category"] for dt, kwargs in queries if dt == "CN Complementary Item"]
-        self.assertIn(["!=", "Saldo a favor de la empresa"], item_filters)
+        self.assertIn(["not in", ["Saldo a favor de la empresa", "Diferencia por tolerancia"]], item_filters)
         self.assertIn("Saldo a favor de la empresa", item_filters)
-        for doctype in ("CN Complementary Item", "CN Remittance Allocation", "CN Reconciliation Movement"):
+        self.assertIn("Diferencia por tolerancia", item_filters)
+        for doctype in ("CN Complementary Item", "CN Remittance Allocation"):
             query = next(kwargs for dt, kwargs in queries if dt == doctype)
             self.assertEqual(query["filters"]["employer"], "A", doctype)
         self.assertEqual((result["imports"], result["rows"], result["matched"], result["pending"]), (1, 1, 1, 0))
@@ -131,6 +132,6 @@ class CompanyReconciliationTests(unittest.TestCase):
             patch.object(source, "_", side_effect=lambda text: text),
         ):
             source._sync_rounding_movements([], {}, [], employer="A")
-        self.assertEqual(query.call_args.kwargs["filters"], {"employer": "A"})
-        get_doc.assert_called_once_with("CN Reconciliation Movement", "MA")
+        self.assertEqual(query.call_args.kwargs["filters"], {"category": "Diferencia por tolerancia", "docstatus": 1, "employer": "A"})
+        get_doc.assert_called_once_with("CN Complementary Item", "MA")
         self.assertEqual(document.status, "Revertido")

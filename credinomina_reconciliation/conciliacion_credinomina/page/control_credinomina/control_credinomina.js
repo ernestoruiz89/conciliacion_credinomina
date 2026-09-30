@@ -409,7 +409,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         frappe.set_route("Form", "CN Remittance Allocation", $(this).attr("data-remittance"));
     });
     $root.on("click", "[data-movement]", function () {
-        frappe.set_route("Form", "CN Reconciliation Movement", $(this).attr("data-movement"));
+        frappe.set_route("Form", "CN Complementary Item", $(this).attr("data-movement"));
     });
     $root.on("click", "[data-export]", downloadControlExcel);
     function downloadControlExcel() {

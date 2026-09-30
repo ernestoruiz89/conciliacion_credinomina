@@ -12,6 +12,7 @@ from frappe.utils import cint, flt, getdate, now_datetime
 from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.control_deposits import get_cash_deposits
+from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -235,8 +236,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         for item in surpluses:
             surplus_by_period[item.period].append(item)
         movements = frappe.get_all(
-            "CN Reconciliation Movement",
-            filters={"period": ["in", period_names], "status": "Vigente"},
+            "CN Complementary Item",
+            filters={"category": TOLERANCE_CATEGORY, "docstatus": 1, "period": ["in", period_names], "status": "Vigente"},
             fields=[
                 "name", "period", "deposit_reference", "application_source_row",
                 "signed_amount_usd", "tolerance_usd", "deposit_usd", "core_applied_usd",

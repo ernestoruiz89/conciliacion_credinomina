@@ -12,6 +12,9 @@ from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.company_credit import CATEGORY as COMPANY_CREDIT
+from credinomina_reconciliation.tolerance_items import (
+    CATEGORY as TOLERANCE_CATEGORY, item_values, tolerance_item_write,
+)
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.client_registry import (
     enrich_source_import_clients,
@@ -636,7 +639,7 @@ def _reconcile_sources(employer=None):
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": ["!=", COMPANY_CREDIT], **company_filters},
+        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -1917,8 +1920,8 @@ def _sync_rounding_movements(movements, allocation, source_rows, employer=None):
     existing = {
         item.name: item
         for item in frappe.get_all(
-            "CN Reconciliation Movement",
-            filters={"employer": employer} if employer else {},
+            "CN Complementary Item",
+            filters={"category": TOLERANCE_CATEGORY, "docstatus": 1, **({"employer": employer} if employer else {})},
             fields=["name", "status", "period"],
             limit_page_length=100000,
         )
@@ -1928,13 +1931,14 @@ def _sync_rounding_movements(movements, allocation, source_rows, employer=None):
             continue
         if frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
             frappe.throw(_("El movimiento {0} pertenece a un período cerrado y no puede revertirse automáticamente.").format(name))
-        document = frappe.get_doc("CN Reconciliation Movement", name)
+        document = frappe.get_doc("CN Complementary Item", name)
         document.status = "Revertido"
         document.reversed_on = now_datetime()
         document.reversal_reason = _(
             "La diferencia ya no cumple la tolerancia, la referencia o el enlace único entre aplicación y depósito."
         )
-        document.save(ignore_permissions=True)
+        with tolerance_item_write():
+            document.save(ignore_permissions=True)
 
     source_by_name = {row.name: row for row in source_rows}
     detail_by_source = defaultdict(list)
@@ -1945,34 +1949,18 @@ def _sync_rounding_movements(movements, allocation, source_rows, employer=None):
             if frappe.db.get_value("CN Reconciliation Period", period, "status") == "Cerrado":
                 frappe.throw(_("No se puede crear o reactivar un ajuste en el período cerrado {0}.").format(period))
             if name in existing:
-                document = frappe.get_doc("CN Reconciliation Movement", name)
+                document = frappe.get_doc("CN Complementary Item", name)
                 document.status = "Vigente"
                 document.reversed_on = None
                 document.reversal_reason = ""
-                document.save(ignore_permissions=True)
+                with tolerance_item_write():
+                    document.save(ignore_permissions=True)
             else:
                 deposit = allocation["deposit_meta"][movement["deposit_id"]]["account"]
-                frappe.get_doc({
-                    "doctype": "CN Reconciliation Movement",
-                    "movement_key": name,
-                    "status": "Vigente",
-                    "employer": movement["employer"],
-                    "period": period,
-                    "deposit_source_row": movement["deposit_id"],
-                    "application_source_row": movement["application_id"],
-                    "claim_id": movement["claim_id"],
-                    "deposit_reference": deposit.reference,
-                    "deposit_date": deposit.event_date,
-                    "signed_amount_usd": movement["signed_amount_usd"],
-                    "absorbed_cash_usd": movement["consumed_residual_usd"],
-                    "tolerance_usd": movement["tolerance_usd"],
-                    "core_applied_usd": movement["core_applied_usd"],
-                    "deposit_usd": movement["deposit_usd"],
-                    "claim_usd": movement["claim_usd"],
-                    "reason": _(
-                        "Diferencia menor dentro de la tolerancia autorizada; movimiento interno de conciliación, sin asiento contable ni cambio en el core."
-                    ),
-                }).insert(ignore_permissions=True)
+                with tolerance_item_write():
+                    document = frappe.get_doc(item_values(movement, deposit))
+                    document.insert(ignore_permissions=True, set_name=name)
+                    document.submit()
         for source_id in (
             movement["deposit_id"],
             allocation["deposit_meta"][movement["deposit_id"]]["bank"].name,

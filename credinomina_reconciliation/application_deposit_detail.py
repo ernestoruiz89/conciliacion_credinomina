@@ -12,6 +12,7 @@ from frappe import _
 from credinomina_reconciliation.remittance_selection import target_key
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 from credinomina_reconciliation.templates import build_template_xlsx, DEPOSIT_HEADERS
+from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 
 
 def pending_application_rows(candidates, deposits, movements, current_name):
@@ -89,7 +90,8 @@ def _preview(document, period):
     # open them; their details are not exposed in the preview.
     deposits = frappe.get_all("CN Remittance Allocation", filters={"employer": document.employer, "docstatus": 1},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0)
-    movements = frappe.get_all("CN Reconciliation Movement", filters={
+    movements = frappe.get_all("CN Complementary Item", filters={
+        "category": TOLERANCE_CATEGORY, "docstatus": 1,
         "employer": document.employer, "period": period.name, "status": "Vigente",
     }, fields=["claim_id", "deposit_source_row", "signed_amount_usd", "status"], limit_page_length=0)
     rows = pending_application_rows(candidates, deposits, movements, document.name)

@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.date_display import display_date
+from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 
 
 def target_key(row):
@@ -102,7 +103,7 @@ def get_pending_targets(remittance_name, targets=None):
         "CN Remittance Allocation", filters={"docstatus": 1, "employer": doc.employer},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
-    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["!=", "Saldo a favor de la empresa"]},
+    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
                 "client_number", "loan_number", "installment_number", "description", "voucher"],
         limit_page_length=0)

@@ -87,6 +87,19 @@ interno y trazable, no un asiento contable ni un cambio en el core. Solo se
 crea con un depósito y una aplicación inequívocos en US$; no resuelve
 diferencias cambiarias ni repartos múltiples.
 
+Estos ajustes se consultan en **Partidas complementarias**, categoría
+**Diferencia por tolerancia**. Se generan y revierten automáticamente,
+son de solo lectura y muestran **No requiere registro** contable.
+No deben agregarse manualmente a los destinos del depósito: su efecto ya
+está incluido en la conciliación. Los ajustes manuales siguen usando
+**Ajuste de conciliación** y conservan su seguimiento contable.
+
+Al actualizar y ejecutar `bench --site <sitio> migrate`, los antiguos
+movimientos de conciliación se trasladan a esta categoría conservando sus
+identificadores, importes, estados y referencias de seguimiento, sin recalcular
+períodos cerrados. El DocType anterior se retira y su tabla SQL se conserva
+como respaldo de recuperación.
+
 Si la empresa no devuelve a tiempo el detalle de planilla, un depósito
 registrado con soporte que cubra **exactamente toda la cobranza** puede sustentar
 un reconocimiento provisional y justificado. Se muestra como **deducción

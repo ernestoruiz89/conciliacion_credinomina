@@ -5,10 +5,17 @@ from frappe.utils import flt
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.company_credit import CATEGORY, ensure_related_periods_open, validate_company_credit
+from credinomina_reconciliation.tolerance_items import (
+    guard_tolerance_item, is_tolerance_item, validate_tolerance_item,
+)
 
 
 class CNComplementaryItem(Document):
     def validate(self):
+        previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        if guard_tolerance_item(self, previous):
+            validate_tolerance_item(self)
+            return
         self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
         self.voucher = (self.voucher or "").strip()
@@ -54,6 +61,8 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
+        if is_tolerance_item(self):
+            return
         if self.category == CATEGORY or not self.flags.get("defer_reconciliation"):
             self._reconcile()
         if self.category == CATEGORY:
@@ -63,10 +72,12 @@ class CNComplementaryItem(Document):
             self.result = result
 
     def before_cancel(self):
+        guard_tolerance_item(self)
         if self.category == CATEGORY:
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        guard_tolerance_item(self)
         if self.category == CATEGORY:
             ensure_related_periods_open(self)
 
@@ -74,7 +85,12 @@ class CNComplementaryItem(Document):
         self.validate()
 
     def on_cancel(self):
+        if is_tolerance_item(self):
+            return
         self._reconcile()
+
+    def before_rename(self, old, new, merge=False):
+        guard_tolerance_item(self)
 
     def _reconcile(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (

@@ -16,7 +16,6 @@ MONEY_DOCTYPES = (
     "CN Credit Portfolio Snapshot",
     "CN Employer",
     "CN Reconciliation Exception",
-    "CN Reconciliation Movement",
     "CN Reconciliation Period",
     "CN Remittance Allocation",
     "CN Remittance Detail",
