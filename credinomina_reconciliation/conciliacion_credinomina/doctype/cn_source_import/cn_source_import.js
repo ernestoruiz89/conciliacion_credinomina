@@ -51,18 +51,6 @@ frappe.ui.form.on("CN Source Import", {
     },
 });
 
-frappe.ui.form.on("CN Source Row", {
-    form_render(frm, cdt, cdn) {
-        // Activate the child row's tab after its layout has been rendered.
-        // The parent form may still have its own Resultados tab selected.
-        const row = frm.fields_dict.rows?.grid?.grid_rows_by_docname?.[cdn];
-        const movement = row?.grid_form?.layout?.tabs?.find(
-            tab => tab.df.fieldname === "movement_tab"
-        );
-        movement?.set_active();
-    },
-});
-
 async function reconcileCompany(frm) {
     if (frm.__company_reconciliation_running) return;
     if (!frm.doc.employer) {

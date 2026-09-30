@@ -24,22 +24,17 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_import/cn_source_import.js"), "utf8"), context);
 
 (async () => {
-    const activated = [];
-    const rowForm = {fields_dict: {rows: {grid: {grid_rows_by_docname: {
-        A: {grid_form: {layout: {tabs: [
-            {df: {fieldname: "reconciliation_tab"}, set_active: () => activated.push("wrong-tab")},
-            {df: {fieldname: "movement_tab"}, set_active: () => activated.push("A-movement")},
-        ]}}},
-        B: {grid_form: {layout: {tabs: [
-            {df: {fieldname: "movement_tab"}, set_active: () => activated.push("B-movement")},
-        ]}}},
-    }}}}};
-    const renderRow = cdn => formHandlers["CN Source Row"].form_render(rowForm, "CN Source Row", cdn);
-    renderRow("A");
-    renderRow("B");
-    renderRow("A"); // Reopening a row must also default to Movimiento.
-    renderRow("missing"); // A removed/unrendered row must not throw.
-    assert.deepEqual(activated, ["A-movement", "B-movement", "A-movement"]);
+    // Frappe 15 child layouts share parent tab state/IDs: keep rows section-only.
+    const rowMeta = JSON.parse(fs.readFileSync(path.join(__dirname,
+        "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_row/cn_source_row.json"), "utf8"));
+    assert.ok(!rowMeta.fields.some(field => field.fieldtype === "Tab Break"));
+    assert.equal(formHandlers["CN Source Row"]?.form_render, undefined);
+    assert.equal(rowMeta.field_order[0], "client_section");
+    for (const name of ["client_section", "movement_section", "matching_section"]) {
+        const section = rowMeta.fields.find(field => field.fieldname === name);
+        assert.equal(section.fieldtype, "Section Break");
+        assert.ok(!section.collapsible);
+    }
 
     const frm = {doc: {employer: "A", name: "IA"}, is_dirty: () => true,
         save: async () => events.push("save"), reload_doc: async () => events.push("reload")};
