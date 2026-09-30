@@ -590,6 +590,7 @@ function renderCashCard(deposit) {
     return `<button type="button" class="cn-period-card cn-${state}" data-cash-deposit="${esc(deposit.name)}">
         <span class="cn-period-card-name">${esc(deposit.reference || deposit.name)}</span>
         <span class="cn-cell-sub">${esc(displayDate(deposit.date))} · ${esc(deposit.name)}</span>
+        <span class="cn-cell-sub">${esc(__("Cuenta bancaria"))}: ${esc(deposit.bank_account || __("Sin cuenta asignada"))}</span>
         <strong class="cn-cell-amount">${money(deposit.total_usd)}</strong>
         <span class="cn-badge">${esc(cashStatus(deposit))}</span>
         <span class="cn-cell-sub">${esc(__("A créditos"))}: ${money(deposit.credits_usd)}</span>
