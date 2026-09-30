@@ -57,10 +57,27 @@ importes permiten un cruce único.
   completar el campo **Asiento contable**, editable incluso después de confirmar.
   La lista de partidas incluye el filtro **Pendientes de registro** para dar
   seguimiento; conciliar el depósito no da por registrado el asiento en el core.
-- **Excedentes de Depósito** separados como saldo a favor documentado de la
-  empresa; el excedente sin explicar sigue sin conciliar.
+  La cobranza administrativa se agrega en **Destinos**, no como una fila ficticia
+  en **Detalle por cliente**. Por ejemplo, US$103.16 de clientes y US$16.84 de
+  partida complementaria cubren un depósito de US$120.00. Solo se reconoce esta
+  cobertura cuando la partida está confirmada y el destino queda **Aplicada**;
+  el total del detalle sigue siendo US$103.16. El período podrá cerrarse cuando
+  también estén cubiertas sus demás aplicaciones y no existan bloqueos pendientes.
+- **Partidas complementarias** también permiten documentar un **Saldo a favor
+  de la empresa**, desde el mismo modal del depósito. Este concepto se vincula
+  directamente al depósito confirmado, sin agregarse a los destinos ni al
+  detalle de clientes: no es pago de crédito ni ingreso administrativo. El
+  excedente sin explicar sigue sin conciliar.
 - Excepciones detectadas antes del depósito, con traslado de comentarios al
   detalle del depósito cuando el faltante corresponde al mismo caso.
+
+Los antiguos registros de `CN Deposit Surplus` se migran a Partidas Complementarias
+al ejecutar `bench --site <sitio> migrate` (haga un respaldo antes de actualizar).
+Se conservan sus identificadores, importes, estados, vínculos y soportes sin
+recalcular períodos cerrados. Se retira el DocType anterior; su tabla SQL queda
+como archivo de recuperación y cada partida migrada conserva una copia del registro
+original. La cobranza administrativa sigue siendo una partida distribuible en
+**Destinos**, fuera de `detail_rows`, que es exclusivamente el detalle de pagos por cliente.
 
 La empresa puede configurar una **tolerancia automática en US$** entre 0 y
 US$0.10. Es simétrica: con US$0.01, depósito de US$46.53 frente a aplicación
@@ -284,6 +301,15 @@ próxima gestión, fecha compromiso, referencia y soporte. Al pasar a **En
 revisión** se exige responsable, gestión y fecha; al resolver se exige causa
 confirmada y resolución. El historial de gestiones conserva quién registró
 cada acción y cuándo; las entradas ya guardadas no se editan ni eliminan.
+El formulario separa **Caso relacionado**, **Seguimiento y resolución** e
+**Historial de gestiones**. En una excepción manual, **Seleccionar caso
+relacionado** busca cobranzas o aplicaciones por empresa y, opcionalmente,
+período, nombre, número de cliente o crédito (también asiento, recibo y referencia
+en aplicaciones). El selector completa los vínculos y la identidad del cliente,
+sin sustituir el importe reclamado ni guardar automáticamente. Una aplicación
+distribuida entre varios períodos aparece por cada período; seleccione el que
+corresponde al caso. Los períodos cerrados y documentos sin permiso de lectura
+no están disponibles. Las excepciones automáticas conservan su vínculo de origen.
 
 El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo

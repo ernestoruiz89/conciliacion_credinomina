@@ -105,3 +105,68 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(statuses["DEP"], "Conciliado")
         self.assertEqual(sum(entry["amount_usd"] for entry in result["allocations"]), 90)
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+
+    def administrative_collection(self, extra=16.84):
+        self.row.deducted_nio = 0
+        self.row.deducted_usd = 103.16
+        self.claims = [dict(id="H:A", kind="H", amount_usd=103.16, group="EMP", client_number="3538"),
+                       dict(id="X:ADMIN", kind="X", amount_usd=16.84, group="EMP")]
+        self.manual = [dict(id="ADMIN", deposit_id="DEP", claim_id="X:ADMIN", amount_usd=extra)]
+        self.deposits[0]["amount_usd"] = 120
+
+    def test_administrative_collection_outside_client_detail_covers_deposit(self):
+        self.administrative_collection()
+        context, result, statuses, row = self.reconcile()
+        self.assertEqual(statuses["DEP"], "Conciliado")
+        self.assertEqual(result["instruction_results"]["ADMIN"], "Aplicada")
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        self.assertEqual(context["contexts"]["DEP"]["total_usd"], 103.16)
+        self.assertEqual(context["contexts"]["DEP"]["covered_total_usd"], 120)
+        self.assertEqual(len(context["contexts"]["DEP"]["rows"]), 1)
+        self.assertEqual(row["amount_usd"], 103.16)
+        self.assertNotIn("X:ADMIN", row["matched_targets"])
+        self.assertEqual(self.reconcile()[1]["allocations"], result["allocations"])
+        # Removing the destination restores the unexplained amount.
+        self.assertEqual(self.reconcile([])[2]["DEP"], "Parcial; saldo sin detalle")
+
+    def test_positive_complement_must_really_be_applied(self):
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                self.administrative_collection()
+                if missing:  # Unconfirmed/cancelled items do not enter claims.
+                    self.claims.pop()
+                else:  # Insufficient remaining capacity.
+                    self.claims[1]["amount_usd"] = 10
+                _, result, statuses, _ = self.reconcile()
+                self.assertNotEqual(result["instruction_results"]["ADMIN"], "Aplicada")
+                self.assertEqual(statuses["DEP"], "Revisar filas")
+                self.assertEqual(result["deposit_remaining"]["DEP"], 16.84)
+
+    def test_partial_complement_does_not_hide_even_one_cent(self):
+        for extra, remaining in ((6.84, 10), (16.83, 0.01)):
+            with self.subTest(extra=extra):
+                self.administrative_collection(extra)
+                _, result, statuses, _ = self.reconcile()
+                self.assertEqual(statuses["DEP"], "Parcial; saldo sin detalle")
+                self.assertEqual(result["deposit_remaining"]["DEP"], remaining)
+
+    def test_detail_plus_complement_cannot_exceed_deposit(self):
+        self.administrative_collection(20)
+        self.claims[1]["amount_usd"] = 20
+        self.assertEqual(self.reconcile()[2]["DEP"], "Detalle supera depósito")
+
+    def test_linked_complement_is_not_counted_twice(self):
+        self.administrative_collection()
+        self.row.deducted_usd = 120
+        self.claims[1]["client_number"] = "3538"
+        self.manual[0]["detail_row"] = "ROW"
+        self.manual.append(dict(id="LOAN", deposit_id="DEP", claim_id="H:A",
+                                amount_usd=103.16, detail_row="ROW"))
+        context, _, statuses, _ = self.reconcile()
+        self.assertEqual(context["contexts"]["DEP"]["outside_complements"], [])
+        self.assertEqual(statuses["DEP"], "Conciliado")
+
+    def test_same_rule_applies_to_operative_collection(self):
+        self.administrative_collection()
+        self.claims[0].update(id="C:A", kind="C")
+        self.assertEqual(self.reconcile()[2]["DEP"], "Conciliado")

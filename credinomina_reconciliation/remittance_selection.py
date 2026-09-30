@@ -102,7 +102,7 @@ def get_pending_targets(remittance_name, targets=None):
         "CN Remittance Allocation", filters={"docstatus": 1, "employer": doc.employer},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
-    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1},
+    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["!=", "Saldo a favor de la empresa"]},
         fields=["name", "reference", "amount_usd", "employer", "period",
                 "client_number", "loan_number", "installment_number", "description", "voucher"],
         limit_page_length=0)

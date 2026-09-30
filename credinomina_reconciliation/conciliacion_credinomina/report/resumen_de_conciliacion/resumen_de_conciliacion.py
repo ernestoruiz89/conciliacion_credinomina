@@ -50,8 +50,9 @@ def execute(filters=None):
     credit_by_period = {}
     if data:
         for item in frappe.get_all(
-            "CN Deposit Surplus",
+            "CN Complementary Item",
             filters={
+                "category": "Saldo a favor de la empresa",
                 "period": ["in", [row.name for row in data]],
                 "docstatus": 1,
                 "result": "Saldo a favor documentado",

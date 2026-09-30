@@ -66,7 +66,10 @@ class CompanyReconciliationTests(unittest.TestCase):
         imports["IA"].check_permission.assert_called_once_with("write")
         self.assertEqual([p.name for p in history.call_args.args[0]], ["PA"])
         self.assertEqual(rebuild.call_args.args[0], [])
-        for doctype in ("CN Complementary Item", "CN Remittance Allocation", "CN Deposit Surplus", "CN Reconciliation Movement"):
+        item_filters = [kwargs["filters"]["category"] for dt, kwargs in queries if dt == "CN Complementary Item"]
+        self.assertIn(["!=", "Saldo a favor de la empresa"], item_filters)
+        self.assertIn("Saldo a favor de la empresa", item_filters)
+        for doctype in ("CN Complementary Item", "CN Remittance Allocation", "CN Reconciliation Movement"):
             query = next(kwargs for dt, kwargs in queries if dt == doctype)
             self.assertEqual(query["filters"]["employer"], "A", doctype)
         self.assertEqual((result["imports"], result["rows"], result["matched"], result["pending"]), (1, 1, 1, 0))

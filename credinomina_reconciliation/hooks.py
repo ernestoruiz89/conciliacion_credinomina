@@ -14,7 +14,6 @@ MONEY_DOCTYPES = (
     "CN Complementary Item",
     "CN Credit Portfolio Row",
     "CN Credit Portfolio Snapshot",
-    "CN Deposit Surplus",
     "CN Employer",
     "CN Reconciliation Exception",
     "CN Reconciliation Movement",

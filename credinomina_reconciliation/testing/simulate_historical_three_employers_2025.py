@@ -159,13 +159,14 @@ def _create_deposit_and_detail(employer, letter, period, month, paid_on, amounts
     reconcile_all_sources()
     if extra:
         surplus = frappe.get_doc({
-            "doctype": "CN Deposit Surplus",
+            "doctype": "CN Complementary Item",
+            "category": "Saldo a favor de la empresa", "currency": "USD", "posting_date": deposit_date,
             "period": period.name,
             "registered_deposit": deposit.name,
-            "deposit_reference": reference,
-            "amount_usd": extra,
+            "reference": reference,
+            "amount": extra,
             "reason_type": "Error de la empresa",
-            "explanation": (
+            "description": (
                 "SIMULACIÓN: la empresa remitió US$10 adicionales. Se conserva como "
                 "saldo a favor documentado, sin aplicarlo a ningún crédito."
             ),
@@ -285,7 +286,8 @@ def audit():
                         "unclassified": deposit.unclassified_usd,
                         "details": len(deposit.detail_rows),
                     })
-                if surplus and not frappe.db.exists("CN Deposit Surplus", {
+                if surplus and not frappe.db.exists("CN Complementary Item", {
+                    "category": "Saldo a favor de la empresa",
                     "registered_deposit": deposit_name,
                     "result": "Saldo a favor documentado", "docstatus": 1,
                 }):

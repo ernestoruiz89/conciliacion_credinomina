@@ -14,6 +14,9 @@ class CNReconciliationException(Document):
     def validate(self):
         previous = self.get_doc_before_save()
         self._assert_related_periods_open(previous)
+        from credinomina_reconciliation.exception_selection import validate_selected_case
+
+        validate_selected_case(self, previous)
         if self.status in {"Resuelta", "Descartada"} and not self.resolution:
             frappe.throw(_("Escriba la resolucion antes de cerrar la excepcion."))
         # Existing review/resolution records are grandfathered until edited,
@@ -114,22 +117,18 @@ class CNReconciliationException(Document):
     def on_update(self):
         previous = self.get_doc_before_save()
         self._assert_related_periods_open(previous)
-        if not self.period:
-            if previous and previous.period:
-                self._refresh_period_exception_count(previous.period)
-            return
         self._refresh_period_exception_count(self.period)
         if previous and previous.period and previous.period != self.period:
             self._refresh_period_exception_count(previous.period)
         if self.flags.get("skip_comment_reconciliation"):
             return
         if (
-            self.collection_row_id
+            (self.collection_row_id or (previous and previous.collection_row_id))
             and (
                 not previous
                 or any(
                     (self.get(field) or "") != (previous.get(field) or "")
-                    for field in ("description", "resolution", "status")
+                    for field in ("description", "resolution", "status", "collection_row_id", "period")
                 )
             )
             and frappe.db.exists(

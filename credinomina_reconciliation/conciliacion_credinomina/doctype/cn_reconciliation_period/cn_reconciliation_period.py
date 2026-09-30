@@ -1076,8 +1076,8 @@ def close_period(period_name: str):
         ):
             frappe.throw(_("Hay destinos de depósitos históricos pendientes o inválidos."))
         if frappe.db.count(
-            "CN Deposit Surplus",
-            {"docstatus": 1, "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
+            "CN Complementary Item",
+            {"docstatus": 1, "category": "Saldo a favor de la empresa", "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
         ):
             frappe.throw(_("Hay excedentes históricos pendientes de validar."))
         _mark_period_closed(period)
@@ -1090,9 +1090,9 @@ def close_period(period_name: str):
     if _pending_registered_targets({"period": period.name}):
         frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para este período."))
     if frappe.db.count(
-        "CN Deposit Surplus",
+        "CN Complementary Item",
         {
-            "docstatus": 1, "period": period.name,
+            "docstatus": 1, "category": "Saldo a favor de la empresa", "period": period.name,
             "result": ["!=", "Saldo a favor documentado"],
         },
     ):
@@ -1278,10 +1278,7 @@ def _reconcile_if_sources():
     confirmed_complement = frappe.db.exists(
         "CN Complementary Item", {"docstatus": 1},
     )
-    confirmed_surplus = frappe.db.exists(
-        "CN Deposit Surplus", {"docstatus": 1},
-    )
-    if not (imported_core or confirmed_cash or confirmed_complement or confirmed_surplus):
+    if not (imported_core or confirmed_cash or confirmed_complement):
         return None
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
         reconcile_all_sources,

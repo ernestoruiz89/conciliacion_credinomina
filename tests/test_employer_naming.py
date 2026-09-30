@@ -55,6 +55,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.rename_remittance_display_to_deposit",
                 "credinomina_reconciliation.patches.v1_0.add_employer_aging_report",
                 "credinomina_reconciliation.patches.v1_0.unify_period_statuses",
+                "credinomina_reconciliation.patches.v1_0.integrate_deposit_surplus",
             ],
             list(patches["post_model_sync"]),
         )

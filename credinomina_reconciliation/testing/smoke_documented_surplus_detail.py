@@ -9,6 +9,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_impor
     reconcile_all_sources,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import create_complementary_item
 
 
 def run():
@@ -80,30 +81,47 @@ def run():
         })
         manual_remittance.insert(ignore_permissions=True)
         manual_remittance.submit()
+        reconcile_all_sources()
         manual_remittance.reload()
         assert manual_remittance.detail_status == "Detalle pendiente"
         assert manual_remittance.result == "Detalle pendiente"
 
-        manual_surplus = frappe.get_doc({
-            "doctype": "CN Deposit Surplus", "period": period.name,
-            "registered_deposit": manual_remittance.name, "amount_usd": 10,
+        created = create_complementary_item(manual_remittance.name, str(manual_remittance.modified), {
+            "period": period.name,
+            "category": "Saldo a favor de la empresa", "currency": "USD", "posting_date": "2027-06-10",
+            "registered_deposit": manual_remittance.name, "amount": 10,
             "reason_type": "Error de la empresa",
-            "explanation": "Los US$10 restantes son saldo a favor de la empresa, no pago de crédito.",
-        }).insert(ignore_permissions=True)
-        manual_surplus.submit()
+            "description": "Los US$10 restantes son saldo a favor de la empresa, no pago de crédito.",
+        })
+        assert created["company_credit"] and created["result"] == "Saldo a favor documentado"
+        manual_surplus = frappe.get_doc("CN Complementary Item", created["name"])
         manual_remittance.reload()
+        assert len(manual_remittance.targets) == 1, "El saldo a favor no es un destino de pago"
         assert manual_remittance.detail_status == "Distribución manual; excedente documentado"
         assert manual_remittance.result == "Parcial con saldo a favor"
         assert manual_remittance.targets[0].result == "Aplicada"
+
+        frappe.db.savepoint("excess_credit")
+        try:
+            create_complementary_item(manual_remittance.name, str(manual_remittance.modified), {
+                "category": "Saldo a favor de la empresa", "currency": "USD", "amount": 1,
+                "posting_date": "2027-06-10", "reason_type": "Error de la empresa",
+                "description": "No debe documentarse dos veces el mismo excedente.",
+            })
+        except frappe.ValidationError:
+            frappe.db.rollback(save_point="excess_credit")
+        else:
+            raise AssertionError("Se documentó más saldo a favor del disponible.")
 
         frappe.db.savepoint("manual_split_before_close")
         assert close_period(period.name)["status"] == "Cerrado"
         try:
             frappe.get_doc({
-                "doctype": "CN Deposit Surplus", "period": period.name,
-                "registered_deposit": manual_remittance.name, "amount_usd": 1,
+                "doctype": "CN Complementary Item", "period": period.name,
+                "category": "Saldo a favor de la empresa", "currency": "USD", "posting_date": "2027-06-10",
+                "registered_deposit": manual_remittance.name, "amount": 1,
                 "reason_type": "Otro por aclarar",
-                "explanation": "Prueba: intentar alterar un saldo a favor cerrado.",
+                "description": "Prueba: intentar alterar un saldo a favor cerrado.",
             }).insert(ignore_permissions=True)
         except frappe.ValidationError:
             pass
@@ -152,10 +170,11 @@ def run():
         assert round(remittance.justified_surplus_usd, 4) == 0
 
         surplus = frappe.get_doc({
-            "doctype": "CN Deposit Surplus", "period": period.name,
+            "doctype": "CN Complementary Item", "period": period.name,
+            "category": "Saldo a favor de la empresa", "currency": "USD", "posting_date": "2027-06-10",
             "registered_deposit": remittance.name,
-            "amount_usd": 10, "reason_type": "Error de la empresa",
-            "explanation": "Excedente de US$10 informado por la empresa; queda como saldo a favor no aplicado al crédito.",
+            "amount": 10, "reason_type": "Error de la empresa",
+            "description": "Excedente de US$10 informado por la empresa; queda como saldo a favor no aplicado al crédito.",
         }).insert(ignore_permissions=True)
         surplus.submit()
         remittance.reload()

@@ -196,10 +196,12 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("No combine una partida complementaria con una fila de cobranza."))
             complementary = frappe.db.get_value(
                 "CN Complementary Item", target.complementary_item,
-                ["docstatus", "period", "amount_usd"], as_dict=True,
+                ["docstatus", "period", "amount_usd", "category"], as_dict=True,
             )
             if not complementary or complementary.docstatus != 1:
                 frappe.throw(_("Confirme primero la partida complementaria."))
+            if complementary.category == "Saldo a favor de la empresa":
+                frappe.throw(_("El saldo a favor se vincula desde la partida al depósito; no se asigna como pago en Destinos."))
             if money(target.amount_usd) * money(complementary.amount_usd) <= 0 or abs(money(target.amount_usd)) > abs(money(complementary.amount_usd)):
                 frappe.throw(_("El destino debe tener el signo de la partida complementaria y no superar su importe."))
             if complementary.period and frappe.db.get_value(
@@ -309,22 +311,27 @@ def create_complementary_item(remittance_name: str, modified: str, values):
         frappe.throw(_("Los datos de la partida no son válidos."))
     item = frappe.new_doc("CN Complementary Item")
     for field in ("category", "voucher", "voucher_line", "posting_date", "currency", "amount",
-                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description"):
+                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type"):
         if field in values:
             item.set(field, values[field])
     item.reference = document.deposit_reference
     item.employer = document.employer
+    company_credit = item.category == "Saldo a favor de la empresa"
+    if company_credit:
+        item.registered_deposit = document.name
     if item.period and frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
         frappe.throw(_("El período está cerrado."))
     item.flags.defer_reconciliation = True
     item.insert()
     item.submit()
-    document.append("targets", {
-        "complementary_item": item.name, "amount_usd": item.amount_usd,
-        "notes": item.description,
-    })
-    document.save()
-    return {"name": item.name, "accounting_status": item.accounting_status}
+    if not company_credit:
+        document.append("targets", {
+            "complementary_item": item.name, "amount_usd": item.amount_usd,
+            "notes": item.description,
+        })
+        document.save()
+    return {"name": item.name, "accounting_status": item.accounting_status,
+            "company_credit": company_credit, "result": item.result}
 
 
 @frappe.whitelist(methods=["POST"])

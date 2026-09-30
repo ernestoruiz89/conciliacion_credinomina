@@ -357,7 +357,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         );
     }
     page.add_button(__("Registrar depósito"), () => frappe.new_doc("CN Remittance Allocation"));
-    page.add_button(__("Documentar excedente"), () => frappe.new_doc("CN Deposit Surplus"));
+    page.add_button(__("Registrar partida complementaria"), () => frappe.new_doc("CN Complementary Item"));
     page.set_primary_action(__("Actualizar"), refresh);
     refresh();
 };

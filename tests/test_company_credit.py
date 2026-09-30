@@ -1,0 +1,82 @@
+import unittest
+from unittest.mock import Mock, patch
+
+from credinomina_reconciliation import company_credit as credit
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import cn_source_import as source
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import CNRemittanceAllocation
+from credinomina_reconciliation.patches.v1_0 import integrate_deposit_surplus as migration
+
+
+class Row(dict):
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+
+
+class CompanyCreditTests(unittest.TestCase):
+    def document(self, **values):
+        return Row({"amount_usd": 10, "registered_deposit": "DEP", "employer": "EMP",
+                    "description": "Devolver a la empresa", "reason_type": "Error de la empresa", **values})
+
+    def test_valid_credit_derives_deposit_identification(self):
+        doc = self.document()
+        deposit = Row(docstatus=1, deposit_date="2025-05-10", employer="EMP",
+                      deposit_reference="REF", deposit_voucher="BANK", check_permission=Mock())
+        with patch.object(credit.frappe, "get_doc", return_value=deposit), patch.object(credit, "ensure_related_periods_open") as guard:
+            credit.validate_company_credit(doc)
+        self.assertEqual((doc.reference, doc.deposit_voucher), ("REF", "BANK"))
+        guard.assert_called_once_with(doc)
+        deposit.check_permission.assert_called_once_with("read")
+
+    def test_invalid_credit_rejected(self):
+        for values in ({"amount_usd": 0}, {"amount_usd": -10}, {"client_number": "123"},
+                       {"loan_number": "123-1"}, {"installment_number": "1"},
+                       {"registered_deposit": None}, {"reason_type": ""}, {"description": "  "}):
+            with self.subTest(values=values), patch.object(credit.frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError):
+                    credit.validate_company_credit(self.document(**values))
+
+    def test_draft_or_wrong_company_deposit_rejected(self):
+        for status, employer in ((0, "EMP"), (2, "EMP"), (1, "OTHER")):
+            deposit = Row(docstatus=status, employer=employer, deposit_date="2025-05-10", check_permission=Mock())
+            with patch.object(credit.frappe, "get_doc", return_value=deposit), patch.object(credit.frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError):
+                    credit.validate_company_credit(self.document())
+
+    def test_company_credit_cannot_be_used_as_payment_target(self):
+        target = Row(complementary_item="COMP", amount_usd=10)
+        item = Row(docstatus=1, amount_usd=10, category=credit.CATEGORY)
+        with patch.object(credit.frappe, "db", Mock(get_value=Mock(return_value=item))), patch.object(credit.frappe, "throw", side_effect=ValueError):
+            with self.assertRaises(ValueError):
+                CNRemittanceAllocation._validate_target(target)
+
+    def classify(self, items, remaining=10):
+        account, bank = Row(allocation_reason=""), Row(allocation_reason="")
+        allocation = {"deposit_meta": {"D": {"account": account, "bank": bank, "employer": "EMP"}},
+                      "registered_ids": {"DEP": "D"}, "deposit_remaining": {"D": remaining}}
+        with patch.object(source.frappe, "db", Mock()) as db:
+            source._classify_surplus(allocation, items)
+        return account, db
+
+    def test_credit_documents_unallocated_money_not_a_loan_payment(self):
+        account, db = self.classify([self.document(name="COMP")])
+        self.assertEqual((account.justified_surplus_usd, account.unclassified_usd), (10, 0))
+        db.set_value.assert_called_once_with("CN Complementary Item", "COMP", "result", "Saldo a favor documentado", update_modified=False)
+
+    def test_credit_does_not_exceed_remaining_or_cross_company(self):
+        for item, reason in ((self.document(name="COMP", amount_usd=11), "Excede saldo sin distribuir"),
+                             (self.document(name="COMP", employer="OTHER"), "Empresa no coincide")):
+            account, db = self.classify([item])
+            self.assertEqual((account.justified_surplus_usd, account.unclassified_usd), (0, 10))
+            self.assertEqual(db.set_value.call_args.args[3], reason)
+
+    def test_multiple_credits_cannot_document_the_same_balance_twice(self):
+        account, db = self.classify([self.document(name="C1", amount_usd=7), self.document(name="C2", amount_usd=7)])
+        self.assertEqual((account.justified_surplus_usd, account.unclassified_usd), (7, 3))
+        self.assertEqual(db.set_value.call_args.args[3], "Excede saldo sin distribuir")
+
+    def test_migration_on_fresh_install_does_not_need_old_table(self):
+        db = Mock(table_exists=Mock(return_value=False), exists=Mock(return_value=False))
+        with patch.object(migration.frappe, "db", db), patch.object(migration, "_move_references"), patch.object(migration.frappe, "clear_cache"), patch.object(migration.frappe, "delete_doc") as delete:
+            migration.execute()
+        db.sql.assert_not_called()
+        delete.assert_not_called()

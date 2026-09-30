@@ -5,12 +5,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_deposit_surplus.cn_deposit_surplus import (
-    CNDepositSurplus,
-)
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_deposit_surplus import (
-    cn_deposit_surplus as surplus_module,
-)
+from credinomina_reconciliation import company_credit as surplus_module
 
 
 class ClosedDepositSurplusTests(unittest.TestCase):
@@ -34,18 +29,16 @@ class ClosedDepositSurplusTests(unittest.TestCase):
             return None
 
         with (
-            patch("credinomina_reconciliation.conciliacion_credinomina.doctype."
-                  "cn_deposit_surplus.cn_deposit_surplus.frappe.get_doc", return_value=deposit),
+            patch.object(surplus_module.frappe, "get_doc", return_value=deposit),
             patch.object(surplus_module.frappe, "db", SimpleNamespace(get_value=get_value)),
-            patch("credinomina_reconciliation.conciliacion_credinomina.doctype."
-                  "cn_deposit_surplus.cn_deposit_surplus.frappe.throw", side_effect=ValueError) as rejected,
+            patch.object(surplus_module.frappe, "throw", side_effect=ValueError) as rejected,
         ):
             if status == "Cerrado":
                 with self.assertRaises(ValueError):
-                    CNDepositSurplus._ensure_related_periods_open(surplus)
+                    surplus_module.ensure_related_periods_open(surplus)
                 self.assertEqual(rejected.call_count, 1)
             else:
-                CNDepositSurplus._ensure_related_periods_open(surplus)
+                surplus_module.ensure_related_periods_open(surplus)
                 rejected.assert_not_called()
 
     def test_explicit_closed_period_is_protected(self):

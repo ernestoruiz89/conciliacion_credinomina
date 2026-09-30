@@ -18,6 +18,11 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.toggle_display("select_detail_credit", !frm.is_new() && frm.doc.docstatus !== 2 &&
             !!frm.get_perm(0, "write") && !!(frm.doc.detail_rows || []).length);
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
+        if (!frm.is_new() && Number(frm.doc.justified_surplus_usd) > 0) {
+            frm.add_custom_button(__("Ver saldos a favor"), () => frappe.set_route("List", "CN Complementary Item", {
+                registered_deposit: frm.doc.name, category: "Saldo a favor de la empresa", docstatus: 1,
+            }), __("Conciliación"));
+        }
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Confirmar depósito"), async () => {
                 if (frm.is_dirty()) await frm.save();
@@ -201,8 +206,11 @@ async function createRemittanceComplementary(frm) {
         fields: [
             {fieldtype: "HTML", options: `<p>Use un importe positivo para un depósito mayor que la aplicación y negativo cuando falta depósito.
                 Por ejemplo: aplicado US$90, depósito US$100 → +US$10; aplicado US$100, depósito US$90 → −US$10.
-                Si usa un importe negativo, agréguelo antes de seleccionar las aplicaciones restantes.</p>`},
-            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación", default: "Ajuste de conciliación", reqd: 1},
+                  Si usa un importe negativo, agréguelo antes de seleccionar las aplicaciones restantes.
+                  Para dinero sin aplicación ni ingreso identificado, elija <b>Saldo a favor de la empresa</b>:
+                  debe ser positivo y no se agrega al detalle por cliente ni a Destinos.</p>`},
+            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nSaldo a favor de la empresa", default: "Ajuste de conciliación", reqd: 1},
+            {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"), options: "Error de la empresa\nPago adicional no informado\nOtro por aclarar", default: "Error de la empresa", depends_on: "eval:doc.category === 'Saldo a favor de la empresa'", mandatory_depends_on: "eval:doc.category === 'Saldo a favor de la empresa'", description: __("Requiere depósito confirmado. Se vincula directamente y no se aplica a créditos ni se agrega a Destinos.")},
             {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
             {fieldtype: "Column Break"},
             {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", reqd: 1},
@@ -216,12 +224,12 @@ async function createRemittanceComplementary(frm) {
             {fieldtype: "Section Break", label: __("Vínculo con cliente (opcional)"), collapsible: 1},
             {fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period", label: __("Período"),
                 get_query: () => ({filters: {employer: frm.doc.employer, status: ["!=", "Cerrado"]}})},
-            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente")},
+            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.client_number"},
             {fieldtype: "Column Break"},
-            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito")},
-            {fieldname: "installment_number", fieldtype: "Data", label: __("Nro. Cuota")},
+            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.loan_number"},
+            {fieldname: "installment_number", fieldtype: "Data", label: __("Nro. Cuota"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.installment_number"},
         ],
-        primary_action_label: __("Crear, confirmar y agregar a destinos"),
+        primary_action_label: __("Crear y confirmar partida"),
         primary_action: async values => {
             if (busy) return;
             busy = true;
@@ -230,11 +238,14 @@ async function createRemittanceComplementary(frm) {
                 const response = await frappe.call({
                     method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.create_complementary_item",
                     args: {remittance_name: frm.doc.name, modified: frm.doc.modified, values},
-                    freeze: true, freeze_message: __("Creando partida y destino…"),
+                    freeze: true, freeze_message: __("Creando partida complementaria…"),
                 });
                 dialog.hide();
                 await frm.reload_doc();
-                frappe.msgprint({title: __("Partida agregada"), message: `${frappe.utils.escape_html(response.message.name)} · ${frappe.utils.escape_html(response.message.accounting_status)}.<br>Complete los destinos y use Conciliar.`});
+                const message = response.message.company_credit
+                    ? __("Saldo a favor documentado y vinculado al depósito. No se aplicó a créditos.")
+                    : __("Partida agregada a Destinos. Complete la distribución y use Conciliar.");
+                frappe.msgprint({title: __("Partida registrada"), message: `${frappe.utils.escape_html(response.message.name)} · ${frappe.utils.escape_html(response.message.accounting_status)}.<br>${frappe.utils.escape_html(message)}`});
             } finally {
                 busy = false;
                 dialog.get_primary_btn().prop("disabled", false);

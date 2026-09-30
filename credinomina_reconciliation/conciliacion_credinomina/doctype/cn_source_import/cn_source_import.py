@@ -11,6 +11,7 @@ from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
+from credinomina_reconciliation.company_credit import CATEGORY as COMPANY_CREDIT
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.client_registry import (
     enrich_source_import_clients,
@@ -635,7 +636,7 @@ def _reconcile_sources(employer=None):
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, **company_filters},
+        filters={"docstatus": 1, "category": ["!=", COMPANY_CREDIT], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -663,11 +664,11 @@ def _reconcile_sources(employer=None):
         closed_operative_state,
     )
     surplus_items = frappe.get_all(
-        "CN Deposit Surplus",
-        filters={"docstatus": 1, **company_filters},
+        "CN Complementary Item",
+        filters={"docstatus": 1, "category": COMPANY_CREDIT, **company_filters},
         fields=[
-            "name", "period", "registered_deposit", "deposit_reference", "deposit_voucher",
-            "amount_usd", "result",
+            "name", "period", "registered_deposit", "reference as deposit_reference", "deposit_voucher",
+            "amount_usd", "result", "employer",
         ],
         order_by="creation asc",
     )
@@ -1239,15 +1240,17 @@ def _prepare_remittance_details(
                 "row": row, "amount_usd": amount, "explanation": explanation,
                 "targets": [], "status": "", "reason": "",
             })
-        # A separately justified shortage can explain a detail larger than cash
-        # received. Linked adjustments are already included in their row's net.
-        outside_negative = money_float(sum(
-            (money(entry["amount_usd"]) for entry in prior_instructions
-             if entry["deposit_id"] == deposit_id and not entry.get("detail_row")
-             and entry["claim_id"].startswith("X:") and money(entry["amount_usd"]) < 0),
-            money(0),
+        # Administrative collections and other signed complements belong to
+        # targets, not to fictitious client detail rows. Linked complements
+        # are already included in their row's net; count only separate ones.
+        outside_complements = [
+            entry for entry in prior_instructions
+            if entry["deposit_id"] == deposit_id and not entry.get("detail_row")
+            and entry["claim_id"].startswith("X:")
+        ]
+        covered_total = money_float(money(total_usd) + sum_money(
+            entry["amount_usd"] for entry in outside_complements
         ))
-        covered_total = money_float(total_usd + outside_negative)
         excessive = covered_total > flt(deposit["amount_usd"]) + CASH_EPSILON
         one_to_one_candidate = (
             len([plan for plan in plans if plan["amount_usd"] > CASH_EPSILON]) == 1
@@ -1311,6 +1314,7 @@ def _prepare_remittance_details(
         contexts[item.name] = {
             "status": "Detalle supera depósito" if excessive else "",
             "rows": plans, "total_usd": total_usd, "covered_total_usd": covered_total,
+            "outside_complements": outside_complements,
             "deposit_usd": flt(deposit["amount_usd"]),
         }
         if one_to_one_candidate and sum(
@@ -1374,12 +1378,24 @@ def _sync_remittance_details(context, allocation, claims=()):
                     update_modified=False,
                 )
             if not state["status"]:
+                outside_complements = state.get("outside_complements", [])
+                # Planned targets are not evidence of settlement: a draft,
+                # cancelled, exhausted or otherwise rejected complement must
+                # never make the detail ready for period closure.
+                outside_applied = all(
+                    allocation["instruction_results"].get(entry["id"]) == "Aplicada"
+                    for entry in outside_complements
+                )
+                covered_total = money(state["total_usd"]) + sum_money(
+                    entry["amount_usd"] for entry in outside_complements
+                    if allocation["instruction_results"].get(entry["id"]) == "Aplicada"
+                )
                 if any(
                     plan["status"] not in {"Conciliada", "No deducido"}
                     for plan in state["rows"]
-                ):
+                ) or not outside_applied:
                     state["status"] = "Revisar filas"
-                elif state.get("covered_total_usd", state["total_usd"]) < state["deposit_usd"] - CASH_EPSILON:
+                elif covered_total < money(state["deposit_usd"]) - decimal_value(CASH_EPSILON):
                     state["status"] = "Parcial; saldo sin detalle"
                 else:
                     state["status"] = "Conciliado"
@@ -1479,6 +1495,7 @@ def _distribute_deposits(
         )
         deposit_meta[account.name] = {
             "account": account, "bank": bank,
+            "employer": employer,
             "amount_usd": amount_usd,
             "nio_per_usd": native_nio / amount_usd if amount_usd else 0,
         }
@@ -1804,7 +1821,10 @@ def _classify_surplus(allocation, surplus_items):
             status = "Falta deposito" if not candidates else "Deposito ambiguo"
         else:
             deposit_id = candidates[0]
-            if not can_document_surplus(
+            company = meta_by_id[deposit_id].get("employer")
+            if item.get("employer") and company and item.employer != company:
+                status = "Empresa no coincide"
+            elif not can_document_surplus(
                 allocation["deposit_remaining"][deposit_id],
                 justified[deposit_id],
                 item.amount_usd,
@@ -1815,7 +1835,7 @@ def _classify_surplus(allocation, surplus_items):
                 status = "Saldo a favor documentado"
         if item.result != status:
             frappe.db.set_value(
-                "CN Deposit Surplus", item.name, "result", status,
+                "CN Complementary Item", item.name, "result", status,
                 update_modified=False,
             )
     for deposit_id, meta in meta_by_id.items():

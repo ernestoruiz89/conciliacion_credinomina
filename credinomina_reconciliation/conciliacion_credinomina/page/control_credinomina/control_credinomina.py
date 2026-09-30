@@ -37,7 +37,7 @@ def export_control_excel(year=None, employer=None):
     """Download a complete, permission-scoped snapshot of the control matrix."""
     required_reads = (
         "CN Reconciliation Period", "CN Source Import", "CN Remittance Allocation",
-        "CN Deposit Surplus", "CN Reconciliation Exception",
+        "CN Complementary Item", "CN Reconciliation Exception",
     )
     if any(not frappe.has_permission(doctype, "read") for doctype in required_reads):
         frappe.throw(_("No tiene permiso para exportar el control completo."))
@@ -187,11 +187,11 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         for item in exceptions:
             exceptions_by_period[item.period].append(item)
         surpluses = frappe.get_all(
-            "CN Deposit Surplus",
-            filters={"period": ["in", period_names], "docstatus": 1},
+            "CN Complementary Item",
+            filters={"period": ["in", period_names], "docstatus": 1, "category": "Saldo a favor de la empresa"},
             fields=[
-                "name", "period", "deposit_reference", "amount_usd",
-                "reason_type", "explanation", "result",
+                "name", "period", "reference as deposit_reference", "amount_usd",
+                "reason_type", "description as explanation", "result",
             ],
             limit_page_length=_row_limit(10000, full_export),
         )
@@ -587,18 +587,19 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                         record["control_state"] = "excedente"
         if registered:
             no_period_credit = frappe.get_list(
-                "CN Deposit Surplus",
+                "CN Complementary Item",
                 filters={
+                    "category": "Saldo a favor de la empresa",
                     "docstatus": 1, "result": "Saldo a favor documentado",
                     "period": ["is", "not set"],
                     "registered_deposit": ["in", [item.name for item in registered]],
                 },
                 fields=[
-                    "name", "employer", "deposit_reference", "amount_usd",
-                    "reason_type", "explanation", "result",
+                    "name", "employer", "reference as deposit_reference", "amount_usd",
+                    "reason_type", "description as explanation", "result",
                 ],
                 limit_page_length=_row_limit(10000, full_export),
-            ) if frappe.has_permission("CN Deposit Surplus", "read") else []
+            ) if frappe.has_permission("CN Complementary Item", "read") else []
             unassigned_surpluses.extend(no_period_credit)
             totals["documented_credit_usd"] += sum(
                 flt(item.amount_usd) for item in no_period_credit

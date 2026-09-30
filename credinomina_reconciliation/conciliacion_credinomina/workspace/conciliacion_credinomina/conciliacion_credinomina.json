@@ -67,7 +67,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "Conciliación de depósitos",
-      "link_count": 5,
+      "link_count": 4,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -108,16 +108,6 @@
       "label": "Partidas complementarias",
       "link_count": 0,
       "link_to": "CN Complementary Item",
-      "link_type": "DocType",
-      "onboard": 0,
-      "type": "Link"
-    },
-    {
-      "hidden": 0,
-      "is_query_report": 0,
-      "label": "Excedentes de depósito",
-      "link_count": 0,
-      "link_to": "CN Deposit Surplus",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
@@ -207,7 +197,7 @@
       "type": "Link"
     }
   ],
-  "modified": "2026-09-30 04:00:00.000000",
+  "modified": "2026-09-30 23:30:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",

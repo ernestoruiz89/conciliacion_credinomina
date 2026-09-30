@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
+from credinomina_reconciliation.company_credit import CATEGORY, ensure_related_periods_open, validate_company_credit
 
 
 class CNComplementaryItem(Document):
@@ -27,6 +28,8 @@ class CNComplementaryItem(Document):
             frappe.throw(_("Seleccione USD o NIO como moneda de la partida."))
         if not money(self.amount_usd):
             frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
+        if self.category == CATEGORY:
+            validate_company_credit(self)
         duplicate = frappe.db.get_value(
             self.doctype,
             {
@@ -51,8 +54,21 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
-        if not self.flags.get("defer_reconciliation"):
+        if self.category == CATEGORY or not self.flags.get("defer_reconciliation"):
             self._reconcile()
+        if self.category == CATEGORY:
+            result = frappe.db.get_value(self.doctype, self.name, "result")
+            if result != "Saldo a favor documentado":
+                frappe.throw(_("El saldo a favor no se pudo confirmar: {0}.").format(result or "Pendiente"))
+            self.result = result
+
+    def before_cancel(self):
+        if self.category == CATEGORY:
+            ensure_related_periods_open(self)
+
+    def on_trash(self):
+        if self.category == CATEGORY:
+            ensure_related_periods_open(self)
 
     def before_update_after_submit(self):
         self.validate()
