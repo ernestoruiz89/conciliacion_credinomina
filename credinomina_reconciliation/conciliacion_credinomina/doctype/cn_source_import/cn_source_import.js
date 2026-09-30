@@ -9,14 +9,16 @@ frappe.ui.form.on("CN Source Import", {
     refresh(frm) {
         update_currency_fields(frm);
         frm.set_df_property("source_type", "read_only", 1);
+        frm.set_query("employer", () => ({filters: {active: 1}}));
         frm.set_query("historical_period", () => ({
-            filters: { reconciliation_mode: "Historica" },
+            filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },
         }));
         frm.set_query("historical_period", "rows", () => ({
-            filters: { reconciliation_mode: "Historica" },
+            filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },
         }));
         frm.set_query("portfolio_snapshot", () => ({
-            filters: { status: ["in", ["Importado", "Importado con alertas"]] },
+            query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.get_company_portfolio_snapshots",
+            filters: {employer: frm.doc.employer},
         }));
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
         if (frm.is_new()) return;
@@ -45,5 +47,10 @@ frappe.ui.form.on("CN Source Import", {
             frm.set_value("manual_fx_rate", 0);
         }
         update_currency_fields(frm);
+    },
+
+    employer(frm) {
+        frm.set_value("portfolio_snapshot", "");
+        frm.set_value("historical_period", "");
     },
 });

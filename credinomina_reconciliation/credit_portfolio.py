@@ -139,10 +139,13 @@ def analyze_portfolio_rows(rows):
     return rows
 
 
-def _load_snapshot_rows(snapshot_name):
+def _load_snapshot_rows(snapshot_name, employer=""):
+    filters = {"parent": snapshot_name}
+    if employer:
+        filters["employer"] = employer
     rows = frappe.get_all(
         "CN Credit Portfolio Row",
-        filters={"parent": snapshot_name},
+        filters=filters,
         fields=[
             "name", "credit_number", "client_number_migrated", "client_number_core",
             "client_name", "credit_status", "credit_lifecycle", "employer_text",
@@ -258,7 +261,7 @@ def _register_portfolio_client(record, portfolio, client_index, allow_create=Tru
     return client_index
 
 
-def enrich_accounting_records(records, selected_snapshot=""):
+def enrich_accounting_records(records, selected_snapshot="", employer=""):
     """Enrich payment movements by loan or client number using the dated cut.
 
     A monthly cut applies to movements in that same month even when the report
@@ -274,6 +277,12 @@ def enrich_accounting_records(records, selected_snapshot=""):
         )
         if not selected or selected.status not in {"Importado", "Importado con alertas"}:
             frappe.throw(_("Seleccione un corte de cartera importado."))
+        if employer and not frappe.get_all(
+            "CN Credit Portfolio Row",
+            filters={"parent": selected_snapshot, "employer": employer},
+            fields=["name"], limit_page_length=1,
+        ):
+            frappe.throw(_("El corte de cartera seleccionado no contiene créditos de la empresa indicada."))
         snapshots = [selected]
     else:
         snapshots = frappe.get_all(
@@ -283,6 +292,15 @@ def enrich_accounting_records(records, selected_snapshot=""):
             order_by="report_date asc",
             limit_page_length=100000,
         )
+        if employer and snapshots:
+            eligible = {
+                row.parent for row in frappe.get_all(
+                    "CN Credit Portfolio Row",
+                    filters={"parent": ["in", [item.name for item in snapshots]], "employer": employer},
+                    fields=["parent"], limit_page_length=100000,
+                )
+            }
+            snapshots = [item for item in snapshots if item.name in eligible]
 
     snapshots = sorted(
         snapshots,
@@ -313,7 +331,7 @@ def enrich_accounting_records(records, selected_snapshot=""):
         for snapshot in snapshot_by_record.values() if snapshot
     }
     row_indexes = {
-        name: _load_snapshot_rows(name) for name in used_snapshots
+        name: _load_snapshot_rows(name, employer) for name in used_snapshots
     }
     client_index = None
     employers = frappe.get_all(

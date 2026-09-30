@@ -111,7 +111,7 @@ _SOURCE_DERIVED_FIELDS = (
 )
 _IMPORT_EVIDENCE_FIELDS = (
     "source_type", "source_file", "file_hash", "historical_backfill",
-    "historical_period", "currency", "manual_fx_rate",
+    "employer", "historical_period", "currency", "manual_fx_rate",
     "portfolio_snapshot",
 )
 
@@ -148,6 +148,7 @@ class CNSourceImport(Document):
 
     def validate(self):
         self._validate_source_type()
+        self._validate_employer_scope()
         self._validate_historical_periods()
         self._validate_duplicate_file()
         self._validate_manual_rates()
@@ -215,6 +216,20 @@ class CNSourceImport(Document):
         if self.source_type != SOURCE_ACCOUNTING:
             frappe.throw(_("El tipo de fuente debe ser Movimientos contables."))
 
+    def _validate_employer_scope(self):
+        if self.status == "Borrador" and not self.employer:
+            frappe.throw(_("Seleccione la empresa de esta importación."))
+        if self.employer and not frappe.db.exists("CN Employer", self.employer):
+            frappe.throw(_("La empresa seleccionada no existe."))
+        if self.portfolio_snapshot and self.employer:
+            has_company_rows = frappe.get_all(
+                "CN Credit Portfolio Row",
+                filters={"parent": self.portfolio_snapshot, "employer": self.employer},
+                fields=["name"], limit_page_length=1,
+            )
+            if not has_company_rows:
+                frappe.throw(_("El corte de cartera seleccionado no contiene créditos de la empresa indicada."))
+
     def _validate_historical_periods(self):
         if any(
             row.historical_period and row.event_type != "Aplicacion"
@@ -248,7 +263,7 @@ class CNSourceImport(Document):
                 fields=[
                     "name", "reconciliation_mode", "historical_scope",
                     "historical_application_date", "historical_start_date",
-                    "historical_end_date",
+                    "historical_end_date", "employer",
                 ],
                 limit_page_length=max(len(selected), 20),
             )
@@ -256,6 +271,8 @@ class CNSourceImport(Document):
         for name in selected:
             if name not in periods or periods[name].reconciliation_mode != "Historica":
                 frappe.throw(_("{0} no es un período histórico.").format(name))
+            if self.employer and periods[name].employer != self.employer:
+                frappe.throw(_("El período histórico {0} pertenece a otra empresa.").format(name))
         for row in self.rows or []:
             if row.event_type != "Aplicacion" or row.processing_route == "Operativa":
                 continue
@@ -332,6 +349,40 @@ class CNSourceImport(Document):
         self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
 
 
+@frappe.whitelist()
+def get_company_portfolio_snapshots(doctype, txt, searchfield, start, page_len, filters):
+    """Return readable portfolio cuts that contain rows for the chosen company."""
+    filters = frappe.parse_json(filters) if isinstance(filters, str) else (filters or {})
+    employer = clean_text(filters.get("employer"))
+    if not employer or not frappe.has_permission("CN Credit Portfolio Snapshot", "read"):
+        return []
+    snapshots = frappe.get_list(
+        "CN Credit Portfolio Snapshot",
+        filters={"status": ["in", ["Importado", "Importado con alertas"]]},
+        fields=["name", "cut_month", "report_date"],
+        order_by="report_date desc, name desc", limit_page_length=100000,
+    )
+    names = [item.name for item in snapshots]
+    eligible = {
+        row.parent for row in frappe.get_all(
+            "CN Credit Portfolio Row",
+            filters={"parent": ["in", names], "employer": employer},
+            fields=["parent"], limit_page_length=100000,
+        )
+    } if names else set()
+    needle = clean_text(txt).casefold()
+    matches = [
+        item for item in snapshots
+        if item.name in eligible
+        and (not needle or needle in clean_text(item.name).casefold()
+             or needle in clean_text(item.cut_month).casefold()
+             or needle in clean_text(item.report_date).casefold())
+    ]
+    offset, limit = int(start or 0), int(page_len or 20)
+    return [[item.name, f"{item.cut_month or ''} · {item.report_date or ''}"]
+            for item in matches[offset:offset + limit]]
+
+
 def _attached_file(document):
     if not document.source_file:
         frappe.throw(_("Adjunte el archivo de origen."))
@@ -361,7 +412,11 @@ def import_source_file(import_name: str):
             document.currency,
             document.manual_fx_rate,
         )
-        parsed = enrich_accounting_records(parsed, document.portfolio_snapshot)
+        if not document.employer:
+            frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
+        parsed = enrich_accounting_records(
+            parsed, document.portfolio_snapshot, document.employer,
+        )
         parsed = enrich_source_import_clients(parsed)
     except SourceFileError as exc:
         document.status = "Fallido"
