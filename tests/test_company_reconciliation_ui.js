@@ -5,12 +5,13 @@ const path = require("node:path");
 
 const events = [];
 let dialogOptions;
+const formHandlers = {};
 const result = {employer: "A", imports: 1, rows: 1, matched: 0, pending: 1, ignored: 0,
     pending_rows: [{import_name: "IA", row: 2, client_name: "<script>bad</script>", loan_number: "101", reason: "Falta depósito"}]};
 const context = vm.createContext({
     __: (text, values = []) => text.replace(/\{(\d+)\}/g, (_, i) => values[i]),
     frappe: {
-        ui: {form: {on() {}}, Dialog: function(options) {
+        ui: {form: {on(doctype, handlers) {formHandlers[doctype] = handlers;}}, Dialog: function(options) {
             dialogOptions = options;
             this.show = () => events.push("dialog");
             this.hide = () => {};
@@ -23,6 +24,23 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_import/cn_source_import.js"), "utf8"), context);
 
 (async () => {
+    const activated = [];
+    const rowForm = {fields_dict: {rows: {grid: {grid_rows_by_docname: {
+        A: {grid_form: {layout: {tabs: [
+            {df: {fieldname: "reconciliation_tab"}, set_active: () => activated.push("wrong-tab")},
+            {df: {fieldname: "movement_tab"}, set_active: () => activated.push("A-movement")},
+        ]}}},
+        B: {grid_form: {layout: {tabs: [
+            {df: {fieldname: "movement_tab"}, set_active: () => activated.push("B-movement")},
+        ]}}},
+    }}}}};
+    const renderRow = cdn => formHandlers["CN Source Row"].form_render(rowForm, "CN Source Row", cdn);
+    renderRow("A");
+    renderRow("B");
+    renderRow("A"); // Reopening a row must also default to Movimiento.
+    renderRow("missing"); // A removed/unrendered row must not throw.
+    assert.deepEqual(activated, ["A-movement", "B-movement", "A-movement"]);
+
     const frm = {doc: {employer: "A", name: "IA"}, is_dirty: () => true,
         save: async () => events.push("save"), reload_doc: async () => events.push("reload")};
     await context.reconcileCompany(frm);
