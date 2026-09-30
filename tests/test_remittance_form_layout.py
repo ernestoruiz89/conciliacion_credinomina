@@ -1,0 +1,29 @@
+import json
+import unittest
+from pathlib import Path
+
+
+class RemittanceFormLayoutTests(unittest.TestCase):
+    def test_fields_are_preserved_and_grouped_into_workflow_tabs(self):
+        path = Path(__file__).resolve().parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.json"
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        fields = {field["fieldname"]: field for field in doc["fields"]}
+        self.assertEqual(set(fields), set(doc["field_order"]))
+        self.assertEqual(len(fields), len(doc["field_order"]))
+        groups = {}
+        tab = None
+        for name in doc["field_order"]:
+            if fields[name]["fieldtype"] == "Tab Break":
+                tab = name
+            groups[name] = tab
+        for name in ("employer", "deposit_amount", "fx_rate", "amount_usd", "support_file", "notes"):
+            self.assertEqual(groups[name], "deposit_tab")
+        for name in ("detail_file", "detail_period", "load_deposit_detail", "detail_rows"):
+            self.assertEqual(groups[name], "detail_tab")
+        self.assertEqual(groups["targets"], "destinations_tab")
+        self.assertEqual(groups["allocation_preview"], "results_tab")
+        self.assertEqual(groups["allocation_detail"], "results_tab")
+        self.assertEqual(doc["field_order"][doc["field_order"].index("targets") - 1], "select_pending_targets")
+        self.assertTrue(fields["technical_section"]["collapsible"])
+        self.assertTrue(fields["result"]["allow_on_submit"])
+        self.assertTrue(fields["detail_rows"]["read_only"])

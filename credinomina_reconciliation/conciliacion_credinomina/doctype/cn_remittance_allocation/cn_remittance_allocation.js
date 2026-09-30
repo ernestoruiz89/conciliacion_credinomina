@@ -1,18 +1,14 @@
 frappe.ui.form.on("CN Remittance Allocation", {
     setup(frm) {
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
+        frm.set_query("detail_period", () => ({ filters: { employer: frm.doc.employer, status: ["!=", "Cerrado"] } }));
     },
     refresh(frm) {
-        showDepositStage(frm);
+        renderRemittanceOverview(frm);
+        renderRemittanceAllocations(frm);
+        toggleRemittanceDetailActions(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
-        frm.add_custom_button(__("Plantilla de detalle del depósito"), () => {
-            const params = new URLSearchParams({ template_type: "deposito" });
-            if (frm.doc.detail_period) params.set("period_name", frm.doc.detail_period);
-            window.open(
-                `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,
-                "_blank"
-            );
-        }, __("Plantillas"));
+        frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Confirmar depósito"), async () => {
                 if (frm.is_dirty()) await frm.save();
@@ -33,16 +29,18 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         const file = frm.doc.detail_file || frm.doc.support_file || "";
         if (frm.is_new() || frm.doc.docstatus === 2 || !/\.(xlsx|xls|csv)(\?|$)/i.test(file)) return;
-        frm.add_custom_button(__("Cargar detalle del depósito"), async () => {
-            if (frm.is_dirty()) await frm.save();
-            frappe.call({
-                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.import_remittance_detail",
-                args: { remittance_name: frm.doc.name },
-                freeze: true,
-                callback: () => frm.reload_doc(),
-            });
-        });
+        if (frm.get_perm(0, "write")) {
+            frm.add_custom_button(__("Cargar detalle del depósito"), () => importRemittanceDetail(frm));
+        }
     },
+    download_detail_template: downloadRemittanceTemplate,
+    load_deposit_detail: importRemittanceDetail,
+    detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
+    support_file: toggleRemittanceDetailActions,
+    amount_usd: renderRemittanceOverview,
+    employer: renderRemittanceOverview,
+    detail_period: renderRemittanceOverview,
+    notes: renderRemittanceOverview,
     deposit_amount: updateUsdEquivalent,
     deposit_currency: updateUsdEquivalent,
     fx_rate: updateUsdEquivalent,
@@ -64,6 +62,123 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+frappe.ui.form.on("CN Remittance Target", {
+    targets_add: renderRemittanceOverview,
+    targets_remove: renderRemittanceOverview,
+    amount_usd: renderRemittanceOverview,
+    period: renderRemittanceOverview,
+    row_key: renderRemittanceOverview,
+    historical_application: renderRemittanceOverview,
+    complementary_item: renderRemittanceOverview,
+});
+
+function downloadRemittanceTemplate(frm) {
+    const params = new URLSearchParams({ template_type: "deposito" });
+    if (frm.doc.detail_period) params.set("period_name", frm.doc.detail_period);
+    window.open(
+        `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,
+        "_blank"
+    );
+}
+
+function toggleRemittanceDetailActions(frm) {
+    const file = frm.doc.detail_file || frm.doc.support_file || "";
+    frm.toggle_display("load_deposit_detail", !frm.is_new() && frm.doc.docstatus !== 2 &&
+        !!frm.get_perm(0, "write") && /\.(xlsx|xls|csv)(\?|$)/i.test(file));
+}
+
+async function importRemittanceDetail(frm) {
+    if (frm.is_dirty()) await frm.save();
+    await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.import_remittance_detail",
+        args: { remittance_name: frm.doc.name },
+        freeze: true,
+        freeze_message: __("Cargando detalle del depósito…"),
+    });
+    await frm.reload_doc();
+}
+
+function remittancePresentation(doc, dirty = false) {
+    const registration = doc.docstatus === 2 ? "Cancelado" : doc.docstatus === 1 ? "Confirmado" : "Borrador";
+    const reconciled = doc.docstatus === 1 && doc.result === "Conciliado";
+    const review = doc.docstatus === 1 && ["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(doc.result);
+    let hint = "Depósito en borrador: todavía no participa en la conciliación. Complete los datos y guarde; después confirme o solicite confirmación a un supervisor.";
+    if (doc.docstatus === 2) hint = "Este depósito está cancelado y no participa en la conciliación.";
+    else if (doc.docstatus === 1) {
+        if (dirty) hint = "Hay cambios sin guardar. Los resultados mostrados corresponden a la última conciliación; guarde y luego use Conciliar.";
+        else if (!doc.detail_count && !(doc.targets || []).length && doc.result !== "Conciliado" && !review) {
+            hint = "Depósito confirmado, pendiente de detalle por cliente o destinos manuales. Puede cargar el archivo cuando llegue, aunque sea en otro mes.";
+        }
+        else if (doc.result === "Pendiente" || doc.detail_status === "Cargado; pendiente de conciliación") {
+            hint = "Hay información pendiente de conciliar. Use Conciliar para actualizar el resultado.";
+        } else if (review && Number(doc.allocated_usd) > 0 && Number(doc.unallocated_usd) === 0) {
+            hint = "El dinero está distribuido, pero la revisión no ha terminado. Revise los estados y motivos en Detalle por cliente y Destinos.";
+        } else if (review) hint = "Revise los estados y motivos en Detalle por cliente y Destinos. Después guarde y use Conciliar.";
+        else if (reconciled) hint = "Depósito conciliado. Consulte la distribución y las excepciones en Resultado.";
+        else hint = "Revise el detalle o seleccione partidas en Destinos. Guarde y use Conciliar para actualizar los saldos.";
+    }
+    return {
+        registration, hint,
+        result: doc.docstatus === 2 ? "No participa" : doc.docstatus !== 1 ? "Sin conciliar" : doc.result || "Pendiente",
+        color: doc.docstatus === 2 ? "gray" : dirty ? "orange" : reconciled ? "green" : review ? "orange" : "blue",
+    };
+}
+
+function remittanceMoney(value) {
+    const amount = Number(value || 0);
+    return Number.isFinite(amount) ? amount.toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+}
+
+function renderRemittanceOverview(frm) {
+    if (!frm.dashboard || !frm.$wrapper) return;
+    const escape = value => frappe.utils.escape_html(String(value || ""));
+    const state = remittancePresentation(frm.doc, frm.is_dirty());
+    const confirmed = frm.doc.docstatus === 1;
+    const cards = [
+        ["Equivalente del depósito", `US$ ${remittanceMoney(frm.doc.amount_usd)}`],
+        ["Distribuido · última conciliación", confirmed ? `US$ ${remittanceMoney(frm.doc.allocated_usd)}` : "—"],
+        ["Sin distribuir · última conciliación", confirmed ? `US$ ${remittanceMoney(frm.doc.unallocated_usd)}` : "—"],
+        ["Estado del detalle", frm.doc.detail_status || "Sin detalle cargado"],
+    ];
+    const html = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <strong>${escape(frm.doc.employer || "Nuevo depósito")}</strong>
+        <span>${escape(state.registration)} · <span class="indicator-pill ${state.color}">${escape(state.result)}</span></span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+        ${cards.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
+            <div class="small text-muted">${escape(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${escape(value)}</div>
+        </div>`).join("")}
+    </div><p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>`;
+    const existing = frm.$wrapper.find(".cn-remittance-overview");
+    if (existing.length) existing.html(html);
+    else frm.dashboard.add_section(`<div class="cn-remittance-overview">${html}</div>`);
+    frm.dashboard.show();
+}
+
+function remittanceAllocationHtml(raw) {
+    const escape = value => frappe.utils.escape_html(String(value ?? ""));
+    let rows;
+    try {
+        rows = typeof raw === "string" ? JSON.parse(raw || "[]") : raw || [];
+        if (!Array.isArray(rows) || rows.some(row => !row || typeof row !== "object")) throw new Error("Invalid detail");
+    } catch (_error) {
+        return '<p class="text-muted">No se pudo mostrar el resumen. Revise Información técnica; los datos originales se conservan.</p>';
+    }
+    if (!rows.length) return '<p class="text-muted">Todavía no hay una distribución registrada. Los destinos seleccionados se procesan al confirmar el depósito y usar Conciliar.</p>';
+    return `<div class="table-responsive" style="max-height:400px;overflow:auto"><table class="table table-bordered">
+        <caption>Asignaciones de la última conciliación; no son destinos pendientes de guardar.</caption>
+        <thead><tr><th>Tipo</th><th>Período / partida</th><th>Crédito / referencia</th><th class="text-right">Importe US$</th><th>Origen</th></tr></thead>
+        <tbody>${rows.map(row => `<tr><td>${escape(row.tipo)}</td><td>${escape(row.periodo || row.partida)}</td>
+            <td>${escape(row.credito || row.aplicacion_id || row.movimiento || row.fila_id)}</td>
+            <td class="text-right text-nowrap">${escape(remittanceMoney(row.importe_usd))}</td><td>${escape(row.origen)}</td></tr>`).join("")}</tbody>
+    </table></div>`;
+}
+
+function renderRemittanceAllocations(frm) {
+    const field = frm.fields_dict.allocation_preview;
+    if (field) field.$wrapper.html(remittanceAllocationHtml(frm.doc.allocation_detail));
+}
 
 async function loadPendingRemittanceTargets(frm) {
     const response = await frappe.call({
@@ -246,38 +361,12 @@ class RemittanceTargetPicker {
             }
             this.frm.refresh_field("targets");
             this.frm.dirty();
+            renderRemittanceOverview(this.frm);
             this.dialog.hide();
             frappe.show_alert({ message: __("Destinos agregados. Guarde los cambios; la conciliación se ejecuta por separado."), indicator: "green" });
         } finally {
             this.applying = false;
         }
-    }
-}
-
-function showDepositStage(frm) {
-    if (frm.is_new()) {
-        frm.set_intro(__("Guarde el depósito y confírmelo cuando sus datos estén completos. Confirmar no ejecuta la conciliación; podrá conciliar por separado."), "blue");
-    } else if (frm.doc.docstatus === 0) {
-        frm.set_intro(
-            frm.get_perm(0, "submit")
-                ? __("Depósito en borrador: todavía no participa en la conciliación. Cargar el detalle no lo confirma; use Confirmar depósito y luego Conciliar.")
-                : __("Depósito en borrador: todavía no participa en la conciliación. Cargar el detalle no lo confirma; solicite a un supervisor que confirme el depósito."),
-            "orange"
-        );
-    } else if (frm.doc.docstatus === 2) {
-        frm.set_intro(__("Depósito cancelado: no participa en la conciliación."), "red");
-    } else if (frm.doc.detail_status === "Cargado; pendiente de conciliación") {
-        frm.set_intro(__("Depósito confirmado; el detalle está cargado y pendiente de conciliación. Use Conciliar cuando quiera actualizar el resultado."), "orange");
-    } else if (frm.doc.result === "Pendiente") {
-        frm.set_intro(__("Depósito confirmado, pendiente de conciliación. Use Conciliar para calcular la distribución y el resultado."), "orange");
-    } else if (!frm.doc.detail_count && !(frm.doc.targets || []).length) {
-        frm.set_intro(__("Depósito confirmado, pendiente de detalle por cliente o distribución manual documentada. La conciliación se ejecuta por separado."), "orange");
-    } else if (["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(frm.doc.result)) {
-        frm.set_intro(__("Depósito confirmado, pero hay detalle o destinos pendientes de revisión."), "orange");
-    } else if (frm.doc.result === "Conciliado") {
-        frm.set_intro(__("Depósito confirmado y conciliado."), "green");
-    } else {
-        frm.set_intro(__("Depósito confirmado. Revise el resultado y el saldo sin distribuir."), "blue");
     }
 }
 
