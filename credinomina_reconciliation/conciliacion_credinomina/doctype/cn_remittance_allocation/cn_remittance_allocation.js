@@ -56,6 +56,19 @@ frappe.ui.form.on("CN Remittance Allocation", {
     deposit_currency: updateUsdEquivalent,
     fx_rate: updateUsdEquivalent,
     deposit_date: updateUsdEquivalent,
+    async bank_account(frm) {
+        const document = frm.doc;
+        const account = document.bank_account;
+        if (!account || document.docstatus !== 0) return;
+        const response = await frappe.db.get_value("CN Bank Account", account, "currency");
+        // A slow lookup must not overwrite a newer selection or another document.
+        if (frm.doc !== document || frm.doc.bank_account !== account || frm.doc.docstatus !== 0) return;
+        const currency = response.message?.currency;
+        if (["USD", "NIO"].includes(currency)) {
+            // Reuse the currency event to recalculate the USD equivalent.
+            await frm.set_value("deposit_currency", currency);
+        }
+    },
     async select_pending_targets(frm) {
         if (!frm.doc.employer || !Number(frm.doc.amount_usd)) {
             frappe.msgprint(__("Indique la empresa y el importe del depósito (con tasa si está en C$)."));
