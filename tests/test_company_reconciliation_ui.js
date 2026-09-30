@@ -33,6 +33,21 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(!html.includes("<script>"));
     assert.equal(frm.__company_reconciliation_running, false);
 
+    context.showCompanyReconciliation({...result, rows: 3, matched: 2,
+        matched_rows: [{import_name: "IB", row: 3, client_name: "<b>Cliente conciliado</b>",
+            loan_number: "102", reason: "Aplicación y depósito conciliados."}]});
+    const mixedHtml = dialogOptions.fields[0].options;
+    assert.equal((mixedHtml.match(/<tr class="cn-row-reconciled">/g) || []).length, 1);
+    assert.ok(mixedHtml.includes("background-color: var(--bg-green"));
+    assert.ok(mixedHtml.includes("<td>Conciliado</td>"));
+    assert.ok(mixedHtml.includes("<td>Pendiente</td>"));
+    assert.ok(mixedHtml.includes("Se muestran 1 de 2 filas conciliadas"));
+    assert.ok(mixedHtml.includes("&lt;b&gt;Cliente conciliado&lt;/b&gt;"));
+    assert.ok(!mixedHtml.includes("<b>Cliente conciliado</b>"));
+    context.showCompanyReconciliation({...result, pending: 0, pending_rows: [], matched: 1,
+        matched_rows: [{import_name: "IB", row: 3, client_name: "Ana", reason: "Conciliado"}]});
+    assert.ok(dialogOptions.fields[0].options.includes('class="cn-row-reconciled"'));
+
     events.length = 0;
     frm.save = async () => {throw new Error("save failed");};
     await assert.rejects(context.reconcileCompany(frm), /save failed/);

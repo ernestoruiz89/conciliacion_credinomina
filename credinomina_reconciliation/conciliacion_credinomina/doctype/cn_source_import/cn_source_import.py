@@ -519,6 +519,7 @@ def _company_imports(imports, employer):
 def _reconciliation_feedback(rows):
     """Disjoint totals and actionable reasons for every uncompleted source row."""
     matched = ignored = 0
+    matched_rows = []
     pending_rows = []
     reasons = defaultdict(int)
     for row in rows:
@@ -532,6 +533,13 @@ def _reconciliation_feedback(rows):
         )
         if complete:
             matched += 1
+            if len(matched_rows) < 100:
+                matched_rows.append({
+                    "import_name": row._source_import, "row": row.source_row or row.idx,
+                    "client_name": row.client_name or "", "loan_number": row.loan_number or "",
+                    "reason": _("Aplicación y depósito conciliados.")
+                    if row.event_type == "Aplicacion" else _("Movimiento conciliado."),
+                })
             continue
         row_reasons = []
         if row.match_status != "Conciliado":
@@ -550,6 +558,7 @@ def _reconciliation_feedback(rows):
     return {
         "matched": matched, "ignored": ignored, "pending": len(pending_rows),
         "pending_rows": pending_rows[:100],
+        "matched_rows": matched_rows,
         "pending_reasons": [{"reason": reason, "count": count}
                             for reason, count in sorted(reasons.items(), key=lambda item: (-item[1], item[0]))],
     }

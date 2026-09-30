@@ -97,6 +97,18 @@ class CompanyReconciliationTests(unittest.TestCase):
         self.assertEqual((result["matched"], result["pending"], result["ignored"]), (1, 2, 1))
         self.assertEqual(result["pending_rows"][0]["reason"], "Faltan US$10")
         self.assertIn("Asigne período", result["pending_rows"][1]["reason"])
+        self.assertEqual(len(result["matched_rows"]), 1)
+        self.assertEqual(result["matched_rows"][0]["reason"], "Aplicación y depósito conciliados.")
+
+    def test_feedback_limits_matched_preview_without_losing_totals(self):
+        rows = [Record(event_type="Aplicacion", _source_import="IA", source_row=i + 1,
+                       client_name="Ana", match_status="Conciliado",
+                       deposit_match_status="Depósito conciliado") for i in range(125)]
+        with patch.object(source, "_", side_effect=lambda text: text):
+            result = source._reconciliation_feedback(rows)
+        self.assertEqual(result["matched"], 125)
+        self.assertEqual(len(result["matched_rows"]), 100)
+        self.assertEqual(result["pending_rows"], [])
 
     def test_endpoint_checks_document_permission_before_running(self):
         document = Record(check_permission=Mock(side_effect=PermissionError))

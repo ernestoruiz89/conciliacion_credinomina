@@ -80,22 +80,35 @@ function showCompanyReconciliation(result) {
         [__("Pendientes"), result.pending], [__("Ignoradas"), result.ignored],
     ];
     const pending = result.pending_rows || [];
-    const rows = pending.map(row => `<tr>
-        <td><a href="/app/cn-source-import/${encodeURIComponent(row.import_name)}">${esc(row.import_name)}</a><br>${__("Fila")} ${esc(row.row)}</td>
-        <td>${esc(row.client_name)}<br><span class="text-muted">${esc(row.loan_number)}</span></td>
-        <td style="white-space:normal">${esc(row.reason)}</td>
-    </tr>`).join("");
+    const matched = result.matched_rows || [];
+    const renderMovements = (movements, reconciled) => `
+        <div style="max-height:40vh;overflow:auto"><table class="table table-bordered">
+        <thead><tr><th>${__("Importación / fila")}</th><th>${__("Cliente / crédito")}</th><th>${__("Estado")}</th><th>${__("Detalle")}</th></tr></thead>
+        <tbody>${movements.map(row => `<tr${reconciled ? ' class="cn-row-reconciled"' : ""}>
+            <td><a href="/app/cn-source-import/${encodeURIComponent(row.import_name)}">${esc(row.import_name)}</a><br>${__("Fila")} ${esc(row.row)}</td>
+            <td>${esc(row.client_name)}<br><span class="text-muted">${esc(row.loan_number)}</span></td>
+            <td>${reconciled ? __("Conciliado") : __("Pendiente")}</td>
+            <td style="white-space:normal">${esc(row.reason)}</td>
+        </tr>`).join("")}</tbody></table></div>`;
     const dialog = new frappe.ui.Dialog({
         title: __("Conciliación de {0}", [result.employer]), size: "extra-large",
         fields: [{fieldtype: "HTML", options: `
+            <style>.cn-company-reconciliation .cn-row-reconciled > td {
+                background-color: var(--bg-green, #eaf6ec);
+                color: var(--text-color, #1f272e);
+            }</style>
+            <div class="cn-company-reconciliation">
             <p>${__("Se procesaron {0} importaciones de esta empresa con los datos guardados.", [esc(result.imports)])}</p>
             <div class="row">${counts.map(([label, value]) => `<div class="col-sm-3"><div class="text-muted">${label}</div><h3>${esc(value)}</h3></div>`).join("")}</div>
             <p class="text-muted">${__("Las filas ignoradas, como duplicados y ajustes, no se cuentan como pendientes.")}</p>
             ${result.pending ? `<h5>${__("Motivos para revisar")}</h5>
-                <div style="max-height:45vh;overflow:auto"><table class="table table-bordered">
-                <thead><tr><th>${__("Importación / fila")}</th><th>${__("Cliente / crédito")}</th><th>${__("Motivo")}</th></tr></thead><tbody>${rows}</tbody></table></div>
+                ${renderMovements(pending, false)}
                 ${result.pending > pending.length ? `<p>${__("Se muestran {0} de {1} filas pendientes. Abra las importaciones para revisar las demás.", [esc(pending.length), esc(result.pending)])}</p>` : ""}`
                 : `<p class="text-success">${result.rows ? __("No quedaron filas pendientes de conciliación.") : __("Esta empresa todavía no tiene movimientos importados.")}</p>`}
+            ${matched.length ? `<h5>${__("Movimientos conciliados")}</h5>
+                ${renderMovements(matched, true)}
+                ${result.matched > matched.length ? `<p>${__("Se muestran {0} de {1} filas conciliadas. Abra las importaciones para revisar las demás.", [esc(matched.length), esc(result.matched)])}</p>` : ""}` : ""}
+            </div>
         `}],
         primary_action_label: __("Cerrar"), primary_action: () => dialog.hide(),
         secondary_action_label: __("Ver importaciones"),
