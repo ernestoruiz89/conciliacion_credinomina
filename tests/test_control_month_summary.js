@@ -72,8 +72,21 @@ const original = JSON.stringify(periods);
     assert.equal(dialog.options.primary_action_label, "Abrir período");
     assert.ok(dialog.shown && dialog.html.includes('class="cn-dialog"'));
     const detailHtml = dialog.html;
+    const periodDetail = dialog;
+    const monthHtml = selector.html;
+    assert.equal(periodDetail.options.secondary_action_label, "Volver al mes");
+    periodDetail.options.secondary_action();
+    assert.equal(periodDetail.shown, false);
+    assert.equal(selector.shown, true);
+    assert.equal(selector.html, monthHtml);
+    selector.events["[data-month-period]"].call({"data-month-period": "P1"});
+    assert.equal(selector.shown, false);
+    assert.ok(dialog.html.includes("Primera entrega"));
+    dialog.options.secondary_action();
+    assert.equal(selector.shown, true);
     handlers["[data-period]"].call({"data-period": "P2"});
     assert.equal(dialog.html, detailHtml); // Exactly the normal detailed modal.
+    assert.equal(dialog.options.secondary_action_label, undefined); // No unrelated month when opened directly.
     const historicalCard = context.helpers.renderPeriodCard({...periods[2], name: '<Period>', historical_scope: "Fecha exacta", historical_application_date: "2026-09-15"});
     assert.ok(historicalCard.includes("2026-09-15"));
     assert.ok(historicalCard.includes("&lt;Period&gt;") && !historicalCard.includes("<Period>"));

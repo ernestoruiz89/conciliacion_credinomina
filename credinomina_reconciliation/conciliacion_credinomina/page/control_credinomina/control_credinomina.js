@@ -235,7 +235,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         `);
     }
 
-    function showPeriod(name) {
+    function showPeriod(name, parentDialog = null) {
         const period = (currentData?.periods || []).find((item) => item.name === name);
         if (!period) return;
         const historical = period.reconciliation_mode === "Historica";
@@ -311,6 +311,13 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 dialog.hide();
                 frappe.set_route("Form", "CN Reconciliation Period", period.name);
             },
+            ...(parentDialog ? {
+                secondary_action_label: __("Volver al mes"),
+                secondary_action() {
+                    dialog.hide();
+                    parentDialog.show();
+                },
+            } : {}),
         });
         dialog.show();
         dialog.get_field("detail").$wrapper.html(`
@@ -349,7 +356,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             showApplicationException(period, row, async () => {
                 dialog.hide();
                 await refresh();
-                showPeriod(period.name);
+                showPeriod(period.name, parentDialog);
             });
         });
     }
@@ -387,7 +394,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
         dialog.get_field("periods").$wrapper.on("click", "[data-month-period]", function () {
             dialog.hide();
-            showPeriod($(this).attr("data-month-period"));
+            showPeriod($(this).attr("data-month-period"), dialog);
         });
         dialog.show();
     });
@@ -627,11 +634,11 @@ function renderCashDistribution(deposit) {
     return `<div class="cn-cash-distribution">
         <div class="cn-kpis cn-cash-kpis">
             <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Referencia del depósito"))}</div><div class="cn-kpi-value">${esc(deposit.reference || deposit.name)}</div><div class="cn-cash-kpi-note">${esc(displayDate(deposit.date))}<br>${esc(deposit.name)}</div></div>
-            <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Cuenta bancaria"))}</div><div class="cn-kpi-value">${esc(deposit.bank_account || __("Sin cuenta asignada"))}</div></div>
-            <div class="cn-kpi cn-kpi-remitted"><div class="cn-kpi-label">${esc(__("Depositado total"))}</div><div class="cn-kpi-value">${money(deposit.total_usd)}</div>${deposit.currency ? `<div class="cn-cash-kpi-note">${esc(__("Original"))}: ${esc(deposit.currency)} ${original}</div>` : ""}</div>
+            <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Cuenta bancaria"))}</div><div class="cn-kpi-value">${esc(deposit.bank_account || __("Sin cuenta asignada"))}</div>${deposit.currency ? `<div class="cn-cash-kpi-note">${esc(__("Original"))}: ${esc(deposit.currency)} ${original}</div>` : ""}</div>
+            <div class="cn-kpi cn-kpi-remitted"><div class="cn-kpi-label">${esc(__("Depositado total USD"))}</div><div class="cn-kpi-value">${money(deposit.total_usd)}</div></div>
+            <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(deposit.result || __("Pendiente"))}</div></div>
         </div>
-        <p><span class="cn-badge">${esc(cashStatus(deposit))}</span> · ${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</p>
-        <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
+        <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
             ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
         ${lines.map(renderCreditPeople).join("")}
@@ -768,12 +775,13 @@ function styles() {
         .cn-cash-panel { border-bottom: 1px solid var(--border-color, #e2e8f0); padding-bottom: 16px; margin-bottom: 16px; }
         .cn-cash-cards { max-height: 40vh; }
         .cn-cash-distribution .cn-badge { padding: 4px 8px; background: var(--control-bg, #f1f5f9); }
-        .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .cn-cash-kpis .cn-kpi-value { white-space: normal; overflow-wrap: anywhere; }
         .cn-cash-kpi-note { margin-top: 6px; color: var(--text-muted, #64748b); font-size: 12px; overflow-wrap: anywhere; }
         .cn-cash-distribution .cn-list-scroll { margin-bottom: 18px; }
         .cn-cash-distribution caption { caption-side: top; padding: 10px 0; font-weight: 600; color: var(--text-color, #1e293b); }
         .cn-cash-distribution tfoot th { border-top: 2px solid var(--border-color, #e2e8f0); }
+        @media(max-width: 900px) { .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
         @media(max-width: 650px) { .cn-cash-distribution .cn-cash-kpis { grid-template-columns: 1fr; } }
         .cn-period-remark { display: block; width: 100%; margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--gray-400, #94a3b8); background: var(--control-bg, #f8fafc); border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
         .cn-period-remark strong { display: block; margin-bottom: 4px; }
@@ -824,6 +832,20 @@ function styles() {
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
         .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
+        /* Keep deposit-dialog typography independent from the compact calendar. */
+        .cn-cash-distribution { font-size: 13px; line-height: 1.5; }
+        .cn-cash-distribution p,
+        .cn-cash-distribution .cn-badge,
+        .cn-cash-distribution .cn-kpi-label,
+        .cn-cash-distribution .cn-cash-kpi-note,
+        .cn-cash-distribution .cn-cell-credit,
+        .cn-cash-distribution .cn-detail-table,
+        .cn-cash-distribution .cn-detail-table th,
+        .cn-cash-distribution .cn-detail-table td,
+        .cn-cash-distribution caption { font-size: inherit; line-height: inherit; }
+        .cn-cash-distribution .cn-kpi-value { font-size: 20px; line-height: 1.3; }
+        .cn-cash-distribution .cn-detail-table th { text-transform: none; letter-spacing: normal; }
+        .cn-cash-distribution .cn-detail-table tfoot th { font-weight: 700; color: var(--text-color, #1e293b); }
         .cn-text-link { border: 0; background: none; color: #2563eb; font-weight: 600; padding: 0; }
         .cn-footnote { margin-top: 12px; } .cn-dialog { max-height: 70vh; overflow: auto; }
         .cn-dialog h4 { font-size: 13px; font-weight: 700; margin: 20px 0 8px; }

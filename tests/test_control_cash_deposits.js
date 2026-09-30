@@ -39,6 +39,11 @@ assert.equal(summarizeCash([deposit]).settled, 0);
 assert.equal(summarizeCash([{...deposit, needs_review: true}]).review, 1);
 assert.equal(summarizeCash([{name: "A", total_usd: 0.1}, {name: "B", total_usd: 0.2}]).total_usd, 0.3);
 const breakdown = renderCashDistribution(deposit);
+assert.ok(breakdown.includes('class="cn-detail-table cn-cash-distribution-summary"'));
+assert.ok(!breakdown.includes('class="cn-detail-table cn-cash-summary"'), "Summary table must not inherit the calendar's display:block styling");
+assert.match(source, /\.cn-cash-distribution \{ font-size: 13px; line-height: 1\.5; \}/);
+assert.match(source, /\.cn-cash-distribution \.cn-detail-table th,[\s\S]*?\.cn-cash-distribution caption \{ font-size: inherit; line-height: inherit; \}/);
+assert.match(source, /\.cn-cash-distribution \.cn-kpi-value \{ font-size: 20px; line-height: 1\.3; \}/);
 const personalDetail = renderCashDistribution({...deposit, destinations: [{
     type: "Créditos", label: "P-MARZO", month: "2025-03", amount_usd: 300,
     people: [{client_name: "Ana <Pérez>", client_number: "100", loan_number: "1000-1", amount_usd: 200},
@@ -52,8 +57,25 @@ assert.ok(personalDetail.includes("200.00") && personalDetail.includes("100.00")
 assert.match(personalDetail, /Total detalle por cliente<\/th><th class="cn-number">[^<]*300\.00/);
 assert.match(breakdown, /Total resumen<\/th><th class="cn-number">[^<]*1,000\.00/);
 assert.ok(breakdown.includes('class="cn-kpis cn-cash-kpis"'));
-assert.equal((breakdown.match(/class="cn-kpi-label"/g) || []).length, 3);
+assert.equal((breakdown.match(/class="cn-kpi-label"/g) || []).length, 4);
+assert.match(breakdown, /cn-cash-result"><div class="cn-kpi-label">Estado de conciliación<\/div><div class="cn-kpi-value">Parcial con saldo a favor<\/div>/);
+assert.ok(!breakdown.includes("Resultado registrado"));
+for (const result of ["Conciliado", "Revisar detalle", "Pendiente", "Saldo a favor documentado", "<Revisar>", ""]) {
+    const markup = renderCashDistribution({...deposit, result});
+    const resultCard = markup.slice(markup.indexOf('<div class="cn-kpi cn-cash-result">'), markup.indexOf('<div class="cn-list-scroll">'));
+    assert.ok(resultCard.includes(result === "<Revisar>" ? "&lt;Revisar&gt;" : result || "Pendiente"));
+    assert.ok(!resultCard.includes("<Revisar>"));
+}
 assert.ok(breakdown.includes("Referencia del depósito") && breakdown.includes("Depositado total"));
+for (const currency of ["NIO", "USD"]) {
+    const markup = renderCashDistribution({...deposit, currency});
+    const bankKpi = markup.slice(markup.indexOf('Cuenta bancaria'), markup.indexOf('<div class="cn-kpi cn-kpi-remitted">'));
+    assert.ok(bankKpi.includes(`Original: ${currency} 36,624.30`));
+    const usdKpi = markup.slice(markup.indexOf('<div class="cn-kpi cn-kpi-remitted">'), markup.indexOf('<div class="cn-kpi cn-cash-result">'));
+    assert.ok(usdKpi.includes('Depositado total USD'));
+    assert.ok(!usdKpi.includes('Original:'));
+    assert.equal((markup.match(/Original:/g) || []).length, 1);
+}
 assert.ok(!breakdown.includes("Total del depósito"));
 assert.ok(!breakdown.includes("Solo se muestran distribuciones realizadas"));
 assert.ok(!breakdown.includes("Seleccionar un destino sin conciliarlo no aplica el dinero"));
