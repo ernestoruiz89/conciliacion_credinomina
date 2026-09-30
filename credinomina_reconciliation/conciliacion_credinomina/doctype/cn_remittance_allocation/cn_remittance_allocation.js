@@ -114,44 +114,75 @@ async function useApplicationsAsDetail(frm) {
         return;
     }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const selected = new Set(preview.rows.map(row => row.claim_id));
     let busy = false;
     const dialog = new frappe.ui.Dialog({
         title: __("Usar aplicaciones pendientes como detalle"), size: "extra-large",
-        fields: [{fieldtype: "HTML", options: `
+        fields: [{fieldname: "selection_preview", fieldtype: "HTML", options: `
             <p>${__("Se generará un archivo privado con las aplicaciones pendientes del período {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.period)])}</p>
             <p><strong>${__("Aplicado al período")}: US$ ${remittanceMoney(preview.applied_usd)} ·
-                ${__("Detalle propuesto")}: US$ ${remittanceMoney(preview.total_usd)} ·
+                ${__("Seleccionado")}: US$ <span data-selected-total>${remittanceMoney(preview.total_usd)}</span> ·
                 ${__("Depósito")}: US$ ${remittanceMoney(preview.deposit_usd)}</strong></p>
-            ${Math.round(preview.total_usd * 100) !== Math.round(preview.deposit_usd * 100)
-                ? `<p class="text-warning">${__("El total pendiente no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>` : ""}
+            <p class="text-warning" data-selection-warning>${__("El total seleccionado no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>
             <p>${__("Este detalle procede del core, no de una confirmación de deducción de la empresa. Generarlo no confirma ni concilia el depósito.")}</p>
+            <p>${__("Marque solo los movimientos de este depósito. Se copiará el importe pendiente completo de cada fila seleccionada.")}</p>
+            <p data-selection-count aria-live="polite"></p>
             <div style="max-height:40vh;overflow:auto"><table class="table table-bordered"><thead>
-                <tr><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Pendiente US$")}</th></tr></thead>
-                <tbody>${preview.rows.map(row => `<tr><td>${esc(row.client_name)}<br>${esc(row.client_number)}</td>
-                    <td>${esc(row.loan_number)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
+                <tr><th><label><input type="checkbox" data-select-all checked> ${__("Todos")}</label></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Referencia")}</th><th>${__("Pendiente US$")}</th></tr></thead>
+                <tbody>${preview.rows.map((row, index) => `<tr><td><input type="checkbox" data-application-index="${index}" checked aria-label="${esc(__("Seleccionar movimiento {0}", [index + 1]))}"></td><td>${esc(row.client_name)}<br>${esc(row.client_number)}</td>
+                    <td>${esc(row.loan_number)}</td><td>${esc(row.application_reference)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
             ${preview.replaces_detail ? `<p class="text-warning">${__("Se reemplazarán las filas del detalle actual y se quitarán sus vínculos a destinos. Los destinos y archivos anteriores se conservarán para revisión.")}</p>` : ""}
         `}, ...(preview.replaces_detail ? [{fieldname: "replace_detail", fieldtype: "Check", reqd: 1,
             label: __("Confirmo reemplazar el detalle actual")}] : [])],
         primary_action_label: __("Generar detalle pendiente de conciliación"),
         primary_action: async values => {
             if (busy) return;
+            if (!selected.size) {
+                frappe.msgprint(__("Seleccione al menos un movimiento para generar el detalle."));
+                return;
+            }
             busy = true;
             dialog.get_primary_btn().prop("disabled", true);
             try {
                 await frappe.call({method: method + "use_application_detail",
                     args: {remittance_name: frm.doc.name, fingerprint: preview.fingerprint,
-                        replace_detail: values.replace_detail || 0}, freeze: true,
+                        replace_detail: values.replace_detail || 0,
+                        selected_claim_ids: JSON.stringify([...selected])}, freeze: true,
                     freeze_message: __("Generando detalle desde aplicaciones…")});
                 dialog.hide();
                 await frm.reload_doc();
                 frappe.msgprint(__("Detalle generado. Revise las filas y los destinos; luego confirme el depósito si es borrador y use Conciliar."));
             } finally {
                 busy = false;
-                dialog.get_primary_btn().prop("disabled", false);
+                updateSelection();
             }
         },
     });
+    const wrapper = dialog.fields_dict.selection_preview.$wrapper;
+    function updateSelection() {
+        const cents = preview.rows.filter(row => selected.has(row.claim_id))
+            .reduce((sum, row) => sum + Math.round(Number(row.deducted_usd) * 100), 0);
+        wrapper.find("[data-selected-total]").text(remittanceMoney(cents / 100));
+        wrapper.find("[data-selection-count]").text(__("{0} de {1} movimientos seleccionados", [selected.size, preview.rows.length]));
+        wrapper.find("[data-selection-warning]").toggle(cents !== Math.round(preview.deposit_usd * 100));
+        wrapper.find("[data-select-all]").prop("checked", selected.size === preview.rows.length)
+            .prop("indeterminate", selected.size > 0 && selected.size < preview.rows.length);
+        dialog.get_primary_btn().prop("disabled", busy || !selected.size);
+    }
+    wrapper.on("change", "[data-application-index]", event => {
+        const row = preview.rows[Number(event.target.dataset.applicationIndex)];
+        if (event.target.checked) selected.add(row.claim_id);
+        else selected.delete(row.claim_id);
+        updateSelection();
+    });
+    wrapper.on("change", "[data-select-all]", event => {
+        selected.clear();
+        if (event.target.checked) preview.rows.forEach(row => selected.add(row.claim_id));
+        wrapper.find("[data-application-index]").prop("checked", event.target.checked);
+        updateSelection();
+    });
     dialog.show();
+    updateSelection();
 }
 
 frappe.ui.form.on("CN Remittance Detail", {

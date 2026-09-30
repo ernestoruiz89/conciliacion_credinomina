@@ -1,13 +1,12 @@
 frappe.ui.form.on("CN Reconciliation Period", {
     refresh(frm) {
+        setPeriodEditing(frm);
         setRemittanceDateEditing(frm);
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
 
         if (frm.doc.reconciliation_mode !== "Historica") addExportButton(frm);
         if (frm.doc.status === "Cerrado") {
-            frm.set_read_only();
-            frm.disable_save();
             if (frappe.session.user === "Administrator" || frappe.user.has_role("System Manager") || frappe.user.has_role("Supervisor Credinomina")) {
                 frm.add_custom_button(__("Reabrir período"), () => showReopenDialog(frm));
             }
@@ -89,6 +88,33 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+function setPeriodEditing(frm) {
+    const closed = frm.doc.status === "Cerrado";
+    if (closed) {
+        // Keep field-level locks: changing form permissions alone can leave
+        // controls editable after Frappe refreshes permissions or dependencies.
+        if (!frm._cn_period_read_only) {
+            frm._cn_period_read_only = new Map(
+                frm.fields.map(field => [field.df.fieldname, field.df.read_only || 0])
+            );
+        }
+        for (const field of frm.fields) {
+            frm.set_df_property(field.df.fieldname, "read_only", 1);
+        }
+        frm.disable_save();
+        frm.set_intro(__("Período cerrado: solo consulta. Use Reabrir período antes de modificarlo."), "blue");
+    } else if (frm._cn_period_read_only) {
+        // The same Form instance is reused when reopening or navigating to
+        // another period. Restore only the properties changed by this lock.
+        for (const [fieldname, readOnly] of frm._cn_period_read_only) {
+            frm.set_df_property(fieldname, "read_only", readOnly);
+        }
+        delete frm._cn_period_read_only;
+        if (frm.get_perm(0, "write")) frm.enable_save();
+        frm.set_intro("");
+    }
+}
 
 async function requestClose(frm) {
     if (frm.is_dirty()) await frm.save();
@@ -184,7 +210,7 @@ function showReopenDialog(frm) {
 function setRemittanceDateEditing(frm) {
     frm.set_df_property(
         "remittance_due_date", "read_only",
-        frm.doc.reconciliation_mode === "Historica" ||
+        frm.doc.status === "Cerrado" || frm.doc.reconciliation_mode === "Historica" ||
         !["Primera quincena", "Segunda quincena"].includes(frm.doc.collection_cycle)
     );
 }

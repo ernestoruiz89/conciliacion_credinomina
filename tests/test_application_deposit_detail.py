@@ -12,6 +12,22 @@ from credinomina_reconciliation.parsers import parse_collection_file
 
 
 class ApplicationDepositDetailTests(unittest.TestCase):
+    def test_selection_uses_server_amounts_and_reindexes_workbook_rows(self):
+        rows = [dict(claim_id="H:A", deducted_usd=10, source_row=2),
+                dict(claim_id="C:B", deducted_usd=20, source_row=3)]
+        self.assertEqual(module.select_application_rows(rows, None), rows)
+        selected = module.select_application_rows(rows, '["C:B"]')
+        self.assertEqual(selected, [dict(claim_id="C:B", deducted_usd=20, source_row=2)])
+        self.assertEqual(rows[1]["source_row"], 3)
+
+    def test_selection_rejects_empty_duplicate_foreign_and_malformed_ids(self):
+        rows = [dict(claim_id="H:A", deducted_usd=10)]
+        for ids in ([], "[]", ["H:A", "H:A"], ["H:OTHER"], "bad json", {}, [10], '[{"claim_id":"H:A","deducted_usd":1}]'):
+            with self.subTest(ids=ids), patch.object(module, "_", side_effect=lambda v: v), \
+                 patch.object(module.frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError):
+                    module.select_application_rows(rows, ids)
+
     def test_pending_excludes_other_payments_but_not_current_deposit(self):
         candidates = [dict(historical_application="A", claim_id="H:A", applied_usd=100),
                       dict(period="P", row_key="R", claim_id="C:C", applied_usd=50)]
@@ -98,8 +114,9 @@ class ApplicationDepositDetailTests(unittest.TestCase):
 
     def test_generation_requires_fresh_preview_and_explicit_replacement(self):
         document = self.document()
-        preview = {"fingerprint": "F", "rows": [{"client_name": "Ana", "deducted_usd": 10}],
-                   "replaces_detail": True, "total_usd": 10}
+        preview = {"fingerprint": "F", "rows": [{"claim_id": "H:A", "client_name": "Ana", "deducted_usd": 10},
+                   {"claim_id": "H:B", "client_name": "Bea", "deducted_usd": 20}],
+                   "replaces_detail": True, "total_usd": 30}
         with patch.object(module.frappe, "db", SimpleNamespace(sql=Mock())), \
              patch.object(module, "_load", return_value=(document, SimpleNamespace(name="P"))), \
              patch.object(module, "_preview", return_value=preview), \
@@ -112,8 +129,18 @@ class ApplicationDepositDetailTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.use_application_detail("D", "F", False)
             save_file.assert_not_called()
-            result = module.use_application_detail("D", "F", True)
+            with self.assertRaises(ValueError):
+                module.use_application_detail("D", "F", True, [])
+            save_file.assert_not_called()
+            result = module.use_application_detail("D", "F", True, ["H:B"])
         self.assertEqual(result["rows"], 1)
+        self.assertEqual(result["total_usd"], 20)
+        self.assertEqual(document.detail_total_usd, 20)
+        self.assertEqual(apply.call_args.args[1][0]["claim_id"], "H:B")
+        generated = parse_collection_file("detail.xlsx", save_file.call_args.args[1], require_deduction=True, require_name=True)
+        self.assertEqual(len(generated), 1)
+        self.assertEqual(generated[0]["client_name"], "Bea")
+        self.assertEqual(generated[0]["deducted_usd"], 20)
         self.assertEqual(document.result, "Pendiente")
         self.assertEqual(document.detail_file, "/private/files/generated.xlsx")
         self.assertEqual(save_file.call_args.kwargs["is_private"], 1)

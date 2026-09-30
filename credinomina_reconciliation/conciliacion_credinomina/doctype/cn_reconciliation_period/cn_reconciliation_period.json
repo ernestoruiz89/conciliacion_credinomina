@@ -89,7 +89,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-09-30 01:30:02.000000",
+  "modified": "2026-09-30 03:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Reconciliation Period",
@@ -103,6 +103,17 @@
   "search_fields": "employer,payroll_month,historical_scope,historical_application_date,historical_start_date,historical_end_date,status,applied_usd",
   "sort_field": "payroll_month",
   "sort_order": "DESC",
-  "states": [],
+  "states": [
+    {"title": "Borrador", "color": "Gray"},
+    {"title": "Cobranza cargada", "color": "Blue"},
+    {"title": "Detalle empresa cargado", "color": "Blue"},
+    {"title": "Deduccion conciliada", "color": "Blue"},
+    {"title": "Deposito conciliado", "color": "Green"},
+    {"title": "Historico pendiente", "color": "Orange"},
+    {"title": "Historico parcial", "color": "Orange"},
+    {"title": "Historico con excedente", "color": "Red"},
+    {"title": "Historico conciliado", "color": "Green"},
+    {"title": "Cerrado", "color": "Purple"}
+  ],
   "track_changes": 1
 }

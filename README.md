@@ -206,6 +206,11 @@ En **Distribución de Depósito → Detalle por cliente**, seleccionar **Períod
 detalle** muestra **Aplicado US$ del período**. **Usar aplicaciones como detalle**
 previsualiza únicamente los importes aplicados pendientes, descontando lo cubierto
 por otros depósitos confirmados y los ajustes vigentes por faltantes de centavos.
+Todas las filas están seleccionadas inicialmente. Use las casillas de cada
+movimiento o **Todos** para importar solo los que correspondan a este depósito;
+el contador, el total seleccionado y la advertencia de diferencia se actualizan
+al cambiar la selección. Se copia el importe pendiente completo de cada fila
+marcada; las demás quedan disponibles para otros depósitos.
 Las asignaciones del depósito actual se conservan para poder completar su detalle.
 Funciona en períodos históricos y operativos; no copia la cobranza ni supone que
 la empresa confirmó las deducciones. Si el total no coincide con el depósito, se

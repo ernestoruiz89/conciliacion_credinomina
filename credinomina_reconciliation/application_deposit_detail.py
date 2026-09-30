@@ -130,7 +130,28 @@ def _workbook(rows):
     return output.getvalue()
 
 
-def use_application_detail(remittance_name, fingerprint, replace_detail=False):
+def select_application_rows(rows, selected_claim_ids):
+    """Accept identities only; amounts and eligibility always come from the server."""
+    if selected_claim_ids is None:
+        selected_claim_ids = [row["claim_id"] for row in rows]
+    if isinstance(selected_claim_ids, str):
+        try:
+            selected_claim_ids = json.loads(selected_claim_ids)
+        except (ValueError, TypeError):
+            frappe.throw(_("La selección de movimientos no es válida."))
+    if not isinstance(selected_claim_ids, list) or any(not isinstance(key, str) for key in selected_claim_ids):
+        frappe.throw(_("La selección de movimientos no es válida."))
+    if not selected_claim_ids:
+        frappe.throw(_("Seleccione al menos un movimiento para generar el detalle."))
+    selected = set(selected_claim_ids)
+    available = {row["claim_id"] for row in rows}
+    if len(selected) != len(selected_claim_ids) or not selected.issubset(available):
+        frappe.throw(_("Hay movimientos duplicados o que ya no están disponibles. Abra nuevamente la vista previa."))
+    chosen = [row for row in rows if row["claim_id"] in selected]
+    return [{**row, "source_row": index} for index, row in enumerate(chosen, 2)]
+
+
+def use_application_detail(remittance_name, fingerprint, replace_detail=False, selected_claim_ids=None):
     from frappe.utils.file_manager import save_file
     from frappe.utils import cint
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import (
@@ -145,18 +166,20 @@ def use_application_detail(remittance_name, fingerprint, replace_detail=False):
         frappe.throw(_("No hay aplicaciones pendientes para este período."))
     if preview["replaces_detail"] and not cint(replace_detail):
         frappe.throw(_("Confirme el reemplazo del detalle existente."))
-    content = _workbook(preview["rows"])
+    rows = select_application_rows(preview["rows"], selected_claim_ids)
+    total_usd = money_float(sum_money(row["deducted_usd"] for row in rows))
+    content = _workbook(rows)
     safe_name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", document.name)
     attachment = save_file(f"detalle_aplicaciones_{safe_name}.xlsx", content,
                            document.doctype, document.name, is_private=1, df="detail_file")
     document.detail_file = attachment.file_url
-    document.detail_total_usd = preview["total_usd"]
+    document.detail_total_usd = total_usd
     document.result = "Pendiente"
-    _apply_remittance_detail(document, preview["rows"], content, attachment.file_url,
+    _apply_remittance_detail(document, rows, content, attachment.file_url,
                              origin="Aplicaciones pendientes del período")
     document.add_comment("Comment", _(
-        "Se generó detalle desde aplicaciones pendientes de {0}: {1} filas, US$ {2}. "
+        "Se generó detalle desde aplicaciones pendientes de {0}: {1} filas seleccionadas de {3}, US$ {2}. "
         "No es evidencia enviada por la empresa. Se conservaron los destinos, "
         "pero se quitaron sus vínculos al detalle anterior. No se confirmó ni concilió el depósito."
-    ).format(period.name, len(preview["rows"]), preview["total_usd"]))
-    return {"rows": len(preview["rows"]), "total_usd": preview["total_usd"], "file_url": attachment.file_url}
+    ).format(period.name, len(rows), total_usd, len(preview["rows"])))
+    return {"rows": len(rows), "total_usd": total_usd, "file_url": attachment.file_url}

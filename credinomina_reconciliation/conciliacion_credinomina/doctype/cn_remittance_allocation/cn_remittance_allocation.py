@@ -415,6 +415,6 @@ def preview_application_detail(remittance_name: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False):
+def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False, selected_claim_ids=None):
     from credinomina_reconciliation.application_deposit_detail import use_application_detail as apply
-    return apply(remittance_name, fingerprint, replace_detail)
+    return apply(remittance_name, fingerprint, replace_detail, selected_claim_ids)
