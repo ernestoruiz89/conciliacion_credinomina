@@ -297,13 +297,13 @@ def audit():
     })
     totals = {item["label"]: item["value"] for item in summary}
     assert totals["CxC a empleados (cuota no deducida)"] == 805.5, totals
-    assert totals["Deducido sin remesa asignada"] == 920.5, totals
+    assert totals["Deducido sin depósito asignado"] == 920.5, totals
     assert len(rows) == 37, len(rows)
     assert all(abs(sum(row[key] for key in (
         "not_due", "days_1_30", "days_31_60", "days_61_90",
         "days_over_90", "without_date",
     )) - row["amount_usd"]) < 0.00005 for row in rows)
-    company = [row for row in rows if row["balance_type"] == "Deducido sin remesa asignada"]
+    company = [row for row in rows if row["balance_type"] == "Deducido sin depósito asignado"]
     assert len(company) == 19 and all(row["days_31_60"] > 0 for row in company)
     _columns, beta_rows, _message, _chart, beta_summary = execute({
         "as_of_date": "2027-02-01", "to_month": "2026-11-01",

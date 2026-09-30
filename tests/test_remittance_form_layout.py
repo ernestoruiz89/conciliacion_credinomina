@@ -28,4 +28,11 @@ class RemittanceFormLayoutTests(unittest.TestCase):
                          ["select_pending_targets", "link_detail_targets"])
         self.assertTrue(fields["technical_section"]["collapsible"])
         self.assertTrue(fields["result"]["allow_on_submit"])
-        self.assertTrue(fields["detail_rows"]["read_only"])
+        self.assertFalse(fields["detail_rows"].get("read_only"))
+        self.assertTrue(fields["detail_rows"]["allow_on_submit"])
+        child_path = path.parent.parent / "cn_remittance_detail/cn_remittance_detail.json"
+        child_fields = json.loads(child_path.read_text(encoding="utf-8"))["fields"]
+        editable = [field["fieldname"] for field in child_fields
+                    if not field.get("read_only") and field["fieldtype"] != "Section Break"]
+        self.assertEqual(editable, ["loan_number"])
+        self.assertTrue(next(field for field in child_fields if field["fieldname"] == "loan_number")["allow_on_submit"])

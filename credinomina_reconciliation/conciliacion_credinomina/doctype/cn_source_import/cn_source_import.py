@@ -309,7 +309,7 @@ class CNSourceImport(Document):
             )
             and (
                 row.event_type != "Aplicacion"
-                or row.deposit_match_status == "Remesa conciliada"
+                or row.deposit_match_status == "Depósito conciliado"
             )
             for row in rows
         )
@@ -323,7 +323,7 @@ class CNSourceImport(Document):
             or (
                 row.event_type == "Aplicacion"
                 and row.effective
-                and row.deposit_match_status != "Remesa conciliada"
+                and row.deposit_match_status != "Depósito conciliado"
             )
             for row in rows
         )
@@ -562,7 +562,7 @@ def reconcile_all_sources():
             )
             and (
                 row.event_type != "Aplicacion"
-                or row.deposit_match_status == "Remesa conciliada"
+                or row.deposit_match_status == "Depósito conciliado"
             )
             for row in all_rows
         ),
@@ -576,7 +576,7 @@ def reconcile_all_sources():
             or (
                 row.event_type == "Aplicacion"
                 and row.effective
-                and row.deposit_match_status != "Remesa conciliada"
+                and row.deposit_match_status != "Depósito conciliado"
             )
             for row in all_rows
         ),
@@ -1001,7 +1001,7 @@ def _registered_deposit_pairs(rows, allocations):
             account = candidates[0]
             used_account_ids.add(account.name)
             account.match_status = "Conciliado"
-            account.match_reason = _("Depósito cotejado con la remesa registrada.")
+            account.match_reason = _("Movimiento contable cotejado con el depósito registrado.")
             pairs.append((registered_row, account))
             deposit_ids[item.name] = item.name
         else:
@@ -1285,7 +1285,7 @@ def _distribute_deposits(
             and not same_amount(account_usd, bank_usd)
         ):
             account.allocation_reason = bank.allocation_reason = _(
-                "Los equivalentes US$ de la remesa y el movimiento contable difieren."
+                "Los equivalentes US$ del depósito y el movimiento contable difieren."
             )
             for source in (account, bank):
                 source.match_status = "Sin coincidencia"
@@ -2082,7 +2082,7 @@ def _rebuild_period_balances(
         elif deducted_usd > AMOUNT_TOLERANCE and cash_complete:
             target.application_status = "Remitido, aplicacion parcial"
         elif flt(target.remitted_usd) > AMOUNT_TOLERANCE:
-            target.application_status = "Remesa parcial"
+            target.application_status = "Depósito parcial"
         elif flt(target.applied_usd) > AMOUNT_TOLERANCE:
             target.application_status = (
                 "Aplicacion parcial"
@@ -2114,12 +2114,12 @@ def _rebuild_period_balances(
             continue
         if source.match_status == PROVISIONAL_APPLICATION:
             source.deposit_match_status = (
-                "Remesa parcial"
+                "Depósito parcial"
                 if any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets)
                 else "Pendiente"
             )
             source.deposit_match_reason = _(
-                "La aplicación está enlazada provisionalmente; confirme el detalle de deducción de la empresa antes de conciliar la remesa."
+                "La aplicación está enlazada provisionalmente; confirme el detalle de deducción de la empresa antes de conciliar el depósito."
             )
             source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
             continue
@@ -2132,9 +2132,9 @@ def _rebuild_period_balances(
         if any(target.application_status == "Diferencia aplicacion vs deposito" for target in targets):
             source.deposit_match_status = "Diferencia de importe"
         elif complete:
-            source.deposit_match_status = "Remesa conciliada"
+            source.deposit_match_status = "Depósito conciliado"
         elif any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets):
-            source.deposit_match_status = "Remesa parcial"
+            source.deposit_match_status = "Depósito parcial"
         else:
             source.deposit_match_status = "Sin deposito"
         source.deposit_match_reason = _(
@@ -2342,8 +2342,8 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
         application.historical_detail = json.dumps(details, ensure_ascii=False)
         application.deposit_match_status = (
-            "Remesa conciliada" if application.historical_balance_usd <= CASH_EPSILON
-            else "Remesa parcial" if remitted > CASH_EPSILON
+            "Depósito conciliado" if application.historical_balance_usd <= CASH_EPSILON
+            else "Depósito parcial" if remitted > CASH_EPSILON
             else "Sin deposito"
         )
         application.deposit_match_reason = _(
@@ -2402,7 +2402,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         period.rounding_adjustment_usd = adjustment
         period.historical_fingerprint = fingerprint
         period.exception_count = sum(
-            row.deposit_match_status != "Remesa conciliada" for row in related
+            row.deposit_match_status != "Depósito conciliado" for row in related
         ) + len(unclassified_deposits_by_period[period.name])
         if period.status != "Cerrado":
             period.status = (

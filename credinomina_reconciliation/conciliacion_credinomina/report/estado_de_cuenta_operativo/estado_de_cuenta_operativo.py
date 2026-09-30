@@ -154,10 +154,10 @@ def _base_status(row):
         return "Conciliado"
     if row.application_status == "Remitido, aplicacion parcial":
         return "Remitido por la empresa; aplicación parcial en core"
-    if row.application_status == "Remesa parcial":
+    if row.application_status == "Depósito parcial":
         return "Empresa remitió parcialmente"
     if row.application_status == "Aplicacion parcial":
-        return "Aplicación parcial en core; remesa pendiente"
+        return "Aplicación parcial en core; depósito pendiente"
     if row.application_status == "Aplicacion encontrada":
         return "Aplicado en core; empresa por remitir"
     if max(
@@ -188,12 +188,12 @@ def get_columns():
         {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
         {"fieldname": "employee_pending_usd", "label": _("CxC a empleado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "pending_core_usd", "label": _("Pendiente core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
-        {"fieldname": "employer_receivable_usd", "label": _("Deducido sin remesa asignada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
+        {"fieldname": "employer_receivable_usd", "label": _("Deducido sin depósito asignado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
         {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
         {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
         {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
         {"fieldname": "employee_pending_nio", "label": _("CxC a empleado equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
         {"fieldname": "pending_core_nio", "label": _("Pendiente core C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 125},
-        {"fieldname": "employer_receivable_nio", "label": _("Deducido sin remesa asignada C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
+        {"fieldname": "employer_receivable_nio", "label": _("Deducido sin depósito asignado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
         {"fieldname": "operational_status", "label": _("Estado operativo"), "fieldtype": "Data", "width": 230},
     ]

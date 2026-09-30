@@ -116,7 +116,7 @@ def run():
     )
     if len(applications) != 19 or any(
         row.match_status != "Conciliado"
-        or row.deposit_match_status != "Remesa conciliada"
+        or row.deposit_match_status != "Depósito conciliado"
         for row in applications
     ):
         raise AssertionError({"application_states": applications})
@@ -165,7 +165,7 @@ def audit():
         or not deposit.detail_imported_on
         or any(
             row.match_status != "Conciliado"
-            or row.deposit_match_status != "Remesa conciliada"
+            or row.deposit_match_status != "Depósito conciliado"
             for row in applications
         )
     ):
@@ -180,7 +180,7 @@ def audit():
         or aging_summary[0]["label"] != "CxC a empleados (cuota no deducida)"
         or aging_summary[0]["value"] != 89.5
     ):
-        raise AssertionError("El faltante del trabajador no quedó separado de la remesa.")
+        raise AssertionError("El faltante del trabajador no quedó separado del depósito.")
     return {
         "collection_month": str(period.payroll_month),
         "application_date": "2027-01-05",

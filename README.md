@@ -18,18 +18,18 @@ no deducida de una deducción ya realizada pero aún no remitida o aplicada.
 | **Operativo: desde septiembre 2026** | Cobranza, detalle de deducción y aplicación; después, aplicación contra depósito. | Una deducción no se convierte en pago aplicado al crédito hasta que el core lo confirme. |
 
 La cobranza puede ser **mensual o quincenal** por empresa. Cada quincena tiene
-su propio período y fecha límite de remesa. Si el core agrupa ambas quincenas
+su propio período y fecha límite de depósito. Si el core agrupa ambas quincenas
 en una aplicación, la app la reparte solo cuando crédito, empresa, mes e
 importes permiten un cruce único.
 
 ## Qué permite conciliar
 
 - Pagos parciales, un depósito para varias cobranzas y varios depósitos para
-  una cobranza. Cada **Distribución de Remesa** representa un depósito. Su
+  una cobranza. Cada **Distribución de Depósito** representa un depósito. Su
   detalle por cliente identifica automáticamente los destinos; la tabla de
   destinos manuales queda disponible para excepciones. Los repartos ambiguos
   no se adivinan.
-- En **Distribución de Remesa → Destinos**, use **Vincular detalle y destinos**
+- En **Distribución de Depósito → Destinos**, use **Vincular detalle y destinos**
   para resolver una fila con las partidas seleccionadas manualmente. Elija la
   fila, marque uno o varios destinos, guarde y pulse **Conciliar** después de
   confirmar el depósito. La suma vinculada debe coincidir con el importe de la
@@ -41,12 +41,12 @@ importes permiten un cruce único.
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
   hace falta importar el Excel bancario mensual (que mezcla otros depósitos).
-- Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
+- Aplicaciones y saldos de crédito en **US$**. Un depósito en **C$** se convierte
   para la conciliación con la tasa indicada en el depósito. Las
   diferencias cambiarias quedan para revisión de cada caso.
 - **Partidas Complementarias** para importes depositados y contabilizados en
   otro asiento, sin registrarlos ficticiamente como pago del préstamo.
-  En **Distribución de Remesa → Destinos → Crear partida complementaria**, un
+  En **Distribución de Depósito → Destinos → Crear partida complementaria**, un
   modal permite crear, confirmar y agregar la partida al depósito en una sola
   operación (requiere permisos de creación y confirmación de partidas).
   Use **+10** si se aplicaron US$90 y se depositaron US$100; use **−10** si se
@@ -56,11 +56,11 @@ importes permiten un cruce único.
   El asiento es opcional: la partida queda **Pendiente de registro** hasta
   completar el campo **Asiento contable**, editable incluso después de confirmar.
   La lista de partidas incluye el filtro **Pendientes de registro** para dar
-  seguimiento; conciliar la remesa no da por registrado el asiento en el core.
+  seguimiento; conciliar el depósito no da por registrado el asiento en el core.
 - **Excedentes de Depósito** separados como saldo a favor documentado de la
   empresa; el excedente sin explicar sigue sin conciliar.
 - Excepciones detectadas antes del depósito, con traslado de comentarios al
-  detalle de la remesa cuando el faltante corresponde al mismo caso.
+  detalle del depósito cuando el faltante corresponde al mismo caso.
 
 La empresa puede configurar una **tolerancia automática en US$** entre 0 y
 US$0.10. Es simétrica: con US$0.01, depósito de US$46.53 frente a aplicación
@@ -89,10 +89,10 @@ envía a la empresa contiene estas columnas:
 La exportación agrega `Fila ID` para enlazar la respuesta sin depender del
 nombre. La empresa devuelve el mismo archivo con `Deducido C$` y/o
 `Deducido US$`. Para aplicaciones nuevas se importan solo **Movimientos contables**. El
-detalle del pago de la empresa se adjunta e importa **dentro de cada remesa**,
+detalle del pago de la empresa se adjunta e importa **dentro de cada depósito**,
 no como fuente bancaria separada. Si contiene ambos deducidos, US$ es el
 importe de conciliación y C$ es informativo: no se suman. Si solo contiene C$,
-indique la tasa documentada en la remesa para convertirlo a US$.
+indique la tasa documentada en el depósito para convertirlo a US$.
 Antes de cargar **Movimientos contables**, seleccione la **Moneda reportada en
 el archivo**. Si es NIO, indique el tipo de cambio manual en C$ por US$ y su
 evidencia; las filas se normalizan a US$ para conciliar y conservan el monto
@@ -180,7 +180,7 @@ disponible la página `/app/control-credinomina`.
    nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
    y recibo cuando la fuente los proporciona. La aplicación puede registrarse
    antes o después de que llegue la deducción de la empresa.
-5. **Depósito y detalle integrador.** Registre una **Distribución de Remesa**
+5. **Depósito y detalle integrador.** Registre una **Distribución de Depósito**
    por depósito, con empresa, fecha real, moneda, importe y justificación. El
    soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la
    empresa envíe el detalle días después; la app conserva la fecha real del
@@ -195,7 +195,7 @@ disponible la página `/app/control-credinomina`.
    formato con deducidos (precargado si eligió **Período del detalle**).
    Adjunte el archivo completado y pulse **Cargar detalle del depósito**. Un
    depósito puede cubrir 200 aplicaciones; varias
-   remesas pueden cubrir una aplicación. El detalle se compara en US$ y no
+   depósitos pueden cubrir una aplicación. El detalle se compara en US$ y no
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
    depósito. Un saldo restante queda sin distribuir o como saldo a favor
    documentado. Un detalle solo en C$ requiere tasa y fuente documentadas;
@@ -240,14 +240,14 @@ acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
 El reporte **Antigüedad de Saldos** separa por empresa y cliente las cuotas
-no deducidas, las deducciones sin remesa asignada y las filas sin detalle de
+no deducidas, las deducciones sin depósito asignado y las filas sin detalle de
 empresa. Distribuye cada importe en bandas de 1–30, 31–60, 61–90 y más de
 90 días desde su fecha de referencia. Es un control operativo de saldos
 actuales, no un cálculo de provisión ni una reconstrucción histórica; para
 provisionar hay que cotejar el saldo y la mora del crédito en el core y aplicar
 la política vigente de la IMF. Un depósito recibido sin detalle puede estar
 cubriendo deducciones aún no asignadas por cliente: no sume ambos importes ni
-interprete la deducción sin remesa asignada como CxC confirmada.
+interprete la deducción sin depósito asignado como CxC confirmada.
 
 El tablero muestra **CxC a empleados (no deducido)** por año, período y cliente:
 es la cuota enviada menos lo efectivamente deducido, únicamente cuando se

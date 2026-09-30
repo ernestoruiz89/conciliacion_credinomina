@@ -100,7 +100,7 @@ def execute(filters=None):
         }
         for label, indicator in (
             ("CxC a empleados (cuota no deducida)", "red"),
-            ("Deducido sin remesa asignada", "orange"),
+            ("Deducido sin depósito asignado", "orange"),
             ("Detalle de empresa pendiente", "blue"),
         )
         if summary[label] > 0
@@ -108,7 +108,7 @@ def execute(filters=None):
     message = _(
         "Antigüedad de saldos operativos actuales según la fecha indicada. "
         "Los tipos de saldo son distintos y no deben sumarse como una sola deuda. "
-        "Una deducción sin remesa asignada puede estar cubierta por un depósito recibido sin detalle; "
+        "Una deducción sin depósito asignado puede estar cubierta por un depósito recibido sin detalle; "
         "por sí sola no prueba una cuenta por cobrar a la empresa. "
         "La cuota no deducida requiere cotejo con el saldo y la mora del core antes de calcular provisiones; "
         "este reporte no registra un asiento ni reconstruye saldos históricos a una fecha anterior."

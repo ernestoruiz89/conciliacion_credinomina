@@ -62,7 +62,7 @@ class RemittanceCreditSelectionTests(unittest.TestCase):
         except ImportError:
             self.skipTest("Requires Frappe runtime")
         row = Row(loan_number="")
-        doc = SimpleNamespace(modified="v1", save=Mock())
+        doc = SimpleNamespace(modified="v1", save=Mock(), flags=frappe._dict())
         with (
             patch.object(selection, "load_detail_context", return_value=(doc, row, self.client, self.choices([self.credit]))),
             patch.object(frappe, "_", side_effect=lambda text: text),

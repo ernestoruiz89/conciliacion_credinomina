@@ -1,6 +1,6 @@
 {
   "charts": [],
-  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":3}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir remesa\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movimientos de conciliación\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de remesas\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
+  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":3}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir depósito\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Movimientos de conciliación\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de depósitos\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
   "creation": "2026-09-22 00:00:00.000000",
   "custom_blocks": [],
   "docstatus": 0,
@@ -66,7 +66,7 @@
       "description": "3. Importe aplicaciones del core; 4. registre cada depósito y cargue su detalle cuando llegue. Revise repartos, partidas y excedentes.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Conciliación de remesas",
+      "label": "Conciliación de depósitos",
       "link_count": 5,
       "link_type": "DocType",
       "onboard": 0,
@@ -85,7 +85,7 @@
     {
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Distribuciones de remesas",
+      "label": "Distribuciones de depósitos",
       "link_count": 0,
       "link_to": "CN Remittance Allocation",
       "link_type": "DocType",
@@ -196,7 +196,7 @@
       "type": "Link"
     }
   ],
-  "modified": "2026-09-29 00:00:00.000000",
+  "modified": "2026-09-29 22:07:52.290751",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",
@@ -249,7 +249,7 @@
     {
       "color": "Purple",
       "doc_view": "New",
-      "label": "Distribuir remesa",
+      "label": "Distribuir depósito",
       "link_to": "CN Remittance Allocation",
       "type": "DocType"
     },

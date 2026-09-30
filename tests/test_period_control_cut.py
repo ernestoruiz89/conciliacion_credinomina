@@ -17,7 +17,7 @@ class PeriodControlCutTests(unittest.TestCase):
         return SimpleNamespace(
             name="PER-1", status="Detalle empresa cargado",
             reconciliation_mode="Operativa", collection_rows=[frappe._dict(
-                deduction_status="Deduccion parcial", application_status="Remesa parcial",
+                deduction_status="Deduccion parcial", application_status="Depósito parcial",
                 expected_usd=50, deducted_usd=30, applied_usd=30, remitted_usd=20,
             )],
             expected_usd=50, deducted_usd=30, applied_usd=30, remitted_usd=20,
@@ -41,7 +41,7 @@ class PeriodControlCutTests(unittest.TestCase):
         self.assertEqual(period.status, "Detalle empresa cargado")
         self.assertEqual(result["status"], period.status)
         self.assertIn("CxC empleados confirmada US$ 20.00", period.control_cut_summary)
-        self.assertIn("deducido sin remesa asignada US$ 10.00", period.control_cut_summary)
+        self.assertIn("deducido sin depósito asignado US$ 10.00", period.control_cut_summary)
         self.assertIn("excepciones abiertas 1", period.control_cut_summary)
         self.assertIn("detalles de depósito pendientes 1", period.control_cut_summary)
         self.assertIn("El período permanece abierto", period.notes)
@@ -52,7 +52,7 @@ class PeriodControlCutTests(unittest.TestCase):
         period.collection_rows[0].fx_variance_usd = 2
         period.collection_rows[0].rounding_adjustment_usd = -0.01
         summary = period_module._control_cut_summary(period, 0, 0)
-        self.assertIn("deducido sin remesa asignada US$ 7.99", summary)
+        self.assertIn("deducido sin depósito asignado US$ 7.99", summary)
 
     def test_history_has_no_invented_employee_receivable(self):
         period = self._period()

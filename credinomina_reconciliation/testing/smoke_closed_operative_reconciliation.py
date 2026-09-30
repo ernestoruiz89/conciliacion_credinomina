@@ -143,7 +143,7 @@ def run():
         assert period.collection_rows[0].application_status == "Aplicado y remitido"
         confirmed_import = frappe.get_doc("CN Source Import", original_import.name)
         assert confirmed_import.rows[0].match_status == "Conciliado"
-        assert confirmed_import.rows[0].deposit_match_status == "Remesa conciliada"
+        assert confirmed_import.rows[0].deposit_match_status == "Depósito conciliado"
 
         frappe.db.savepoint("mixed_payroll_status")
         period.append("collection_rows", {

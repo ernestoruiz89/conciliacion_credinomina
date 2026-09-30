@@ -110,5 +110,6 @@ def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modi
     row.matched_targets_summary = "Crédito seleccionado de cartera; use Conciliar para identificar sus destinos."
     doc.detail_status = "Cargado; pendiente de conciliación"
     doc.result = "Pendiente"
+    doc.flags.portfolio_selected_detail = row.name
     doc.save()
     return {"client_number": client.get("client_number"), "loan_number": row.loan_number}

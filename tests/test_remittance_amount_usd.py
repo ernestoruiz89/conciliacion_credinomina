@@ -46,6 +46,7 @@ class RemittanceAmountUsdTest(unittest.TestCase):
         document = SimpleNamespace(
             deposit_date="2026-12-05", deposit_reference=" R-1 ",
             deposit_voucher=" V-1 ", _validate_deposit=Mock(),
+            _invalidate_changed_detail_credits=Mock(),
             get_doc_before_save=Mock(return_value=None),
         )
         CNRemittanceAllocation.before_update_after_submit(document)

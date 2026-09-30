@@ -78,7 +78,7 @@ def build_control_workbook(
         assignment_gap = _money(period.get("employer_gap_usd"))
         if not historical and assignment_gap > CASH_EPSILON:
             issue_rows.append(_issue(
-                "Deducido sin remesa asignada (no CxC confirmada)", period,
+                "Deducido sin depósito asignado (no CxC confirmada)", period,
                 None, None, None, assignment_gap, "Pendiente de asignación",
                 detail="Puede existir un depósito recibido sin detalle suficiente para asignarlo.",
             ))
@@ -174,7 +174,7 @@ SUMMARY_HEADERS = (
     "Fecha inicio aplicación", "Fecha fin aplicación", "Vencimiento pago",
     "Estado", "Cobranza USD", "Deducido USD", "Aplicado USD",
     "Complementario USD", "Ajuste USD", "Depósito asignado USD",
-    "Pendiente histórico USD", "CxC empleado USD", "Sin remesa asignada USD",
+    "Pendiente histórico USD", "CxC empleado USD", "Sin depósito asignado USD",
     "Sin clasificar USD", "Excepciones abiertas", "Último corte de control",
     "Motivo y próxima gestión", "Resumen guardado en el corte",
 )
@@ -230,7 +230,7 @@ def _write_summary(sheet, data, employer_label, generated_at):
         ("Cobranza operativa USD", _money(data["totals"].get("expected_usd")) if operational else NA),
         ("Deducido operativo USD", _money(data["totals"].get("deducted_usd")) if operational else NA),
         ("CxC empleados USD", _money(data["totals"].get("worker_gap_usd")) if operational else NA),
-        ("Deducido sin remesa asignada USD", _money(data["totals"].get("employer_gap_usd")) if operational else NA),
+        ("Deducido sin depósito asignado USD", _money(data["totals"].get("employer_gap_usd")) if operational else NA),
         ("Excedente sin clasificar USD", _money(data["totals"].get("unclassified_deposit_usd"))),
     ]
     for row_number, (label, value) in enumerate(measures, start=5):

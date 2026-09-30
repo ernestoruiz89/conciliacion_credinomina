@@ -185,7 +185,7 @@ def settlement_result(
     return {
         "matched": same_exact_money(reconciled_total, deposited),
         "reason": (
-            "La remesa cubre las aplicaciones y partidas complementarias."
+            "El depósito cubre las aplicaciones y partidas complementarias."
             if same_exact_money(reconciled_total, deposited)
             else "El deposito difiere de las aplicaciones y partidas complementarias."
         ),

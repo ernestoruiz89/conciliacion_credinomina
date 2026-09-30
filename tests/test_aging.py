@@ -38,7 +38,7 @@ class AgingTests(unittest.TestCase):
         }, period))
         self.assertEqual([row["amount_usd"] for row in rows], [30, 20])
         self.assertEqual(rows[0]["balance_type"], "CxC a empleados (cuota no deducida)")
-        self.assertEqual(rows[1]["balance_type"], "Deducido sin remesa asignada")
+        self.assertEqual(rows[1]["balance_type"], "Deducido sin depósito asignado")
         self.assertEqual([row["due_date"] for row in rows], ["2026-09-30", "2026-10-10"])
         self.assertEqual([row["provision_review_usd"] for row in rows], [30, 0])
         unknown = list(operational_balances({

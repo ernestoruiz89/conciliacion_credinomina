@@ -76,7 +76,7 @@ def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
     unassigned_deduction = money_float(max(deducted - remitted - fx - rounding_short, 0))
     if unassigned_deduction > 0:
         yield {
-            "balance_type": "Deducido sin remesa asignada",
+            "balance_type": "Deducido sin depósito asignado",
             "amount_usd": unassigned_deduction,
             "due_date": period.get("remittance_due_date"),
             "provision_review_usd": 0,

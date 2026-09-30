@@ -72,7 +72,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             [__("Remitido"), totals.remitted_usd, "remitted"],
             [__("Movimientos de conciliación"), totals.rounding_movement_abs_usd, "pending"],
             [__("CxC a empleados (no deducido)"), totals.worker_gap_usd, "gap"],
-            [__("Deducido sin remesa asignada"), totals.employer_gap_usd, "gap"],
+            [__("Deducido sin depósito asignado"), totals.employer_gap_usd, "gap"],
             [__("Detalle pendiente"), totals.pending_detail_usd, "pending"],
             [__("Histórico sin depósito"), totals.historical_pending_usd, "pending"],
             [__("Saldo a favor documentado"), totals.documented_credit_usd, "surplus"],
@@ -130,7 +130,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             ${(period.rounding_movements || []).length ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
                             ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("CxC empleados"))}: ${money(period.worker_gap_usd)}</span>` : ""}
-                            ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin remesa asignada"))}: ${money(period.employer_gap_usd)}</span>` : ""}
+                            ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito asignado"))}: ${money(period.employer_gap_usd)}</span>` : ""}
                             ${Number(period.documented_credit_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(period.documented_credit_usd)}</span>` : ""}
                             ${Number(period.unclassified_deposit_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Depósito sin asignar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
                         </button>`).join("")}
@@ -188,7 +188,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
             ${unassigned.length ? `<details class="cn-panel cn-collapsible"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassigned.length}</summary>${unassignedTable}</details>` : ""}
             ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${deposits.length}</summary>${depositTable}</details>`}
-            <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin remesa asignada y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
+            <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin depósito asignado y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
         `);
     }
 
@@ -285,7 +285,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Remitido"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("CxC a empleados (no deducido)"))}</div><div class="cn-kpi-value">${money(period.worker_gap_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-pending"><div class="cn-kpi-label">${esc(__("Detalle de empresa pendiente"))}</div><div class="cn-kpi-value">${money(period.pending_detail_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Deducido sin remesa asignada"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
+                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Deducido sin depósito asignado"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-surplus"><div class="cn-kpi-label">${esc(__("Saldo a favor"))}</div><div class="cn-kpi-value">${money(period.documented_credit_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Depósito sin asignar"))}</div><div class="cn-kpi-value">${money(period.unclassified_deposit_usd)}</div></div>
                     `}

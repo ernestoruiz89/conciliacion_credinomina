@@ -12,7 +12,7 @@ def run():
     frappe.set_user("Administrator")
     meta = frappe.get_meta("CN Remittance Allocation")
     if meta.has_field("fx_evidence"):
-        raise AssertionError("El campo fx_evidence sigue visible en la remesa.")
+        raise AssertionError("El campo fx_evidence sigue visible en el depósito.")
     if any(meta.has_field(field) for field in (
         "target_section", "period", "row_key", "historical_application",
         "complementary_item",
@@ -62,7 +62,7 @@ def run():
     except frappe.ValidationError:
         pass
     else:
-        raise AssertionError("Se aceptó una remesa sin fecha de depósito.")
+        raise AssertionError("Se aceptó un depósito sin fecha de depósito.")
     return {
         "deposit_nio": 3650, "rate": 36.5, "converted_usd": 100,
         "revised_rate_usd": 50, "deposit_usd": 46.53,

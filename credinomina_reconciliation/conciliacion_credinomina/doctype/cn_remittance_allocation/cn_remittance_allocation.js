@@ -1,5 +1,8 @@
 frappe.ui.form.on("CN Remittance Allocation", {
     setup(frm) {
+        // Imported rows remain intact; only the credit column is editable.
+        frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
+        frm.fields_dict.detail_rows.grid.df.cannot_delete_rows = true;
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
         frm.set_query("detail_period", () => ({ filters: { employer: frm.doc.employer, status: ["!=", "Cerrado"] } }));
     },
@@ -68,6 +71,14 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         const response = await loadPendingRemittanceTargets(frm);
         new RemittanceTargetPicker(frm, response);
+    },
+});
+
+frappe.ui.form.on("CN Remittance Detail", {
+    loan_number(frm) {
+        frm.set_value("result", "Pendiente");
+        frm.set_value("detail_status", "Cargado; pendiente de conciliación");
+        frappe.show_alert({message: __("Guarde y use Conciliar. Revise los destinos manuales si cambió el crédito."), indicator: "orange"});
     },
 });
 

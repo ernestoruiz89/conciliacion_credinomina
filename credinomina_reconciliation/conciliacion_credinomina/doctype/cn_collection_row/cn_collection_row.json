@@ -48,11 +48,11 @@
     {"fieldname": "inherited_exception_comment", "fieldtype": "Small Text", "label": "Antecedente trasladado al depósito", "read_only": 1},
     {"description": "Diferencia entre el equivalente US$ de la planilla y lo aplicado en el core. Se revisa caso por caso.", "fieldname": "fx_variance_usd", "fieldtype": "Currency", "label": "Diferencia cambiaria US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"description": "Depósito menos aplicación del core para una diferencia menor documentada.", "fieldname": "rounding_adjustment_usd", "fieldtype": "Currency", "label": "Ajuste de conciliación US$", "options": "usd_currency", "precision": "2", "read_only": 1},
-    {"fieldname": "application_status", "fieldtype": "Select", "label": "Estado de aplicacion/remesa", "options": "Pendiente\nAplicacion parcial\nAplicacion encontrada\nRemesa parcial\nRemitido, aplicacion parcial\nAplicado y remitido\nDiferencia aplicacion vs deposito\nDiferencia cambiaria en revision\nAmbiguo\nExcepcion", "read_only": 1}
+    {"fieldname": "application_status", "fieldtype": "Select", "label": "Estado de aplicacion/depósito", "options": "Pendiente\nAplicacion parcial\nAplicacion encontrada\nDepósito parcial\nRemitido, aplicacion parcial\nAplicado y remitido\nDiferencia aplicacion vs deposito\nDiferencia cambiaria en revision\nAmbiguo\nExcepcion", "read_only": 1}
   ],
   "istable": 1,
   "links": [],
-  "modified": "2026-09-22 00:00:00.000000",
+  "modified": "2026-09-29 22:07:52.290751",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Collection Row",

@@ -203,7 +203,7 @@ class CNReconciliationPeriod(Document):
         self.cutoff_date = cycle_cutoff(getdate(self.payroll_month), self.collection_cycle)
         if self.collection_cycle != MONTHLY:
             if self.remittance_due_date and getdate(self.remittance_due_date) < self.cutoff_date:
-                frappe.throw(_("El vencimiento de la remesa no puede preceder el cierre de la quincena."))
+                frappe.throw(_("El vencimiento del depósito no puede preceder el cierre de la quincena."))
             return
         grace_days = frappe.db.get_value("CN Employer", self.employer, "grace_days") or 10
         first_next_month = getdate(add_months(getdate(self.payroll_month).replace(day=1), 1))
@@ -969,7 +969,7 @@ def _control_cut_summary(period, open_exceptions, pending_details):
             "cutoff_date": getattr(period, "cutoff_date", None),
             "remittance_due_date": getattr(period, "remittance_due_date", None),
         })
-        if balance["balance_type"] == "Deducido sin remesa asignada"
+        if balance["balance_type"] == "Deducido sin depósito asignado"
     )
     unsettled_rows = sum(
         row.application_status != "Aplicado y remitido" for row in rows
@@ -988,7 +988,7 @@ def _control_cut_summary(period, open_exceptions, pending_details):
         f"{figures}; cuotas sin detalle {awaiting_detail}; "
         f"cuotas sin liquidar {unsettled_rows}; "
         f"CxC empleados confirmada US$ {worker_receivable:.2f}; "
-        f"deducido sin remesa asignada US$ {deducted_unremitted:.2f}"
+        f"deducido sin depósito asignado US$ {deducted_unremitted:.2f}"
     )
 
 

@@ -19,10 +19,10 @@ reales de la IMF.
 | Monedas | Un depósito de C$3,650 con tasa documentada de 36.5 equivale a US$100; sin evidencia de tasa se rechaza. Los formularios y reportes muestran US$ y C$ según cada campo, aunque el sitio tenga NIO como moneda base. |
 | Permisos | Operador y supervisor consultan tablero y antigüedad; ambos cargan fuentes. Solo supervisor puede confirmar depósitos. |
 | Reportes | El resumen devuelve 9 períodos, el estado de cuenta 180 filas y la antigüedad 37 saldos abiertos para los tres meses. Funcionan los filtros por empresa y cliente. |
-| Interfaz | Workspace, tablero, tres reportes y formularios de período, importación y remesa abiertos en navegador de prueba sin errores JavaScript. |
+| Interfaz | Workspace, tablero, tres reportes y formularios de período, importación y depósito abiertos en navegador de prueba sin errores JavaScript. |
 
 La antigüedad mostró US$805.50 de cuotas no deducidas al trabajador y
-US$920.50 de deducciones sin remesa **asignada por cliente**. El último monto
+US$920.50 de deducciones sin depósito **asignado por cliente**. El último monto
 puede estar cubierto por el depósito recibido sin detalle: no se suma al
 depósito ni se presenta como CxC confirmada a la empresa. El reporte usa
 bandas excluyentes y permite revisar cada cliente y empresa.

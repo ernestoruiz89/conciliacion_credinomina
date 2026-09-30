@@ -39,6 +39,30 @@ class CNRemittanceAllocation(Document):
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
+        self._invalidate_changed_detail_credits()
+
+    def _invalidate_changed_detail_credits(self):
+        previous = self.get_doc_before_save()
+        if not previous:
+            return
+        old_rows = {row.get("name"): row for row in previous.get("detail_rows") or []}
+        for row in self.get("detail_rows") or []:
+            old = old_rows.get(row.get("name"))
+            row.loan_number = clean_text(row.get("loan_number"))
+            if not old or row.loan_number == clean_text(old.get("loan_number")):
+                continue
+            if self.flags.get("portfolio_selected_detail") != row.name:
+                row.loan_selection_snapshot = None
+                row.loan_selection_note = _("{0} — {1}: {2} → {3}. Edición manual.").format(
+                    now_datetime(), frappe.session.user,
+                    old.get("loan_number") or _("Sin crédito"), row.loan_number or _("Sin crédito"),
+                )
+            row.match_status = "Pendiente"
+            row.match_reason = _("Crédito actualizado; pendiente de conciliación.")
+            row.matched_targets = "[]"
+            row.matched_targets_summary = _("Use Conciliar para actualizar los destinos. Revise los destinos manuales si cambió el crédito.")
+            self.detail_status = "Cargado; pendiente de conciliación"
+            self.result = "Pendiente"
 
     def _validate_deposit(self):
         self.deposit_amount = money(self.deposit_amount)
@@ -223,6 +247,7 @@ class CNRemittanceAllocation(Document):
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
+        self._invalidate_changed_detail_credits()
         previous = self.get_doc_before_save()
         if previous and self._reconciliation_inputs_changed(previous):
             self.result = "Pendiente"

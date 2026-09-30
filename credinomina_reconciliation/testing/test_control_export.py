@@ -27,7 +27,7 @@ class TestControlExport(unittest.TestCase):
                 "name": "APP-1", "client_number": "001", "client_name": "=HYPERLINK(\"x\")",
                 "loan_number": "L-1", "event_date": "2025-04-15", "reference": "AP-1",
                 "amount": 46.52, "historical_remitted_usd": 46.53,
-                "historical_balance_usd": 0, "deposit_match_status": "Remesa conciliada",
+                "historical_balance_usd": 0, "deposit_match_status": "Depósito conciliado",
                 "historical_detail": json.dumps([
                     {"referencia": "DEP-1", "fecha": "2025-05-03", "importe_usd": 20},
                     {"referencia": "DEP-2", "fecha": "2025-05-18", "importe_usd": 26.52},

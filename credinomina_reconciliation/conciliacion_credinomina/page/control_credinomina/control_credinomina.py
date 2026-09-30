@@ -722,8 +722,8 @@ def _build_work_items(
                     amount_usd=employee_gap, **target)
             employer_gap = flt(period.get("employer_gap_usd"))
             if employer_gap > CASH_EPSILON:
-                add(2, "unlinked_remittance", "Deducción sin remesa asignada",
-                    "Ubicar el depósito o vincular la remesa; no es CxC confirmada.",
+                add(2, "unlinked_remittance", "Deducción sin depósito asignado",
+                    "Ubicar el depósito o vincular el depósito; no es CxC confirmada.",
                     amount_usd=employer_gap, **target)
 
         difference_rows = [

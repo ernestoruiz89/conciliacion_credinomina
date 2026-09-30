@@ -87,7 +87,7 @@ class WorkspaceTest(unittest.TestCase):
     def test_bank_accounts_are_in_remittance_card(self):
         links = self.workspace["links"]
         start = next(index for index, item in enumerate(links)
-                     if item["type"] == "Card Break" and item["label"] == "Conciliación de remesas")
+                     if item["type"] == "Card Break" and item["label"] == "Conciliación de depósitos")
         end = next((index for index in range(start + 1, len(links))
                     if links[index]["type"] == "Card Break"), len(links))
         self.assertIn("CN Bank Account", {item.get("link_to") for item in links[start + 1:end]})
