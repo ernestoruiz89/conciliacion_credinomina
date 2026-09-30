@@ -623,28 +623,36 @@ function renderCashDistribution(deposit) {
         ["review_usd", __("Distribución por revisar"), __("El importe asignado no coincide con su desglose")],
     ]) if (Math.abs(Number(deposit[field] || 0)) > MONEY_EPSILON) lines.push({type, label, amount_usd: deposit[field]});
     const original = new Intl.NumberFormat("es-NI", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(deposit.original_amount || 0));
+    const summaryTotal = cashTableTotal(lines);
     return `<div class="cn-cash-distribution">
-        <p><strong>${esc(deposit.reference || deposit.name)}</strong> · ${esc(displayDate(deposit.date))} · ${esc(deposit.name)}</p>
-        <p>${esc(__("Cuenta bancaria"))}: <strong>${esc(deposit.bank_account || __("Sin cuenta asignada"))}</strong></p>
-        <p>${esc(__("Depositado total"))}: <strong>${money(deposit.total_usd)}</strong>${deposit.currency && deposit.currency !== "USD" ? ` · ${esc(__("Original"))}: ${esc(deposit.currency)} ${original}` : ""}</p>
+        <div class="cn-kpis cn-cash-kpis">
+            <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Referencia del depósito"))}</div><div class="cn-kpi-value">${esc(deposit.reference || deposit.name)}</div><div class="cn-cash-kpi-note">${esc(displayDate(deposit.date))}<br>${esc(deposit.name)}</div></div>
+            <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Cuenta bancaria"))}</div><div class="cn-kpi-value">${esc(deposit.bank_account || __("Sin cuenta asignada"))}</div></div>
+            <div class="cn-kpi cn-kpi-remitted"><div class="cn-kpi-label">${esc(__("Depositado total"))}</div><div class="cn-kpi-value">${money(deposit.total_usd)}</div>${deposit.currency ? `<div class="cn-cash-kpi-note">${esc(__("Original"))}: ${esc(deposit.currency)} ${original}</div>` : ""}</div>
+        </div>
         <p><span class="cn-badge">${esc(cashStatus(deposit))}</span> · ${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</p>
-        <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
-            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>${renderCreditPeople(item)}`).join("")}
-        </tbody><tfoot><tr><th colspan="3">${esc(__("Total del depósito"))}</th><th class="cn-number">${money(deposit.total_usd)}</th></tr></tfoot></table></div>
+        <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
+            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
+        </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
+        ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
-        <p class="text-muted">${esc(__("Solo se muestran distribuciones realizadas. Seleccionar un destino sin conciliarlo no aplica el dinero."))}</p>
     </div>`;
+}
+
+function cashTableTotal(rows) {
+    return rows.reduce((cents, row) => cents + Math.round(Number(row.amount_usd || 0) * 100), 0) / 100;
 }
 
 function renderCreditPeople(destination) {
     if (destination.type !== "Créditos") return "";
     const people = destination.people || [];
-    if (!people.length) return `<tr><td colspan="4" class="text-muted">${esc(__("Detalle por persona no disponible"))}</td></tr>`;
-    return `<tr><td colspan="4"><table class="cn-detail-table cn-credit-people">
+    if (!people.length) return `<p class="text-muted">${esc(destination.label)} · ${esc(__("Detalle por persona no disponible"))}</p>`;
+    return `<div class="cn-list-scroll"><table class="cn-detail-table cn-credit-people">
         <caption>${esc(__("Distribución por persona"))} · ${esc(destination.label)}</caption>
         <thead><tr><th>${esc(__("Cliente"))}</th><th>${esc(__("Nro. Cliente"))}</th><th>${esc(__("Nro. Crédito"))}</th><th>${esc(__("Asignado US$"))}</th></tr></thead>
         <tbody>${people.map(person => `<tr><td>${esc(person.client_name || __("Cliente no disponible"))}</td><td>${esc(person.client_number || "—")}</td><td>${esc(person.loan_number || "—")}</td><td class="cn-number">${money(person.amount_usd)}</td></tr>`).join("")}</tbody>
-    </table></td></tr>`;
+        <tfoot><tr><th colspan="3">${esc(__("Total detalle por cliente"))}</th><th class="cn-number">${money(cashTableTotal(people))}</th></tr></tfoot>
+    </table></div>`;
 }
 
 function money(value) {
@@ -760,6 +768,13 @@ function styles() {
         .cn-cash-panel { border-bottom: 1px solid var(--border-color, #e2e8f0); padding-bottom: 16px; margin-bottom: 16px; }
         .cn-cash-cards { max-height: 40vh; }
         .cn-cash-distribution .cn-badge { padding: 4px 8px; background: var(--control-bg, #f1f5f9); }
+        .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .cn-cash-kpis .cn-kpi-value { white-space: normal; overflow-wrap: anywhere; }
+        .cn-cash-kpi-note { margin-top: 6px; color: var(--text-muted, #64748b); font-size: 12px; overflow-wrap: anywhere; }
+        .cn-cash-distribution .cn-list-scroll { margin-bottom: 18px; }
+        .cn-cash-distribution caption { caption-side: top; padding: 10px 0; font-weight: 600; color: var(--text-color, #1e293b); }
+        .cn-cash-distribution tfoot th { border-top: 2px solid var(--border-color, #e2e8f0); }
+        @media(max-width: 650px) { .cn-cash-distribution .cn-cash-kpis { grid-template-columns: 1fr; } }
         .cn-period-remark { display: block; width: 100%; margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--gray-400, #94a3b8); background: var(--control-bg, #f8fafc); border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
         .cn-period-remark strong { display: block; margin-bottom: 4px; }
         .cn-period-remark > span { display: block; white-space: pre-wrap; }

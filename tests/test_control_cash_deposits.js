@@ -49,6 +49,24 @@ assert.ok(personalDetail.includes("Nro. Cliente") && personalDetail.includes("As
 assert.ok(personalDetail.includes("Ana &lt;Pérez&gt;") && !personalDetail.includes("Ana <Pérez>"));
 assert.ok(personalDetail.includes("Luis") && personalDetail.includes("1000-1") && personalDetail.includes("2000-1"));
 assert.ok(personalDetail.includes("200.00") && personalDetail.includes("100.00"));
+assert.match(personalDetail, /Total detalle por cliente<\/th><th class="cn-number">[^<]*300\.00/);
+assert.match(breakdown, /Total resumen<\/th><th class="cn-number">[^<]*1,000\.00/);
+assert.ok(breakdown.includes('class="cn-kpis cn-cash-kpis"'));
+assert.equal((breakdown.match(/class="cn-kpi-label"/g) || []).length, 3);
+assert.ok(breakdown.includes("Referencia del depósito") && breakdown.includes("Depositado total"));
+assert.ok(!breakdown.includes("Total del depósito"));
+assert.ok(!breakdown.includes("Solo se muestran distribuciones realizadas"));
+assert.ok(!breakdown.includes("Seleccionar un destino sin conciliarlo no aplica el dinero"));
+assert.ok(personalDetail.indexOf('class="cn-detail-table cn-credit-people"') > personalDetail.indexOf("</table>"), "Client detail must follow the summary, not be nested inside it");
+const signedTotals = renderCashDistribution({...deposit, credit_balance_usd: 0, destinations: [
+    {type: "Créditos", label: "P1", amount_usd: 0.3, people: [
+        {client_name: "Ana", amount_usd: 0.1}, {client_name: "Luis", amount_usd: 0.2}]},
+    {type: "Partida complementaria", label: "Ajuste", amount_usd: -0.1},
+]});
+assert.match(signedTotals, /Total resumen<\/th><th class="cn-number">[^<]*0\.20/);
+assert.match(signedTotals, /Total detalle por cliente<\/th><th class="cn-number">[^<]*0\.30/);
+const emptyTotals = renderCashDistribution({...deposit, destinations: [], credit_balance_usd: 0});
+assert.match(emptyTotals, /Total resumen<\/th><th class="cn-number">[^<]*0\.00/);
 assert.ok(breakdown.includes("Detalle por persona no disponible"));
 const bankDetail = renderCashDistribution({...deposit, bank_account: 'BANPRO <3268> & C$'});
 assert.ok(bankDetail.includes('Cuenta bancaria'));
