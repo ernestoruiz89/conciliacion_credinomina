@@ -11,6 +11,7 @@ from frappe.utils import cint, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
+from credinomina_reconciliation.control_deposits import get_cash_deposits
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -669,6 +670,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         "available_years": _available_years(employer),
         "can_create_exception": bool(frappe.has_permission("CN Reconciliation Exception", "create")),
         "periods": output,
+        "cash_deposits": get_cash_deposits(year, employer),
         "totals": {key: money_float(value) for key, value in totals.items()},
         "open_deposits": deposits,
         "unassigned_historical_applications": unassigned_historical_applications,
