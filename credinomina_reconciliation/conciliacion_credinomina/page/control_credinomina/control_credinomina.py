@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -98,14 +99,47 @@ def get_control_data(year=None, employer=None):
     return _build_control_data(year, employer)
 
 
+def _year_filter(field, year):
+    return {field: ["between", [f"{year}-01-01", f"{year}-12-31"]]} if year is not None else {}
+
+
+def _available_years(employer=None):
+    """Year choices include visible periods, deposits and imported applications."""
+    years = set()
+    company = {"employer": employer} if employer else {}
+    for doctype, field, extra in (
+        ("CN Reconciliation Period", "payroll_month", {}),
+        ("CN Remittance Allocation", "deposit_date", {"docstatus": 1}),
+    ):
+        if frappe.has_permission(doctype, "read"):
+            for row in frappe.get_list(doctype, filters={**company, **extra},
+                                       fields=[field], group_by=field, limit_page_length=0):
+                if row.get(field):
+                    years.add(getdate(row[field]).year)
+    if frappe.has_permission("CN Source Import", "read"):
+        imports = frappe.get_list("CN Source Import", filters={**company,
+            "source_type": SOURCE_ACCOUNTING, "status": ["in", ["Importado", "Importado con excepciones"]]},
+            pluck="name", limit_page_length=0)
+        for offset in range(0, len(imports), 500):
+            for row in frappe.get_all("CN Source Row",
+                filters={"parent": ["in", imports[offset:offset + 500]], "parenttype": "CN Source Import",
+                         "event_type": "Aplicacion", "effective": 1},
+                fields=["event_date"], group_by="event_date", limit_page_length=0):
+                if row.event_date:
+                    years.add(getdate(row.event_date).year)
+    return sorted(years, reverse=True)
+
+
 def _build_control_data(year=None, employer=None, *, full_export=False):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
         frappe.throw(_("No tiene permiso para consultar la conciliacion."))
-    year = cint(year or now_datetime().year)
-    if not 2000 <= year <= 2100:
+    year = None if str(year).strip().casefold() in ("todos", "todo", "all") else cint(year or now_datetime().year)
+    if year is not None and not 2000 <= year <= 2100:
         frappe.throw(_("Indique un año valido."))
-    filters = {"payroll_month": ["between", [f"{year}-01-01", f"{year}-12-31"]]}
+    # All years must not silently omit older records because of screen limits.
+    full_export = full_export or year is None
+    filters = _year_filter("payroll_month", year)
     if employer:
         filters["employer"] = employer
     periods = frappe.get_list(
@@ -159,7 +193,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 "event_type": "Aplicacion", "effective": 1,
             },
             fields=[
-                "name", "parent", "historical_period", "event_date",
+                "name", "parent", "source_row", "historical_period", "event_date",
                 "reference", "voucher", "accounting_entry", "receipt", "client_number", "employee_number", "client_name", "national_id",
                 "loan_number", "installment_number", "amount", "currency",
                 "historical_remitted_usd", "historical_balance_usd",
@@ -168,6 +202,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             order_by="event_date asc, idx asc",
             limit_page_length=_row_limit(30000, full_export),
         )
+        annotate_application_exceptions(historical_rows)
         for row in historical_rows:
             historical_rows_by_period[row.historical_period].append(row)
         exceptions = frappe.get_list(
@@ -375,7 +410,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                         "event_type": "Aplicacion", "effective": 1,
                         "historical_period": ["is", "not set"],
                         "collection_period": ["is", "not set"],
-                        "event_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
+                        **_year_filter("event_date", year),
                     },
                     fields=[
                         "parent", "event_date", "reference", "loan_number",
@@ -436,7 +471,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                         "event_type": "Deposito",
                         "effective": 1,
                         "unallocated_usd": [">", CASH_EPSILON],
-                        "event_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
+                        **_year_filter("event_date", year),
                     },
                     fields=[
                         "parent", "reference", "voucher", "event_date",
@@ -451,7 +486,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     if frappe.has_permission("CN Remittance Allocation", "read"):
         manual_filters = {
             "docstatus": 1,
-            "deposit_date": ["between", [f"{year}-01-01", f"{year}-12-31"]],
+            **_year_filter("deposit_date", year),
         }
         if employer:
             manual_filters["employer"] = employer
@@ -517,7 +552,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                         registered.append(item)
                         known.add(item.name)
             visible_employers = sorted({period.employer for period in periods if period.employer})
-            if visible_employers:
+            if visible_employers and year is not None:
                 next_year_filters = {
                     "docstatus": 1,
                     "employer": ["in", visible_employers],
@@ -629,7 +664,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             )
         })
     return {
-        "year": year,
+        "year": year if year is not None else "Todos",
+        "available_years": _available_years(employer),
+        "can_create_exception": bool(frappe.has_permission("CN Reconciliation Exception", "create")),
         "periods": output,
         "totals": {key: money_float(value) for key, value in totals.items()},
         "open_deposits": deposits,

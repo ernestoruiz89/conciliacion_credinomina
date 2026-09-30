@@ -21,7 +21,7 @@ const context = vm.createContext({
     __: value => value, $: value => typeof value === "string" ? root : {attr: name => value[name]},
     frappe: {pages: {"control-credinomina": {}}, datetime: {str_to_user: value => value},
         call: async () => ({message: data}), ui: {
-            make_app_page: () => ({main: {}, add_field: df => ({get_value: () => df.fieldname === "year" ? "2026" : ""}),
+            make_app_page: () => ({main: {}, add_field: df => ({df, refresh() {}, set_input() {}, get_value: () => df.fieldname === "year" ? "2026" : ""}),
                 add_button() {}, set_primary_action(label, fn) { refreshPage = fn; }}),
             Dialog: class {
                 constructor(options) { dialog = this; this.options = options; this.events = {}; this.wrapper = {

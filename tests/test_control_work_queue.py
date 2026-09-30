@@ -242,7 +242,7 @@ class ControlWorkQueueTests(unittest.TestCase):
         captured = []
 
         def get_list(doctype, **kwargs):
-            if doctype == "CN Reconciliation Period":
+            if doctype == "CN Reconciliation Period" and not kwargs.get("group_by"):
                 captured.append(kwargs["filters"]["payroll_month"])
             return []
 

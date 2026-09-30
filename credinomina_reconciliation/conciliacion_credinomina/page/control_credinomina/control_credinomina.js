@@ -7,36 +7,59 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         single_column: true,
     });
     const currentYear = new Date().getFullYear();
+    let controlsReady = false;
+    let updatingYearOptions = false;
     const yearField = page.add_field({
         fieldname: "year",
         fieldtype: "Select",
         label: __("Año"),
-        options: Array.from({ length: 8 }, (_, index) => String(currentYear - index)).join("\n"),
+        options: ["Todos", String(currentYear)].join("\n"),
         default: String(currentYear),
+        change: () => refresh(),
     });
     const employerField = page.add_field({
         fieldname: "employer",
         fieldtype: "Link",
         label: __("Empresa"),
         options: "CN Employer",
+        change: () => refresh(),
     });
     const $root = $('<div class="cn-control"></div>').appendTo(page.main);
     $root.html(`${styles()}<div class="cn-loading">${esc(__("Cargando control..."))}</div>`);
     let currentData = null;
     let workLimit = 100;
     let summaryMode = true;
+    let calendarYear = currentYear;
+    let allYearsSelected = false;
 
     function refresh() {
-        frappe.call({
+        // Frappe may trigger change while initial controls/options are built.
+        if (!controlsReady || updatingYearOptions) return Promise.resolve();
+        const requestedYear = yearField.get_value();
+        const requestedEmployer = employerField.get_value() || null;
+        return frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_data",
             args: {
-                year: yearField.get_value(),
-                employer: employerField.get_value() || null,
+                year: requestedYear,
+                employer: requestedEmployer,
             },
             freeze: true,
             freeze_message: __("Actualizando control..."),
         }).then((response) => {
+            if (requestedYear !== yearField.get_value() || requestedEmployer !== (employerField.get_value() || null)) return;
             currentData = response.message || { periods: [], totals: {}, open_deposits: [], work_items: [] };
+            const allYears = currentData.year === "Todos";
+            if (allYears && !allYearsSelected) calendarYear = currentYear;
+            if (allYears && !(currentData.periods || []).some(p => String(p.month).startsWith(`${calendarYear}-`))) calendarYear = currentYear;
+            allYearsSelected = allYears;
+            const years = [...new Set([currentYear, ...(currentData.available_years || []),
+                ...(requestedYear !== "Todos" ? [Number(requestedYear)] : [])])].filter(Number.isFinite).sort((a, b) => b - a);
+            updatingYearOptions = true;
+            try {
+                yearField.df.options = ["Todos", ...years.map(String)].join("\n");
+                yearField.refresh();
+                yearField.set_input(requestedYear);
+            } finally { updatingYearOptions = false; }
             render(currentData);
         }).catch(() => {
             $root.html(`${styles()}<div class="cn-empty">${esc(__("No se pudo cargar el control."))}</div>`);
@@ -47,13 +70,21 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const periods = data.periods || [];
         const totals = data.totals || {};
         const workItems = data.work_items || [];
-        const year = Number(data.year || currentYear);
-        const companies = [...new Map(periods.map((period) => [period.employer, {
+        const allYears = data.year === "Todos";
+        const year = allYears ? calendarYear : Number(data.year || currentYear);
+        const calendarPeriods = periods.filter(period => String(period.month).slice(0, 4) === String(year));
+        const calendarYears = [...new Set([currentYear, ...periods.map(period => Number(String(period.month).slice(0, 4)))])]
+            .filter(Number.isFinite).sort((a, b) => b - a);
+        const calendarFilter = allYears ? `<label class="cn-summary-toggle cn-calendar-filter">${esc(__("Año del calendario"))}
+            <select class="form-control input-sm" data-calendar-year aria-label="${esc(__("Año del calendario"))}">
+                ${calendarYears.map(value => `<option value="${value}" ${value === year ? "selected" : ""}>${value}</option>`).join("")}
+            </select></label>` : "";
+        const companies = [...new Map(calendarPeriods.map((period) => [period.employer, {
             id: period.employer,
             name: period.employer_name || period.employer,
         }])).values()].sort((a, b) => a.name.localeCompare(b.name));
         const byCell = new Map();
-        periods.forEach((period) => {
+        calendarPeriods.forEach((period) => {
             const key = `${period.employer}|${period.month}`;
             if (!byCell.has(key)) byCell.set(key, []);
             byCell.get(key).push(period);
@@ -182,12 +213,12 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <div><h2>${esc(__("Trabajo de conciliación"))}</h2><p>${esc(__("Priorice la evidencia faltante y abra el documento correspondiente. La matriz mensual queda abajo para consulta."))}</p></div>
                 <div class="cn-intro-actions">
                     <button type="button" class="btn btn-default btn-sm" data-export>${esc(__("Exportar Excel"))}</button>
-                    <span class="cn-year">${esc(String(year))}</span>
+                    <span class="cn-year">${esc(allYears ? __("Todos los años") : String(year))}</span>
                 </div>
             </div>
             <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workItems.length} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
             <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
-            <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
+            <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
             ${unassigned.length ? `<details class="cn-panel cn-collapsible"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassigned.length}</summary>${unassignedTable}</details>` : ""}
             ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${deposits.length}</summary>${depositTable}</details>`}
             <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin depósito asignado y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
@@ -201,7 +232,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const historicalTable = (period.historical_rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Referencia"))}</th>
-                <th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Sin depósito US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("ID para distribución"))}</th>
+                <th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción"))}</th>
             </tr></thead><tbody>${(period.historical_rows || []).map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
                 <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}</td>
@@ -210,7 +241,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td class="cn-number">${money(row.historical_remitted_usd)}</td>
                 <td class="cn-number">${money(row.historical_balance_usd)}</td>
                 <td>${allocationLines(row.historical_detail)}</td>
-                <td>${esc(row.name)}</td>
+                <td>${applicationExceptionAction(period, row, currentData.can_create_exception)}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay aplicaciones históricas asignadas."))}</div>`;
         const rowTable = (period.rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
@@ -301,10 +332,23 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             dialog.hide();
             frappe.set_route("Form", "CN Reconciliation Exception", $(this).attr("data-exception"));
         });
+        dialog.get_field("detail").$wrapper.on("click", "[data-register-exception]", function () {
+            const row = (period.historical_rows || []).find(r => r.name === $(this).attr("data-register-exception"));
+            if (!row) return;
+            showApplicationException(period, row, async () => {
+                dialog.hide();
+                await refresh();
+                showPeriod(period.name);
+            });
+        });
     }
 
     $root.on("change", "[data-summary]", function () {
         summaryMode = this.checked;
+        if (currentData) render(currentData);
+    });
+    $root.on("change", "[data-calendar-year]", function () {
+        calendarYear = Number(this.value);
         if (currentData) render(currentData);
     });
     $root.on("click", "[data-month]", function () {
@@ -357,10 +401,66 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         );
     }
     page.add_button(__("Registrar depósito"), () => frappe.new_doc("CN Remittance Allocation"));
-    page.add_button(__("Registrar partida complementaria"), () => frappe.new_doc("CN Complementary Item"));
     page.set_primary_action(__("Actualizar"), refresh);
+    controlsReady = true;
     refresh();
 };
+
+function applicationExceptionAction(period, row, canCreate) {
+    if (row.exception_name) return `<button type="button" class="btn btn-default btn-xs" data-exception="${esc(row.exception_name)}" title="${esc(row.exception_status || "")}">${esc(__("Ver excepción"))}</button>`;
+    if (!(Number(row.historical_balance_usd) > MONEY_EPSILON) || !canCreate) return "—";
+    if (period.status === "Cerrado") return `<span class="text-muted">${esc(__("Período cerrado"))}</span>`;
+    return `<button type="button" class="btn btn-default btn-xs" data-register-exception="${esc(row.name)}">${esc(__("Registrar excepción"))}</button>`;
+}
+
+async function showApplicationException(period, row, onSaved) {
+    await frappe.model.with_doctype("CN Reconciliation Exception");
+    let saving = false;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Registrar excepción"), size: "large",
+        fields: [
+            {fieldname: "usd_currency", fieldtype: "Data", default: "USD", hidden: 1},
+            {fieldname: "context", fieldtype: "HTML", options: `<p>${esc(period.employer_name || period.employer)} · ${esc(period.name)}</p><p class="text-muted">${esc(__("Registra el caso para seguimiento. No aplica depósitos ni elimina el saldo pendiente."))}</p>`},
+            {fieldname: "client_name", fieldtype: "Data", label: __("Cliente"), default: row.client_name, read_only: 1},
+            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), default: row.client_number, read_only: 1},
+            {fieldtype: "Column Break"},
+            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito"), default: row.loan_number, read_only: 1},
+            {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: row.reference, read_only: 1},
+            {fieldtype: "Section Break", label: __("Diferencia identificada")},
+            {fieldname: "applied_usd", fieldtype: "Currency", options: "usd_currency", label: __("Aplicación US$"), default: row.amount, read_only: 1, precision: 2},
+            {fieldtype: "Column Break"},
+            {fieldname: "assigned_usd", fieldtype: "Currency", options: "usd_currency", label: __("Depósito asignado US$"), default: row.historical_remitted_usd, read_only: 1, precision: 2},
+            {fieldtype: "Column Break"},
+            {fieldname: "pending_usd", fieldtype: "Currency", options: "usd_currency", label: __("Pendiente US$"), default: row.historical_balance_usd, read_only: 1, precision: 2},
+            {fieldtype: "Section Break"},
+            {fieldname: "cause_category", fieldtype: "Select", label: __("Causa"), reqd: 1, default: "Por determinar",
+                options: frappe.meta.get_docfield("CN Reconciliation Exception", "cause_category").options},
+            {fieldname: "description", fieldtype: "Small Text", label: __("Descripción de la excepción"), reqd: 1},
+        ],
+        primary_action_label: __("Registrar excepción"),
+        primary_action: async values => {
+            if (saving) return;
+            saving = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                const response = await frappe.call({
+                    method: "credinomina_reconciliation.control_exceptions.create_application_exception",
+                    args: {period_name: period.name, application_id: row.name,
+                        expected_pending_usd: row.historical_balance_usd,
+                        cause_category: values.cause_category, description: values.description},
+                    freeze: true, freeze_message: __("Registrando excepción…"),
+                });
+                dialog.hide();
+                frappe.show_alert({message: response.message.created ? __("Excepción registrada.") : __("La aplicación ya tiene una excepción. Use Ver excepción."), indicator: "green"});
+                await onSaved();
+            } finally {
+                saving = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
+    });
+    dialog.show();
+}
 
 function renderPeriodCard(period) {
     const historical = period.reconciliation_mode === "Historica";
@@ -511,10 +611,12 @@ function styles() {
         .cn-kpi-surplus .cn-kpi-value { color: #7c3aed; }
         .cn-inherited-note { color: #92400e; font-size: 11px; }
         .cn-panel { background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 18px; box-shadow: 0 2px 8px #0f172a0a; }
-        .cn-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
+        .cn-panel-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
         .cn-panel-head h3 { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
         .cn-panel-head span { font-size: 11px; color: #64748b; }
         .cn-summary-toggle { display: flex; align-items: center; gap: 6px; margin: 0 12px 0 auto; font-size: 12px; cursor: pointer; }
+        .cn-calendar-filter { white-space: nowrap; }
+        .cn-calendar-filter select { width: 100px; }
         .cn-period-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; max-height: 60vh; overflow-y: auto; padding: 4px; }
         .cn-period-card { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 16px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; color: var(--text-color, #334155); cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
         .cn-period-card:hover { box-shadow: 0 3px 12px #0f172a18; }
