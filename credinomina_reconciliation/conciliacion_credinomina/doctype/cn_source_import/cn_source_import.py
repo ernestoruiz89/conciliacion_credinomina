@@ -471,6 +471,91 @@ def import_source_file(import_name: str):
 
 @frappe.whitelist(methods=["POST"])
 def reconcile_all_sources():
+    return _reconcile_sources()
+
+
+@frappe.whitelist(methods=["POST"])
+def reconcile_company_sources(import_name: str):
+    document = frappe.get_doc("CN Source Import", import_name)
+    document.check_permission("write")
+    employer = clean_text(document.employer)
+    if not employer:
+        frappe.throw(_("Seleccione y guarde la empresa antes de conciliar."))
+    frappe.get_doc("CN Employer", employer).check_permission("read")
+    return _reconcile_sources(employer)
+
+
+def _company_imports(imports, employer):
+    """Reject inconsistent boundaries before recomputing any persisted balance."""
+    period_employers = {row.name: row.employer for row in frappe.get_all(
+        "CN Reconciliation Period", fields=["name", "employer"], limit_page_length=0,
+    )}
+    employers = frappe.get_all(
+        "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
+    )
+    attach_employer_aliases(employers)
+    aliases, _ambiguous = employer_alias_index(employers)
+    selected = []
+    for document in imports:
+        belongs = document.get("employer") == employer
+        related = {period_employers.get(document.historical_period)}
+        for row in document.rows:
+            related.add(row.get("portfolio_employer"))
+            related.add(aliases.get(employer_label_key(row.get("employer_text"))))
+            related.update(period_employers.get(name) for name in _source_linked_periods(row))
+        related.discard(None)
+        related.discard("")
+        if (belongs and related - {employer}) or (not belongs and employer in related):
+            frappe.throw(_(
+                "La importación {0} tiene datos o vínculos de {1} que no coinciden con su empresa. "
+                "Revise la empresa y los períodos de esa importación antes de conciliar."
+            ).format(document.name, employer))
+        if belongs:
+            document.check_permission("write")
+            selected.append(document)
+    return selected
+
+
+def _reconciliation_feedback(rows):
+    """Disjoint totals and actionable reasons for every uncompleted source row."""
+    matched = ignored = 0
+    pending_rows = []
+    reasons = defaultdict(int)
+    for row in rows:
+        if row.match_status == "Ignorado":
+            ignored += 1
+            continue
+        complete = (
+            row.match_status == "Conciliado"
+            and (row.event_type != "Deposito" or flt(row.unallocated_usd) <= CASH_EPSILON)
+            and (row.event_type != "Aplicacion" or row.deposit_match_status == "Depósito conciliado")
+        )
+        if complete:
+            matched += 1
+            continue
+        row_reasons = []
+        if row.match_status != "Conciliado":
+            row_reasons.append(clean_text(row.match_reason) or _("Aplicación sin coincidencia; revise su identificación y período."))
+        if row.event_type == "Aplicacion" and row.deposit_match_status != "Depósito conciliado":
+            row_reasons.append(clean_text(row.deposit_match_reason) or _("Falta conciliar el depósito de esta aplicación."))
+        if row.event_type == "Deposito" and flt(row.unallocated_usd) > CASH_EPSILON:
+            row_reasons.append(clean_text(row.allocation_reason) or _("Depósito con saldo sin distribuir."))
+        reason = " · ".join(dict.fromkeys(row_reasons)) or _("Revise el estado de la fila.")
+        reasons[reason] += 1
+        pending_rows.append({
+            "import_name": row._source_import, "row": row.source_row or row.idx,
+            "client_name": row.client_name or "", "loan_number": row.loan_number or "",
+            "reason": reason,
+        })
+    return {
+        "matched": matched, "ignored": ignored, "pending": len(pending_rows),
+        "pending_rows": pending_rows[:100],
+        "pending_reasons": [{"reason": reason, "count": count}
+                            for reason, count in sorted(reasons.items(), key=lambda item: (-item[1], item[0]))],
+    }
+
+
+def _reconcile_sources(employer=None):
     if not frappe.has_permission("CN Source Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
@@ -481,6 +566,8 @@ def reconcile_all_sources():
         pluck="name",
     )
     imports = [frappe.get_doc("CN Source Import", name) for name in import_names]
+    if employer:
+        imports = _company_imports(imports, employer)
     original_source_rows = [
         row.as_dict() for document in imports for row in document.rows
     ]
@@ -529,7 +616,8 @@ def reconcile_all_sources():
             all_rows.append(row)
 
     _deduplicate_applications(all_rows)
-    periods = _load_open_periods()
+    periods = _load_open_periods(employer) if employer else _load_open_periods()
+    company_filters = {"employer": employer} if employer else {}
     closed_operative_state = {
         period.name: _operative_period_state(period)
         for period in periods
@@ -538,7 +626,7 @@ def reconcile_all_sources():
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1},
+        filters={"docstatus": 1, **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -549,7 +637,7 @@ def reconcile_all_sources():
     )
     manual_allocations = frappe.get_all(
         "CN Remittance Allocation",
-        filters={"docstatus": 1},
+        filters={"docstatus": 1, **company_filters},
         fields=[
             "name", "deposit_reference", "deposit_voucher",
             "amount_usd", "result", "employer", "deposit_date",
@@ -567,7 +655,7 @@ def reconcile_all_sources():
     )
     surplus_items = frappe.get_all(
         "CN Deposit Surplus",
-        filters={"docstatus": 1},
+        filters={"docstatus": 1, **company_filters},
         fields=[
             "name", "period", "registered_deposit", "deposit_reference", "deposit_voucher",
             "amount_usd", "result",
@@ -583,7 +671,7 @@ def reconcile_all_sources():
         periods, all_rows, deposit_pairs, complementary_items,
         complementary_by_target, manual_allocations, registered_ids,
     )
-    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows)
+    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=employer)
     _classify_surplus(allocation, surplus_items)
     _rebuild_period_balances(
         [period for period in periods if period.reconciliation_mode != "Historica"],
@@ -609,6 +697,7 @@ def reconcile_all_sources():
     return {
         "imports": len(imports),
         "rows": len(all_rows),
+        "employer": employer,
         "matched": sum(
             row.match_status == "Conciliado"
             and (
@@ -636,6 +725,7 @@ def reconcile_all_sources():
             for row in all_rows
         ),
         "ignored": sum(row.match_status == "Ignorado" for row in all_rows),
+        **(_reconciliation_feedback(all_rows) if employer else {}),
     }
 
 
@@ -661,9 +751,10 @@ def _deduplicate_applications(rows):
         row.match_reason = _("Esta aplicación ya existe en otra importación contable.")
 
 
-def _load_open_periods():
+def _load_open_periods(employer=None):
     names = frappe.get_all(
         "CN Reconciliation Period",
+        filters={"employer": employer} if employer else {},
         order_by="payroll_month asc",
         pluck="name",
     )
@@ -1791,13 +1882,14 @@ def _sync_registered_deposit_detail(allocation):
         )
 
 
-def _sync_rounding_movements(movements, allocation, source_rows):
+def _sync_rounding_movements(movements, allocation, source_rows, employer=None):
     """Persist deterministic movements and reverse stale ones; never post GL."""
     desired = {movement["name"]: movement for movement in movements}
     existing = {
         item.name: item
         for item in frappe.get_all(
             "CN Reconciliation Movement",
+            filters={"employer": employer} if employer else {},
             fields=["name", "status", "period"],
             limit_page_length=100000,
         )

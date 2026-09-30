@@ -4,9 +4,10 @@ frappe.query_reports["Antiguedad de Saldos"] = {
         { fieldname: "from_month", label: __("Mes de cobranza desde"), fieldtype: "Date" },
         { fieldname: "to_month", label: __("Mes de cobranza hasta"), fieldtype: "Date" },
         { fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer" },
+        { fieldname: "reconciliation_mode", label: __("Modalidad"), fieldtype: "Select", options: "\nHistorica\nOperativa" },
         { fieldname: "client_number", label: __("Nro. Cliente"), fieldtype: "Data" },
         { fieldname: "national_id", label: __("Nro. Cédula"), fieldtype: "Data" },
         { fieldname: "loan_number", label: __("Nro. Crédito"), fieldtype: "Data" },
-        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", options: "\nCxC a empleados (cuota no deducida)\nDeducido sin depósito asignado\nDetalle de empresa pendiente" },
+        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", default: "Aplicado pendiente de depósito", options: "Aplicado pendiente de depósito\nCxC a empleados (cuota no deducida)\nDeducido sin depósito asignado\nDetalle de empresa pendiente" },
     ],
 };

@@ -1,4 +1,4 @@
-"""Current operational balances aged at a chosen date, not a historical snapshot."""
+"""Current applied/unpaid balances in both modes, not a historical snapshot."""
 
 from __future__ import annotations
 
@@ -9,11 +9,109 @@ from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
 from credinomina_reconciliation.aging import age_balance, operational_balances
-from credinomina_reconciliation.rounding import money_float
+from credinomina_reconciliation.application_aging import APPLICATION_BALANCE, application_balances
+from credinomina_reconciliation.rounding import money_float, sum_money
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
+    if not filters.get("balance_type") or filters.balance_type == APPLICATION_BALANCE:
+        return _execute_applications(filters)
+    return _execute_operational(filters)
+
+
+def _execute_applications(filters):
+    as_of = getdate(filters.get("as_of_date") or nowdate())
+    from_month = getdate(filters.from_month).replace(day=1) if filters.get("from_month") else None
+    to_month = getdate(filters.to_month).replace(day=1) if filters.get("to_month") else None
+    if from_month and to_month and from_month > to_month:
+        frappe.throw(_("El mes inicial no puede ser posterior al mes final."))
+    # First resolve readable parents. Child table queries must never bypass
+    # the period/import permissions by selecting all child rows directly.
+    periods = {row.name: row for row in frappe.get_list(
+        "CN Reconciliation Period",
+        fields=["name", "employer", "payroll_month", "collection_cycle", "reconciliation_mode"],
+        limit_page_length=0,
+    )}
+    imports = {row.name: row for row in frappe.get_list(
+        "CN Source Import",
+        filters={"status": ["in", ["Importado", "Importado con excepciones"]],
+                 "source_type": "Movimientos contables"},
+        fields=["name", "employer", "historical_backfill", "historical_period"],
+        limit_page_length=0,
+    )}
+    sources = frappe.get_all(
+        "CN Source Row", filters={"parent": ["in", list(imports)],
+                                  "parenttype": "CN Source Import", "parentfield": "rows",
+                                  "event_type": "Aplicacion", "effective": 1},
+        fields=[
+            "name", "parent", "event_type", "event_date", "effective", "match_status",
+            "client", "client_name", "client_number", "national_id", "loan_number", "installment_number",
+            "currency", "amount", "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
+            "processing_route", "historical_period", "portfolio_employer", "collection_row_id",
+            "application_allocation_detail", "historical_remitted_usd", "historical_detail",
+        ], limit_page_length=0,
+    ) if imports else []
+    collections = {row.name: row for row in frappe.get_all(
+        "CN Collection Row", filters={"parent": ["in", list(periods)],
+                                      "parenttype": "CN Reconciliation Period", "parentfield": "collection_rows"},
+        fields=["name", "parent", "client", "client_name", "client_number", "national_id", "loan_number",
+                "installment_number", "remittance_detail", "rounding_adjustment_usd", "fx_variance_usd"],
+        limit_page_length=0,
+    )} if periods else {}
+    employer_names = {row.employer for row in list(periods.values()) + list(imports.values()) if row.employer}
+    employer_names.update(row.portfolio_employer for row in sources if row.portfolio_employer)
+    employers = {row.name: row for row in frappe.get_all(
+        "CN Employer", filters={"name": ["in", list(employer_names)]},
+        fields=["name", "grace_days"], limit_page_length=0,
+    )} if employer_names else {}
+    data = []
+    for row in application_balances(sources, imports, periods, collections, employers, as_of):
+        if any(filters.get(field) and row.get(field) != filters[field]
+               for field in ("employer", "reconciliation_mode", "client_number", "national_id", "loan_number")):
+            continue
+        # Unlinked applications remain visible, using their application month.
+        month = row.get("payroll_month") or row.get("application_date")
+        if month:
+            month = getdate(month).replace(day=1)
+            if month > as_of or (from_month and month < from_month) or (to_month and month > to_month):
+                continue
+        elif from_month or to_month:
+            continue
+        data.append(row)
+    data.sort(key=lambda row: (row.get("employer") or "", str(row.get("due_date") or "9999"),
+                              row.get("client_name") or "", row.get("loan_number") or ""))
+    summary = [
+        {"label": _(label), "value": money_float(sum_money(row.get(field) for row in data)),
+         "indicator": indicator, "datatype": "Currency", "currency": "USD"}
+        for label, field, indicator in (
+            ("Aplicado pendiente de depósito", "amount_usd", "orange"),
+            ("No vencido", "not_due", "blue"),
+            ("Sin fecha / distribución pendiente", "without_date", "red"),
+        )
+    ]
+    missing_fx = sum("amount_usd" not in row for row in data)
+    if missing_fx:
+        summary.append({"label": _("Aplicaciones sin conversión US$"), "value": missing_fx,
+                        "indicator": "red", "datatype": "Int"})
+    message = _(
+        "Saldo actual = aplicado + ajuste de conciliación − depósito asignado al crédito, en US$. "
+        "Incluye histórico y operativo; no depende de haber recibido el detalle de deducción. "
+        "El vencimiento se calcula con grace_days de la empresa desde el primer día del mes siguiente "
+        "a la fecha de aplicación: 10 significa el día 10; la mora empieza el día 11. "
+        "No se descuentan depósitos sin asignar ni diferencias cambiarias en revisión. "
+        "Si una cuota agrupa vencimientos distintos y un pago parcial no identifica qué aplicación cubre, "
+        "su saldo queda sin distribución de antigüedad. "
+        "Se usa el plazo vigente de la empresa. La fecha elegida mide la antigüedad del saldo actual, "
+        "no reconstruye saldos pasados. Las cuotas no deducidas se consultan por separado en Tipo de saldo."
+    )
+    return get_application_columns(), data, message, None, summary
+
+
+def _execute_operational(filters):
+    filters = frappe._dict(filters or {})
+    if filters.get("reconciliation_mode") == "Historica":
+        return get_columns(), []
     as_of = getdate(filters.get("as_of_date") or nowdate())
     from_month = getdate(filters.from_month).replace(day=1) if filters.get("from_month") else None
     to_month = getdate(filters.to_month).replace(day=1) if filters.get("to_month") else None
@@ -139,3 +237,22 @@ def get_columns():
         {"fieldname": "without_date", "label": _("Sin fecha US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 120},
         {"fieldname": "provision_review_usd", "label": _("Cuota para revisar en core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 180},
     ]
+
+
+def get_application_columns():
+    columns = [column for column in get_columns() if column["fieldname"] not in {
+        "provision_review_usd", "balance_type", "due_date", "age_days",
+    }]
+    index = next(i for i, column in enumerate(columns) if column["fieldname"] == "amount_usd")
+    columns[index:index] = [
+        {"fieldname": "reconciliation_mode", "label": _("Modalidad"), "fieldtype": "Data", "width": 105},
+        {"fieldname": "source_import", "label": _("Importación"), "fieldtype": "Link", "options": "CN Source Import", "width": 170},
+        {"fieldname": "application_date", "label": _("Fecha aplicación (primera si agrupada)"), "fieldtype": "Date", "width": 160},
+        {"fieldname": "due_date", "label": _("Vencimiento de pago"), "fieldtype": "Date", "width": 145},
+        {"fieldname": "age_days", "label": _("Días de atraso"), "fieldtype": "Int", "width": 110},
+        *[{"fieldname": field, "label": _(label), "fieldtype": "Currency", "options": "usd_currency", "width": 145}
+          for field, label in (("applied_usd", "Aplicado US$"), ("paid_usd", "Depósito asignado US$"),
+                               ("adjustment_usd", "Ajuste conciliación US$"), ("fx_variance_usd", "Diferencia cambiaria US$"))],
+    ]
+    columns.append({"fieldname": "observation", "label": _("Observación"), "fieldtype": "Data", "width": 360})
+    return columns

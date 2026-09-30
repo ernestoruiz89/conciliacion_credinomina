@@ -37,10 +37,19 @@ importaciones, distribuciones, excepciones, movimientos internos y reportes.
 
 ## Orden de uso
 
+Los períodos nuevos se nombran con `código de empresa-mes-año-consecutivo`, por
+ejemplo `HAL-4-2025-01`. El mes no lleva cero inicial y el año corresponde al mes
+de cobranza. El consecutivo comienza en `01` por empresa, mes y año. Al guardar
+un cambio permitido de empresa o mes, el período toma el siguiente consecutivo
+de su nuevo grupo y sus vínculos se actualizan. Los nombres anteriores se
+conservan mientras no cambien esos campos; no se renombra el histórico en masa.
+Se mantienen las restricciones de edición de períodos cerrados o con cobranza
+y aplicaciones vinculadas.
+
 ### Carga histórica: abril 2025 a agosto 2026
 
 1. Cree un **Período de Conciliación** por empresa y mes de cobranza que vaya a reconstruir; seleccione modalidad **Histórica**. En **Tipo de período histórico**, use **Mensual** para conservar el esquema anterior, **Fecha exacta** para un corte de aplicaciones del core (15, 30 o cualquier otro día), o **Rango de fechas** para agrupar varios días, ambos extremos incluidos. Puede tener varios cortes fechados en un mismo mes de cobranza, siempre que sus fechas no se solapen. Un período mensual puede coexistir con cortes fechados durante una transición; cada aplicación pertenece a un solo período explícito. La fecha de aplicación puede ser posterior al mes de cobranza. No adjunte cobranza ni detalle de deducción.
-2. Importe únicamente **Movimientos contables** para las aplicaciones. Antes de cargar, seleccione la **Moneda reportada en el archivo**. Para NIO, indique el tipo de cambio manual en C$ por US$ y su evidencia; el sistema concilia en US$ y conserva el monto original en C$. Cada importación debe tener una sola moneda; separe archivos mixtos. Marque **Carga histórica de aplicaciones**. Si un archivo corresponde a una sola empresa, mes y corte, indique el período histórico predeterminado. Si mezcla cortes, asigne el período a cada fila de aplicación y use **Actualizar conciliaciones**. En la tabla por cliente se muestran nombre, número de cliente, crédito, importe, asiento y recibo cuando la fuente los contiene. Las filas sin período permanecen pendientes.
+2. Importe únicamente **Movimientos contables** para las aplicaciones. Antes de cargar, seleccione la **Empresa** y la **Moneda reportada en el archivo**. Para NIO, indique el tipo de cambio manual en C$ por US$; el sistema concilia en US$ y conserva el monto original en C$. Cada importación debe tener una sola empresa y moneda; separe archivos mixtos. Marque **Carga histórica de aplicaciones**. Si un archivo corresponde a un solo mes y corte, indique el período histórico predeterminado. Si mezcla cortes, asigne el período a cada fila de aplicación y use **Conciliar esta empresa**. Este botón guarda los cambios y recalcula las importaciones, períodos, depósitos, excedentes y ajustes de la empresa seleccionada. Al finalizar muestra filas procesadas, conciliadas, pendientes e ignoradas, con motivos y enlaces a las importaciones pendientes. Si una importación anterior tiene vínculos con la empresa pero no tiene la empresa asignada correctamente, debe corregirse antes de recalcular. En la tabla por cliente se muestran nombre, número de cliente, crédito, importe, asiento y recibo cuando la fuente los contiene. Las filas sin período permanecen pendientes.
 3. Registre una **Distribución de Depósito** por depósito de convenio, con fecha real, importe, moneda, referencia y justificación. Un supervisor debe pulsar **Confirmar depósito y conciliar** después de guardarla: el borrador no participa en la conciliación. Los destinos manuales se agregan exclusivamente en la tabla **Destinos del depósito**; cada fila puede indicar su propio período. El soporte puede adjuntarse después. No importe como fuente nueva la planilla bancaria mensual con depósitos de otras empresas. Puede confirmar el depósito sin detalle por cliente; cuando llegue días después, adjunte el detalle e impórtelo en ese mismo depósito. La app registra cuándo se importó. No cambie la fecha de aplicación ni la del depósito para forzar coincidencias.
 4. Revise en **Control de Credinómina** las aplicaciones sin depósito. El detalle del depósito puede repartir un depósito entre muchas aplicaciones o varios depósitos sobre una aplicación. Si faltan crédito, cédula y número de cliente en una fila, el nombre/alias debe identificar un único cliente. Los casos ambiguos se asignan manualmente con **Destinos del depósito** y soporte.
 5. Documente partidas administrativas con **Partida Complementaria** y excedentes con **Excedente de Depósito**; nunca aumentan ficticiamente lo aplicado al crédito. Cierre el período histórico solo cuando todas sus aplicaciones queden cubiertas por depósitos.
@@ -62,15 +71,35 @@ La app registra quién lo cerró y reabrió, cuándo y por qué, y restaura el
 estado anterior al cierre. Revise la conciliación nuevamente antes de volver a
 cerrar.
 
-El reporte **Antigüedad de Saldos** muestra por empresa y cliente las cuotas
-no deducidas, las deducciones sin depósito asignado y el detalle aún no recibido, en
-bandas de días. La fecha elegida sirve para medir la antigüedad de los saldos
-actuales; no reconstruye un saldo histórico. Las cuotas no deducidas se
-señalan para cotejo con el core antes de calcular cualquier provisión de
-cartera. Un depósito ya recibido pero sin detalle por cliente puede cubrir una
-deducción aún sin depósito asignado; estos dos importes no se suman ni prueban
-por sí solos una CxC a la empresa. El reporte no define tasas de provisión ni
-registra asientos.
+El reporte **Antigüedad de Saldos** abre en **Aplicado pendiente de depósito**,
+para ambas modalidades: histórica y operativa. Calcula el saldo actual en US$
+como **aplicado + ajuste de conciliación − depósito asignado al crédito**.
+Incluye aplicaciones sin detalle de deducción y aplicaciones aún no vinculadas
+a una cobranza o período, señalándolas para revisión. No vuelve a sumar una
+aplicación repartida entre dos quincenas ni descuenta dos veces un depósito
+cuando varias aplicaciones corresponden a una cuota.
+
+El vencimiento usa la **fecha de aplicación del movimiento contable**, no la
+fecha de carga ni el mes de cobranza: `grace_days = 10` en **CN Employer** significa
+que las aplicaciones de abril vencen el **10 de mayo**. Hasta ese día se muestran
+como **No vencido**; el 11 de mayo tienen un día de atraso. Se usa el plazo vigente
+de la empresa, por lo que cambiarlo cambia el cálculo al consultar el reporte.
+La fecha elegida mide la antigüedad de los saldos actuales; no reconstruye un
+saldo histórico a una fecha pasada.
+
+Los depósitos sin asignar no reducen el saldo de un cliente. Las diferencias
+cambiarias en revisión siguen pendientes; los ajustes internos por tolerancia
+sí se consideran. Si una cuota agrupa aplicaciones con vencimientos distintos
+y un pago parcial no identifica cuál cubre, se muestra el saldo en **Sin fecha**
+con una observación, sin inventar una distribución. Las filas sin conversión
+documentada se muestran para revisión sin atribuirles un importe en US$.
+
+En **Tipo de saldo** se conservan como consultas separadas las cuotas no
+deducidas, las deducciones sin depósito asignado y el detalle aún no recibido.
+No se suman con el saldo de aplicaciones. Un depósito recibido pero aún sin
+detalle puede cubrir saldos pendientes de asignación; estos no prueban por sí
+solos una deuda impagada. Las cuotas no deducidas requieren cotejo con el core
+antes de calcular provisiones. El reporte no registra asientos.
 
 ### Tolerancia automática en US$
 

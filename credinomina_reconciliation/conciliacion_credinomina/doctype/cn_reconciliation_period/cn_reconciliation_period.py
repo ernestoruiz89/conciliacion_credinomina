@@ -40,6 +40,7 @@ from credinomina_reconciliation.parsers import (
     source_key,
 )
 from credinomina_reconciliation.period_lock import current_period_write_action, period_write_action
+from credinomina_reconciliation.period_naming import new_period_name, rename_period_for_context_change
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
     converted_amount,
@@ -67,6 +68,9 @@ PENDING_REMITTANCE_DETAILS = (
 
 
 class CNReconciliationPeriod(Document):
+    def autoname(self):
+        self.name = new_period_name(self.employer, self.payroll_month)
+
     def on_trash(self):
         if self.status == "Cerrado":
             frappe.throw(_("Reabra el período antes de eliminarlo."))
@@ -175,6 +179,7 @@ class CNReconciliationPeriod(Document):
                 self.collection_cycle = MONTHLY  # Existing monthly periods before this field.
 
     def on_update(self):
+        rename_period_for_context_change(self)
         if self.flags.get("skip_comment_reconciliation"):
             return
         previous = self.get_doc_before_save()
