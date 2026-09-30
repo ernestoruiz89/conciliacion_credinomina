@@ -24,6 +24,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     $root.html(`${styles()}<div class="cn-loading">${esc(__("Cargando control..."))}</div>`);
     let currentData = null;
     let workLimit = 100;
+    let summaryMode = true;
 
     function refresh() {
         frappe.call({
@@ -113,6 +114,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             ? historicalSortDate(a).localeCompare(historicalSortDate(b))
                             : cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle)
                     );
+                    if (summaryMode) return renderMonthSummary(ordered, company.id, month.key);
                     const monthRemitted = ordered.reduce((sum, item) => sum + Number(item.remitted_usd || 0), 0);
                     const monthCompared = ordered.reduce((sum, item) => sum + Number(
                         item.reconciliation_mode === "Historica" ? item.applied_usd || 0 : item.deducted_usd || 0
@@ -185,7 +187,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </div>
             <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workItems.length} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
             <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
-            <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
+            <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3><label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${periods.length} ${esc(__("períodos"))}</span></div>${matrix}</section>
             ${unassigned.length ? `<details class="cn-panel cn-collapsible"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassigned.length}</summary>${unassignedTable}</details>` : ""}
             ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${deposits.length}</summary>${depositTable}</details>`}
             <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin depósito asignado y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
@@ -301,6 +303,30 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
     }
 
+    $root.on("change", "[data-summary]", function () {
+        summaryMode = this.checked;
+        if (currentData) render(currentData);
+    });
+    $root.on("click", "[data-month]", function () {
+        const employer = $(this).attr("data-employer");
+        const month = $(this).attr("data-month");
+        const periods = (currentData?.periods || []).filter(item => item.employer === employer && item.month === month)
+            .sort((a, b) => a.reconciliation_mode === "Historica" && b.reconciliation_mode === "Historica"
+                ? historicalSortDate(a).localeCompare(historicalSortDate(b)) || a.name.localeCompare(b.name)
+                : cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle) || a.name.localeCompare(b.name));
+        if (!periods.length) return;
+        const dialog = new frappe.ui.Dialog({title: __("Períodos del mes"), size: "extra-large",
+            fields: [{fieldname: "periods", fieldtype: "HTML"}]});
+        dialog.get_field("periods").$wrapper.html(`
+            <p>${esc(periods[0].employer_name || employer)} · ${esc(month)}</p>
+            <p>${esc(__("El resumen suma todos estos períodos; seleccione uno para ver su detalle."))}</p>
+            <div class="cn-period-cards">${periods.map(renderPeriodCard).join("")}</div>`);
+        dialog.get_field("periods").$wrapper.on("click", "[data-month-period]", function () {
+            dialog.hide();
+            showPeriod($(this).attr("data-month-period"));
+        });
+        dialog.show();
+    });
     $root.on("click", "[data-period]", function () { showPeriod($(this).attr("data-period")); });
     $root.on("click", "[data-work]", function () {
         const item = (currentData?.work_items || [])[Number($(this).attr("data-work"))];
@@ -335,6 +361,66 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     page.set_primary_action(__("Actualizar"), refresh);
     refresh();
 };
+
+function renderPeriodCard(period) {
+    const historical = period.reconciliation_mode === "Historica";
+    return `<button type="button" class="cn-period-card cn-${esc(period.control_state || "en_transito")}" data-month-period="${esc(period.name)}">
+        <span class="cn-period-card-name">${esc(period.name)}</span>
+        <span class="cn-cell-cycle">${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
+        <span class="cn-badge">${esc(stateLabel(period.control_state))}</span>
+        <span class="cn-period-card-amounts">
+            <span>${esc(__("Aplicado"))}<strong>${money(period.applied_usd)}</strong></span>
+            <span>${esc(__("Depósitos asignados"))}<strong>${money(period.remitted_usd)}</strong></span>
+            ${!historical ? `<span>${esc(__("Deducido"))}<strong>${money(period.deducted_usd)}</strong></span>` : ""}
+        </span>
+        ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("CxC empleados")],
+            ["employer_gap_usd", __("Deducido sin depósito asignado")], ["pending_detail_usd", __("Detalle pendiente")]]
+            .filter(([field]) => Number(period[field]) > MONEY_EPSILON)
+            .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(period[field])}</span>`).join("")}
+        <span class="cn-period-card-open">${esc(__("Ver detalle del período"))} →</span>
+    </button>`;
+}
+
+function summarizeMonth(periods) {
+    const sum = field => periods.reduce((cents, period) => cents + Math.round(Number(period[field] || 0) * 100), 0) / 100;
+    const states = periods.map(period => period.control_state);
+    const state = states.some(value => ["diferencia", "historico_excepcion"].includes(value)) ? "diferencia"
+        : states.some(value => ["excedente", "historico_excedente"].includes(value)) ? "excedente"
+        : states.every(value => ["conciliado", "historico_conciliado"].includes(value)) ? "conciliado"
+        : states.includes("pendiente_detalle") ? "pendiente_detalle"
+        : sum("remitted_usd") > MONEY_EPSILON ? "parcial" : "en_transito";
+    return {state, count: periods.length,
+        historical: periods.every(period => period.reconciliation_mode === "Historica"),
+        operative: periods.every(period => period.reconciliation_mode !== "Historica"),
+        ...Object.fromEntries(["applied_usd", "deducted_usd", "remitted_usd", "worker_gap_usd",
+            "historical_pending_usd", "employer_gap_usd", "pending_detail_usd", "rounding_adjustment_usd"]
+            .map(field => [field, sum(field)])),
+        inferred: periods.some(period => period.deduction_basis === "Depósito coincidente"),
+        // Deposits can relate to several periods: do not sum their surplus here.
+        hasDepositBalance: periods.some(period => Number(period.documented_credit_usd) > MONEY_EPSILON || Number(period.unclassified_deposit_usd) > MONEY_EPSILON),
+    };
+}
+
+function renderMonthSummary(periods, employer, month) {
+    const total = summarizeMonth(periods);
+    const compared = total.historical ? total.applied_usd : total.deducted_usd;
+    return `<td class="cn-cell cn-${esc(total.state)}"><button type="button" class="cn-cell-button" data-employer="${esc(employer)}" data-month="${esc(month)}">
+        <span class="cn-cell-cycle">${esc(__("Mes completo"))} · ${total.count} ${esc(__("períodos"))}</span>
+        <span class="cn-cell-amount">${money(total.remitted_usd)}${total.historical || total.operative ? ` / ${money(compared)}` : ""}</span>
+        <span class="cn-cell-sub">${esc(total.historical ? __("Depósito / aplicación") : total.operative ? __("Remitido / deducido") : __("Depósitos asignados"))}</span>
+        ${!total.historical ? `<span class="cn-cell-sub">${esc(__("Aplicado"))}: ${money(total.applied_usd)}</span>` : ""}
+        ${!total.historical && !total.operative ? `<span class="cn-cell-sub">${esc(__("Deducido operativo"))}: ${money(total.deducted_usd)}</span>` : ""}
+        <span class="cn-badge">${esc(stateLabel(total.state))}</span>
+        ${total.inferred ? `<span class="cn-cell-sub">${esc(__("Incluye deducción inferida"))}</span>` : ""}
+        ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("CxC empleados")],
+            ["employer_gap_usd", __("Deducido sin depósito asignado")], ["pending_detail_usd", __("Detalle pendiente")]]
+            .filter(([field]) => total[field] > MONEY_EPSILON)
+            .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(total[field])}</span>`).join("")}
+        ${Math.abs(total.rounding_adjustment_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(total.rounding_adjustment_usd)}</span>` : ""}
+        ${total.hasDepositBalance ? `<span class="cn-cell-credit">${esc(__("Saldos de depósitos: ver períodos"))}</span>` : ""}
+        <span class="cn-cell-sub">${esc(__("Ver períodos del mes"))}</span>
+    </button></td>`;
+}
 
 function money(value) {
     return new Intl.NumberFormat("es-NI", {
@@ -428,6 +514,15 @@ function styles() {
         .cn-panel-head { display: flex; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
         .cn-panel-head h3 { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
         .cn-panel-head span { font-size: 11px; color: #64748b; }
+        .cn-summary-toggle { display: flex; align-items: center; gap: 6px; margin: 0 12px 0 auto; font-size: 12px; cursor: pointer; }
+        .cn-period-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; max-height: 60vh; overflow-y: auto; padding: 4px; }
+        .cn-period-card { display: flex; flex-direction: column; align-items: flex-start; text-align: left; padding: 16px; border: 1px solid var(--border-color, #e2e8f0); border-radius: 10px; color: var(--text-color, #334155); cursor: pointer; min-width: 0; overflow-wrap: anywhere; }
+        .cn-period-card:hover { box-shadow: 0 3px 12px #0f172a18; }
+        .cn-period-card:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+        .cn-period-card-name { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
+        .cn-period-card-amounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; margin: 14px 0; font-size: 11px; }
+        .cn-period-card-amounts strong { display: block; font-size: 15px; margin-top: 3px; }
+        .cn-period-card-open { display: block; margin-top: auto; padding-top: 14px; font-size: 12px; font-weight: 600; color: #2563eb; }
         .cn-work-panel { border-color: #bfdbfe; }
         .cn-work-table td { vertical-align: top; }
         .cn-work-table td:nth-child(3), .cn-work-table td:nth-child(4), .cn-work-table td:nth-child(6) { white-space: normal; min-width: 160px; }

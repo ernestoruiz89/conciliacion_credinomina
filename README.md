@@ -233,6 +233,15 @@ antes de interpretar una celda como conciliada. Una aplicación vinculada a una
 cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba
 que hubo descuento salarial.
 
+En **Empresas por mes de conciliación**, **Resumen** está seleccionado por defecto:
+cada celda reúne todos los períodos de la empresa en ese mes (quincenas, fechas
+exactas y rangos históricos). Pulse la celda para ver los períodos como tarjetas
+con su ciclo, estado e importes; al seleccionar una se abre el mismo modal de
+detalle que en la vista desglosada. Desmarque **Resumen** para mostrar el desglose dentro del grid.
+Los pendientes no se compensan con excedentes de otros períodos; un mes con
+períodos pendientes no se muestra conciliado. La opción cambia solo la vista,
+no los registros ni el Excel exportado.
+
 Al final del mes, si aún falta evidencia o dinero, use **Registrar corte de
 control** en el período. Guarda fecha, responsable, saldos y siguiente gestión
 sin bloquear archivos que lleguen después. **Cerrar período** es distinto:
