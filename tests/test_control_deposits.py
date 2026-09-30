@@ -6,7 +6,7 @@ from credinomina_reconciliation import control_deposits as cash
 
 
 def deposit(**values):
-    return dict(name="D1", employer="E", deposit_date="2025-05-20",
+    return dict(name="D1", employer="E", deposit_date="2025-05-20", bank_account="BANPRO 3268 C$",
                 deposit_currency="NIO", deposit_amount=36624.30, amount_usd=1000,
                 allocated_usd=900, justified_surplus_usd=100,
                 result="Parcial con saldo a favor", allocation_detail=json.dumps([
@@ -21,6 +21,7 @@ class ControlDepositsTests(unittest.TestCase):
             {"X1": dict(name="X1", category="Cobranza administrativa", period="P1")},
             {"P1": dict(name="P1", payroll_month="2025-04-01")})
         self.assertEqual(row["month"], "2025-05")
+        self.assertEqual(row["bank_account"], "BANPRO 3268 C$")
         self.assertEqual(row["payroll_months"], ["2025-04"])
         self.assertEqual([row[k] for k in ("total_usd", "credits_usd", "other_usd", "credit_balance_usd")], [1000, 800, 100, 100])
         self.assertFalse(row["settled"])
@@ -90,6 +91,7 @@ class ControlDepositsTests(unittest.TestCase):
         filters = calls[0][1]["filters"]
         self.assertEqual(filters, {"docstatus": 1, "deposit_date": ["between", ["2025-01-01", "2025-12-31"]]})
         self.assertEqual(calls[0][1]["limit_page_length"], 0)
+        self.assertIn("bank_account", calls[0][1]["fields"])
         # Related periods are queried by identity, without restricting their year.
         period_query = next(q for dt, q in calls if dt == "CN Reconciliation Period")
         self.assertEqual(period_query["filters"], {"name": ["in", ["P1"]]})

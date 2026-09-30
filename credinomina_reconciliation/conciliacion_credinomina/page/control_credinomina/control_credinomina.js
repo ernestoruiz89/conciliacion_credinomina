@@ -624,6 +624,7 @@ function renderCashDistribution(deposit) {
     const original = new Intl.NumberFormat("es-NI", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(deposit.original_amount || 0));
     return `<div class="cn-cash-distribution">
         <p><strong>${esc(deposit.reference || deposit.name)}</strong> · ${esc(displayDate(deposit.date))} · ${esc(deposit.name)}</p>
+        <p>${esc(__("Cuenta bancaria"))}: <strong>${esc(deposit.bank_account || __("Sin cuenta asignada"))}</strong></p>
         <p>${esc(__("Depositado total"))}: <strong>${money(deposit.total_usd)}</strong>${deposit.currency && deposit.currency !== "USD" ? ` · ${esc(__("Original"))}: ${esc(deposit.currency)} ${original}` : ""}</p>
         <p><span class="cn-badge">${esc(cashStatus(deposit))}</span> · ${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</p>
         <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>

@@ -25,7 +25,7 @@ def get_cash_deposits(year, employer=None):
         filters["employer"] = employer
     deposits = frappe.get_list(
         "CN Remittance Allocation", filters=filters,
-        fields=["name", "employer", "deposit_reference", "deposit_date",
+        fields=["name", "employer", "bank_account", "deposit_reference", "deposit_date",
                 "deposit_currency", "deposit_amount", "amount_usd", "allocated_usd",
                 "justified_surplus_usd", "allocation_detail", "result"],
         order_by="deposit_date asc, name asc", limit_page_length=0,
@@ -102,6 +102,7 @@ def build_cash_deposits(deposits, items=None, periods=None):
         )
         output.append({
             "name": deposit["name"], "employer": deposit.get("employer"),
+            "bank_account": deposit.get("bank_account"),
             "reference": deposit.get("deposit_reference"),
             "date": str(deposit.get("deposit_date") or "")[:10],
             "month": str(deposit.get("deposit_date") or "")[:7],

@@ -16,6 +16,10 @@ def run():
             "doctype": "CN Employer", "employer_name": f"Cash Overview {marker}",
             "employer_code": f"CD{marker}", "payroll_frequency": "Mensual",
         }).insert()
+        bank = frappe.get_doc({
+            "doctype": "CN Bank Account", "account_name": f"Banco prueba {marker}",
+            "bank_name": "Banco prueba", "account_number": marker, "currency": "NIO",
+        }).insert()
         periods = [frappe.get_doc({
             "doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": month, "reconciliation_mode": "Historica",
@@ -38,6 +42,7 @@ def run():
             frappe.get_doc({
                 "doctype": "CN Remittance Allocation", "name": name, "docstatus": status,
                 "employer": employer.name, "deposit_date": date, "deposit_reference": name,
+                "bank_account": bank.name,
                 "deposit_currency": "NIO", "deposit_amount": 36624.30, "amount_usd": 1000,
                 "allocated_usd": 900, "unallocated_usd": 100, "justified_surplus_usd": 100,
                 "unclassified_usd": 0, "result": "Parcial con saldo a favor",
@@ -49,6 +54,7 @@ def run():
         assert {p["month"] for p in data["periods"]} == {"2025-04", "2025-05"}
         june, = data["cash_deposits"]
         assert june["name"] == names[0] and june["month"] == "2025-06"
+        assert june["bank_account"] == bank.account_name
         assert june["total_usd"] == 1000 and june["credits_usd"] == 800
         assert june["other_usd"] == 100 and june["credit_balance_usd"] == 100
         assert june["shared"] and len(june["destinations"]) == 3
