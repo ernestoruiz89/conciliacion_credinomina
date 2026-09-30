@@ -4,9 +4,9 @@ const vm = require("node:vm");
 const path = require("node:path");
 let events;
 const context = vm.createContext({
-    __: value => value,
+    __: (value, args = []) => value.replace(/\{(\d+)\}/g, (_, index) => args[index]),
     frappe: {ui: {form: {on: (_, handlers) => { events = handlers; }}},
-        session: {user: "Administrator"}, user: {has_role: () => false}},
+        session: {user: "Administrator"}, user: {has_role: () => false}, utils: {escape_html: value => value.replace(/</g, "&lt;")}},
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_reconciliation_period/cn_reconciliation_period.js"), "utf8"), context);
@@ -18,6 +18,10 @@ const frm = {fields, doc: {status: "Cerrado", reconciliation_mode: "Operativa", 
     disable_save() { this.disabled = true; }, enable_save() { this.disabled = false; },
     set_intro(value) { this.intro = value; }, add_custom_button(label) { this.buttons.push(label); }};
 events.refresh(frm);
+assert.ok(frm.intro.includes("Sin resultado registrado"));
+frm.doc.status_before_close = "Conciliado";
+events.refresh(frm);
+assert.ok(frm.intro.includes("Resultado al cerrar: Conciliado"));
 assert.ok(fields.every(field => !!field.df.read_only));
 assert.equal(frm.disabled, true);
 assert.ok(frm.buttons.includes("Reabrir período"));

@@ -103,7 +103,8 @@ function setPeriodEditing(frm) {
             frm.set_df_property(field.df.fieldname, "read_only", 1);
         }
         frm.disable_save();
-        frm.set_intro(__("Período cerrado: solo consulta. Use Reabrir período antes de modificarlo."), "blue");
+        const result = frappe.utils.escape_html(frm.doc.status_before_close || __("Sin resultado registrado"));
+        frm.set_intro(__("Período cerrado · Resultado al cerrar: {0}. Solo consulta; use Reabrir período antes de modificarlo.", [result]), "blue");
     } else if (frm._cn_period_read_only) {
         // The same Form instance is reused when reopening or navigating to
         // another period. Restore only the properties changed by this lock.

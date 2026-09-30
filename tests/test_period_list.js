@@ -15,7 +15,25 @@ for (const title of ["Pendiente", "Parcial"]) assert.equal(states[title], "Orang
 assert.equal(states["Con excedente"], "Red");
 assert.equal(states.Conciliado, "Green");
 assert.equal(states.Cerrado, "Purple");
-const context = vm.createContext({frappe: {listview_settings: {}}});
+const context = vm.createContext({__: value => value, frappe: {listview_settings: {},
+    get_meta: () => meta, scrub: value => value.toLowerCase(),
+    utils: {escape_html: value => value.replace(/</g, "&lt;").replace(/>/g, "&gt;")}}});
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_reconciliation_period_list.js"), "utf8"), context);
 assert.ok(context.frappe.listview_settings[meta.name].add_fields.includes("status"));
+const settings = context.frappe.listview_settings[meta.name];
+assert.ok(settings.add_fields.includes("status_before_close"));
+const formatter = settings.formatters.status_before_close;
+assert.ok(formatter("Conciliado", {}, {status: "Cerrado"}).includes("green"));
+assert.ok(formatter("Con excedente", {}, {status: "Cerrado"}).includes("red"));
+assert.ok(formatter("Parcial", {}, {status: "Cerrado"}).includes("orange"));
+assert.ok(formatter(null, {}, {status: "Cerrado"}).includes("Sin resultado registrado"));
+assert.equal(formatter("Conciliado", {}, {status: "Pendiente"}), "—");
+assert.ok(!formatter("<script>", {}, {status: "Cerrado"}).includes("<script>"));
+assert.equal(meta.fields.find(field => field.fieldname === "status_before_close").in_list_view, 1);
+assert.equal(meta.field_order.filter(field => field === "status_before_close").length, 1);
+const view = {meta, list_view_settings: {fields: '[{"fieldname":"employer"}]'},
+    setup_columns() {}, render_header() {}};
+settings.onload(view);
+settings.onload(view);
+assert.equal(JSON.parse(view.list_view_settings.fields).filter(field => field.fieldname === "status_before_close").length, 1);
 console.log("OK: status column, complete color mapping and status fetch for personalized lists.");
