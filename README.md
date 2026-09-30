@@ -202,6 +202,19 @@ disponible la página `/app/control-credinomina`.
    escriba la fuente y fecha de la tasa en **Justificación**, aunque adjunte el
    **Soporte del depósito**. El adjunto por sí solo no acredita la tasa usada.
 
+En **Distribución de Depósito → Detalle por cliente**, seleccionar **Período del
+detalle** muestra **Aplicado US$ del período**. **Usar aplicaciones como detalle**
+previsualiza únicamente los importes aplicados pendientes, descontando lo cubierto
+por otros depósitos confirmados y los ajustes vigentes por faltantes de centavos.
+Las asignaciones del depósito actual se conservan para poder completar su detalle.
+Funciona en períodos históricos y operativos; no copia la cobranza ni supone que
+la empresa confirmó las deducciones. Si el total no coincide con el depósito, se
+advierte la diferencia sin repartir ni reducir los importes automáticamente.
+La acción genera un archivo privado, registra su origen y pide confirmación antes
+de reemplazar filas existentes (conserva archivos y destinos, pero retira los
+vínculos al detalle anterior). Después revise el detalle y use **Conciliar**;
+generarlo no confirma ni concilia el depósito.
+
 La página **Control de Credinómina** abre con **Qué falta hacer**: evidencia de
 empresa, aplicaciones sin período, detalles de depósito por revisar y saldos
 sin clasificar. Los importes del tablero son un resumen; abra cada pendiente

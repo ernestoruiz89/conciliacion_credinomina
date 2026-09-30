@@ -370,6 +370,15 @@ def import_remittance_detail(remittance_name: str):
         )
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
+    _apply_remittance_detail(document, records, content, source_url)
+    return {
+        "deposit": document.name,
+        "rows": len(records),
+        "detail_status": document.detail_status,
+    }
+
+
+def _apply_remittance_detail(document, records, content, source_url, origin="Archivo importado"):
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
     for target in document.targets or []:
@@ -392,14 +401,20 @@ def import_remittance_detail(remittance_name: str):
         })
     document.detail_hash = file_sha256(content)
     document.detail_source_file = source_url
+    document.detail_origin = origin
     document.detail_imported_on = now_datetime()
     document.detail_count = len(records)
     document.detail_status = "Cargado; pendiente de conciliación"
     document.save()
-    return {
-        "deposit": document.name,
-        "rows": len(records),
-        "detail_status": frappe.db.get_value(
-            "CN Remittance Allocation", document.name, "detail_status"
-        ),
-    }
+
+
+@frappe.whitelist()
+def preview_application_detail(remittance_name: str):
+    from credinomina_reconciliation.application_deposit_detail import preview_application_detail as preview
+    return preview(remittance_name)
+
+
+@frappe.whitelist(methods=["POST"])
+def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False):
+    from credinomina_reconciliation.application_deposit_detail import use_application_detail as apply
+    return apply(remittance_name, fingerprint, replace_detail)

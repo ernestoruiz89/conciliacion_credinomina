@@ -10,6 +10,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
         toggleRemittanceDetailActions(frm);
+        toggleApplicationDetailAction(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("create_complementary", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("link_detail_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write") &&
@@ -46,11 +47,16 @@ frappe.ui.form.on("CN Remittance Allocation", {
     select_detail_credit: selectRemittanceDetailCredit,
     link_detail_targets: linkRemittanceDetailTargets,
     create_complementary: createRemittanceComplementary,
+    use_applications_detail: useApplicationsAsDetail,
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
     employer: renderRemittanceOverview,
-    detail_period: renderRemittanceOverview,
+    detail_period(frm) {
+        if (!frm.doc.detail_period) frm.set_value("applied_usd", 0);
+        toggleApplicationDetailAction(frm);
+        renderRemittanceOverview(frm);
+    },
     notes: renderRemittanceOverview,
     deposit_amount: updateUsdEquivalent,
     deposit_currency: updateUsdEquivalent,
@@ -86,6 +92,67 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+function toggleApplicationDetailAction(frm) {
+    frm.toggle_display("use_applications_detail", !!frm.doc.detail_period &&
+        frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
+}
+
+async function useApplicationsAsDetail(frm) {
+    if (!frm.doc.detail_period) {
+        frappe.msgprint(__("Seleccione un período del detalle."));
+        return;
+    }
+    if (frm.is_new() || frm.is_dirty()) await frm.save();
+    const method = "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.";
+    const response = await frappe.call({method: method + "preview_application_detail",
+        args: {remittance_name: frm.doc.name}, freeze: true,
+        freeze_message: __("Consultando aplicaciones pendientes del período…")});
+    const preview = response.message;
+    if (!preview.rows.length) {
+        frappe.msgprint(__("No hay aplicaciones pendientes para este período."));
+        return;
+    }
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    let busy = false;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Usar aplicaciones pendientes como detalle"), size: "extra-large",
+        fields: [{fieldtype: "HTML", options: `
+            <p>${__("Se generará un archivo privado con las aplicaciones pendientes del período {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.period)])}</p>
+            <p><strong>${__("Aplicado al período")}: US$ ${remittanceMoney(preview.applied_usd)} ·
+                ${__("Detalle propuesto")}: US$ ${remittanceMoney(preview.total_usd)} ·
+                ${__("Depósito")}: US$ ${remittanceMoney(preview.deposit_usd)}</strong></p>
+            ${Math.round(preview.total_usd * 100) !== Math.round(preview.deposit_usd * 100)
+                ? `<p class="text-warning">${__("El total pendiente no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>` : ""}
+            <p>${__("Este detalle procede del core, no de una confirmación de deducción de la empresa. Generarlo no confirma ni concilia el depósito.")}</p>
+            <div style="max-height:40vh;overflow:auto"><table class="table table-bordered"><thead>
+                <tr><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Pendiente US$")}</th></tr></thead>
+                <tbody>${preview.rows.map(row => `<tr><td>${esc(row.client_name)}<br>${esc(row.client_number)}</td>
+                    <td>${esc(row.loan_number)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
+            ${preview.replaces_detail ? `<p class="text-warning">${__("Se reemplazarán las filas del detalle actual y se quitarán sus vínculos a destinos. Los destinos y archivos anteriores se conservarán para revisión.")}</p>` : ""}
+        `}, ...(preview.replaces_detail ? [{fieldname: "replace_detail", fieldtype: "Check", reqd: 1,
+            label: __("Confirmo reemplazar el detalle actual")}] : [])],
+        primary_action_label: __("Generar detalle pendiente de conciliación"),
+        primary_action: async values => {
+            if (busy) return;
+            busy = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                await frappe.call({method: method + "use_application_detail",
+                    args: {remittance_name: frm.doc.name, fingerprint: preview.fingerprint,
+                        replace_detail: values.replace_detail || 0}, freeze: true,
+                    freeze_message: __("Generando detalle desde aplicaciones…")});
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.msgprint(__("Detalle generado. Revise las filas y los destinos; luego confirme el depósito si es borrador y use Conciliar."));
+            } finally {
+                busy = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
+    });
+    dialog.show();
+}
 
 frappe.ui.form.on("CN Remittance Detail", {
     loan_number(frm) {
