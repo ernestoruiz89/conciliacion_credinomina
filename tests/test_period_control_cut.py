@@ -15,7 +15,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 class PeriodControlCutTests(unittest.TestCase):
     def _period(self):
         return SimpleNamespace(
-            name="PER-1", status="Detalle empresa cargado",
+            name="PER-1", status="Pendiente",
             reconciliation_mode="Operativa", collection_rows=[frappe._dict(
                 deduction_status="Deduccion parcial", application_status="Depósito parcial",
                 expected_usd=50, deducted_usd=30, applied_usd=30, remitted_usd=20,
@@ -38,7 +38,7 @@ class PeriodControlCutTests(unittest.TestCase):
                 period.name, "Gestionar saldo no deducido con empresa"
             )
 
-        self.assertEqual(period.status, "Detalle empresa cargado")
+        self.assertEqual(period.status, "Pendiente")
         self.assertEqual(result["status"], period.status)
         self.assertIn("CxC empleados confirmada US$ 20.00", period.control_cut_summary)
         self.assertIn("deducido sin depósito asignado US$ 10.00", period.control_cut_summary)
@@ -66,12 +66,12 @@ class PeriodControlCutTests(unittest.TestCase):
         rows = [frappe._dict(deduction_status="Deduccion parcial")]
         self.assertEqual(
             period_module._deduction_stage_status(rows, 0, 0),
-            "Detalle empresa cargado",
+            "Pendiente",
         )
         rows[0].deduction_status = "Deduccion total"
         self.assertEqual(
             period_module._deduction_stage_status(rows, 0, 0),
-            "Deduccion conciliada",
+            "Pendiente",
         )
 
     def test_detail_import_key_changes_after_manual_identity_correction(self):
@@ -144,7 +144,7 @@ class PeriodControlCutTests(unittest.TestCase):
 
     def test_historical_status_alone_cannot_close_without_applications(self):
         period = SimpleNamespace(
-            name="HIST-EMPTY", status="Historico conciliado",
+            name="HIST-EMPTY", status="Conciliado",
             reconciliation_mode="Historica", check_permission=Mock(),
         )
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
@@ -246,7 +246,7 @@ class PeriodControlCutTests(unittest.TestCase):
         previous = SimpleNamespace(
             employer="Original", payroll_month="2026-09-01",
             collection_rows=[frappe._dict(name="ROW-1")],
-            status="Cobranza cargada", collection_cycle="Mensual",
+            status="Pendiente", collection_cycle="Mensual",
             reconciliation_mode="Operativa",
         )
         period = SimpleNamespace(

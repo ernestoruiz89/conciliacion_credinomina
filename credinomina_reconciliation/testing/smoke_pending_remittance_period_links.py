@@ -58,7 +58,7 @@ def run():
             "expected_usd": 50, "deducted_usd": 50,
             "deduction_status": "Deduccion total", "application_status": "Pendiente",
         })
-        period.status = "Cobranza cargada"
+        period.status = "Pendiente"
         period.save()
 
         by_target = _remittance(

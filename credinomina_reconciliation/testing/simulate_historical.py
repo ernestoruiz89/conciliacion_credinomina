@@ -99,7 +99,7 @@ def run():
         deposit.detail_status != "Conciliado"
         or round(deposit.allocated_usd, 4) != 83
         or any(row.deposit_match_status != "Depósito conciliado" for row in source.rows)
-        or period.status != "Historico conciliado"
+        or period.status != "Conciliado"
     ):
         raise AssertionError({
             "detail_status": deposit.detail_status,
@@ -127,7 +127,7 @@ def audit():
     })
     if (
         len(rows) != 1
-        or rows[0].status != "Historico conciliado"
+        or rows[0].status != "Conciliado"
         or round(rows[0].applied_usd, 4) != 83
         or round(rows[0].remitted_usd, 4) != 83
         or round(rows[0].historical_pending_usd, 4) != 0

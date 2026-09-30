@@ -109,7 +109,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
 
     def test_provisional_application_counts_as_applied_but_not_remitted(self):
         period, row = _closed_period(expected_usd=50)
-        period.status = "Cobranza cargada"
+        period.status = "Pendiente"
         application = frappe._dict({
             "name": "APP-1", "event_type": "Aplicacion", "effective": 1,
             "match_status": source_module.PROVISIONAL_APPLICATION,
@@ -135,7 +135,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
             deduction_status="Deduccion total",
             application_status="Aplicado y remitido",
         )
-        period.status = "Deposito conciliado"
+        period.status = "Conciliado"
         self.assertTrue(source_module._operative_period_fully_reconciled(period))
 
         for incomplete_status in ("No deducido", "Pendiente de detalle", "Deduccion parcial"):

@@ -12,11 +12,11 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 class ExceptionCloseTests(unittest.TestCase):
     def test_close_reconciles_and_reloads_before_accepting_historical_status(self):
         period = SimpleNamespace(
-            name="HIST-2025-04-15", status="Historico conciliado",
+            name="HIST-2025-04-15", status="Conciliado",
             reconciliation_mode="Historica", check_permission=Mock(),
         )
         period.reload = Mock(side_effect=lambda: setattr(
-            period, "status", "Historico parcial"
+            period, "status", "Parcial"
         ))
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
              patch.object(period_module.frappe, "db", SimpleNamespace(count=lambda *_: 0)), \
@@ -35,7 +35,7 @@ class ExceptionCloseTests(unittest.TestCase):
 
     def test_historical_period_cannot_close_with_open_exception(self):
         period = SimpleNamespace(
-            name="HIST-2025-04-15", status="Historico conciliado",
+            name="HIST-2025-04-15", status="Conciliado",
             reconciliation_mode="Historica", employer="EMP-1", check_permission=Mock(),
         )
 

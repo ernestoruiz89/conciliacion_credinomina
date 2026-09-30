@@ -92,7 +92,7 @@ def _get_or_create_period(employer, letter, month, month_index, clients):
     document = frappe.get_doc({
         "doctype": "CN Reconciliation Period", "employer": employer,
         "payroll_month": month, "reconciliation_mode": "Operativa",
-        "collection_cycle": "Mensual", "status": "Cobranza cargada",
+        "collection_cycle": "Mensual", "status": "Pendiente",
         "deduction_basis": "Detalle de empresa",
         "deduction_evidence_date": f"{month[:7]}-30" if month_index == 1 else f"{month[:7]}-28",
         "notes": "Datos sintéticos de la prueba de conciliación.",

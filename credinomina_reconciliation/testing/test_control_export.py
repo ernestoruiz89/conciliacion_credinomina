@@ -18,7 +18,7 @@ class TestControlExport(unittest.TestCase):
             "name": "H-2025-04", "employer": "EMP-1", "employer_name": "Empresa Uno",
             "month": "2025-04", "reconciliation_mode": "Historica",
             "historical_scope": "Fecha exacta", "historical_application_date": "2025-04-15",
-            "status": "Historico conciliado", "control_state": "historico_conciliado",
+            "status": "Conciliado", "control_state": "historico_conciliado",
             "expected_usd": 0, "deducted_usd": 0, "applied_usd": 46.52,
             "complementary_usd": 0, "rounding_adjustment_usd": 0.01,
             "remitted_usd": 46.53, "historical_pending_usd": 0,

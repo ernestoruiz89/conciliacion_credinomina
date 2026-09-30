@@ -55,7 +55,7 @@ def run():
     period.save()
     collection_result = import_collection(period.name)
     period = frappe.get_doc("CN Reconciliation Period", period.name)
-    if len(period.collection_rows) != 20 or period.status != "Cobranza cargada":
+    if len(period.collection_rows) != 20 or period.status != "Pendiente":
         raise AssertionError("La cobranza no quedó cargada sin conciliación.")
     if frappe.db.count("CN Client Alias", {"parent": period.collection_rows[1].client}) != 1:
         raise AssertionError("No se reconoció la variante verificada de nombre.")

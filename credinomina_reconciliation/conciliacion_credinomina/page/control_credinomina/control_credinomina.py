@@ -245,7 +245,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         if is_historical:
             control_state = (
                 "historico_excepcion" if exceptions_by_period[period.name]
-                else "historico_excedente" if period.status == "Historico con excedente"
+                else "historico_excedente" if period.status == "Con excedente"
                 else "historico_conciliado" if applied > CASH_EPSILON
                 and historical_pending <= CASH_EPSILON
                 else "historico_parcial" if remitted > CASH_EPSILON

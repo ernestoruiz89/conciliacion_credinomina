@@ -84,12 +84,12 @@ def historical_status(applied_usd, remitted_usd) -> str:
     applied = money(applied_usd)
     remitted = money(remitted_usd)
     if applied <= MONEY_EPSILON:
-        return "Historico pendiente"
+        return "Pendiente"
     if max(applied - remitted, 0) <= MONEY_EPSILON:
-        return "Historico conciliado"
+        return "Conciliado"
     if remitted > MONEY_EPSILON:
-        return "Historico parcial"
-    return "Historico pendiente"
+        return "Parcial"
+    return "Pendiente"
 
 
 def blocked_historical_deposits(claims, deposits) -> set[str]:

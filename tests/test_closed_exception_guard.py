@@ -28,7 +28,7 @@ class ClosedExceptionGuardTests(unittest.TestCase):
     def _closed_db(self, closed="PER-CLOSED"):
         return SimpleNamespace(
             get_value=lambda doctype, period, field: (
-                "Cerrado" if period == closed else "Cobranza cargada"
+                "Cerrado" if period == closed else "Pendiente"
             ),
             count=Mock(), set_value=Mock(),
         )
@@ -76,7 +76,7 @@ class ClosedExceptionGuardTests(unittest.TestCase):
         exception = FakeException("PER-NEW", SimpleNamespace(period="PER-OLD"))
         db = SimpleNamespace(
             get_value=lambda doctype, period, field: (
-                "Operativa" if field == "reconciliation_mode" else "Cobranza cargada"
+                "Operativa" if field == "reconciliation_mode" else "Pendiente"
             ),
             count=lambda *_: 2, set_value=Mock(),
         )

@@ -31,7 +31,7 @@ def run():
         period = frappe.get_doc({
             "doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2027-05-01", "reconciliation_mode": "Operativa",
-            "collection_cycle": "Mensual", "status": "Cobranza cargada",
+            "collection_cycle": "Mensual", "status": "Pendiente",
             "deduction_basis": "Detalle de empresa",
             "deduction_evidence_date": "2027-05-31",
         })

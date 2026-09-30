@@ -34,6 +34,12 @@ def run():
         assert sum_money(row["amount_usd"] for row in rows) == sum_money([161.77])
         assert all(row["age_days"] == 1 for row in rows)
         assert sum_money(row["days_1_30"] for row in rows) == sum_money([161.77])
+        from credinomina_reconciliation.conciliacion_credinomina.report.antiguedad_de_saldos_por_empresa.antiguedad_de_saldos_por_empresa import execute as grouped
+        company_rows = grouped({"employer": employer.name, "as_of_date": "2025-05-11"})[1]
+        assert len(company_rows) == 1, company_rows
+        assert company_rows[0]["amount_usd"] == 161.77
+        assert company_rows[0]["days_1_30"] == 161.77
+        assert "client_name" not in company_rows[0]
         return {"ok": True, "rows": 6, "pending_usd": 161.77,
                 "due_date": "2025-05-10", "days_overdue": 1, "rolled_back": True}
     finally:

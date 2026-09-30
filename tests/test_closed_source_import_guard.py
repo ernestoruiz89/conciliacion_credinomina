@@ -42,7 +42,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
     @staticmethod
     def _get_value(doctype, name, field):
         if doctype == "CN Reconciliation Period" and field == "status":
-            return "Cerrado" if name == "PER-CLOSED" else "Cobranza cargada"
+            return "Cerrado" if name == "PER-CLOSED" else "Pendiente"
         if doctype == "CN Collection Row" and field == "parent":
             return "PER-CLOSED" if name == "ROW-CLOSED" else "PER-OPEN"
         if doctype == "CN Complementary Item" and field == "period":

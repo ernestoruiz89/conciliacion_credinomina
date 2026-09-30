@@ -23,7 +23,7 @@ def run():
             period = frappe.get_doc({
                 "doctype": "CN Reconciliation Period", "employer": employer.name,
                 "payroll_month": "2027-04-01", "reconciliation_mode": "Operativa",
-                "collection_cycle": cycle, "status": "Cobranza cargada",
+                "collection_cycle": cycle, "status": "Pendiente",
             })
             period.append("collection_rows", {
                 "row_key": marker + cycle, "source_row": 2,
@@ -130,7 +130,7 @@ def run():
         historical = frappe.get_doc({
             "doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2026-08-01", "reconciliation_mode": "Historica",
-            "historical_scope": "Mensual", "status": "Historico pendiente",
+            "historical_scope": "Mensual", "status": "Pendiente",
         }).insert(ignore_permissions=True)
         historical_source = frappe.get_doc({
             "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,

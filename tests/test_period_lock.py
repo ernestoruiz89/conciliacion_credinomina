@@ -15,7 +15,7 @@ class PeriodLockTests(unittest.TestCase):
         def reject(message):
             raise ValueError(message)
         previous = SimpleNamespace(status="Cerrado")
-        for status in ("Cerrado", "Borrador", "Historico pendiente"):
+        for status in ("Cerrado", "Borrador", "Pendiente"):
             doc = SimpleNamespace(status=status, remark="Cambio no permitido",
                 get_doc_before_save=Mock(return_value=previous),
                 flags={"allow_closed": True, "period_write_action": "reopen"})
@@ -25,7 +25,7 @@ class PeriodLockTests(unittest.TestCase):
                     controller.CNReconciliationPeriod._validate_closed_transition(doc)
 
     def test_controlled_reopen_still_allows_editing(self):
-        doc = SimpleNamespace(status="Historico conciliado",
+        doc = SimpleNamespace(status="Conciliado",
             get_doc_before_save=Mock(return_value=SimpleNamespace(status="Cerrado")))
         with period_write_action("reopen"), patch.object(controller.frappe, "throw") as throw:
             controller.CNReconciliationPeriod._validate_closed_transition(doc)

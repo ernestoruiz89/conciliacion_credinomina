@@ -15,7 +15,7 @@ class HistoricalExceptionStateTests(unittest.TestCase):
         period = frappe._dict({
             "name": "H-2025-04-15", "employer": "EMP-1",
             "payroll_month": "2025-04-01", "reconciliation_mode": "Historica",
-            "status": "Historico conciliado", "applied_usd": 100,
+            "status": "Conciliado", "applied_usd": 100,
             "remitted_usd": 100, "rounding_adjustment_usd": 0,
             "fx_variance_usd": 0, "exception_count": 1,
         })

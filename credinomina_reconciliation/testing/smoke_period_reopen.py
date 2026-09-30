@@ -43,7 +43,7 @@ def run():
         historical = frappe.get_doc({
             "doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2025-04-01", "reconciliation_mode": "Historica",
-            "historical_scope": "Mensual", "status": "Historico conciliado",
+            "historical_scope": "Mensual", "status": "Conciliado",
         }).insert(ignore_permissions=True)
         _must_reject_empty(historical)
         print({

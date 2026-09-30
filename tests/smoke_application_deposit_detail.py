@@ -18,7 +18,7 @@ def run():
         employer = insert("CN Employer", "E", employer_name=prefix, employer_code=prefix, active=1)
         period = insert("CN Reconciliation Period", "P", employer=employer.name,
             payroll_month="2025-04-01", reconciliation_mode="Historica", historical_scope="Mensual",
-            status="Historico parcial", applied_usd=120)
+            status="Parcial", applied_usd=120)
         source = insert("CN Source Import", "I", employer=employer.name,
             source_type="Movimientos contables", status="Importado")
         application = insert("CN Source Row", "A", parent=source.name, parenttype=source.doctype,

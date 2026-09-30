@@ -6,6 +6,6 @@ frappe.query_reports["Resumen de Conciliacion"] = {
         { fieldname: "historical_scope", label: __("Corte histórico"), fieldtype: "Select", options: "\nMensual\nFecha exacta\nRango de fechas" },
         { fieldname: "from_month", label: __("Desde"), fieldtype: "Date" },
         { fieldname: "to_month", label: __("Hasta"), fieldtype: "Date" },
-        { fieldname: "status", label: __("Estado"), fieldtype: "Select", options: "\nBorrador\nCobranza cargada\nDetalle empresa cargado\nDeduccion conciliada\nDeposito conciliado\nHistorico pendiente\nHistorico parcial\nHistorico con excedente\nHistorico conciliado\nCerrado" },
+        { fieldname: "status", label: __("Estado"), fieldtype: "Select", options: "\nBorrador\nPendiente\nParcial\nCon excedente\nConciliado\nCerrado" },
     ],
 };

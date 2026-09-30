@@ -98,7 +98,7 @@ def run():
         period = frappe.get_doc({
             "doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2027-04-01", "reconciliation_mode": "Operativa",
-            "collection_cycle": "Mensual", "status": "Cobranza cargada",
+            "collection_cycle": "Mensual", "status": "Pendiente",
         })
         period.append("collection_rows", {
             "row_key": marker + "-ROW", "source_row": 2, "client": client.name,
@@ -157,8 +157,8 @@ def run():
         period.save()
         reconcile_all_sources()
         period.reload()
-        assert period.status != "Deposito conciliado"
-        assert period.status == "Detalle empresa cargado"
+        assert period.status != "Conciliado"
+        assert period.status == "Parcial"
         assert period.collection_rows[0].application_status == "Aplicado y remitido"
         assert period.collection_rows[1].deduction_status == "No deducido"
         frappe.db.rollback(save_point="mixed_payroll_status")

@@ -221,9 +221,9 @@ def audit():
 
     report = []
     expected_status = {
-        "partial": "Historico parcial",
-        "unpaid": "Historico pendiente",
-        "excess": "Historico conciliado",
+        "partial": "Parcial",
+        "unpaid": "Pendiente",
+        "excess": "Conciliado",
     }
     for employer, _code, letter, scenario in EMPLOYERS:
         for month, applied_on, paid_on, amounts in MONTHS:

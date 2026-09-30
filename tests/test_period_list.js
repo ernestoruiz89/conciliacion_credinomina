@@ -11,12 +11,9 @@ const states = Object.fromEntries(meta.states.map(state => [state.title, state.c
 assert.deepEqual(Object.keys(states).sort(), status.options.split("\n").sort());
 assert.equal(meta.states.length, Object.keys(states).length);
 assert.equal(states.Borrador, "Gray");
-for (const title of ["Cobranza cargada", "Detalle empresa cargado", "Deduccion conciliada"]) {
-    assert.equal(states[title], "Blue"); // First reconciliation does not imply cash received.
-}
-for (const title of ["Historico pendiente", "Historico parcial"]) assert.equal(states[title], "Orange");
-assert.equal(states["Historico con excedente"], "Red");
-for (const title of ["Deposito conciliado", "Historico conciliado"]) assert.equal(states[title], "Green");
+for (const title of ["Pendiente", "Parcial"]) assert.equal(states[title], "Orange");
+assert.equal(states["Con excedente"], "Red");
+assert.equal(states.Conciliado, "Green");
 assert.equal(states.Cerrado, "Purple");
 const context = vm.createContext({frappe: {listview_settings: {}}});
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_reconciliation_period_list.js"), "utf8"), context);

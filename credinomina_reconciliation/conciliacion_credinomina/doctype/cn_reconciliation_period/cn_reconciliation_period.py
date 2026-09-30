@@ -453,7 +453,7 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
     period.deduction_recognition_note = justification
     period.deduction_recognition_on = now_datetime()
     period.deduction_recognition_by = frappe.session.user
-    period.status = "Deduccion conciliada"
+    period.status = "Pendiente"
     period.notes = _append_note(
         period.notes,
         _("Cobranza reconocida provisionalmente por depósito {0} ({1}) el {2} por {3}: {4}").format(
@@ -487,7 +487,7 @@ def revert_deposit_recognition(period_name: str):
         row.deduction_status = "Pendiente de detalle"
         row.deduction_evidence_date = None
         row.deduction_match_note = ""
-    period.status = "Cobranza cargada"
+    period.status = "Pendiente"
     period.notes = _append_note(
         period.notes,
         _("Reconocimiento provisional por depósito {0} revertido el {1} por {2}.").format(
@@ -611,7 +611,7 @@ def import_collection(period_name: str):
         row.idx = index
     period.collection_import_sha256 = import_hash
     if not period.employer_response_file:
-        period.status = "Cobranza cargada"
+        period.status = "Pendiente"
     period.notes = _append_note(
         period.notes,
         _("Cobranza importada: {0} filas; SHA-256 {1}.").format(
@@ -1069,7 +1069,7 @@ def close_period(period_name: str):
             frappe.throw(_(
                 "No se puede cerrar un período histórico sin aplicaciones efectivas asignadas."
             ))
-        if period.status != "Historico conciliado":
+        if period.status != "Conciliado":
             frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
         if application_ids and _pending_registered_targets(
             {"historical_application": ["in", application_ids]}
@@ -1193,8 +1193,7 @@ def reopen_period(period_name: str, reason: str):
     previous_status = clean_text(period.status_before_close)
     period.status = (
         previous_status if previous_status and previous_status != "Cerrado"
-        else "Historico conciliado" if period.reconciliation_mode == "Historica"
-        else "Deposito conciliado"
+        else "Conciliado"
     )
     period.reopened_on = now_datetime()
     period.reopened_by = frappe.session.user
@@ -1292,12 +1291,8 @@ def _reconcile_if_sources():
 
 
 def _deduction_stage_status(rows, unmatched, missing):
-    return (
-        "Deduccion conciliada"
-        if not unmatched and not missing
-        and all(row.deduction_status == "Deduccion total" for row in rows)
-        else "Detalle empresa cargado"
-    )
+    # Deduction evidence alone never proves reconciliation with the core/cash.
+    return "Pendiente"
 
 
 def _employer_response_import_key(period, content, client_catalog=()):

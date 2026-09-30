@@ -220,6 +220,12 @@ de reemplazar filas existentes (conserva archivos y destinos, pero retira los
 vínculos al detalle anterior). Después revise el detalle y use **Conciliar**;
 generarlo no confirma ni concilia el depósito.
 
+**Antigüedad de Saldos por Empresa**, disponible en **Control y consultas** del
+workspace, agrupa el reporte de antigüedad sin mostrar clientes, créditos ni
+períodos individuales. Conserva los mismos filtros, permisos, rangos y resumen;
+suma los saldos actuales de cada empresa en US$, sin recalcular su vencimiento.
+Identifica las aplicaciones sin conversión para no presentar sus saldos como cero.
+
 La página **Control de Credinómina** abre con **Qué falta hacer**: evidencia de
 empresa, aplicaciones sin período, detalles de depósito por revisar y saldos
 sin clasificar. Los importes del tablero son un resumen; abra cada pendiente
@@ -239,6 +245,15 @@ se concilian contra los depósitos. La fecha del depósito puede estar en el mes
 siguiente a la aplicación. Las excepciones abiertas bloquean el cierre también
 en histórico; revise los saldos antes de cerrar un período. El tablero y los
 reportes muestran lo pendiente.
+
+Los períodos históricos y operativos comparten los estados **Borrador** (gris),
+**Pendiente** (naranja), **Parcial** (naranja), **Con excedente** (rojo),
+**Conciliado** (verde) y **Cerrado** (morado). La modalidad se identifica en su
+propio campo. Cargar cobranza o confirmar la deducción no marca el período como
+conciliado: deben completarse las validaciones de su modalidad y los pagos.
+Un excedente sin clasificar relacionado con las aplicaciones tiene prioridad
+sobre el estado conciliado. La migración traduce los estados existentes y el
+estado previo al cierre, sin cambiar importes ni reabrir períodos.
 
 En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
 si se seleccionó, la empresa filtrada. El libro separa el resumen de períodos,

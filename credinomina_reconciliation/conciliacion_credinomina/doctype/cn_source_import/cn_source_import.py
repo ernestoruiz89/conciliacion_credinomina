@@ -820,7 +820,7 @@ def _refresh_recognition_evidence(periods, deposit_pairs):
             row.deduction_evidence_date = None
             row.deduction_match_note = _("Reconocimiento suspendido: {0}").format(reason)
         if was_inferred:
-            period.status = "Cobranza cargada"
+            period.status = "Pendiente"
             period.notes = "\n".join(
                 part for part in (
                     period.notes,
@@ -2108,6 +2108,18 @@ def _operative_period_fully_reconciled(period):
     )
 
 
+def _operative_period_status(period, has_unclassified_surplus=False):
+    if has_unclassified_surplus:
+        return "Con excedente"
+    if _operative_period_fully_reconciled(period):
+        return "Conciliado"
+    if any(flt(row.remitted_usd) > CASH_EPSILON for row in period.collection_rows or []):
+        return "Parcial"
+    if not period.collection_rows and period.status == "Borrador":
+        return "Borrador"
+    return "Pendiente"
+
+
 def _rebuild_period_balances(
     periods, source_rows, deposit_pairs, allocation,
     closed_state, closed_links, complementary_items,
@@ -2317,17 +2329,18 @@ def _rebuild_period_balances(
         )
         source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
 
+    excess_periods = set()
+    for entry in allocation["allocations"]:
+        if not entry["claim_id"].startswith("C:"):
+            continue
+        target = rows_by_name.get(entry["claim_id"][2:])
+        account = allocation["deposit_meta"][entry["deposit_id"]]["account"]
+        if target and flt(account.unclassified_usd) > CASH_EPSILON:
+            excess_periods.add(target.parent)
     for period in periods:
         period.recalculate_totals()
         if period.status != "Cerrado":
-            if _operative_period_fully_reconciled(period):
-                period.status = "Deposito conciliado"
-            elif period.status == "Deposito conciliado":
-                period.status = (
-                    "Detalle empresa cargado"
-                    if period.deduction_basis == "Detalle de empresa"
-                    else "Cobranza cargada"
-                )
+            period.status = _operative_period_status(period, period.name in excess_periods)
     if closed_state:
         registered_rows = [
             allocation["deposit_meta"][deposit_id]["account"]
@@ -2575,7 +2588,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         ) + len(unclassified_deposits_by_period[period.name])
         if period.status != "Cerrado":
             period.status = (
-                "Historico con excedente"
+                "Con excedente"
                 if unclassified_deposits_by_period[period.name]
                 else historical_status(applied + adjustment, remitted)
             )

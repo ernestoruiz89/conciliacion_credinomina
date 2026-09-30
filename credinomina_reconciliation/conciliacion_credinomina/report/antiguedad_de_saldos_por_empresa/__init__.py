@@ -1,0 +1,1 @@
+"""Antigüedad resumida por empresa."""

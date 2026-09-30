@@ -25,7 +25,7 @@ assert.ok(!frm.buttons.includes("1. Cargar cobranza"));
 events.collection_cycle(frm);
 assert.equal(fields.find(field => field.df.fieldname === "remittance_due_date").df.read_only, true);
 events.refresh(frm); // Repeated refresh must not replace the original field settings.
-frm.doc.status = "Deposito conciliado";
+frm.doc.status = "Conciliado";
 frm.buttons = [];
 events.refresh(frm);
 assert.equal(frm.disabled, false);
@@ -45,7 +45,7 @@ assert.ok(!frm.buttons.includes("Reabrir período"));
 assert.ok(!frm.buttons.includes("Cerrar período histórico"));
 // Navigating to an open record with no write permission must not enable save.
 frm.get_perm = () => false;
-frm.doc.status = "Historico pendiente";
+frm.doc.status = "Pendiente";
 events.refresh(frm);
 assert.equal(frm.disabled, true);
 console.log("OK: closed period fields/table, due date, reopening, navigation and operator permissions.");

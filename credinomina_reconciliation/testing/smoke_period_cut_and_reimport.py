@@ -96,7 +96,7 @@ def run():
             period.save()
             period_module.import_employer_response(period.name)
             period.reload()
-            assert period.status == "Detalle empresa cargado", period.status
+            assert period.status == "Pendiente", period.status
             exceptions = frappe.get_all(
                 "CN Reconciliation Exception", filters={"period": period.name},
                 fields=["name", "exception_type", "exception_key"],
@@ -147,7 +147,7 @@ def run():
             cut = period_module.record_control_cut(
                 period.name, "Seguir saldo parcial con la empresa y el empleado"
             )
-            assert cut["status"] == "Detalle empresa cargado"
+            assert cut["status"] == "Pendiente"
             period.reload()
             assert period.control_cut_on and "CxC empleados" in period.control_cut_summary
             assert len([row for row in period.collection_rows if row.deduction_status == "Deduccion parcial"]) == 1
@@ -161,7 +161,7 @@ def run():
             files["response"] = _response(period.collection_rows, 55)
             period_module.import_employer_response(period.name)
             period.reload()
-            assert period.status == "Deduccion conciliada"
+            assert period.status == "Pendiente"
             obsolete = frappe.get_doc("CN Reconciliation Exception", exception.name)
             assert obsolete.status == "Descartada"
             assert len(obsolete.follow_up_actions) == 2

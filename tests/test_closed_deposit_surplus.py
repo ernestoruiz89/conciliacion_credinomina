@@ -61,7 +61,7 @@ class ClosedDepositSurplusTests(unittest.TestCase):
         self._check(allocated_period="PER-1")
 
     def test_open_related_period_can_receive_surplus(self):
-        self._check(target_period="PER-1", status="Cobranza cargada")
+        self._check(target_period="PER-1", status="Pendiente")
 
 
 if __name__ == "__main__":

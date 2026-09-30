@@ -127,7 +127,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "Control y consultas",
-      "link_count": 6,
+      "link_count": 7,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -177,6 +177,17 @@
     },
     {
       "hidden": 0,
+      "is_query_report": 1,
+      "label": "Antigüedad de saldos por empresa",
+      "link_count": 0,
+      "link_to": "Antiguedad de Saldos por Empresa",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
       "is_query_report": 0,
       "label": "Excepciones",
       "link_count": 0,
@@ -196,7 +207,7 @@
       "type": "Link"
     }
   ],
-  "modified": "2026-09-29 22:07:52.290751",
+  "modified": "2026-09-30 04:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",
