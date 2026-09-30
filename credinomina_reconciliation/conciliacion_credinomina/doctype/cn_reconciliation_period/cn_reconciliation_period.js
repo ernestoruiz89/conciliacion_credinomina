@@ -55,8 +55,8 @@ frappe.ui.form.on("CN Reconciliation Period", {
             frm.doc.status !== "Cerrado" && !frm.doc.deduction_basis &&
             !frm.doc.employer_response_file && (frm.doc.collection_rows || []).length
         ) {
-            frm.add_custom_button(__("Reconocer cobranza por depósito"), () => {
-                showDepositRecognition(frm);
+            frm.add_custom_button(__("Reconocer cobranza como detalle de la empresa"), () => {
+                showCollectionRecognition(frm);
             }, __("Más opciones"));
         }
 
@@ -216,47 +216,35 @@ function setRemittanceDateEditing(frm) {
     );
 }
 
-function showDepositRecognition(frm) {
-    frappe.call({
-        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.get_recognizable_deposits",
-        args: { period_name: frm.doc.name },
-    }).then((response) => {
-        const deposits = response.message || [];
-        if (!deposits.length) {
-            frappe.msgprint(__("No hay un depósito registrado y libre que coincida exactamente con la cobranza completa de este período."));
-            return;
-        }
-        const labels = deposits.map((item) =>
-            `${item.reference} · ${item.amount_usd} US$ · ${frappe.datetime.str_to_user(item.event_date || "")} · ${item.source_row_id}`
-        );
-        const dialog = new frappe.ui.Dialog({
-            title: __("Reconocer deducción por depósito coincidente"),
-            fields: [
-                {
-                    fieldname: "warning", fieldtype: "HTML",
-                    options: `<p>${__("Esta deducción será inferida del depósito, no confirmada por un detalle de planilla. El estado de cuenta mantendrá esa distinción.")}</p>`,
-                },
-                { fieldname: "deposit", fieldtype: "Select", label: __("Depósito"), options: labels.join("\n"), reqd: 1 },
-                { fieldname: "justification", fieldtype: "Small Text", label: __("Justificación y soporte"), reqd: 1 },
-            ],
-            primary_action_label: __("Reconocer cobranza"),
-            primary_action(values) {
-                const index = labels.indexOf(values.deposit);
-                if (index < 0) return;
-                frappe.call({
-                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.recognize_collection_from_deposit",
-                    args: {
-                        period_name: frm.doc.name,
-                        source_row_id: deposits[index].source_row_id,
-                        justification: values.justification,
-                    },
-                    freeze: true,
-                }).then(() => {
-                    dialog.hide();
-                    frm.reload_doc();
+function showCollectionRecognition(frm) {
+    let saving = false;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Reconocer cobranza como detalle de la empresa"),
+        fields: [
+            {fieldname: "warning", fieldtype: "HTML", options: `<p>${__("Se copiarán los importes de la cobranza a Deducido US$ y Deducido C$. Use esta opción solo si la empresa confirmó la deducción completa. No registra un depósito ni confirma su recepción.")}</p>`},
+            {fieldname: "evidence_date", fieldtype: "Date", label: __("Fecha de evidencia de deducción"), reqd: 1, default: frm.doc.deduction_evidence_date},
+            {fieldname: "confirmed", fieldtype: "Check", label: __("Confirmo que la empresa dedujo la cobranza completa"), reqd: 1},
+        ],
+        primary_action_label: __("Reconocer cobranza"),
+        async primary_action(values) {
+            if (saving || !values.confirmed) return;
+            saving = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                if (frm.is_dirty()) await frm.save();
+                const response = await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.recognize_collection_as_employer_detail",
+                    args: {period_name: frm.doc.name, evidence_date: values.evidence_date, confirmed: values.confirmed},
+                    freeze: true, freeze_message: __("Reconociendo detalle de la empresa…"),
                 });
-            },
-        });
-        dialog.show();
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({message: __("Cobranza reconocida como detalle de la empresa: {0} filas.", [response.message.rows]), indicator: "green"});
+            } finally {
+                saving = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
     });
+    dialog.show();
 }

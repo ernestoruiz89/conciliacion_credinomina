@@ -639,6 +639,55 @@ def import_collection(period_name: str):
 
 
 @frappe.whitelist(methods=["POST"])
+def recognize_collection_as_employer_detail(period_name: str, evidence_date: str, confirmed: int = 0):
+    period = frappe.get_doc("CN Reconciliation Period", period_name)
+    period.check_permission("write")
+    frappe.db.sql("SELECT name FROM `tabCN Reconciliation Period` WHERE name = %s FOR UPDATE", (period_name,))
+    period.reload()
+    _assert_editable(period)
+    if str(confirmed) != "1":
+        frappe.throw(_("Confirme que la empresa dedujo la cobranza completa."))
+    if not evidence_date:
+        frappe.throw(_("Indique la fecha de evidencia de deducción."))
+    evidence_date = getdate(evidence_date)
+    if not period.collection_rows:
+        frappe.throw(_("Cargue primero la cobranza del período."))
+    if period.deduction_basis or period.employer_response_file or any(
+        flt(row.deducted_usd) or flt(row.deducted_nio)
+        or row.deduction_status not in (None, "", "Pendiente de detalle")
+        for row in period.collection_rows
+    ):
+        frappe.throw(_("El período ya tiene detalle o deducciones registradas; no se sobrescribirán."))
+    if any(flt(row.expected_usd) < 0 or flt(row.expected_nio) < 0 for row in period.collection_rows):
+        frappe.throw(_("Revise los importes negativos de la cobranza antes de reconocerla."))
+    if not any(money_float(row.expected_usd) or money_float(row.expected_nio) for row in period.collection_rows):
+        frappe.throw(_("La cobranza no tiene importes para reconocer."))
+    note = _("Cobranza reconocida como detalle de la empresa el {0} por {1}; deducción completa confirmada por el usuario.").format(now_datetime(), frappe.session.user)
+    for row in period.collection_rows:
+        row.deducted_usd = money_float(row.expected_usd)
+        row.deducted_nio = money_float(row.expected_nio)
+        row.deduction_currency = (
+            "Ambas" if row.deducted_usd and row.deducted_nio
+            else "USD" if row.deducted_usd else "NIO" if row.deducted_nio else ""
+        )
+        row.deduction_status = classify_deduction(
+            expected_usd=row.expected_usd, expected_nio=row.expected_nio,
+            deducted_usd=row.deducted_usd, deducted_nio=row.deducted_nio,
+        )
+        row.deduction_evidence_date = evidence_date
+        row.deduction_match_note = note
+    period.deduction_basis = "Detalle de empresa"
+    period.deduction_evidence_date = evidence_date
+    period.employer_response_import_key = ""
+    period.status = "Pendiente"
+    period.notes = _append_note(period.notes, note)
+    period.flags.skip_comment_reconciliation = True
+    period.save()
+    source_summary = _reconcile_if_sources()
+    return {"period": period.name, "rows": len(period.collection_rows), "source_reconciliation": source_summary}
+
+
+@frappe.whitelist(methods=["POST"])
 def import_employer_response(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
