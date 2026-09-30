@@ -56,6 +56,17 @@ y aplicaciones vinculadas.
 
 El saldo histórico **aplicación sin depósito** no es una cuenta por cobrar a la empresa ni un faltante del trabajador: no se reconstruyó la primera conciliación. Conserve los archivos originales y soportes de distribuciones manuales. Una aplicación histórica de agosto de 2026 registrada en septiembre puede seguir vinculada al mes de cobranza agosto y al corte de aplicación de septiembre que corresponda. No cambie las fechas de un corte con aplicaciones asignadas: primero reasígnelas.
 
+### Qué significa «Importado con excepciones»
+
+Este estado no significa necesariamente que falló la lectura del archivo. También
+incluye aplicaciones todavía sin depósito conciliado, coincidencias ambiguas y
+depósitos con saldo sin distribuir. En **Importación de Fuente**, el aviso y el
+botón **Ver excepciones** muestran las filas de esa carga, cliente, crédito,
+etapa y motivo registrado. Una fila con varios motivos cuenta una sola vez.
+Consultar este detalle no guarda ni concilia; después de corregir los datos,
+use **Conciliar esta empresa** para actualizar el resultado. Si el estado guardado
+ya no coincide con las filas actuales, el aviso lo indica expresamente.
+
 ### Operación desde septiembre 2026
 
 1. Configure la empresa y cree un período **Operativo** mensual o quincenal. Descargue **Plantillas → Plantilla de cobranza** desde el período, complete las filas, adjunte el archivo y pulse **1. Cargar cobranza**. Se crean los clientes no registrados, vinculados a esa empresa; la tabla guarda nombre, cédula, número de cliente, número de empleado (si viene), crédito y cuota. El número de empleado es interno de la empresa y puede repetirse en otra. En este paso no hay conciliación ni deducción confirmada.

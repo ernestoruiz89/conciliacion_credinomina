@@ -24,6 +24,45 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_import/cn_source_import.js"), "utf8"), context);
 
 (async () => {
+    const exceptionRows = [
+        {idx: 1, source_row: 5, event_type: "Aplicacion", effective: 1, match_status: "Conciliado",
+            deposit_match_status: "Sin deposito", deposit_match_reason: "Faltan US$10", client_name: "<script>unsafe</script>"},
+        {idx: 2, event_type: "Aplicacion", effective: 1, match_status: "Ambiguo", match_reason: "Dos créditos posibles",
+            deposit_match_status: "Pendiente"},
+        {idx: 3, event_type: "Deposito", effective: 1, match_status: "Conciliado", unallocated_usd: 10},
+        {idx: 4, event_type: "Aplicacion", effective: 1, match_status: "Conciliado", deposit_match_status: "Depósito conciliado"},
+        {idx: 5, event_type: "Aplicacion", effective: 0, match_status: "Ignorado", deposit_match_status: "Pendiente"},
+        {idx: 6, event_type: "Deposito", effective: 1, match_status: "Conciliado", unallocated_usd: 0.005},
+    ];
+    const exceptions = context.importExceptionRows(exceptionRows);
+    assert.equal(exceptions.length, 3); // One count per row, even with multiple causes.
+    assert.equal(exceptions[1].reasons.length, 2);
+    const importFrm = {doc: {name: "IA", rows: exceptionRows, status: "Importado con excepciones"}};
+    const exceptionHtml = context.importExceptionsHtml(importFrm);
+    assert.ok(exceptionHtml.includes("Faltan US$10"));
+    assert.ok(exceptionHtml.includes("Dos créditos posibles"));
+    assert.ok(exceptionHtml.includes("saldo sin distribuir"));
+    assert.ok(exceptionHtml.includes("5 / 1"));
+    assert.ok(exceptionHtml.includes("&lt;script&gt;unsafe&lt;/script&gt;"));
+    assert.ok(!exceptionHtml.includes("<script>unsafe</script>"));
+    let intro, exceptionAction;
+    importFrm.set_intro = text => {intro = text;};
+    importFrm.add_custom_button = (label, action) => {
+        assert.equal(label, "Ver excepciones"); exceptionAction = action;
+    };
+    context.updateImportExceptionNotice(importFrm);
+    assert.ok(intro.includes("3 filas"));
+    exceptionAction();
+    assert.ok(dialogOptions.title.includes("IA"));
+    assert.deepEqual(events, ["dialog"]); // Viewing exceptions must not call or save.
+    events.length = 0;
+    importFrm.doc.rows = [];
+    context.updateImportExceptionNotice(importFrm);
+    assert.ok(intro.includes("filas actuales no muestran excepciones"));
+    importFrm.doc.status = "Importado";
+    context.updateImportExceptionNotice(importFrm);
+    assert.equal(intro, "");
+
     // Frappe 15 child layouts share parent tab state/IDs: keep rows section-only.
     const rowMeta = JSON.parse(fs.readFileSync(path.join(__dirname,
         "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_row/cn_source_row.json"), "utf8"));

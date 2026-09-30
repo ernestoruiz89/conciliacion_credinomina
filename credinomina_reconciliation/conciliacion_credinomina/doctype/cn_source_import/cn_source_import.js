@@ -21,6 +21,7 @@ frappe.ui.form.on("CN Source Import", {
             filters: {employer: frm.doc.employer},
         }));
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
+        updateImportExceptionNotice(frm);
         if (frm.is_new()) return;
 
         frm.add_custom_button(__("3. Cargar movimientos contables"), async () => {
@@ -50,6 +51,80 @@ frappe.ui.form.on("CN Source Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+function importExceptionRows(rows) {
+    // Match CNSourceImport.recalculate_summary: a file exception is not
+    // necessarily an import error or a CN Reconciliation Exception document.
+    return (rows || []).flatMap(row => {
+        const reasons = [];
+        if (["Ambiguo", "Sin coincidencia"].includes(row.match_status)) {
+            reasons.push({stage: __("Identificación / vinculación"),
+                reason: row.match_reason || __("No hay una coincidencia única. Revise cliente, crédito, empresa y período.")});
+        }
+        if (row.event_type === "Aplicacion" && Number(row.effective)
+                && row.deposit_match_status !== "Depósito conciliado") {
+            if (!["Conciliado", "Ambiguo", "Sin coincidencia"].includes(row.match_status)) {
+                reasons.push({stage: __("Aplicación"),
+                    reason: row.match_reason || __("La aplicación aún no tiene un vínculo confirmado con el período o la cobranza.")});
+            }
+            reasons.push({stage: __("Depósito de la aplicación"),
+                reason: row.deposit_match_reason || __("Falta conciliar el depósito de esta aplicación. Registre o complete su distribución y vuelva a conciliar.")});
+        }
+        if (row.event_type === "Deposito" && Number(row.effective)
+                && Number(row.unallocated_usd || 0) > 0.005) {
+            reasons.push({stage: __("Distribución del depósito"),
+                reason: row.allocation_reason || __("El depósito tiene saldo sin distribuir. Revise sus destinos y justifique cualquier excedente.")});
+        }
+        return reasons.length ? [{row, reasons}] : [];
+    });
+}
+
+function updateImportExceptionNotice(frm) {
+    const exceptions = importExceptionRows(frm.doc.rows);
+    if (!exceptions.length && frm.doc.status !== "Importado con excepciones") {
+        frm.set_intro("");
+        return;
+    }
+    frm.set_intro(exceptions.length
+        ? __("Esta carga tiene {0} filas con excepciones de conciliación. Use «Ver excepciones» para conocer los motivos; puede tratarse de depósitos pendientes, no de un error al importar.", [exceptions.length])
+        : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran excepciones. Revise el detalle y use «Conciliar esta empresa» para actualizar el resultado."), "orange");
+    frm.add_custom_button(__("Ver excepciones"), () => showImportExceptions(frm));
+}
+
+function importExceptionsHtml(frm) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const exceptions = importExceptionRows(frm.doc.rows);
+    const summary = new Map();
+    for (const {reasons} of exceptions) {
+        for (const stage of new Set(reasons.map(reason => reason.stage))) {
+            summary.set(stage, (summary.get(stage) || 0) + 1);
+        }
+    }
+    return `<p>${__("Los motivos corresponden únicamente a esta carga. Una aplicación puede estar importada y vinculada al período, pero seguir pendiente de depósito.")}</p>
+        <p><strong>${__("Filas con excepciones")}: ${esc(exceptions.length)}</strong></p>
+        ${exceptions.length ? `
+            <ul>${[...summary].map(([stage, count]) => `<li>${esc(stage)}: ${esc(count)}</li>`).join("")}</ul>
+            <p class="text-muted">${__("Una fila puede tener varios motivos; los conteos por etapa no se suman.")}</p>
+            <div style="max-height:55vh;overflow:auto"><table class="table table-bordered">
+                <thead><tr><th>${__("Fila del archivo / tabla")}</th><th>${__("Cliente / crédito")}</th><th>${__("Etapa y motivo")}</th></tr></thead>
+                <tbody>${exceptions.map(({row, reasons}) => `<tr>
+                    <td>${esc(row.source_row || row.idx)} / ${esc(row.idx)}</td>
+                    <td>${esc(row.client_name)}<br>${__("Nro. Cliente")}: ${esc(row.client_number)}<br>${__("Crédito")}: ${esc(row.loan_number)}</td>
+                    <td style="white-space:normal">${reasons.map(({stage, reason}) => `<p><strong>${esc(stage)}</strong><br>${esc(reason)}</p>`).join("")}</td>
+                </tr>`).join("")}</tbody>
+            </table></div>`
+            : `<p>${__("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar esta empresa» para recalcularlo.")}</p>`}
+        <p class="text-muted">${__("Este detalle no guarda cambios ni ejecuta una conciliación. Las filas inactivas, como los duplicados descartados, no se consideran pendientes de depósito.")}</p>`;
+}
+
+function showImportExceptions(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __("Excepciones de {0}", [frm.doc.name]), size: "extra-large",
+        fields: [{fieldtype: "HTML", options: importExceptionsHtml(frm)}],
+        primary_action_label: __("Cerrar"), primary_action: () => dialog.hide(),
+    });
+    dialog.show();
+}
 
 async function reconcileCompany(frm) {
     if (frm.__company_reconciliation_running) return;
