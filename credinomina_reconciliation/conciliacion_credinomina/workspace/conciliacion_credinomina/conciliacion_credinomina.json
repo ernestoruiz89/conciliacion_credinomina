@@ -1,6 +1,6 @@
 {
   "charts": [],
-  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_tablero\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Control de Credinómina\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Importar fuentes\",\"col\":3}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Distribuir depósito\",\"col\":3}},{\"id\":\"cn_estado\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Estado de cuenta\",\"col\":3}},{\"id\":\"cn_excepciones\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Excepciones\",\"col\":3}},{\"id\":\"cn_movimientos\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Partidas complementarias\",\"col\":3}},{\"id\":\"cn_espacio\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Procesos y consultas</b></span>\",\"col\":12}},{\"id\":\"cn_preparacion\",\"type\":\"card\",\"data\":{\"card_name\":\"Preparación y cobranza\",\"col\":4}},{\"id\":\"cn_remesas\",\"type\":\"card\",\"data\":{\"card_name\":\"Conciliación de depósitos\",\"col\":4}},{\"id\":\"cn_consultas\",\"type\":\"card\",\"data\":{\"card_name\":\"Control y consultas\",\"col\":4}}]",
+  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_flujo_ayuda\",\"type\":\"paragraph\",\"data\":{\"text\":\"Cobranza → Deducción de la empresa → Aplicaciones del core → Depósito y detalle → Revisión y cierre. La cobranza y las deducciones se cargan dentro del período.\",\"col\":12}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar aplicaciones\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Registrar depósito\",\"col\":3}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Flujo de trabajo</b></span>\",\"col\":12}},{\"id\":\"cn_etapa_1\",\"type\":\"card\",\"data\":{\"card_name\":\"1. Preparación\",\"col\":4}},{\"id\":\"cn_etapa_2\",\"type\":\"card\",\"data\":{\"card_name\":\"2. Cobranza y deducciones\",\"col\":4}},{\"id\":\"cn_etapa_3\",\"type\":\"card\",\"data\":{\"card_name\":\"3. Aplicaciones del core\",\"col\":4}},{\"id\":\"cn_etapa_4\",\"type\":\"card\",\"data\":{\"card_name\":\"4. Depósitos y distribución\",\"col\":4}},{\"id\":\"cn_etapa_5\",\"type\":\"card\",\"data\":{\"card_name\":\"5. Diferencias y seguimiento\",\"col\":4}},{\"id\":\"cn_etapa_6\",\"type\":\"card\",\"data\":{\"card_name\":\"6. Control y reportes\",\"col\":4}},{\"id\":\"cn_flujo_historico\",\"type\":\"paragraph\",\"data\":{\"text\":\"En modalidad histórica, cree el período y cargue las aplicaciones; no se requiere cobranza ni deducción. El depósito y su detalle pueden recibirse después, incluso en otro mes.\",\"col\":12}}]",
   "creation": "2026-09-22 00:00:00.000000",
   "custom_blocks": [],
   "docstatus": 0,
@@ -13,10 +13,10 @@
   "label": "Conciliacion Credinomina",
   "links": [
     {
-      "description": "1. Cargue el corte mensual de cartera, cree el período y cargue la cobranza; aquí se validan clientes y empresas.",
+      "description": "Revise el corte mensual y los catálogos. La cartera crea las empresas y clientes faltantes con convenio válido.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Preparación y cobranza",
+      "label": "1. Preparación",
       "link_count": 4,
       "link_type": "DocType",
       "onboard": 0,
@@ -25,7 +25,17 @@
     {
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Empresas",
+      "label": "Cortes mensuales de cartera",
+      "link_count": 0,
+      "link_to": "CN Credit Portfolio Snapshot",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Empresas y alias",
       "link_count": 0,
       "link_to": "CN Employer",
       "link_type": "DocType",
@@ -45,29 +55,19 @@
     {
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Cortes mensuales de cartera",
+      "label": "Cuentas bancarias",
       "link_count": 0,
-      "link_to": "CN Credit Portfolio Snapshot",
+      "link_to": "CN Bank Account",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
     },
     {
+      "description": "Cree el período, cargue la cobranza y después el detalle de deducción de la empresa en ese mismo documento.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Períodos de conciliación",
-      "link_count": 0,
-      "link_to": "CN Reconciliation Period",
-      "link_type": "DocType",
-      "onboard": 0,
-      "type": "Link"
-    },
-    {
-      "description": "3. Importe aplicaciones del core; 4. registre cada depósito y cargue su detalle cuando llegue. Revise repartos, partidas y excedentes.",
-      "hidden": 0,
-      "is_query_report": 0,
-      "label": "Conciliación de depósitos",
-      "link_count": 4,
+      "label": "2. Cobranza y deducciones",
+      "link_count": 1,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -75,12 +75,42 @@
     {
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Importaciones de fuentes",
+      "label": "Períodos: cobranza y deducciones",
+      "link_count": 0,
+      "link_to": "CN Reconciliation Period",
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "description": "Cargue los movimientos contables por empresa y concilie sus aplicaciones con el período.",
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "3. Aplicaciones del core",
+      "link_count": 1,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Movimientos contables / aplicaciones",
       "link_count": 0,
       "link_to": "CN Source Import",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
+    },
+    {
+      "description": "Registre el depósito, cargue su detalle cuando llegue y asigne las partidas pendientes. Puede cubrir varios períodos.",
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "4. Depósitos y distribución",
+      "link_count": 1,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
     },
     {
       "hidden": 0,
@@ -93,11 +123,21 @@
       "type": "Link"
     },
     {
+      "description": "Documente diferencias y dé seguimiento a excepciones y partidas complementarias antes del cierre.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Cuentas bancarias",
+      "label": "5. Diferencias y seguimiento",
+      "link_count": 2,
+      "link_type": "DocType",
+      "onboard": 0,
+      "type": "Card Break"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Excepciones",
       "link_count": 0,
-      "link_to": "CN Bank Account",
+      "link_to": "CN Reconciliation Exception",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
@@ -113,11 +153,11 @@
       "type": "Link"
     },
     {
-      "description": "Revise saldos, excepciones y diferencias de conciliación.",
+      "description": "Revise la conciliación, los saldos pendientes y el resultado de cada período antes de cerrarlo.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Control y consultas",
-      "link_count": 6,
+      "label": "6. Control y reportes",
+      "link_count": 5,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -135,31 +175,9 @@
     {
       "hidden": 0,
       "is_query_report": 1,
-      "label": "Estado de cuenta operativo",
-      "link_count": 0,
-      "link_to": "Estado de Cuenta Operativo",
-      "link_type": "Report",
-      "onboard": 0,
-      "type": "Link",
-      "report_ref_doctype": "CN Reconciliation Period"
-    },
-    {
-      "hidden": 0,
-      "is_query_report": 1,
       "label": "Resumen de conciliación",
       "link_count": 0,
       "link_to": "Resumen de Conciliacion",
-      "link_type": "Report",
-      "onboard": 0,
-      "type": "Link",
-      "report_ref_doctype": "CN Reconciliation Period"
-    },
-    {
-      "hidden": 0,
-      "is_query_report": 1,
-      "label": "Antigüedad de saldos",
-      "link_count": 0,
-      "link_to": "Antiguedad de Saldos",
       "link_type": "Report",
       "onboard": 0,
       "type": "Link",
@@ -178,16 +196,28 @@
     },
     {
       "hidden": 0,
-      "is_query_report": 0,
-      "label": "Excepciones",
+      "is_query_report": 1,
+      "label": "Antigüedad de saldos por cliente",
       "link_count": 0,
-      "link_to": "CN Reconciliation Exception",
-      "link_type": "DocType",
+      "link_to": "Antiguedad de Saldos",
+      "link_type": "Report",
       "onboard": 0,
-      "type": "Link"
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Estado de cuenta",
+      "link_count": 0,
+      "link_to": "Estado de Cuenta Operativo",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
     }
   ],
-  "modified": "2026-09-30 23:59:59.000000",
+  "modified": "2026-09-30 23:43:04.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",
@@ -211,10 +241,10 @@
   "shortcuts": [
     {
       "color": "Blue",
-      "doc_view": "List",
-      "label": "Control de Credinómina",
-      "link_to": "control-credinomina",
-      "type": "Page"
+      "doc_view": "New",
+      "label": "Cargar corte de cartera",
+      "link_to": "CN Credit Portfolio Snapshot",
+      "type": "DocType"
     },
     {
       "color": "Green",
@@ -226,45 +256,19 @@
     {
       "color": "Green",
       "doc_view": "New",
-      "label": "Importar fuentes",
+      "label": "Cargar aplicaciones",
       "link_to": "CN Source Import",
-      "type": "DocType"
-    },
-    {
-      "color": "Blue",
-      "doc_view": "New",
-      "label": "Cargar corte de cartera",
-      "link_to": "CN Credit Portfolio Snapshot",
       "type": "DocType"
     },
     {
       "color": "Purple",
       "doc_view": "New",
-      "label": "Distribuir depósito",
+      "label": "Registrar depósito",
       "link_to": "CN Remittance Allocation",
-      "type": "DocType"
-    },
-    {
-      "color": "Orange",
-      "label": "Estado de cuenta",
-      "link_to": "Estado de Cuenta Operativo",
-      "type": "Report"
-    },
-    {
-      "color": "Red",
-      "doc_view": "List",
-      "label": "Excepciones",
-      "link_to": "CN Reconciliation Exception",
-      "type": "DocType"
-    },
-    {
-      "color": "Grey",
-      "doc_view": "List",
-      "label": "Partidas complementarias",
-      "link_to": "CN Complementary Item",
       "type": "DocType"
     }
   ],
   "title": "Conciliacion Credinomina",
+  "type": "Workspace",
   "restrict_to_domain": ""
 }

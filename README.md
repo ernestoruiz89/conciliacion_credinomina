@@ -168,6 +168,13 @@ configure el idioma del usuario como español. El Workspace
 **Conciliación Credinómina** está en `/app/conciliacion-credinomina` y reúne
 el tablero, la operación, las excepciones y los reportes. También está
 disponible la página `/app/control-credinomina`.
+Los accesos del workspace siguen seis etapas: preparación, cobranza y
+deducciones, aplicaciones del core, depósitos, diferencias y seguimiento,
+y control y reportes. Los cuatro accesos rápidos permiten cargar cartera,
+crear período, cargar aplicaciones y registrar depósito. Cobranza y detalle
+de deducción se gestionan dentro del mismo período; en histórico se omiten
+esas dos cargas. Al migrar se reorganizan los accesos de la app conservando
+los enlaces y bloques adicionales del sitio, sin modificar roles ni saldos.
 
 ## Primer uso
 

@@ -3,7 +3,10 @@
 import csv
 import json
 import unittest
+from copy import deepcopy
 from pathlib import Path
+
+from credinomina_reconciliation.patches.v1_0.order_workspace_by_workflow import build_layout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,18 +82,63 @@ class WorkspaceTest(unittest.TestCase):
     def test_client_catalog_is_in_preparation_card(self):
         links = self.workspace["links"]
         start = next(index for index, item in enumerate(links)
-                     if item["type"] == "Card Break" and item["label"] == "Preparación y cobranza")
+                     if item["type"] == "Card Break" and item["label"] == "1. Preparación")
         end = next((index for index in range(start + 1, len(links))
                     if links[index]["type"] == "Card Break"), len(links))
         self.assertIn("CN Client", {item.get("link_to") for item in links[start + 1:end]})
 
-    def test_bank_accounts_are_in_remittance_card(self):
+    def test_bank_accounts_are_in_preparation_card(self):
         links = self.workspace["links"]
         start = next(index for index, item in enumerate(links)
-                     if item["type"] == "Card Break" and item["label"] == "Conciliación de depósitos")
+                     if item["type"] == "Card Break" and item["label"] == "1. Preparación")
         end = next((index for index in range(start + 1, len(links))
                     if links[index]["type"] == "Card Break"), len(links))
         self.assertIn("CN Bank Account", {item.get("link_to") for item in links[start + 1:end]})
+
+    def test_workflow_order_and_primary_actions(self):
+        self.assertEqual([
+            "1. Preparación", "2. Cobranza y deducciones", "3. Aplicaciones del core",
+            "4. Depósitos y distribución", "5. Diferencias y seguimiento", "6. Control y reportes",
+        ], [block["data"]["card_name"] for block in self.blocks if block["type"] == "card"])
+        self.assertEqual([
+            "CN Credit Portfolio Snapshot", "CN Reconciliation Period",
+            "CN Source Import", "CN Remittance Allocation",
+        ], [row["link_to"] for row in self.workspace["shortcuts"]])
+        self.assertTrue(all(row["doc_view"] == "New" for row in self.workspace["shortcuts"]))
+        self.assertNotIn("Importar fuentes", self.workspace["content"])
+
+    def test_migration_keeps_custom_navigation_and_is_idempotent(self):
+        current = deepcopy(self.workspace)
+        current["links"].insert(1, {
+            "type": "Link", "label": "Ayuda local", "link_to": "Custom Help", "link_type": "DocType",
+        })
+        current["links"] += [
+            {"type": "Card Break", "label": "Mi equipo", "link_count": 1},
+            {"type": "Link", "label": "Otro reporte", "link_to": "Custom Report", "link_type": "Report"},
+        ]
+        current["shortcuts"].append({"label": "Ayuda local", "link_to": "Custom Help", "type": "DocType"})
+        content = json.loads(current["content"]) + [
+            {"id": "custom_card", "type": "card", "data": {"card_name": "Mi equipo", "col": 4}},
+            {"id": "custom_shortcut", "type": "shortcut", "data": {"shortcut_name": "Ayuda local", "col": 3}},
+            {"id": "custom_text", "type": "paragraph", "data": {"text": "Ayuda del sitio", "col": 12}},
+        ]
+        current["content"] = json.dumps(content)
+        result = build_layout(current, self.workspace)
+        self.assertEqual(result, build_layout(result, self.workspace))
+        self.assertTrue({"Custom Help", "Custom Report"} <= {row.get("link_to") for row in result["links"]})
+        self.assertIn("Ayuda del sitio", result["content"])
+        self.assertEqual({"links", "shortcuts", "content"}, set(result))
+
+    def test_migration_replaces_old_navigation_without_removing_destinations(self):
+        current = deepcopy(self.workspace)
+        current["links"][0]["label"] = "Preparación y cobranza"
+        current["content"] = json.dumps([{
+            "id": "cn_preparacion", "type": "card",
+            "data": {"card_name": "Preparación y cobranza", "col": 4},
+        }])
+        result = build_layout(current, self.workspace)
+        self.assertEqual(self.blocks, json.loads(result["content"]))
+        self.assertEqual(self.workspace["links"], result["links"])
 
 
 if __name__ == "__main__":
