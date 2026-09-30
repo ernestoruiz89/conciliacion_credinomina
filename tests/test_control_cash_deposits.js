@@ -39,6 +39,17 @@ assert.equal(summarizeCash([deposit]).settled, 0);
 assert.equal(summarizeCash([{...deposit, needs_review: true}]).review, 1);
 assert.equal(summarizeCash([{name: "A", total_usd: 0.1}, {name: "B", total_usd: 0.2}]).total_usd, 0.3);
 const breakdown = renderCashDistribution(deposit);
+const personalDetail = renderCashDistribution({...deposit, destinations: [{
+    type: "Créditos", label: "P-MARZO", month: "2025-03", amount_usd: 300,
+    people: [{client_name: "Ana <Pérez>", client_number: "100", loan_number: "1000-1", amount_usd: 200},
+             {client_name: "Luis", client_number: "200", loan_number: "2000-1", amount_usd: 100}],
+}]});
+assert.ok(personalDetail.includes("Distribución por persona"));
+assert.ok(personalDetail.includes("Nro. Cliente") && personalDetail.includes("Asignado US$"));
+assert.ok(personalDetail.includes("Ana &lt;Pérez&gt;") && !personalDetail.includes("Ana <Pérez>"));
+assert.ok(personalDetail.includes("Luis") && personalDetail.includes("1000-1") && personalDetail.includes("2000-1"));
+assert.ok(personalDetail.includes("200.00") && personalDetail.includes("100.00"));
+assert.ok(breakdown.includes("Detalle por persona no disponible"));
 const bankDetail = renderCashDistribution({...deposit, bank_account: 'BANPRO <3268> & C$'});
 assert.ok(bankDetail.includes('Cuenta bancaria'));
 assert.ok(bankDetail.includes('BANPRO &lt;3268&gt; &amp; C$'));

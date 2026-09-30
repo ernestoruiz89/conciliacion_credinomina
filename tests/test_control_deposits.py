@@ -16,6 +16,49 @@ def deposit(**values):
 
 
 class ControlDepositsTests(unittest.TestCase):
+    def test_credit_people_group_by_period_person_and_loan_without_changing_cash(self):
+        d = deposit(amount_usd=100, allocated_usd=100, justified_surplus_usd=0,
+                    result="Conciliado", allocation_detail=[
+                        {"tipo": "Aplicacion historica", "periodo": "P1", "aplicacion_id": "A1", "importe_usd": 20},
+                        {"tipo": "Aplicacion historica", "periodo": "P1", "aplicacion_id": "A2", "importe_usd": 30},
+                        {"tipo": "Cobranza", "periodo": "P2", "fila_id": "R1", "importe_usd": 40},
+                        {"tipo": "Cobranza", "periodo": "P2", "fila_id": "R2", "importe_usd": 10},
+                    ])
+        person = dict(client_name="Ana", client_number="10", loan_number="100-1")
+        row, = cash.build_cash_deposits([d], periods={
+            p: dict(name=p, payroll_month="2025-04-01") for p in ("P1", "P2")}, people={
+                ("H", "P1", "A1"): person, ("H", "P1", "A2"): person,
+                ("C", "P2", "R1"): person,
+                ("C", "P2", "R2"): dict(person, loan_number="101-1"),
+            })
+        first, second = row["destinations"]
+        self.assertEqual(first["people"], [dict(person, amount_usd=50)])
+        self.assertEqual([p["amount_usd"] for p in second["people"]], [40, 10])
+        self.assertEqual(sum(p["amount_usd"] for d in row["destinations"] for p in d["people"]), 100)
+        self.assertEqual(row["credits_usd"], 100)
+        self.assertTrue(row["settled"])
+
+    def test_person_lookup_checks_source_parent_and_collection_period_permissions(self):
+        d = deposit(allocation_detail=[
+            {"tipo": "Aplicacion historica", "periodo": "P1", "aplicacion_id": "A1"},
+            {"tipo": "Aplicacion historica", "periodo": "P1", "aplicacion_id": "A2"},
+            {"tipo": "Cobranza", "periodo": "P1", "fila_id": "R1"},
+            {"tipo": "Cobranza", "periodo": "SECRET", "fila_id": "R2"},
+        ])
+        def get_all(dt, **kw):
+            if dt == "CN Source Row":
+                return [dict(name="A1", parent="VISIBLE", historical_period="P1", client_name="Ana"),
+                        dict(name="A2", parent="HIDDEN", historical_period="P1", client_name="Secreto")]
+            self.assertEqual(kw["filters"]["parent"], ["in", ["P1"]])
+            self.assertEqual(kw["filters"]["row_key"], ["in", ["R1"]])
+            return [dict(parent="P1", row_key="R1", client_name="Luis")]
+        with patch.object(cash.frappe, "has_permission", return_value=True), \
+                patch.object(cash.frappe, "get_all", side_effect=get_all), \
+                patch.object(cash.frappe, "get_list", return_value=["VISIBLE"]):
+            people = cash._load_credit_people([d], {"P1": {}})
+        self.assertEqual(set(people), {("H", "P1", "A1"), ("C", "P1", "R1")})
+        self.assertNotIn("Secreto", str(people))
+
     def test_whole_deposit_not_only_credits_and_receipt_month_not_payroll(self):
         row, = cash.build_cash_deposits([deposit()],
             {"X1": dict(name="X1", category="Cobranza administrativa", period="P1")},

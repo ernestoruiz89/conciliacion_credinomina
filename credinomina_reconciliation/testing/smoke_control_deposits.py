@@ -28,9 +28,22 @@ def run():
         frappe.get_doc({"doctype": "CN Complementary Item", "name": fee_name,
                         "docstatus": 1, "period": periods[1].name,
                         "category": "Cobranza administrativa", "amount_usd": 100}).db_insert()
+        source_name, application_name = f"CASH-SRC-{marker}", f"CASH-APP-{marker}"
+        frappe.get_doc({"doctype": "CN Source Import", "name": source_name,
+                        "employer": employer.name}).db_insert()
+        frappe.get_doc({"doctype": "CN Source Row", "name": application_name,
+                        "parent": source_name, "parenttype": "CN Source Import", "parentfield": "rows",
+                        "historical_period": periods[0].name, "client_name": "Ana Prueba",
+                        "client_number": "100", "loan_number": "1000-1"}).db_insert()
+        row_key = f"CASH-ROW-{marker}"
+        frappe.get_doc({"doctype": "CN Collection Row", "name": row_key, "row_key": row_key,
+                        "parent": periods[1].name, "parenttype": "CN Reconciliation Period",
+                        "parentfield": "collection_rows", "client_name": "Luis Prueba",
+                        "client_number": "200", "loan_number": "2000-1"}).db_insert()
         entries = [
-            {"tipo": "Aplicacion historica", "periodo": periods[0].name, "importe_usd": 300},
-            {"tipo": "Cobranza", "periodo": periods[1].name, "importe_usd": 500},
+            {"tipo": "Aplicacion historica", "periodo": periods[0].name, "importe_usd": 300,
+             "aplicacion_id": application_name},
+            {"tipo": "Cobranza", "periodo": periods[1].name, "importe_usd": 500, "fila_id": row_key},
             {"tipo": "Partida complementaria", "partida": fee_name, "importe_usd": 100},
         ]
         names = []
@@ -58,6 +71,10 @@ def run():
         assert june["total_usd"] == 1000 and june["credits_usd"] == 800
         assert june["other_usd"] == 100 and june["credit_balance_usd"] == 100
         assert june["shared"] and len(june["destinations"]) == 3
+        assert june["destinations"][0]["people"] == [dict(
+            client_name="Ana Prueba", client_number="100", loan_number="1000-1", amount_usd=300)]
+        assert june["destinations"][1]["people"] == [dict(
+            client_name="Luis Prueba", client_number="200", loan_number="2000-1", amount_usd=500)]
         assert not june["settled"] and not june["needs_review"]
         next_year = get_control_data(2026, employer.name)
         assert next_year["periods"] == []
@@ -68,6 +85,7 @@ def run():
         assert {d["name"] for d in all_years["cash_deposits"]} == set(names)
         assert sum(d["total_usd"] for d in all_years["cash_deposits"]) == 2000
         return {"receipt_month_independent": True, "cross_year": True,
+                "credit_destinations_by_person": True,
                 "full_distribution": [800, 100, 100], "draft_cancelled_excluded": True,
                 "rolled_back": True}
     finally:

@@ -52,17 +52,59 @@ def get_cash_deposits(year, employer=None):
                 fields=["name", "payroll_month"], limit_page_length=0,
             ):
                 periods[period["name"]] = period
-    return build_cash_deposits(deposits, items, periods)
+    people = _load_credit_people(deposits, periods)
+    return build_cash_deposits(deposits, items, periods, people)
 
 
-def build_cash_deposits(deposits, items=None, periods=None):
+def _credit_key(entry):
+    if entry.get("tipo") == "Aplicacion historica":
+        return ("H", entry.get("periodo"), entry.get("aplicacion_id"))
+    return ("C", entry.get("periodo"), entry.get("fila_id"))
+
+
+def _load_credit_people(deposits, periods):
+    """Resolve child identities in batches, honoring their parent permissions."""
+    wanted = {_credit_key(e) for d in deposits for e in _entries(d.get("allocation_detail"))
+              if e.get("tipo") in {"Cobranza", "Aplicacion historica"}
+              and e.get("periodo") in periods}
+    result = {}
+    fields = ["client_name", "client_number", "loan_number"]
+    historical_ids = sorted({key[2] for key in wanted if key[0] == "H" and key[2]})
+    if historical_ids and frappe.has_permission("CN Source Import", "read"):
+        for offset in range(0, len(historical_ids), 500):
+            rows = frappe.get_all("CN Source Row", filters={
+                "name": ["in", historical_ids[offset:offset + 500]],
+                "parenttype": "CN Source Import", "parentfield": "rows",
+            }, fields=["name", "parent", "historical_period", *fields], limit_page_length=0)
+            parents = sorted({r["parent"] for r in rows})
+            allowed = set(frappe.get_list("CN Source Import", filters={"name": ["in", parents]},
+                                         pluck="name", limit_page_length=0)) if parents else set()
+            for row in rows:
+                key = ("H", row.get("historical_period"), row["name"])
+                if row["parent"] in allowed and key in wanted:
+                    result[key] = {field: row.get(field) for field in fields}
+    collection_ids = sorted({key[2] for key in wanted if key[0] == "C" and key[2]})
+    for offset in range(0, len(collection_ids), 500):
+        for row in frappe.get_all("CN Collection Row", filters={
+            "row_key": ["in", collection_ids[offset:offset + 500]],
+            "parent": ["in", sorted(periods)], "parenttype": "CN Reconciliation Period",
+            "parentfield": "collection_rows",
+        }, fields=["row_key", "parent", *fields], limit_page_length=0):
+            key = ("C", row["parent"], row["row_key"])
+            if key in wanted:
+                result[key] = {field: row.get(field) for field in fields}
+    return result
+
+
+def build_cash_deposits(deposits, items=None, periods=None, people=None):
     """Actual allocations classify cash; planned/manual targets do not settle it."""
-    items, periods = items or {}, periods or {}
+    items, periods, people = items or {}, periods or {}, people or {}
     output = []
     for deposit in {d["name"]: d for d in deposits}.values():
         credits, other, adjustments = money(0), money(0), money(0)
         related, months = set(), set()
         destinations = {}
+        credit_details = {}
         for entry in _entries(deposit.get("allocation_detail")):
             period = entry.get("periodo") or items.get(entry.get("partida"), {}).get("period")
             if period:
@@ -88,6 +130,18 @@ def build_cash_deposits(deposits, items=None, periods=None):
             if kind and amount:
                 key = (kind, label, month)
                 destinations[key] = destinations.get(key, money(0)) + amount
+                if kind == "Créditos":
+                    person = people.get(_credit_key(entry), {})
+                    # Never merge different unknown clients or different credits.
+                    identity = (person.get("client_number") or person.get("client_name")
+                                or _credit_key(entry), person.get("loan_number") or "")
+                    details = credit_details.setdefault(key, {})
+                    detail = details.setdefault(identity, {
+                        "client_name": person.get("client_name") or "Cliente no disponible",
+                        "client_number": person.get("client_number") or "",
+                        "loan_number": person.get("loan_number") or "", "amount_usd": money(0),
+                    })
+                    detail["amount_usd"] += amount
         total = money(deposit.get("amount_usd"))
         allocated = money(deposit.get("allocated_usd"))
         credit_balance = money(deposit.get("justified_surplus_usd"))
@@ -114,7 +168,9 @@ def build_cash_deposits(deposits, items=None, periods=None):
             "result": result, "needs_review": needs_review,
             "settled": not needs_review and credit_balance == 0 and result == "Conciliado",
             "shared": len(related) > 1, "payroll_months": sorted(months),
-            "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount)}
+            "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount),
+                              "people": [{**person, "amount_usd": float(person["amount_usd"])}
+                                         for person in credit_details.get((kind, label, month), {}).values()]}
                              for (kind, label, month), amount in destinations.items()],
         })
     return output

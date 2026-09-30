@@ -629,11 +629,22 @@ function renderCashDistribution(deposit) {
         <p>${esc(__("Depositado total"))}: <strong>${money(deposit.total_usd)}</strong>${deposit.currency && deposit.currency !== "USD" ? ` · ${esc(__("Original"))}: ${esc(deposit.currency)} ${original}` : ""}</p>
         <p><span class="cn-badge">${esc(cashStatus(deposit))}</span> · ${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</p>
         <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
-            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
+            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>${renderCreditPeople(item)}`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total del depósito"))}</th><th class="cn-number">${money(deposit.total_usd)}</th></tr></tfoot></table></div>
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
         <p class="text-muted">${esc(__("Solo se muestran distribuciones realizadas. Seleccionar un destino sin conciliarlo no aplica el dinero."))}</p>
     </div>`;
+}
+
+function renderCreditPeople(destination) {
+    if (destination.type !== "Créditos") return "";
+    const people = destination.people || [];
+    if (!people.length) return `<tr><td colspan="4" class="text-muted">${esc(__("Detalle por persona no disponible"))}</td></tr>`;
+    return `<tr><td colspan="4"><table class="cn-detail-table cn-credit-people">
+        <caption>${esc(__("Distribución por persona"))} · ${esc(destination.label)}</caption>
+        <thead><tr><th>${esc(__("Cliente"))}</th><th>${esc(__("Nro. Cliente"))}</th><th>${esc(__("Nro. Crédito"))}</th><th>${esc(__("Asignado US$"))}</th></tr></thead>
+        <tbody>${people.map(person => `<tr><td>${esc(person.client_name || __("Cliente no disponible"))}</td><td>${esc(person.client_number || "—")}</td><td>${esc(person.loan_number || "—")}</td><td class="cn-number">${money(person.amount_usd)}</td></tr>`).join("")}</tbody>
+    </table></td></tr>`;
 }
 
 function money(value) {
