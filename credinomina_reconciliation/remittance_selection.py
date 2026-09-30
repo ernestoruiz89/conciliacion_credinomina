@@ -47,9 +47,10 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
     for row in targets:
         key = target_key(row)
         # Even an incomplete manual row consumes budget until the user edits it.
-        manual[key] += max(money(row.get("amount_usd")), money(0))
+        manual[key] += money(row.get("amount_usd"))
     reserved = other_current_cash + sum(
-        (max(current_paid[key], manual[key]) for key in current_paid.keys() | manual.keys()),
+        ((min if min(current_paid[key], manual[key]) < 0 else max)(current_paid[key], manual[key])
+         for key in current_paid.keys() | manual.keys()),
         money(0),
     )
     available = max(money(amount_usd) - reserved, money(0))

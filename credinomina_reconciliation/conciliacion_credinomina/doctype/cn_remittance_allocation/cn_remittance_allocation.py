@@ -92,6 +92,14 @@ class CNRemittanceAllocation(Document):
         assigned = decimal_value(0)
         for target in self.targets or []:
             self._validate_target(target)
+            detail_row = next((row for row in self.detail_rows or []
+                               if row.name == target.get("detail_row")), None)
+            if target.get("detail_row") and not detail_row:
+                frappe.throw(_("La fila de detalle vinculada ya no existe en este depósito. Quite el vínculo y vuelva a seleccionar la fila."))
+            target.detail_row_label = (
+                _("Fila {0} · {1}").format(detail_row.source_row or detail_row.idx, detail_row.client_name)
+                if detail_row else ""
+            )
             target_period = target.period
             if target.historical_application:
                 target_period = frappe.db.get_value(
@@ -120,8 +128,8 @@ class CNRemittanceAllocation(Document):
         target.amount_usd = money(target.amount_usd)
         target.row_key = clean_text(target.row_key)
         target.historical_application = clean_text(target.historical_application)
-        if money(target.amount_usd) <= 0:
-            frappe.throw(_("El importe a distribuir debe ser mayor que cero."))
+        if not money(target.amount_usd) or (money(target.amount_usd) < 0 and not target.complementary_item):
+            frappe.throw(_("Solo una partida complementaria puede tener importe negativo; el importe no puede ser cero."))
         collection_target = bool(target.row_key)
         target_count = sum(
             bool(value)
@@ -164,10 +172,12 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("No combine una partida complementaria con una fila de cobranza."))
             complementary = frappe.db.get_value(
                 "CN Complementary Item", target.complementary_item,
-                ["docstatus", "period"], as_dict=True,
+                ["docstatus", "period", "amount_usd"], as_dict=True,
             )
             if not complementary or complementary.docstatus != 1:
                 frappe.throw(_("Confirme primero la partida complementaria."))
+            if money(target.amount_usd) * money(complementary.amount_usd) <= 0 or abs(money(target.amount_usd)) > abs(money(complementary.amount_usd)):
+                frappe.throw(_("El destino debe tener el signo de la partida complementaria y no superar su importe."))
             if complementary.period and frappe.db.get_value(
                 "CN Reconciliation Period", complementary.period, "status"
             ) == "Cerrado":
@@ -230,7 +240,7 @@ class CNRemittanceAllocation(Document):
             return True
         target_fields = (
             "period", "row_key", "historical_application", "complementary_item",
-            "amount_usd",
+            "amount_usd", "detail_row",
         )
         current_targets = [
             tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
@@ -254,6 +264,42 @@ class CNRemittanceAllocation(Document):
         )
 
         return reconcile_all_sources()
+
+
+@frappe.whitelist(methods=["POST"])
+def create_complementary_item(remittance_name: str, modified: str, values):
+    """Create, confirm and attach a complement in one permission-checked transaction."""
+    frappe.db.sql("select name from `tabCN Remittance Allocation` where name=%s for update", (remittance_name,))
+    document = frappe.get_doc("CN Remittance Allocation", remittance_name)
+    document.check_permission("write")
+    if document.docstatus == 2:
+        frappe.throw(_("El depósito está cancelado."))
+    document._assert_open_related_periods()
+    if str(document.modified) != str(modified):
+        frappe.throw(_("El depósito cambió. Recárguelo antes de crear la partida."))
+    if not frappe.has_permission("CN Complementary Item", "create") or not frappe.has_permission("CN Complementary Item", "submit"):
+        frappe.throw(_("Necesita permisos para crear y confirmar partidas complementarias."), frappe.PermissionError)
+    values = frappe.parse_json(values) if isinstance(values, str) else values
+    if not isinstance(values, dict):
+        frappe.throw(_("Los datos de la partida no son válidos."))
+    item = frappe.new_doc("CN Complementary Item")
+    for field in ("category", "voucher", "voucher_line", "posting_date", "currency", "amount",
+                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description"):
+        if field in values:
+            item.set(field, values[field])
+    item.reference = document.deposit_reference
+    item.employer = document.employer
+    if item.period and frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
+        frappe.throw(_("El período está cerrado."))
+    item.flags.defer_reconciliation = True
+    item.insert()
+    item.submit()
+    document.append("targets", {
+        "complementary_item": item.name, "amount_usd": item.amount_usd,
+        "notes": item.description,
+    })
+    document.save()
+    return {"name": item.name, "accounting_status": item.accounting_status}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -300,6 +346,10 @@ def import_remittance_detail(remittance_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
     document.set("detail_rows", [])
+    # Reimport creates new row identities; prior manual evidence must be reviewed.
+    for target in document.targets or []:
+        target.detail_row = ""
+        target.detail_row_label = ""
     clients = load_client_index()
     for record in records:
         client, identity_reason = choose_client(record, clients, document.employer)

@@ -35,10 +35,11 @@ def allocate_cash(
     ledger = []
     instruction_results = {}
     blocked_deposits = {str(value) for value in blocked_deposit_ids}
+    instructions = list(instructions)
 
     def book(deposit_id: str, claim_id: str, amount: float, origin: str):
         amount = money(amount)
-        if amount <= CAPACITY_EPSILON:
+        if abs(amount) <= CAPACITY_EPSILON:
             return
         deposit_left[deposit_id] = money(deposit_left[deposit_id] - amount)
         claim_left[claim_id] = money(claim_left[claim_id] - amount)
@@ -51,9 +52,47 @@ def allocate_cash(
             }
         )
 
+    # Signed adjustments are explicit and atomic per deposit. Validate the whole
+    # group before increasing its available balance with a negative complement.
+    signed_deposits = {str(row.get("deposit_id") or "") for row in instructions
+                       if money(row.get("amount_usd")) < 0}
+    for deposit_id in sorted(signed_deposits):
+        group = [row for row in instructions if str(row.get("deposit_id") or "") == deposit_id]
+        totals = {}
+        error = ""
+        for row in group:
+            claim_id = str(row.get("claim_id") or "")
+            amount = money(row.get("amount_usd"))
+            claim = claims.get(claim_id)
+            if deposit_id not in deposits or not claim:
+                error = "Falta deposito o cobranza"
+                break
+            if (not amount or (amount < 0 and claim.get("kind") != "X")
+                    or amount * money(claim["amount_usd"]) <= 0):
+                error = "Signo o importe complementario invalido"
+                break
+            if claim.get("group") and deposits[deposit_id].get("group") and claim["group"] != deposits[deposit_id]["group"]:
+                error = "Empresa no coincide"
+                break
+            totals[claim_id] = totals.get(claim_id, money(0)) + amount
+        net = sum(totals.values(), money(0))
+        if not error and (net < 0 or net > deposit_left[deposit_id] + CAPACITY_EPSILON):
+            error = "Distribucion neta fuera del importe del deposito"
+        if not error and any(abs(amount) > abs(claim_left[key]) + CAPACITY_EPSILON
+                             or amount * claim_left[key] <= 0 for key, amount in totals.items()):
+            error = "Excede cobranza o partida complementaria"
+        if error:
+            blocked_deposits.add(deposit_id)
+        for row in group:
+            instruction_results[str(row["id"])] = error or "Aplicada"
+            if not error:
+                book(deposit_id, str(row["claim_id"]), row["amount_usd"], "Manual")
+
     for instruction in instructions:
         name = str(instruction["id"])
         deposit_id = str(instruction.get("deposit_id") or "")
+        if deposit_id in signed_deposits:
+            continue
         claim_id = str(instruction.get("claim_id") or "")
         amount = money(instruction.get("amount_usd"))
         if deposit_id not in deposits or claim_id not in claims:

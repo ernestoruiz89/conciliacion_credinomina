@@ -8,6 +8,9 @@ frappe.ui.form.on("CN Remittance Allocation", {
         renderRemittanceAllocations(frm);
         toggleRemittanceDetailActions(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
+        frm.toggle_display("create_complementary", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
+        frm.toggle_display("link_detail_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write") &&
+            !!(frm.doc.detail_rows || []).length && !!(frm.doc.targets || []).length);
         frm.toggle_display("select_detail_credit", !frm.is_new() && frm.doc.docstatus !== 2 &&
             !!frm.get_perm(0, "write") && !!(frm.doc.detail_rows || []).length);
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
@@ -38,6 +41,8 @@ frappe.ui.form.on("CN Remittance Allocation", {
     download_detail_template: downloadRemittanceTemplate,
     load_deposit_detail: importRemittanceDetail,
     select_detail_credit: selectRemittanceDetailCredit,
+    link_detail_targets: linkRemittanceDetailTargets,
+    create_complementary: createRemittanceComplementary,
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
@@ -65,6 +70,131 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+async function createRemittanceComplementary(frm) {
+    if (frm.is_new() || frm.is_dirty()) await frm.save();
+    let busy = false;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Crear partida complementaria"), size: "large",
+        fields: [
+            {fieldtype: "HTML", options: `<p>Use un importe positivo para un depósito mayor que la aplicación y negativo cuando falta depósito.
+                Por ejemplo: aplicado US$90, depósito US$100 → +US$10; aplicado US$100, depósito US$90 → −US$10.
+                Si usa un importe negativo, agréguelo antes de seleccionar las aplicaciones restantes.</p>`},
+            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación", default: "Ajuste de conciliación", reqd: 1},
+            {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
+            {fieldtype: "Column Break"},
+            {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", reqd: 1},
+            {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __("Importe (+ / −)"), precision: 2, reqd: 1},
+            {fieldname: "fx_rate", fieldtype: "Float", label: __("Tipo de cambio C$/US$"), precision: 8, default: frm.doc.fx_rate,
+                depends_on: "eval:doc.currency === 'NIO'", mandatory_depends_on: "eval:doc.currency === 'NIO'"},
+            {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
+            {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), reqd: 1},
+            {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable (opcional)"), description: __("Sin asiento quedará pendiente de registro contable. Puede completarlo después en la partida.")},
+            {fieldname: "voucher_line", fieldtype: "Data", label: __("Línea del asiento")},
+            {fieldtype: "Section Break", label: __("Vínculo con cliente (opcional)"), collapsible: 1},
+            {fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period", label: __("Período"),
+                get_query: () => ({filters: {employer: frm.doc.employer, status: ["!=", "Cerrado"]}})},
+            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente")},
+            {fieldtype: "Column Break"},
+            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito")},
+            {fieldname: "installment_number", fieldtype: "Data", label: __("Nro. Cuota")},
+        ],
+        primary_action_label: __("Crear, confirmar y agregar a destinos"),
+        primary_action: async values => {
+            if (busy) return;
+            busy = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                const response = await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.create_complementary_item",
+                    args: {remittance_name: frm.doc.name, modified: frm.doc.modified, values},
+                    freeze: true, freeze_message: __("Creando partida y destino…"),
+                });
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.msgprint({title: __("Partida agregada"), message: `${frappe.utils.escape_html(response.message.name)} · ${frappe.utils.escape_html(response.message.accounting_status)}.<br>Complete los destinos y use Conciliar.`});
+            } finally {
+                busy = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
+    });
+    dialog.show();
+}
+
+async function linkRemittanceDetailTargets(frm) {
+    if (frm.is_new() || frm.is_dirty()) await frm.save();
+    const rows = frm.doc.detail_rows || [];
+    const targets = frm.doc.targets || [];
+    if (!rows.length || !targets.length) {
+        frappe.msgprint(__("Cargue el detalle y agregue los destinos antes de vincularlos."));
+        return;
+    }
+    const labels = new Map(rows.map(row => [
+        `Fila ${row.source_row || row.idx} · ${row.client_name || "Sin nombre"} · ${row.loan_number || "Sin crédito"} · US$ ${remittanceMoney(row.deducted_usd)} / C$ ${remittanceMoney(row.deducted_nio)}`,
+        row.name,
+    ]));
+    let dialog, busy = false;
+    function loadTargets() {
+        if (!dialog) return;
+        const rowName = labels.get(dialog.get_value("detail"));
+        const grid = dialog.fields_dict.destinations;
+        grid.df.data = targets.filter(target => !target.detail_row || target.detail_row === rowName).map(target => ({
+            target_id: target.name,
+            linked: target.detail_row === rowName ? 1 : 0,
+            destination: target.notes || target.historical_application || target.complementary_item ||
+                `${target.period || ""} · ${target.row_key || ""}`,
+            amount_usd: target.amount_usd,
+        }));
+        grid.grid.refresh();
+    }
+    dialog = new frappe.ui.Dialog({
+        title: __("Vincular detalle y destinos"), size: "extra-large",
+        fields: [
+            {fieldname: "detail", fieldtype: "Select", label: __("Fila del detalle"),
+                options: [...labels.keys()], onchange: loadTargets},
+            {fieldname: "help", fieldtype: "HTML", options: `<p class="text-muted">Marque los destinos que cubren esta fila. Puede vincular varias aplicaciones a una fila; sus importes deben sumar el equivalente US$ de la fila.
+                Los destinos vinculados a otra fila no se muestran. Para liberar un destino, seleccione su fila, desmárquelo y guarde.
+                Al cambiar de fila se descartan las marcas sin guardar. Volver a importar el archivo elimina estos vínculos.</p>`},
+            {fieldname: "destinations", fieldtype: "Table", label: __("Destinos del depósito"),
+                cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+                fields: [
+                    {fieldname: "linked", fieldtype: "Check", label: __("Vincular"), in_list_view: 1, columns: 1},
+                    {fieldname: "destination", fieldtype: "Small Text", label: __("Destino"), read_only: 1, in_list_view: 1, columns: 7},
+                    {fieldname: "amount_usd", fieldtype: "Currency", label: __("Asignado US$"), read_only: 1, in_list_view: 1, columns: 2},
+                    {fieldname: "target_id", fieldtype: "Data", hidden: 1},
+                ], data: []},
+        ],
+        primary_action_label: __("Guardar vínculos"),
+        primary_action: async () => {
+            if (busy) return;
+            const rowName = labels.get(dialog.get_value("detail"));
+            if (!rowName) return;
+            const chosen = new Set((dialog.get_value("destinations") || []).filter(row => row.linked).map(row => row.target_id));
+            const detail = rows.find(row => row.name === rowName);
+            for (const target of targets) {
+                if (target.detail_row === rowName || chosen.has(target.name)) {
+                    target.detail_row = chosen.has(target.name) ? rowName : "";
+                    target.detail_row_label = target.detail_row ? `Fila ${detail.source_row || detail.idx} · ${detail.client_name}` : "";
+                }
+            }
+            frm.dirty();
+            frm.refresh_field("targets");
+            busy = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                await frm.save();
+                dialog.hide();
+                frappe.show_alert({message: __("Vínculos guardados. Use Conciliar para validar el detalle y actualizar el resultado."), indicator: "green"});
+            } finally {
+                busy = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
+    });
+    dialog.show();
+    loadTargets();
+}
 
 frappe.ui.form.on("CN Remittance Target", {
     targets_add: renderRemittanceOverview,
@@ -359,7 +489,7 @@ class RemittanceTargetPicker {
             </div>
             ${invalid ? "<div>Revise los importes: deben ser positivos, tener hasta dos decimales y no superar el pendiente ni el disponible.</div>" : ""}
             ${!this.data.available_cents ? "<div>El depósito ya está distribuido o reservado en sus destinos. Revise los destinos existentes.</div>" : ""}
-            <small>Se descuentan las asignaciones ya conciliadas y los destinos existentes, sin contarlos dos veces.</small>
+            <small>El disponible considera las asignaciones conciliadas y los destinos existentes, incluidos los ajustes complementarios negativos.</small>
         </div>`);
         this.dialog.get_primary_btn().prop("disabled", !this.valid());
         this.dialog.fields_dict.items.$wrapper.find("[data-select]:not(:checked)")

@@ -29,15 +29,34 @@ importes permiten un cruce único.
   detalle por cliente identifica automáticamente los destinos; la tabla de
   destinos manuales queda disponible para excepciones. Los repartos ambiguos
   no se adivinan.
+- En **Distribución de Remesa → Destinos**, use **Vincular detalle y destinos**
+  para resolver una fila con las partidas seleccionadas manualmente. Elija la
+  fila, marque uno o varios destinos, guarde y pulse **Conciliar** después de
+  confirmar el depósito. La suma vinculada debe coincidir con el importe de la
+  fila en US$ y los destinos deben corresponder a su cliente y empresa. El
+  resultado reutiliza las asignaciones existentes y deja constancia del vínculo
+  manual. Al volver a importar el archivo se eliminan los vínculos del detalle;
+  los destinos se conservan para revisarlos y vincularlos de nuevo.
 - **Movimientos contables** como única fuente de aplicaciones. El depósito se registra directamente con
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
   hace falta importar el Excel bancario mensual (que mezcla otros depósitos).
 - Aplicaciones y saldos de crédito en **US$**. Una remesa en **C$** se convierte
-  para la conciliación solo con una tasa y evidencia documentadas. Las
+  para la conciliación con la tasa indicada en el depósito. Las
   diferencias cambiarias quedan para revisión de cada caso.
 - **Partidas Complementarias** para importes depositados y contabilizados en
   otro asiento, sin registrarlos ficticiamente como pago del préstamo.
+  En **Distribución de Remesa → Destinos → Crear partida complementaria**, un
+  modal permite crear, confirmar y agregar la partida al depósito en una sola
+  operación (requiere permisos de creación y confirmación de partidas).
+  Use **+10** si se aplicaron US$90 y se depositaron US$100; use **−10** si se
+  aplicaron US$100 y se depositaron US$90. Las partidas negativas se distribuyen
+  explícitamente y el importe neto debe respetar el depósito y los saldos.
+  Agregue primero el ajuste negativo y después seleccione las aplicaciones.
+  El asiento es opcional: la partida queda **Pendiente de registro** hasta
+  completar el campo **Asiento contable**, editable incluso después de confirmar.
+  La lista de partidas incluye el filtro **Pendientes de registro** para dar
+  seguimiento; conciliar la remesa no da por registrado el asiento en el core.
 - **Excedentes de Depósito** separados como saldo a favor documentado de la
   empresa; el excedente sin explicar sigue sin conciliar.
 - Excepciones detectadas antes del depósito, con traslado de comentarios al

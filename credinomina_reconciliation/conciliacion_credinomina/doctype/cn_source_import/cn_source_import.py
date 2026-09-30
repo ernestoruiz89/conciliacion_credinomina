@@ -59,7 +59,7 @@ from credinomina_reconciliation.reconciliation import (
     same_amount,
 )
 from credinomina_reconciliation.rounding import (
-    CASH_EPSILON, decimal_value, money_float, rounding_movements, sum_money,
+    CASH_EPSILON, decimal_value, money, money_float, rounding_movements, sum_money,
 )
 from credinomina_reconciliation.remittance_detail import (
     detail_amount_usd,
@@ -1017,6 +1017,7 @@ def _prepare_remittance_details(
     tolerance_by_employer,
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
+    from credinomina_reconciliation.remittance_detail import manual_detail_targets
     by_deposit = {deposit["id"]: deposit for deposit in deposits}
     names = [item.name for item in remittances]
     detail_rows = frappe.get_all(
@@ -1083,7 +1084,16 @@ def _prepare_remittance_details(
                 "row": row, "amount_usd": amount, "explanation": explanation,
                 "targets": [], "status": "", "reason": "",
             })
-        excessive = total_usd > flt(deposit["amount_usd"]) + CASH_EPSILON
+        # A separately justified shortage can explain a detail larger than cash
+        # received. Linked adjustments are already included in their row's net.
+        outside_negative = money_float(sum(
+            (money(entry["amount_usd"]) for entry in prior_instructions
+             if entry["deposit_id"] == deposit_id and not entry.get("detail_row")
+             and entry["claim_id"].startswith("X:") and money(entry["amount_usd"]) < 0),
+            money(0),
+        ))
+        covered_total = money_float(total_usd + outside_negative)
+        excessive = covered_total > flt(deposit["amount_usd"]) + CASH_EPSILON
         one_to_one_candidate = (
             len([plan for plan in plans if plan["amount_usd"] > CASH_EPSILON]) == 1
             and abs(total_usd - flt(deposit["amount_usd"])) <= CASH_EPSILON
@@ -1093,20 +1103,32 @@ def _prepare_remittance_details(
         )
         for plan in plans:
             amount = plan["amount_usd"]
+            manual = [entry for entry in prior_instructions
+                      if entry["deposit_id"] == deposit_id
+                      and entry.get("detail_row") == plan["row"].name]
             if clean_text(plan["row"].identity_reason).startswith(("Conflicto", "Nombre ambiguo")):
                 plan["status"] = "Revisar"
                 plan["reason"] = plan["row"].identity_reason
                 continue
             if not amount:
                 plan["status"] = (
-                    "No deducido" if plan["explanation"] == "No deducido"
+                    "No deducido" if plan["explanation"] == "No deducido" and not manual
                     else "Revisar"
                 )
-                plan["reason"] = plan["explanation"]
+                plan["reason"] = ("Hay destinos manuales vinculados a una fila sin importe válido"
+                                  if manual else plan["explanation"])
                 continue
             if excessive:
                 plan["status"] = "Revisar"
                 plan["reason"] = "La suma del detalle supera el depósito"
+                continue
+            if manual:
+                plan["targets"], plan["reason"] = manual_detail_targets(
+                    plan["row"], claims, manual, amount, item.employer, item.detail_period or "",
+                )
+                if not plan["targets"]:
+                    plan["status"] = "Revisar"
+                # These instructions already exist. Only associate their results.
                 continue
             targets, reason = suggest_detail_targets(
                 plan["row"], claims, amount, item.employer,
@@ -1133,7 +1155,7 @@ def _prepare_remittance_details(
                 reserved.add((deposit_id, target["claim_id"]))
         contexts[item.name] = {
             "status": "Detalle supera depósito" if excessive else "",
-            "rows": plans, "total_usd": total_usd,
+            "rows": plans, "total_usd": total_usd, "covered_total_usd": covered_total,
             "deposit_usd": flt(deposit["amount_usd"]),
         }
         if one_to_one_candidate and sum(
@@ -1161,7 +1183,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 if targets:
                     results = [
                         allocation["instruction_results"].get(
-                            "D:" + plan["row"].name + ":" + target["claim_id"],
+                            target.get("instruction_id") or "D:" + plan["row"].name + ":" + target["claim_id"],
                             "Pendiente",
                         )
                         for target in targets
@@ -1189,7 +1211,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     for plan in state["rows"]
                 ):
                     state["status"] = "Revisar filas"
-                elif state["total_usd"] < state["deposit_usd"] - CASH_EPSILON:
+                elif state.get("covered_total_usd", state["total_usd"]) < state["deposit_usd"] - CASH_EPSILON:
                     state["status"] = "Parcial; saldo sin detalle"
                 else:
                     state["status"] = "Conciliado"
@@ -1417,7 +1439,7 @@ def _distribute_deposits(
         filters={"parent": ["in", registered_names]},
         fields=[
             "name", "parent", "period", "row_key", "historical_application",
-            "complementary_item", "amount_usd", "result",
+            "complementary_item", "amount_usd", "result", "detail_row",
         ],
         order_by="parent asc, idx asc",
         limit_page_length=100000,
@@ -1452,7 +1474,8 @@ def _distribute_deposits(
             continue
         instructions.append(
             {"id": item.name, "deposit_id": candidates[0]["id"],
-             "claim_id": claim_id, "amount_usd": flt(item.amount_usd)}
+             "claim_id": claim_id, "amount_usd": flt(item.amount_usd),
+             "detail_row": item.get("detail_row")}
         )
 
     detail_context = _prepare_remittance_details(

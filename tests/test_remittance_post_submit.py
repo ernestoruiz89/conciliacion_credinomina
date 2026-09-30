@@ -65,6 +65,7 @@ class RemittancePostSubmitTests(unittest.TestCase):
         for targets in (
             self.previous.targets + [{"historical_application": "APP-2", "amount_usd": 60}],
             [{"historical_application": "APP-1", "amount_usd": 50}],
+            [{"historical_application": "APP-1", "amount_usd": 40, "detail_row": "ROW-1"}],
             [],
         ):
             with self.subTest(targets=targets):

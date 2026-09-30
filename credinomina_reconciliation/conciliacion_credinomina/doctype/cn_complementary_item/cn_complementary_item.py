@@ -12,16 +12,21 @@ class CNComplementaryItem(Document):
         self.reference = (self.reference or "").strip()
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
-        if money(self.amount) <= 0:
-            frappe.throw(_("El importe complementario debe ser mayor que cero."))
+        self.accounting_status = "Registrada" if self.voucher else "Pendiente de registro"
+        if not money(self.amount):
+            frappe.throw(_("El importe complementario debe ser distinto de cero."))
         if self.currency == "NIO":
-            if flt(self.fx_rate) <= 0 or not (self.fx_evidence or "").strip():
+            if flt(self.fx_rate) <= 0:
                 frappe.throw(
-                    _("Para un asiento en C$ indique la tasa C$ por US$ y su fuente.")
+                    _("Para una partida en C$ indique una tasa C$ por US$ mayor que cero.")
                 )
             self.amount_usd = money_float(decimal_value(self.amount) / decimal_value(self.fx_rate))
-        else:
+        elif self.currency == "USD":
             self.amount_usd = money_float(self.amount)
+        else:
+            frappe.throw(_("Seleccione USD o NIO como moneda de la partida."))
+        if not money(self.amount_usd):
+            frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
         duplicate = frappe.db.get_value(
             self.doctype,
             {
@@ -31,7 +36,7 @@ class CNComplementaryItem(Document):
                 "voucher_line": self.voucher_line,
             },
             "name",
-        )
+        ) if self.voucher else None
         if duplicate:
             frappe.throw(
                 _("El asiento y linea ya estan registrados en {0}.").format(
@@ -46,7 +51,11 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
-        self._reconcile()
+        if not self.flags.get("defer_reconciliation"):
+            self._reconcile()
+
+    def before_update_after_submit(self):
+        self.validate()
 
     def on_cancel(self):
         self._reconcile()

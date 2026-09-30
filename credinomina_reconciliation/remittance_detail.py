@@ -89,6 +89,28 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     return True
 
 
+def manual_detail_targets(row, claims, instructions, amount_usd, employer, period=""):
+    """Validate explicit row links; reuse their instruction IDs without booking twice."""
+    by_id = {claim["id"]: claim for claim in claims}
+    targets = []
+    for instruction in instructions:
+        claim = by_id.get(instruction["claim_id"])
+        if not claim or clean_text(claim.get("group")) != clean_text(employer):
+            return [], "Destino manual inexistente o de otra empresa"
+        if period and clean_text(claim.get("period")) != clean_text(period):
+            return [], "El destino manual no pertenece al período del detalle"
+        if not _candidate_matches(row, claim):
+            return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
+        if (not money(instruction["amount_usd"]) or
+                (money(instruction["amount_usd"]) < 0 and claim.get("kind") != "X")):
+            return [], "Solo las partidas complementarias admiten importes negativos"
+        targets.append({"claim_id": claim["id"], "amount_usd": money_float(instruction["amount_usd"]),
+                        "instruction_id": instruction["id"]})
+    if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
+        return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
+    return targets, "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+
+
 def suggest_detail_targets(
     row: Mapping[str, Any], claims: Iterable[Mapping[str, Any]],
     amount_usd: float, employer: str, period: str = "",
@@ -99,6 +121,7 @@ def suggest_detail_targets(
         claim for claim in claims
         if clean_text(claim.get("group")) == clean_text(employer)
         and (not period or clean_text(claim.get("period")) == clean_text(period))
+        and money(claim.get("amount_usd")) > 0
     ]
     name_only = not any(clean_text(row.get(field)) for field in (
         "loan_number", "client_number", "employee_number", "national_id",
