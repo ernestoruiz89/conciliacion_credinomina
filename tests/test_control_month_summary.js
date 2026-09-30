@@ -4,6 +4,14 @@ const vm = require("node:vm");
 const path = require("node:path");
 const source = fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/page/control_credinomina/control_credinomina.js"), "utf8");
+assert.match(source, /\.cn-period-card \{ font-size: 14px; line-height: 1\.5; \}/);
+const cardTypography = source.match(/((?:\s*\.cn-period-card \.[\w-]+,)+\s*\.cn-period-card \.[\w-]+) \{ font-size: inherit; line-height: inherit; \}/);
+assert.ok(cardTypography, "Month cards must override small calendar fonts");
+for (const name of ["cn-cell-sub", "cn-cell-cycle", "cn-cell-gap", "cn-cell-credit", "cn-badge", "cn-period-remark", "cn-period-card-amounts", "cn-period-card-open"]) {
+    assert.ok(cardTypography[1].includes(`.cn-period-card .${name}`), `Readable font for ${name}`);
+}
+assert.match(source, /\.cn-period-card \.cn-period-card-name \{ font-size: 16px; \}/);
+assert.match(source, /\.cn-period-card \.cn-cell-amount,\s*\.cn-period-card \.cn-period-card-amounts strong \{ font-size: 18px; line-height: 1\.4; \}/);
 const handlers = {};
 let html, refreshPage, dialog;
 const root = {appendTo() { return this; }, html(value) { html = value; return this; },
@@ -63,6 +71,8 @@ const original = JSON.stringify(periods);
     assert.equal((dialog.html.match(/class="cn-period-card /g) || []).length, 2);
     assert.ok(!dialog.html.includes("<table"));
     assert.ok(dialog.html.includes("Primera entrega\nPendiente &lt;soporte&gt; &amp; validación"));
+    assert.ok(dialog.html.includes("<strong>Observaciones</strong>"));
+    assert.ok(!dialog.html.includes("<strong>Remark</strong>"));
     assert.ok(!dialog.html.includes("<soporte>"));
     assert.equal((dialog.html.match(/class="cn-period-remark"/g) || []).length, 1);
     assert.ok(dialog.html.includes("Primera quincena") && dialog.html.includes("Segunda quincena"));

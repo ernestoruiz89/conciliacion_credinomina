@@ -512,7 +512,7 @@ function renderPeriodCard(period) {
 function renderPeriodRemark(period) {
     const remark = String(period.remark || "").trim();
     if (!remark) return "";
-    return `<span class="cn-period-remark"><strong>${esc(__("Remark"))}</strong><span>${esc(remark)}</span></span>`;
+    return `<span class="cn-period-remark"><strong>${esc(__("Observaciones"))}</strong><span>${esc(remark)}</span></span>`;
 }
 
 function summarizeMonth(periods) {
@@ -832,6 +832,19 @@ function styles() {
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
         .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
+        /* Month-dialog cards need readable text, not the calendar's 9px labels. */
+        .cn-period-card { font-size: 14px; line-height: 1.5; }
+        .cn-period-card .cn-cell-sub,
+        .cn-period-card .cn-cell-cycle,
+        .cn-period-card .cn-cell-gap,
+        .cn-period-card .cn-cell-credit,
+        .cn-period-card .cn-badge,
+        .cn-period-card .cn-period-remark,
+        .cn-period-card .cn-period-card-amounts,
+        .cn-period-card .cn-period-card-open { font-size: inherit; line-height: inherit; }
+        .cn-period-card .cn-period-card-name { font-size: 16px; }
+        .cn-period-card .cn-cell-amount,
+        .cn-period-card .cn-period-card-amounts strong { font-size: 18px; line-height: 1.4; }
         /* Keep deposit-dialog typography independent from the compact calendar. */
         .cn-cash-distribution { font-size: 13px; line-height: 1.5; }
         .cn-cash-distribution p,
