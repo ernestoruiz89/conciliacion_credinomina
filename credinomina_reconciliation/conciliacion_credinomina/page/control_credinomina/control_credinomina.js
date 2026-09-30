@@ -101,7 +101,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             [__("Deducción registrada"), totals.deducted_usd, "deducted"],
             [__("Deducción inferida por depósito"), totals.inferred_deduction_usd, "pending"],
             [__("Aplicado al crédito"), totals.applied_usd, "applied"],
-            [__("Remitido"), totals.remitted_usd, "remitted"],
+            [__("Depositado"), totals.remitted_usd, "remitted"],
             [__("Movimientos de conciliación"), totals.rounding_movement_abs_usd, "pending"],
             [__("CxC a empleados (no deducido)"), totals.worker_gap_usd, "gap"],
             [__("Deducido sin depósito asignado"), totals.employer_gap_usd, "gap"],
@@ -158,7 +158,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                         ${ordered.map((period) => `<button type="button" class="cn-cell-button" data-period="${esc(period.name)}">
                             <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
                             <span class="cn-cell-amount">${money(period.remitted_usd)} / ${money(period.reconciliation_mode === "Historica" ? period.applied_usd : period.deducted_usd)}</span>
-                            <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Depósito / aplicación histórica") : __("Remitido / deducido"))}</span>
+                            <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Depositado / aplicado") : __("Depositado / deducido"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
                             ${(period.rounding_movements || []).length ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
@@ -246,7 +246,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const rowTable = (period.rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Cliente"))}</th><th>${esc(__("Crédito / cuota"))}</th><th>${esc(__("Cobranza US$"))}</th><th>${esc(__("Deducido"))}</th><th>${esc(__("CxC empleado US$"))}</th>
-                <th>${esc(__("Aplicado"))}</th><th>${esc(__("Complementario"))}</th><th>${esc(__("Remitido"))}</th><th>${esc(__("Ajuste US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción / antecedente"))}</th><th>${esc(__("Estado"))}</th>
+                <th>${esc(__("Aplicado"))}</th><th>${esc(__("Complementario"))}</th><th>${esc(__("Depositado"))}</th><th>${esc(__("Ajuste US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción / antecedente"))}</th><th>${esc(__("Estado"))}</th>
             </tr></thead><tbody>${period.rows.map((row) => `<tr>
                 <td>${esc(row.client_number)} · ${esc(row.client_name)}</td>
                 <td>${esc(row.loan_number)} / ${esc(row.installment_number)}</td>
@@ -259,7 +259,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td class="cn-number">${signedMoney(row.rounding_adjustment_usd)}</td>
                 <td>${allocationLines(row.remittance_detail)}</td>
                 <td>${row.inherited_exception_comment ? `${esc(__("Trasladada: "))}${esc(row.inherited_exception_comment)}` : row.first_exception_comment ? `${esc(__("Primera conciliación: "))}${esc(row.first_exception_comment)}` : esc(row.application_comment || "—")}</td>
-                <td>${esc(row.application_status || row.deduction_status)}${row.deduction_status === "Inferida por depósito" ? `<br><span class="cn-inherited-note">${esc(__("Deducción inferida, sin detalle de planilla"))}</span>` : ""}</td>
+                <td>${esc(applicationStatusLabel(row.application_status || row.deduction_status))}${row.deduction_status === "Inferida por depósito" ? `<br><span class="cn-inherited-note">${esc(__("Deducción inferida, sin detalle de planilla"))}</span>` : ""}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin detalle de cobranza."))}</div>`;
         const exceptions = (period.exceptions || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
@@ -315,7 +315,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Enviado"))}</div><div class="cn-kpi-value">${money(period.expected_usd)}</div></div>
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Deducido"))}</div><div class="cn-kpi-value">${money(period.deducted_usd)}</div></div>
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Remitido"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
+                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Depositado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("CxC a empleados (no deducido)"))}</div><div class="cn-kpi-value">${money(period.worker_gap_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-pending"><div class="cn-kpi-label">${esc(__("Detalle de empresa pendiente"))}</div><div class="cn-kpi-value">${money(period.pending_detail_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Deducido sin depósito asignado"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
@@ -507,7 +507,7 @@ function renderMonthSummary(periods, employer, month) {
     return `<td class="cn-cell cn-${esc(total.state)}"><button type="button" class="cn-cell-button" data-employer="${esc(employer)}" data-month="${esc(month)}">
         <span class="cn-cell-cycle">${esc(__("Mes completo"))} · ${total.count} ${esc(__("períodos"))}</span>
         <span class="cn-cell-amount">${money(total.remitted_usd)}${total.historical || total.operative ? ` / ${money(compared)}` : ""}</span>
-        <span class="cn-cell-sub">${esc(total.historical ? __("Depósito / aplicación") : total.operative ? __("Remitido / deducido") : __("Depósitos asignados"))}</span>
+        <span class="cn-cell-sub">${esc(total.historical ? __("Depositado / aplicado") : total.operative ? __("Depositado / deducido") : __("Depósitos asignados"))}</span>
         ${!total.historical ? `<span class="cn-cell-sub">${esc(__("Aplicado"))}: ${money(total.applied_usd)}</span>` : ""}
         ${!total.historical && !total.operative ? `<span class="cn-cell-sub">${esc(__("Deducido operativo"))}: ${money(total.deducted_usd)}</span>` : ""}
         <span class="cn-badge">${esc(stateLabel(total.state))}</span>
@@ -541,19 +541,27 @@ function esc(value) {
 }
 
 function stateLabel(state) {
+    // Modality changes the workflow, not the user-facing status vocabulary.
+    const normalized = ({
+        historico_conciliado: "conciliado", historico_parcial: "parcial",
+        historico_pendiente: "en_transito", historico_excedente: "excedente",
+        historico_excepcion: "diferencia",
+    })[state] || state;
     return ({
         conciliado: __("Conciliado"),
         parcial: __("Parcial"),
         diferencia: __("Con diferencia"),
-        excedente: __("Excedente pendiente"),
+        excedente: __("Con excedente"),
         pendiente_detalle: __("Sin detalle"),
-        en_transito: __("En tránsito"),
-        historico_conciliado: __("Histórico conciliado"),
-        historico_parcial: __("Histórico parcial"),
-        historico_pendiente: __("Histórico pendiente"),
-        historico_excedente: __("Histórico con excedente"),
-        historico_excepcion: __("Histórico con excepción"),
-    })[state] || __("Pendiente");
+        en_transito: __("Pendiente"),
+    })[normalized] || __("Pendiente");
+}
+
+function applicationStatusLabel(status) {
+    return ({
+        "Aplicado y remitido": __("Aplicado y depositado"),
+        "Remitido, aplicacion parcial": __("Depositado, aplicación parcial"),
+    })[status] || status;
 }
 
 function cycleOrder(cycle) {
@@ -654,17 +662,12 @@ function styles() {
         .cn-cell-sub, .cn-cell-gap, .cn-cell-credit { display: block; font-size: 9px; margin-top: 3px; }
         .cn-cell-gap { color: #b45309; font-weight: 700; } .cn-cell-credit { color: #7c3aed; font-weight: 700; }
         .cn-badge { display: inline-block; margin-top: 5px; border-radius: 10px; padding: 2px 5px; background: #ffffffaa; font-size: 9px; font-weight: 700; }
-        .cn-conciliado { background: #ecfdf5; border-left: 3px solid #16a34a !important; }
-        .cn-parcial { background: #eff6ff; border-left: 3px solid #2563eb !important; }
-        .cn-diferencia { background: #fffbeb; border-left: 3px solid #d97706 !important; }
-        .cn-en_transito { background: #f8fafc; border-left: 3px solid #94a3b8 !important; }
-        .cn-excedente { background: #faf5ff; border-left: 3px solid #7c3aed !important; }
+        .cn-conciliado, .cn-historico_conciliado { background: #ecfdf5; border-left: 3px solid #16a34a !important; }
+        .cn-parcial, .cn-historico_parcial { background: #eff6ff; border-left: 3px solid #2563eb !important; }
+        .cn-diferencia, .cn-historico_excepcion { background: #fffbeb; border-left: 3px solid #d97706 !important; }
+        .cn-en_transito, .cn-historico_pendiente { background: #fff7ed; border-left: 3px solid #f97316 !important; }
+        .cn-excedente, .cn-historico_excedente { background: #faf5ff; border-left: 3px solid #7c3aed !important; }
         .cn-pendiente_detalle { background: #f8fafc; border-left: 3px solid #64748b !important; }
-        .cn-historico_conciliado { background: #ecfdf5; border-left: 3px solid #059669 !important; }
-        .cn-historico_parcial { background: #eff6ff; border-left: 3px solid #3b82f6 !important; }
-        .cn-historico_pendiente { background: #fff7ed; border-left: 3px solid #f97316 !important; }
-        .cn-historico_excedente { background: #faf5ff; border-left: 3px solid #7c3aed !important; }
-        .cn-historico_excepcion { background: #fef2f2; border-left: 3px solid #dc2626 !important; }
         .cn-empty-cell { text-align: center; padding: 28px 4px !important; color: #cbd5e1; }
         .cn-empty, .cn-loading { padding: 24px; text-align: center; color: #94a3b8; font-size: 12px; }
         .cn-detail-table { width: 100%; border-collapse: collapse; font-size: 11px; }

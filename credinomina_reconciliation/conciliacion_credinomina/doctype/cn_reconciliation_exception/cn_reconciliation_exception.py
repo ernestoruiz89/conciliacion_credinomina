@@ -1,7 +1,8 @@
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import now_datetime
+from frappe.model.naming import getseries
+from frappe.utils import getdate, now_datetime
 
 
 _ACTION_FIELDS = (
@@ -10,7 +11,26 @@ _ACTION_FIELDS = (
 )
 
 
+def new_exception_name(period):
+    prefix, digits = f"CN-EXC-{now_datetime().year}-", 4
+    if period:
+        payroll_month = frappe.db.get_value(
+            "CN Reconciliation Period", period, "payroll_month"
+        )
+        if not payroll_month:
+            frappe.throw(_("El período seleccionado no tiene mes de cobranza."))
+        date = getdate(payroll_month)
+        prefix, digits = f"CN-EXC-{date.month}-{date.year}-", 3
+    while True:
+        name = prefix + getseries(prefix, digits)
+        if not frappe.db.exists("CN Reconciliation Exception", name):
+            return name
+
+
 class CNReconciliationException(Document):
+    def autoname(self):
+        self.name = new_exception_name(self.period)
+
     def validate(self):
         previous = self.get_doc_before_save()
         self._assert_related_periods_open(previous)
