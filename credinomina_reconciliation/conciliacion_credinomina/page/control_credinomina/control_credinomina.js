@@ -305,6 +305,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         dialog.show();
         dialog.get_field("detail").$wrapper.html(`
             <div class="cn-dialog">
+                ${renderPeriodRemark(period)}
                 ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
                 <div class="cn-kpis cn-dialog-kpis">
                     ${historical ? `
@@ -468,6 +469,7 @@ function renderPeriodCard(period) {
         <span class="cn-period-card-name">${esc(period.name)}</span>
         <span class="cn-cell-cycle">${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
         <span class="cn-badge">${esc(stateLabel(period.control_state))}</span>
+        ${renderPeriodRemark(period)}
         <span class="cn-period-card-amounts">
             <span>${esc(__("Aplicado"))}<strong>${money(period.applied_usd)}</strong></span>
             <span>${esc(__("Depósitos asignados"))}<strong>${money(period.remitted_usd)}</strong></span>
@@ -479,6 +481,12 @@ function renderPeriodCard(period) {
             .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(period[field])}</span>`).join("")}
         <span class="cn-period-card-open">${esc(__("Ver detalle del período"))} →</span>
     </button>`;
+}
+
+function renderPeriodRemark(period) {
+    const remark = String(period.remark || "").trim();
+    if (!remark) return "";
+    return `<span class="cn-period-remark"><strong>${esc(__("Remark"))}</strong><span>${esc(remark)}</span></span>`;
 }
 
 function summarizeMonth(periods) {
@@ -630,6 +638,9 @@ function styles() {
         .cn-period-card:hover { box-shadow: 0 3px 12px #0f172a18; }
         .cn-period-card:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
         .cn-period-card-name { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
+        .cn-period-remark { display: block; width: 100%; margin: 10px 0; padding: 8px 10px; border-left: 2px solid var(--gray-400, #94a3b8); background: var(--control-bg, #f8fafc); border-radius: 4px; font-size: 12px; overflow-wrap: anywhere; }
+        .cn-period-remark strong { display: block; margin-bottom: 4px; }
+        .cn-period-remark > span { display: block; white-space: pre-wrap; }
         .cn-period-card-amounts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; margin: 14px 0; font-size: 11px; }
         .cn-period-card-amounts strong { display: block; font-size: 15px; margin-top: 3px; }
         .cn-period-card-open { display: block; margin-top: auto; padding-top: 14px; font-size: 12px; font-weight: 600; color: #2563eb; }

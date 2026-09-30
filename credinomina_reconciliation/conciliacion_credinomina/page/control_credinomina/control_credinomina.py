@@ -146,6 +146,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         "CN Reconciliation Period",
         filters=filters,
         fields=[
+            "remark",
             "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note", "control_cut_summary",
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",

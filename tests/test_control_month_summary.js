@@ -10,7 +10,8 @@ const root = {appendTo() { return this; }, html(value) { html = value; return th
     on(event, selector, callback) { handlers[selector] = callback; return this; }};
 const periods = [
     {name: "P1", employer: "E", month: "2026-09", reconciliation_mode: "Operativa", collection_cycle: "Primera quincena",
-        control_state: "conciliado", remitted_usd: 10.1, deducted_usd: 10.1, applied_usd: 10.1},
+        control_state: "conciliado", remitted_usd: 10.1, deducted_usd: 10.1, applied_usd: 10.1,
+        remark: "Primera entrega\nPendiente <soporte> & validación"},
     {name: "P2", employer: "E", month: "2026-09", reconciliation_mode: "Operativa", collection_cycle: "Segunda quincena",
         control_state: "en_transito", remitted_usd: 0, deducted_usd: 20.2, applied_usd: 20.2, employer_gap_usd: 20.2},
     {name: "P3", employer: "F", month: "2026-09", reconciliation_mode: "Historica", control_state: "historico_pendiente", applied_usd: 70},
@@ -61,6 +62,9 @@ const original = JSON.stringify(periods);
     assert.ok(dialog.html.includes('class="cn-period-cards"'));
     assert.equal((dialog.html.match(/class="cn-period-card /g) || []).length, 2);
     assert.ok(!dialog.html.includes("<table"));
+    assert.ok(dialog.html.includes("Primera entrega\nPendiente &lt;soporte&gt; &amp; validación"));
+    assert.ok(!dialog.html.includes("<soporte>"));
+    assert.equal((dialog.html.match(/class="cn-period-remark"/g) || []).length, 1);
     assert.ok(dialog.html.includes("Primera quincena") && dialog.html.includes("Segunda quincena"));
     const selector = dialog;
     selector.events["[data-month-period]"].call({"data-month-period": "P2"});
@@ -74,6 +78,15 @@ const original = JSON.stringify(periods);
     assert.ok(historicalCard.includes("2026-09-15"));
     assert.ok(historicalCard.includes("&lt;Period&gt;") && !historicalCard.includes("<Period>"));
     assert.ok(!historicalCard.includes(">Deducido<"));
+    for (const [state, label] of [["historico_conciliado", "Conciliado"], ["historico_excepcion", "Con diferencia"]]) {
+        periods[2].control_state = state;
+        handlers["[data-month]"].call({"data-employer": "F", "data-month": "2026-09"});
+        assert.ok(dialog.html.includes(`>${label}</span>`));
+        assert.ok(!/Histórico (conciliado|con excepción)/i.test(dialog.html));
+    }
+    periods[2].control_state = "historico_pendiente";
+    handlers["[data-period]"].call({"data-period": "P1"});
+    assert.ok(dialog.html.includes("Primera entrega\nPendiente &lt;soporte&gt; &amp; validación"));
     handlers["[data-summary]"].call({checked: false});
     assert.ok(!html.includes("data-summary checked"));
     assert.ok(html.includes('data-period="P1"') && html.includes('data-period="P2"'));

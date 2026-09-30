@@ -40,6 +40,12 @@ class ControlYearFilterTests(unittest.TestCase):
             self.assertTrue(matches, dt)
             self.assertTrue(all(value == ["between", ["2025-01-01", "2025-12-31"]] for value in matches))
 
+    def test_period_query_includes_remark_for_month_cards(self):
+        _, queries = self.load(2025)
+        query = next(q for dt, q in queries if dt == "CN Reconciliation Period"
+                     and "name" in q.get("fields", []))
+        self.assertIn("remark", query["fields"])
+
     def test_year_catalog_uses_visible_parents_and_selected_employer(self):
         def get_list(dt, **kwargs):
             self.assertEqual(kwargs["filters"]["employer"], "EMP")
