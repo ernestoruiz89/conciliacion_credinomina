@@ -15,11 +15,12 @@ function form() {
 }
 (async () => {
     let frm = form(); handlers.refresh(frm);
-    rpc = async () => ({message: {row_count: 123}});
+    rpc = async () => ({message: {row_count: 123, created_employer_count: 2, created_client_count: 5}});
     const pending = frm.button(); await frm.button(); await pending;
     assert.deepEqual(order, ["save", "import", "reload"]);
     assert.equal(messages[0].indicator, "orange");
     assert.ok(messages[0].message.includes("123 créditos") && messages[0].message.includes("120"));
+    assert.ok(messages[0].message.includes("Empresas creadas: 2. Clientes creados: 5."));
     assert.equal(frm._cn_importing_portfolio, false);
     for (const status of [0, 500, 502, 504]) {
         messages = []; order = []; frm = form();

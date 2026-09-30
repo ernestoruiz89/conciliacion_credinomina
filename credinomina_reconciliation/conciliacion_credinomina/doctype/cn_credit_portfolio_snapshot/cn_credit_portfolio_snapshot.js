@@ -32,7 +32,10 @@ async function importPortfolioSnapshot(frm) {
             indicator: frm.doc.status === "Importado con alertas" ? "orange" : "green",
             message: __("{0} créditos cargados. Clientes identificados: {1}. Clientes por revisar: {2}.", [
                 frm.doc.row_count || 0, frm.doc.matched_client_count || 0, frm.doc.unmatched_client_count || 0,
-            ]) + (result.unchanged ? " " + __("Este archivo ya estaba importado; se conserva el detalle existente.") : ""),
+            ]) + (result.unchanged ? " " + __("Este archivo ya estaba importado; se conserva el detalle existente.")
+                : " " + __("Empresas creadas: {0}. Clientes creados: {1}.", [
+                    result.created_employer_count || 0, result.created_client_count || 0,
+                ])),
         });
     } catch (error) {
         // A proxy/worker error may return HTML. Never parse it as JSON or inject it

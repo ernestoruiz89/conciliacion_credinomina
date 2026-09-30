@@ -18,12 +18,10 @@ from credinomina_reconciliation.employer_naming import (
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 
 
-def _is_convenio(value):
-    return clean_text(value).casefold() in {"s", "si", "sí", "1", "true", "yes"}
-
-
-def _is_not_convenio(value):
-    return clean_text(value).casefold() in {"n", "no", "0", "false"}
+def has_portfolio_employer(row):
+    """EMPRESA_DE_CONVENIO determines whether to provision company/client masters."""
+    value = "".join(clean_text(row.get("employer_text")).casefold().split())
+    return bool(value) and value not in {"n/a", "#n/a"}
 
 
 def credit_lifecycle(status):
@@ -56,14 +54,17 @@ class PortfolioClientLookup:
         self.by_id = defaultdict(dict)
         self.by_name = defaultdict(dict)
         for client in clients:
-            for index, value in ((self.by_number, client.get("client_number")),
-                                 (self.by_id, client.get("national_id"))):
-                key = canonical_identifier(value)
-                if key:
-                    index[key][client["name"]] = client
-            for key in {name_key(client.get("client_name")),
-                        *(name_key(alias) for alias in client.get("client_aliases", []))} - {""}:
-                self.by_name[key][client["name"]] = client
+            self.add(client)
+
+    def add(self, client):
+        for index, value in ((self.by_number, client.get("client_number")),
+                             (self.by_id, client.get("national_id"))):
+            key = canonical_identifier(value)
+            if key:
+                index[key][client["name"]] = client
+        for key in {name_key(client.get("client_name")),
+                    *(name_key(alias) for alias in client.get("client_aliases", []))} - {""}:
+            self.by_name[key][client["name"]] = client
 
 
 def _client_for_portfolio_row(row, clients, employer):
@@ -102,8 +103,15 @@ def _client_for_portfolio_row(row, clients, employer):
     return None, "No encontrado", "Cliente no registrado"
 
 
-def analyze_portfolio_rows(rows):
-    """Add client/employer checks without creating or changing client records."""
+def analyze_portfolio_rows(rows, created=None):
+    """Resolve masters and provision missing ones within the import transaction.
+
+    The importer checks write permission on the snapshot before calling this
+    internal helper. As with collection imports, master creation is delegated
+    to that workflow; existing masters are never reassigned or overwritten.
+    """
+    created = created if created is not None else {}
+    created.update(employers=0, clients=0)
     clients = PortfolioClientLookup(load_client_index())
     employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
@@ -113,22 +121,46 @@ def analyze_portfolio_rows(rows):
     aliases, ambiguous = employer_alias_index(employers)
 
     for row in rows:
-        convenio = row.get("is_convenio")
-        if _is_not_convenio(convenio):
+        eligible = has_portfolio_employer(row)
+        if not eligible:
             employer, employer_status = "", "No es convenio"
         else:
             employer, employer_status = _employer_for(
                 row.get("employer_text"), aliases, ambiguous
             )
-            if not _is_convenio(convenio) and employer_status == "Empresa identificada":
-                employer_status = "Convenio no confirmado"
+            if employer_status == "Empresa no registrada":
+                label = clean_text(row.get("employer_text"))
+                document = frappe.get_doc({
+                    "doctype": "CN Employer", "employer_name": label,
+                    "employer_code": label,
+                }).insert(ignore_permissions=True)
+                employer, employer_status = document.name, "Empresa identificada"
+                aliases[employer_label_key(label)] = employer
+                created["employers"] += 1
 
         client, match_status, client_status = _client_for_portfolio_row(
             row, clients, employer
         )
+        if eligible and employer and client is None and client_status in {
+            "Cliente no registrado", "Cliente no identificado",
+        }:
+            number = clean_text(row.get("client_number_core"))
+            name = clean_text(row.get("client_name"))
+            if not number or not name:
+                client_status = "No creado: falta nombre o número de cliente SIAF"
+            else:
+                document = frappe.get_doc({
+                    "doctype": "CN Client", "employer": employer,
+                    "client_name": name, "client_number": number,
+                    "national_id": clean_text(row.get("national_id")),
+                }).insert(ignore_permissions=True)
+                client = document.as_dict()
+                clients.add(client)
+                match_status = "Cliente creado desde cartera"
+                created["clients"] += 1
         if not clean_text(row.get("credit_number")):
             client_status = "Fila sin número de crédito"
-        if _is_not_convenio(convenio):
+        if not eligible:
             if clean_text(row.get("credit_number")):
                 client_status = (
                     "Cliente existente; no es convenio"

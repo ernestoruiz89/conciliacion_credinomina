@@ -6,7 +6,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate, now_datetime
 
-from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows
+from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows, has_portfolio_employer
 from credinomina_reconciliation.parsers import (
     SourceFileError,
     file_sha256,
@@ -51,7 +51,7 @@ class CNCreditPortfolioSnapshot(Document):
         self.matched_client_count = sum(bool(row.matched_client) for row in rows)
         self.unmatched_client_count = sum(
             not row.matched_client
-            and str(row.is_convenio or "").strip().casefold() not in {"n", "no", "0", "false"}
+            and has_portfolio_employer(row)
             for row in rows
         )
         self.active_count = sum(row.credit_lifecycle == "Activo" for row in rows)
@@ -93,7 +93,12 @@ def import_portfolio_snapshot(snapshot_name: str):
     digest = file_sha256(content)
     if snapshot.file_hash == digest and snapshot.status in {
         "Importado", "Importado con alertas"
-    } and snapshot.rows and not _has_legacy_numeric_credit_numbers(snapshot.name):
+    } and snapshot.rows and not any(
+        has_portfolio_employer(row) and (
+            not row.employer or not row.matched_client
+            or row.validation_status != "Cliente y empresa validados"
+        ) for row in snapshot.rows
+    ) and not _has_legacy_numeric_credit_numbers(snapshot.name):
         return {"snapshot_name": snapshot.name, "unchanged": True, "row_count": len(snapshot.rows)}
 
     duplicate = frappe.db.get_value(
@@ -116,7 +121,8 @@ def import_portfolio_snapshot(snapshot_name: str):
         snapshot.save()
         frappe.throw(str(exc), title=_("No se pudo importar el corte"))
 
-    analyze_portfolio_rows(parsed)
+    created = {}
+    analyze_portfolio_rows(parsed, created=created)
     previous_hash = snapshot.file_hash
     previous_count = len(snapshot.rows or [])
     snapshot.report_date = parsed[0]["report_date"]
@@ -142,13 +148,15 @@ def import_portfolio_snapshot(snapshot_name: str):
     snapshot.imported_by = frappe.session.user
     snapshot.notes = _("Se importaron {0} créditos de {1}.").format(
         len(parsed), file_doc.file_name
+    ) + " " + _("Empresas creadas: {0}. Clientes creados: {1}.").format(
+        created["employers"], created["clients"],
     )
     # Version serializes all added/removed child rows into one SQL value. A
     # monthly cut can exceed MariaDB's packet limit even though every row is
     # valid. Keep normal validation/transactions and audit the import compactly.
     snapshot.save(ignore_version=True)
     snapshot.add_comment("Comment", _portfolio_import_audit(
-        snapshot, file_doc.file_name, previous_hash, previous_count,
+        snapshot, file_doc.file_name, previous_hash, previous_count, created,
     ))
     return {
         "snapshot_name": snapshot.name,
@@ -156,15 +164,19 @@ def import_portfolio_snapshot(snapshot_name: str):
         "matched_client_count": snapshot.matched_client_count,
         "unmatched_client_count": snapshot.unmatched_client_count,
         "status": snapshot.status,
+        "created_employer_count": created["employers"],
+        "created_client_count": created["clients"],
     }
 
 
-def _portfolio_import_audit(snapshot, file_name, previous_hash, previous_count):
+def _portfolio_import_audit(snapshot, file_name, previous_hash, previous_count, created):
     """Bounded audit evidence, independent of the size of the child table."""
     details = (
         (_("Archivo"), file_name),
         (_("Fecha del corte"), snapshot.report_date),
         (_("Créditos importados"), snapshot.row_count),
+        (_("Empresas creadas"), created["employers"]),
+        (_("Clientes creados"), created["clients"]),
         (_("Estado"), snapshot.status),
         (_("Importado por"), snapshot.imported_by),
         (_("Importado el"), snapshot.imported_on),

@@ -1,6 +1,7 @@
 """Exercise portfolio persistence and compact auditing on the disposable site."""
 
 from unittest.mock import patch
+from uuid import uuid4
 
 import frappe
 
@@ -61,5 +62,57 @@ def run():
         assert frappe.db.exists("Version", version_filters)
         return {"initial_rows": 200, "updated_rows": 150, "audit_comments": 2,
                 "unchanged_import": "OK", "normal_edit_version": "OK"}
+    finally:
+        frappe.db.rollback()
+
+
+def run_master_creation():
+    if frappe.local.site != "cn-reconciliation-test.local":
+        raise RuntimeError("Solo puede ejecutarse en cn-reconciliation-test.local")
+    frappe.set_user("Administrator")
+    token = uuid4().hex[:10]
+    company = f"Cartera prueba {token}"
+    number = f"CART-{token}"
+    content = f"portfolio-master-{token}".encode()
+    records = [dict(
+        report_date="2098-02-28", credit_number=f"{token}-{i}-1",
+        employer_text=company, client_number_core=number,
+        client_name="Cliente de prueba", national_id=f"ID-{token}",
+        credit_status="Corriente", is_convenio="Si",
+    ) for i in range(2)]
+    records.append(records[0] | {
+        "employer_text": " N/A ", "client_number_core": f"SKIP-{token}",
+        "national_id": "", "client_name": "Sin convenio",
+    })
+    try:
+        # Simulate an already-imported file whose masters were not created.
+        snapshot = frappe.get_doc({
+            "doctype": "CN Credit Portfolio Snapshot",
+            "source_file": "/private/files/portfolio-masters.xlsx",
+            "report_date": "2098-02-28", "status": "Importado con alertas",
+            "file_hash": importer.file_sha256(content), "rows": records,
+        }).insert()
+        with patch.object(importer, "_attached_file", return_value=(
+            frappe._dict(file_name="portfolio-masters.xlsx"), content,
+        )), patch.object(importer, "parse_credit_portfolio", return_value=records):
+            result = importer.import_portfolio_snapshot(snapshot.name)
+            assert result["created_employer_count"] == 1, result
+            assert result["created_client_count"] == 1, result
+            employer = frappe.get_doc("CN Employer", company)
+            assert employer.employer_code == company
+            customer = frappe.get_doc("CN Client", number)
+            assert customer.employer == company
+            assert customer.national_id == f"ID-{token}"
+            saved = frappe.get_doc(snapshot.doctype, snapshot.name)
+            assert all(row.matched_client == number for row in saved.rows[:2])
+            assert not saved.rows[2].matched_client
+            assert not frappe.db.exists("CN Client", f"SKIP-{token}")
+            assert saved.unmatched_client_count == 0
+            assert saved.status == "Importado"
+            assert importer.import_portfolio_snapshot(snapshot.name)["unchanged"]
+            assert frappe.db.count("CN Client", {"employer": company}) == 1
+        return {"existing_file_reprocessed": "OK", "employers_created": 1,
+                "clients_created": 1, "multiple_credits_no_duplicates": "OK",
+                "na_skipped": "OK"}
     finally:
         frappe.db.rollback()

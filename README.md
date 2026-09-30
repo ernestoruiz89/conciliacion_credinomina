@@ -180,7 +180,13 @@ disponible la página `/app/control-credinomina`.
    originales. Muestra créditos, clientes y empresas identificados o por revisar.
    `Corriente` y `Vencido` se consideran
    activos; `Saneado` se conserva como estado distinto y no se presume
-   cancelado. La carga no crea clientes ni bloquea movimientos por una alerta.
+   cancelado. Si `EMPRESA_DE_CONVENIO` no está vacía ni es `N/A`, la carga
+   crea la empresa faltante con el mismo nombre como código y crea el cliente
+   faltante usando su número SIAF, nombre, cédula y empresa. Reutiliza los
+   registros y alias existentes; no reasigna clientes de otras empresas.
+   Los datos incompletos o ambiguos quedan por revisar, sin inventar números
+   de cliente. Se puede volver a importar el mismo archivo para completar
+   clientes o empresas que antes no estaban identificados.
    Cada importación deja en la actividad una constancia compacta con archivo,
    usuario, fecha, cantidad de créditos y huellas SHA-256 anterior y nueva.
    Se conservan todas las filas sin duplicarlas en el historial de versiones;
