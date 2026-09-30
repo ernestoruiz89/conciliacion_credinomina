@@ -61,6 +61,9 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
         pending = max(money(candidate["due_usd"]) - paid[key], money(0))
         if pending > 0:
             rows.append({**candidate, "id": json.dumps(key, ensure_ascii=False),
+                         "applied_cents": (int(money(candidate["applied_usd"]) * 100)
+                                           if candidate.get("applied_usd") is not None else None),
+                         "assigned_cents": int(paid[key] * 100),
                          "pending_cents": int(pending * 100)})
     return {"rows": rows, "available_cents": int(available * 100),
             "reserved_cents": int(reserved * 100)}
@@ -130,6 +133,7 @@ def get_pending_targets(remittance_name, targets=None):
             candidates.append({**identity(row), "kind": "Cobranza", "period": period.name,
                 "period_label": period_label(period), "filter_period": period.name,
                 "row_key": row.row_key, "reference": row.application_reference or "",
+                "applied_usd": float(money(row.applied_usd)),
                 "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name]
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
     if open_periods and frappe.has_permission("CN Source Import", "read"):
@@ -149,6 +153,7 @@ def get_pending_targets(remittance_name, targets=None):
                 candidates.append({**identity(row), "kind": "Aplicación histórica",
                     "historical_application": row.name, "filter_period": period.name,
                     "period_label": period_label(period),
+                    "applied_usd": float(money(row.amount)),
                     "reference": " · ".join(str(v) for v in [row.reference, row.voucher, row.receipt] if v),
                     "due_usd": float(money(row.amount) + min(money(row.rounding_adjustment_usd), money(0)))})
     for item in items:

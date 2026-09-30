@@ -11,10 +11,14 @@ class PendingRemittanceSelectionTests(unittest.TestCase):
         return {"name": name, "docstatus": status, "allocation_detail": detail}
 
     def test_partial_historical_payment_and_cancelled_deposit(self):
-        row = {"historical_application": "APP-APRIL", "due_usd": 100}
+        row = {"historical_application": "APP-APRIL", "due_usd": 100, "applied_usd": 100.01}
         paid = {"aplicacion_id": "APP-APRIL", "importe_usd": 30}
-        result = self.selection([row], [self.deposit("MAY", [paid]), self.deposit("VOID", [paid], 2)])
+        result = self.selection([row], [self.deposit("MAY", [paid]), self.deposit("VOID", [paid], 2),
+                                        self.deposit("DRAFT", [paid], 0)])
         self.assertEqual(result["rows"][0]["pending_cents"], 7000)
+        # Show the raw core amount separately from the adjusted reconciliation balance.
+        self.assertEqual(result["rows"][0]["applied_cents"], 10001)
+        self.assertEqual(result["rows"][0]["assigned_cents"], 3000)
         self.assertEqual(result["available_cents"], 10000)
 
     def test_existing_manual_allocation_is_not_counted_twice(self):
@@ -40,6 +44,8 @@ class PendingRemittanceSelectionTests(unittest.TestCase):
                                         {"partida": "FEE", "importe_usd": 6}])
         result = self.selection(rows, [deposit])
         self.assertEqual([row["pending_cents"] for row in result["rows"]], [9000, 400])
+        self.assertEqual(result["rows"][1]["assigned_cents"], 600)
+        self.assertIsNone(result["rows"][1]["applied_cents"])
 
     def test_existing_targets_above_actual_allocation_reserve_full_instruction(self):
         deposit = self.deposit("CURRENT", [{"aplicacion_id": "APP", "importe_usd": 20}])

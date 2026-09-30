@@ -394,6 +394,8 @@ class RemittanceTargetPicker {
                     <div>${row.loan_number ? `Crédito: ${this.escape(row.loan_number)}` : ""}</div></td>
                 <td>${this.escape(row.kind)}<div class="small text-muted">${this.escape(row.period_label)}</div>
                     <div class="small">${this.escape(row.reference)}</div></td>
+                <td class="text-right text-nowrap">${row.applied_cents == null ? '<span title="No corresponde a una aplicación en el core">—</span>' : this.currency(row.applied_cents)}</td>
+                <td class="text-right text-nowrap">${this.currency(row.assigned_cents)}</td>
                 <td class="text-right text-nowrap">${this.currency(row.pending_cents)}</td>
                 <td style="min-width:135px"><input class="form-control input-sm" type="number" min="0.01" step="0.01"
                     max="${row.pending_cents / 100}" data-amount="${index}" aria-label="Asignar US$ a ${this.escape(row.client_name || row.loan_number)}"
@@ -409,8 +411,10 @@ class RemittanceTargetPicker {
         <div class="table-responsive" style="max-height:380px;overflow:auto">
             <table class="table table-bordered table-hover"><thead style="position:sticky;top:0;background:var(--card-bg,white);z-index:1"><tr>
                 <th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente / crédito</th><th>Origen / referencia</th>
-                <th class="text-right">Pendiente US$</th><th>Asignar US$</th>
-            </tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones históricas o las deducciones de la empresa y ejecute Conciliar para actualizar los saldos.</td></tr>'}</tbody></table>
+                <th class="text-right text-nowrap" title="Importe aplicado en el core">Aplicado US$</th>
+                <th class="text-right text-nowrap" title="Importe ya distribuido desde depósitos confirmados">Asignado US$</th>
+                <th class="text-right text-nowrap" title="Saldo disponible para asignar; considera deducciones, partidas complementarias y ajustes de conciliación">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
+            </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones históricas o las deducciones de la empresa y ejecute Conciliar para actualizar los saldos.</td></tr>'}</tbody></table>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
             <button type="button" class="btn btn-default btn-sm" data-action="previous" ${this.page === 0 ? "disabled" : ""}>Anterior</button>
