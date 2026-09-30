@@ -17,7 +17,7 @@ from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
+from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float, sum_money
 
 
 NA = "N/D"
@@ -69,7 +69,7 @@ def build_control_workbook(
             balance = _money(application.get("historical_balance_usd"))
             if balance > CASH_EPSILON:
                 issue_rows.append(_issue(
-                    "Aplicación histórica sin depósito", period,
+                    "Aplicación sin depósito", period,
                     application.get("client_number"), application.get("loan_number"),
                     application.get("reference"), balance,
                     application.get("deposit_match_status") or "Pendiente",
@@ -125,7 +125,7 @@ def build_control_workbook(
         ))
     for application in data.get("unassigned_historical_applications") or []:
         issue_rows.append(_issue(
-            "Aplicación histórica sin período", None, None,
+            "Aplicación sin período", None, None,
             application.get("loan_number"), application.get("reference"),
             _money(application.get("amount")), "Sin período",
             detail=application.get("match_reason"),
@@ -170,11 +170,11 @@ def build_control_workbook(
 
 
 SUMMARY_HEADERS = (
-    "Período", "Empresa", "Mes planilla", "Modalidad", "Alcance histórico",
+    "Período", "Empresa", "Mes planilla", "Modalidad", "Alcance del período",
     "Fecha inicio aplicación", "Fecha fin aplicación", "Vencimiento pago",
     "Estado", "Cobranza USD", "Deducido USD", "Aplicado USD",
     "Complementario USD", "Ajuste USD", "Depósito asignado USD",
-    "Pendiente histórico USD", "CxC empleado USD", "Sin depósito asignado USD",
+    "Aplicado pendiente de depósito USD", "CxC empleado USD", "Deducido sin depósito asignado USD",
     "Sin clasificar USD", "Excepciones abiertas", "Último corte de control",
     "Motivo y próxima gestión", "Resumen guardado en el corte",
 )
@@ -185,7 +185,7 @@ DETAIL_HEADERS = (
     "Fecha aplicación", "Asiento contable", "Recibo", "Referencia aplicación",
     "Cobranza USD", "Deducido USD", "Aplicado USD", "Complementario USD",
     "Ajuste USD", "Depósito asignado USD", "CxC empleado USD",
-    "Pendiente histórico USD", "Estado", "Comentarios",
+    "Aplicado pendiente de depósito USD", "Estado", "Comentarios",
 )
 
 LINK_HEADERS = (
@@ -219,16 +219,15 @@ def _write_summary(sheet, data, employer_label, generated_at):
     sheet["B3"].number_format = "dd/mm/yyyy hh:mm"
     periods = data["periods"]
     operational = [p for p in periods if p.get("reconciliation_mode") != "Historica"]
-    historical = [p for p in periods if p.get("reconciliation_mode") == "Historica"]
     measures = [
         ("Períodos", len(periods)),
-        ("Operativos", len(operational)),
-        ("Históricos", len(historical)),
+        ("Cobranza USD", _money(data["totals"].get("expected_usd")) if operational else NA),
+        ("Deducido USD", _money(data["totals"].get("deducted_usd")) if operational else NA),
         ("Aplicado USD", _money(data["totals"].get("applied_usd"))),
+        ("Complementario USD", _money(data["totals"].get("complementary_usd"))),
+        ("Ajuste USD", _money(data["totals"].get("rounding_adjustment_usd"))),
         ("Depósito asignado USD", _money(data["totals"].get("remitted_usd"))),
-        ("Pendiente histórico USD", _money(data["totals"].get("historical_pending_usd")) if historical else NA),
-        ("Cobranza operativa USD", _money(data["totals"].get("expected_usd")) if operational else NA),
-        ("Deducido operativo USD", _money(data["totals"].get("deducted_usd")) if operational else NA),
+        ("Aplicado pendiente de depósito USD", money_float(sum_money(_period_pending(p) for p in periods))),
         ("CxC empleados USD", _money(data["totals"].get("worker_gap_usd")) if operational else NA),
         ("Deducido sin depósito asignado USD", _money(data["totals"].get("employer_gap_usd")) if operational else NA),
         ("Excedente sin clasificar USD", _money(data["totals"].get("unclassified_deposit_usd"))),
@@ -236,12 +235,14 @@ def _write_summary(sheet, data, employer_label, generated_at):
     for row_number, (label, value) in enumerate(measures, start=5):
         sheet.cell(row_number, 1, label)
         cell = sheet.cell(row_number, 2, value)
-        if isinstance(value, (float, int)) and row_number >= 8:
+        if isinstance(value, (float, int)) and label != "Períodos":
             cell.number_format = MONEY_FORMAT
+        if value == NA:
+            cell.alignment = Alignment(horizontal="right")
         if row_number % 2 == 1:
             sheet.cell(row_number, 1).fill = PatternFill("solid", fgColor=PALE)
             cell.fill = PatternFill("solid", fgColor=PALE)
-    sheet["A17"] = "N/D: el histórico no registra cobranza ni deducción; no equivale a cero."
+    sheet["A17"] = "N/D: dato no disponible o no aplicable; no equivale a cero. Los totales suman los datos disponibles."
     sheet["A17"].font = Font(name="Arial", size=10, italic=True, color="5A6673")
     summary_rows = []
     for period in periods:
@@ -249,14 +250,15 @@ def _write_summary(sheet, data, employer_label, generated_at):
         first_date, last_date = _historical_dates(period) if historical_mode else (None, None)
         summary_rows.append((
             period.get("name"), period.get("employer_name"), period.get("month"),
-            period.get("reconciliation_mode"), period.get("historical_scope") if historical_mode else None,
+            "Histórica" if historical_mode else "Operativa",
+            period.get("historical_scope") if historical_mode else period.get("collection_cycle"),
             first_date, last_date, _date(period.get("remittance_due_date")),
             _control_state(period.get("control_state")),
             NA if historical_mode else _money(period.get("expected_usd")),
             NA if historical_mode else _money(period.get("deducted_usd")),
             _money(period.get("applied_usd")), _money(period.get("complementary_usd")),
             _money(period.get("rounding_adjustment_usd")), _money(period.get("remitted_usd")),
-            _money(period.get("historical_pending_usd")) if historical_mode else NA,
+            _period_pending(period),
             NA if historical_mode else _money(period.get("worker_gap_usd")),
             NA if historical_mode else _money(period.get("employer_gap_usd")),
             _money(period.get("unclassified_deposit_usd")),
@@ -267,12 +269,14 @@ def _write_summary(sheet, data, employer_label, generated_at):
         ))
     _table(sheet, SUMMARY_HEADERS, summary_rows, header_row=19,
            money_columns=set(range(10, 20)), date_columns={6, 7, 8, 21})
-    sheet.column_dimensions["A"].width = 31
+    sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 24
     sheet.column_dimensions["E"].width = 27
     sheet.column_dimensions["U"].width = 23
     sheet.column_dimensions["V"].width = 40
     sheet.column_dimensions["W"].width = 65
+    for column in ("P", "R"):
+        sheet.column_dimensions[column].width = 25
     sheet.tabColor = NAVY
 
 
@@ -288,18 +292,40 @@ def _historical_dates(period):
 
 def _control_state(value):
     return {
-        "historico_excepcion": "Histórico con excepción",
-        "historico_excedente": "Histórico con excedente",
-        "historico_conciliado": "Histórico conciliado",
-        "historico_parcial": "Histórico parcial",
-        "historico_pendiente": "Histórico pendiente",
-        "diferencia": "Diferencia",
-        "pendiente_detalle": "Pendiente detalle",
+        "historico_excepcion": "Con diferencias",
+        "historico_excedente": "Con excedente",
+        "historico_conciliado": "Conciliado",
+        "historico_parcial": "Parcial",
+        "historico_pendiente": "Pendiente",
+        "diferencia": "Con diferencias",
+        "pendiente_detalle": "Pendiente de detalle",
         "conciliado": "Conciliado",
         "parcial": "Parcial",
-        "en_transito": "En tránsito",
-        "excedente": "Excedente",
+        "en_transito": "Pendiente",
+        "excedente": "Con excedente",
     }.get(value, value)
+
+
+def _collection_pending(claim):
+    """Same loan-cash basis as aging; complementary cash cannot pay a loan."""
+    paid = sum_money(
+        entry.get("importe_usd") for entry in _json_list(claim.get("remittance_detail"))
+        if isinstance(entry, dict) and entry.get("destino") != "Partida complementaria"
+    )
+    return money_float(max(
+        money(claim.get("applied_usd")) + money(claim.get("rounding_adjustment_usd")) - paid, 0,
+    ))
+
+
+def _period_pending(period):
+    # Sum positive balances per claim, never offset another client's debt with
+    # an excess. Reuse the historical balance already computed by reconciliation.
+    if period.get("reconciliation_mode") == "Historica":
+        values = (max(money(row.get("historical_balance_usd")), 0)
+                  for row in period.get("historical_rows") or [])
+    else:
+        values = (_collection_pending(row) for row in period.get("rows") or [])
+    return money_float(sum_money(values))
 
 
 def _collection_detail(period, claim):
@@ -316,7 +342,7 @@ def _collection_detail(period, claim):
         _money(claim.get("applied_usd")), _money(claim.get("complementary_usd")),
         _money(claim.get("rounding_adjustment_usd")), _money(claim.get("remitted_usd")),
         _money(claim.get("employee_receivable_usd")) if claim.get("employee_receivable_usd") is not None else NA,
-        NA,
+        _collection_pending(claim),
         " / ".join(str(item) for item in (claim.get("deduction_status"), claim.get("application_status")) if item),
         comments,
     )
@@ -358,7 +384,8 @@ def _claim_links(period, claim, *, historical):
             claim.get("client_number"), claim.get("client_name"), claim.get("loan_number"),
             claim_id, application_reference, detail.get("referencia"), detail.get("comprobante"),
             _date(detail.get("fecha")),
-            detail.get("destino") or ("Aplicación histórica" if historical else "Cobranza"),
+            ("Aplicación" if detail.get("destino") == "Aplicación histórica"
+             else detail.get("destino") or ("Aplicación" if historical else "Cobranza")),
             _money(detail.get("importe_usd")),
             _money(detail.get("diferencia_usd")) if detail.get("diferencia_usd") is not None else None,
             detail.get("origen"), inherited_text or claim.get("inherited_exception_comment"),
@@ -469,6 +496,8 @@ def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=(
         if any(text in heading.lower() for text in ("nombre", "detalle", "comentario", "acción", "resolución")):
             width = 35
         elif any(text in heading.lower() for text in ("referencia", "evidencia", "asiento", "comprobante")):
+            width = 25
+        elif heading == "Aplicado pendiente de depósito USD":
             width = 25
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.row_dimensions[header_row].height = 36

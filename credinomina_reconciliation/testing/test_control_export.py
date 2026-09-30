@@ -9,7 +9,9 @@ from datetime import datetime
 
 from openpyxl import load_workbook
 
-from credinomina_reconciliation.control_export import build_control_workbook
+from credinomina_reconciliation.control_export import (
+    build_control_workbook, _control_state, _collection_pending,
+)
 
 
 class TestControlExport(unittest.TestCase):
@@ -64,6 +66,7 @@ class TestControlExport(unittest.TestCase):
             "totals": {
                 "expected_usd": 100, "deducted_usd": 90,
                 "applied_usd": 136.52, "remitted_usd": 136.53,
+                "complementary_usd": 0, "rounding_adjustment_usd": 0.01,
                 "historical_pending_usd": 0, "worker_gap_usd": 10,
                 "employer_gap_usd": 0, "unclassified_deposit_usd": 0,
             },
@@ -93,6 +96,12 @@ class TestControlExport(unittest.TestCase):
         summary = book["Resumen"]
         self.assertEqual(summary["J20"].value, "N/D")
         self.assertEqual(summary["K20"].value, "N/D")
+        self.assertEqual(summary["D20"].value, "Histórica")
+        self.assertEqual(summary["I20"].value, "Conciliado")
+        self.assertEqual(summary["I21"].value, "Con diferencias")
+        self.assertEqual(summary["P20"].value, 0)
+        self.assertEqual(summary["P21"].value, 0)
+        self.assertEqual(summary["B10"].value, 0.01)
         self.assertEqual(summary["H21"].value.year, 2026)
         self.assertEqual(summary["U21"].value.year, 2026)
         self.assertEqual(summary["V21"].value, "Solicitar pago parcial y detalle actualizado")
@@ -109,6 +118,69 @@ class TestControlExport(unittest.TestCase):
                          [20, 26.52, 0.01, 90])
         self.assertEqual(book["Partidas y excepciones"]["I6"].value, "Resuelta")
         self.assertEqual(book["Gestiones"]["A5"].value, "EX-1")
+
+    def test_same_status_labels_in_both_modes(self):
+        for historical, operational, expected in (
+            ("historico_excepcion", "diferencia", "Con diferencias"),
+            ("historico_excedente", "excedente", "Con excedente"),
+            ("historico_conciliado", "conciliado", "Conciliado"),
+            ("historico_parcial", "parcial", "Parcial"),
+            ("historico_pendiente", "en_transito", "Pendiente"),
+        ):
+            with self.subTest(expected=expected):
+                self.assertEqual(_control_state(historical), expected)
+                self.assertEqual(_control_state(operational), expected)
+
+    def test_pending_includes_both_modes_without_netting_unrelated_balances(self):
+        periods = [{
+            "name": "H", "reconciliation_mode": "Historica",
+            "control_state": "historico_parcial", "historical_pending_usd": 0,
+            "historical_rows": [{"historical_balance_usd": 30}, {"historical_balance_usd": 0}],
+        }, {
+            "name": "O", "reconciliation_mode": "Operativa", "control_state": "parcial",
+            "collection_cycle": "Mensual",
+            "rows": [{
+                "applied_usd": 90, "remitted_usd": 80,
+                "remittance_detail": [{"importe_usd": 70},
+                                      {"importe_usd": 10, "destino": "Partida complementaria"}],
+            }, {"applied_usd": 10, "remittance_detail": [{"importe_usd": 50}]}],
+        }]
+        book = load_workbook(io.BytesIO(build_control_workbook(
+            {"year": 2026, "periods": periods, "totals": {}},
+            exceptions=[], actions=[], employer_label="Todas", generated_at=datetime(2026, 9, 30),
+        )))
+        summary = book["Resumen"]
+        self.assertEqual(summary["B12"].value, 50)
+        self.assertEqual([summary[f"P{r}"].value for r in (20, 21)], [30, 20])
+        self.assertEqual(summary["E21"].value, "Mensual")
+        detail = book["Detalle cliente"]
+        self.assertEqual([detail[f"U{r}"].value for r in range(5, 9)], [30, 0, 20, 0])
+        for sheet, header_row in ((summary, 19), (detail, 4), (book["Cruces"], 4)):
+            for cell in sheet[header_row]:
+                self.assertNotRegex(cell.value, r"(?i)históric|operativ")
+        for row in summary.iter_rows(min_row=5, max_row=17, max_col=1):
+            self.assertNotRegex(row[0].value or "", r"(?i)históric|operativ")
+
+    def test_rounding_adjustment_is_signed_and_fx_is_not_cash(self):
+        for applied, paid, adjustment in ((46.52, 46.53, 0.01), (46.53, 46.52, -0.01)):
+            self.assertEqual(_collection_pending({
+                "applied_usd": applied, "rounding_adjustment_usd": adjustment,
+                "remittance_detail": [{"importe_usd": paid}],
+            }), 0)
+        self.assertEqual(_collection_pending({"applied_usd": 10, "fx_variance_usd": 10}), 10)
+
+    def test_empty_and_single_mode_exports_keep_common_headers_and_missing_data(self):
+        for mode in (None, "Historica", "Operativa"):
+            with self.subTest(mode=mode):
+                book = load_workbook(io.BytesIO(build_control_workbook(
+                    {"year": 2026, "periods": [{"name": "P", "reconciliation_mode": mode}] if mode else [], "totals": {}},
+                    exceptions=[], actions=[], employer_label="Todas", generated_at=datetime(2026, 9, 30),
+                )))
+                summary = book["Resumen"]
+                self.assertEqual(summary["B6"].value, 0 if mode == "Operativa" else "N/D")
+                self.assertEqual(summary["B12"].value, 0)
+                self.assertEqual(summary["P19"].value, "Aplicado pendiente de depósito USD")
+                self.assertEqual(summary["B6"].number_format, 'General' if mode != "Operativa" else summary["B8"].number_format)
 
 
 if __name__ == "__main__":

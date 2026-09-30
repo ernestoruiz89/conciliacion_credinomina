@@ -270,6 +270,14 @@ el detalle de clientes y aplicaciones, los cruces con depósitos y las partidas
 pendientes. Conserve ese archivo como evidencia del corte exportado; para ver
 el estado actualizado vuelva a descargarlo. En histórico, cobranza y deducción
 no se infieren: se muestra la aplicación frente al depósito.
+El Excel usa los mismos nombres de estados y columnas para ambas modalidades;
+**Modalidad** es el identificador. El resumen no separa totales históricos y
+operativos. **Aplicado pendiente de depósito USD** suma los saldos pendientes
+por partida de ambas modalidades, sin compensar excedentes de otros clientes
+ni usar pagos de partidas complementarias para cubrir créditos. Se conserva
+por separado **Deducido sin depósito asignado USD**, porque no mide lo mismo.
+**N/D** indica un dato no disponible o no aplicable, no un cero; los totales
+de cobranza, deducción y CxC a empleados suman únicamente los datos disponibles.
 
 Las **excepciones** permiten registrar una causa clasificada, responsable,
 próxima gestión, fecha compromiso, referencia y soporte. Al pasar a **En

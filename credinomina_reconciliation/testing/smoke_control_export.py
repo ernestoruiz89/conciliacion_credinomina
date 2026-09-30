@@ -28,7 +28,7 @@ def run(year=2025, employer=None):
     if employer:
         names = {row[1] for row in period_rows}
         assert len(names) == 1, "El filtro de empresa mostró otros convenios."
-    historical = [row for row in period_rows if row[3] == "Historica"]
+    historical = [row for row in period_rows if row[3] == "Histórica"]
     assert historical, "Falta cobertura histórica."
     assert all(row[9] == "N/D" and row[10] == "N/D" for row in historical)
     detail_count = max(book["Detalle cliente"].max_row - 4, 0)
