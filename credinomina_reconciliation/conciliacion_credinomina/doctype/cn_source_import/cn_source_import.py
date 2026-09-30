@@ -1194,15 +1194,28 @@ def _sync_remittance_details(context, allocation, claims=()):
                     )
                     if plan["status"] == "Revisar":
                         plan["reason"] += "; " + ", ".join(results)
+                target_loans = {
+                    clean_text(descriptions.get(target.get("claim_id"), {}).get("loan_number"))
+                    for target in targets
+                    if clean_text(descriptions.get(target.get("claim_id"), {}).get("loan_number"))
+                }
+                unidentified_application = any(
+                    clean_text(target.get("claim_id")).partition(":")[0] in {"H", "C"}
+                    and not clean_text(descriptions.get(target.get("claim_id"), {}).get("loan_number"))
+                    for target in targets
+                )
+                updates = {
+                    "amount_usd": plan["amount_usd"],
+                    "match_status": plan["status"],
+                    "match_reason": plan["reason"],
+                    "matched_targets": json.dumps(targets, ensure_ascii=False),
+                    "matched_targets_summary": describe_targets(targets, descriptions),
+                }
+                if len(target_loans) == 1 and not unidentified_application:
+                    updates["loan_number"] = next(iter(target_loans))
                 frappe.db.set_value(
                     "CN Remittance Detail", plan["row"].name,
-                    {
-                        "amount_usd": plan["amount_usd"],
-                        "match_status": plan["status"],
-                        "match_reason": plan["reason"],
-                        "matched_targets": json.dumps(targets, ensure_ascii=False),
-                        "matched_targets_summary": describe_targets(targets, descriptions),
-                    },
+                    updates,
                     update_modified=False,
                 )
             if not state["status"]:

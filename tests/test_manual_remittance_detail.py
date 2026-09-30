@@ -20,7 +20,7 @@ class ManualRemittanceDetailTests(unittest.TestCase):
                             amount_usd=22.52, detail_row="ROW")]
         self.deposits = [dict(id="DEP", amount_usd=22.52, group="EMP", currency="USD", bank_currency="NIO")]
 
-    def reconcile(self, manual=None):
+    def reconcile(self, manual=None, descriptions=None):
         manual = self.manual if manual is None else manual
         remittance = frappe._dict(name="DEP", employer="EMP", detail_file="detail.xlsx",
                                  detail_hash="hash", detail_source_file="detail.xlsx", fx_rate=36.6243)
@@ -31,7 +31,8 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         result = allocate_cash(self.deposits, self.claims, manual + context["instructions"],
                                context["blocked_deposits"])
         with patch.object(source.frappe, "db", Mock()) as db, patch(
-            "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={},
+            "credinomina_reconciliation.remittance_target_summary.load_target_descriptions",
+            return_value=descriptions or {"H:A": {"loan_number": "108331-1"}, "H:B": {"loan_number": "108331-1"}},
         ):
             statuses = source._sync_remittance_details(context, result, self.claims)
             saved_row = next(call.args[2] for call in db.set_value.call_args_list
@@ -49,6 +50,7 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(row["match_status"], "Conciliada")
         self.assertIn("manual", row["match_reason"])
         self.assertIn('"H:A"', row["matched_targets"])
+        self.assertEqual(row["loan_number"], "108331-1")
         # Re-running reconstructs the same allocation rather than doubling it.
         self.assertEqual(self.reconcile()[1]["allocations"], result["allocations"])
 
@@ -76,6 +78,16 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.manual.append(dict(id="TARGET-2", deposit_id="DEP", claim_id="H:B",
                                 amount_usd=12.52, detail_row="ROW"))
         self.assertEqual(self.reconcile()[2]["DEP"], "Conciliado")
+
+    def test_multiple_target_credits_do_not_guess_a_single_loan_number(self):
+        self.manual[0]["amount_usd"] = 10
+        self.manual.append(dict(id="TARGET-2", deposit_id="DEP", claim_id="H:B",
+                                amount_usd=12.52, detail_row="ROW"))
+        _, _, _, saved_row = self.reconcile(descriptions={
+            "H:A": {"loan_number": "108331-1"},
+            "H:B": {"loan_number": "109136-1"},
+        })
+        self.assertNotIn("loan_number", saved_row)
 
     def test_manual_link_respects_period_scope(self):
         targets, reason = manual_detail_targets(self.row, self.claims, self.manual, 22.52, "EMP", "MAY")
