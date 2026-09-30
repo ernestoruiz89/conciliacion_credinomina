@@ -4,7 +4,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 const handlers = {};
 const pending = [];
-const context = vm.createContext({frappe: {
+let templateUrl;
+const context = vm.createContext({URLSearchParams, window: {open: url => {templateUrl = url;}}, frappe: {
     ui: {form: {on: (doctype, events) => {handlers[doctype] = events;}}},
     db: {get_value: (doctype, name, field) => {
         assert.equal(doctype, "CN Bank Account");
@@ -24,6 +25,13 @@ const frm = {
 };
 
 (async () => {
+    context.downloadRemittanceTemplate({doc: {name: "CN-ALLOC-2026-00001", detail_period: "P-1"}, is_new: () => false});
+    const params = new URL(templateUrl, "https://example.test").searchParams;
+    assert.equal(params.get("remittance_name"), "CN-ALLOC-2026-00001");
+    assert.equal(params.get("period_name"), "P-1");
+    context.downloadRemittanceTemplate({doc: {name: "new-document"}, is_new: () => true});
+    assert.equal(new URL(templateUrl, "https://example.test").searchParams.has("remittance_name"), false);
+
     let task = events.bank_account(frm);
     pending.shift().resolve({message: {currency: "NIO"}});
     await task;

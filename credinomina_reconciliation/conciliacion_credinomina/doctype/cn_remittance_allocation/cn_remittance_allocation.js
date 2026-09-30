@@ -232,6 +232,7 @@ frappe.ui.form.on("CN Remittance Target", {
 
 function downloadRemittanceTemplate(frm) {
     const params = new URLSearchParams({ template_type: "deposito" });
+    if (!frm.is_new()) params.set("remittance_name", frm.doc.name);
     if (frm.doc.detail_period) params.set("period_name", frm.doc.detail_period);
     window.open(
         `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,

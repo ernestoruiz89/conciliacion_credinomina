@@ -101,6 +101,31 @@ class TemplateTests(unittest.TestCase):
         self.assertIn("template_download.download_import_template", period)
         self.assertIn("template_download.download_import_template", remittance)
 
+    def test_deposit_download_uses_readable_document_name_in_filename(self):
+        response = SimpleNamespace()
+        document = SimpleNamespace(name="CN-ALLOC-2026-00001", check_permission=Mock())
+        with (
+            patch("frappe.has_permission", return_value=True),
+            patch("frappe.get_doc", return_value=document) as get_doc,
+            patch("frappe.local", new=SimpleNamespace(response=response)),
+        ):
+            download_import_template("deposito", remittance_name=document.name)
+        get_doc.assert_called_once_with("CN Remittance Allocation", document.name)
+        document.check_permission.assert_called_once_with("read")
+        self.assertEqual(response.filename, "plantilla_detalle_deposito_CN-ALLOC-2026-00001.xlsx")
+        self.assertEqual(response.type, "download")
+
+    def test_deposit_filename_checks_permission_before_generating_file(self):
+        document = SimpleNamespace(name="PRIVATE", check_permission=Mock(side_effect=PermissionError))
+        with (
+            patch("frappe.has_permission", return_value=True),
+            patch("frappe.get_doc", return_value=document),
+            patch("credinomina_reconciliation.template_download.build_template_xlsx") as build,
+        ):
+            with self.assertRaises(PermissionError):
+                download_import_template("deposito", remittance_name="PRIVATE")
+        build.assert_not_called()
+
     def test_download_requires_permission_and_checks_prefilled_period(self):
         with (
             patch("frappe.has_permission", return_value=False),
