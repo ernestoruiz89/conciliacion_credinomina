@@ -61,6 +61,15 @@ class RoundingMovementTest(unittest.TestCase):
         self.assertEqual("APP-1", movement["application_id"])
         self.assertEqual(movement["name"], self.find()[0]["name"])
 
+    def test_deposit_rename_keeps_tolerance_identity(self):
+        original = self.find()[0]["name"]
+        self.deposits[0].update(id="DEP-9-2026-0001", reconciliation_identity="DEP-1")
+        self.allocations[0]["deposit_id"] = "DEP-9-2026-0001"
+        movement = rounding_movements(self.deposits, self.claims, self.allocations,
+            {"DEP-9-2026-0001": 0.01}, {"C:ROW-1": 0}, {"EMP-1": 0.01})[0]
+        self.assertEqual(movement["name"], original)
+        self.assertEqual(movement["deposit_id"], "DEP-9-2026-0001")
+
     def test_extra_cent_already_inside_collection_claim_is_not_double_allocated(self):
         self.claims[0]["amount_usd"] = 46.53
         self.allocations[0]["amount_usd"] = 46.53

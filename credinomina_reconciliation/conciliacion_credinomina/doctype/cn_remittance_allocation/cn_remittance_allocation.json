@@ -1,11 +1,11 @@
 {
   "actions": [],
-  "autoname": "naming_series:",
+  "autoname": "",
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
-    "naming_series", "usd_currency",
+    "reconciliation_identity", "usd_currency",
     "deposit_tab", "deposit_identity_section", "employer", "bank_account", "deposit_identity_column", "deposit_date", "deposit_reference", "deposit_voucher",
     "deposit_amount_section", "deposit_currency", "deposit_amount", "deposit_amount_column", "fx_rate", "amount_usd",
     "support_section", "support_file", "support_column", "notes",
@@ -48,7 +48,7 @@
     {"fieldname": "exceptions_section", "fieldtype": "Section Break", "label": "Excepciones heredadas", "collapsible": 1, "collapsible_depends_on": "eval:doc.inherited_exception_comment"},
     {"fieldname": "technical_section", "fieldtype": "Section Break", "label": "Información técnica", "collapsible": 1},
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda de conciliación", "read_only": 1},
-    {"default": "CN-ALLOC-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-ALLOC-.YYYY.-.#####", "reqd": 1},
+    {"fieldname": "reconciliation_identity", "fieldtype": "Data", "hidden": 1, "read_only": 1, "label": "Identidad interna de conciliación", "no_copy": 1},
     {"description": "Referencia bancaria del depósito. La aplicación del core puede ser de otro día o mes.", "fieldname": "deposit_reference", "fieldtype": "Data", "in_list_view": 1, "label": "Referencia del depósito", "reqd": 1},
     {"description": "Complete si hay mas de un deposito con la misma referencia.", "fieldname": "deposit_voucher", "fieldtype": "Data", "label": "Comprobante contable del deposito"},
     {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "in_list_view": 1},
@@ -87,7 +87,7 @@
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Remittance Allocation",
-  "naming_rule": "By naming series",
+  "naming_rule": "By script",
   "owner": "Administrator",
   "permissions": [
     {"create": 1, "delete": 1, "read": 1, "report": 1, "role": "System Manager", "submit": 1, "cancel": 1, "write": 1},

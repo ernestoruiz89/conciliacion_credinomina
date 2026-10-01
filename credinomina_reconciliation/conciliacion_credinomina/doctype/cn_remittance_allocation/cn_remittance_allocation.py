@@ -36,7 +36,14 @@ def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modi
 
 
 class CNRemittanceAllocation(Document):
+    def autoname(self):
+        from credinomina_reconciliation.deposit_naming import new_deposit_name
+        self.name = new_deposit_name(self.deposit_date)
+
     def validate(self):
+        previous = self.get_doc_before_save()
+        if previous and self.get("reconciliation_identity") != previous.get("reconciliation_identity"):
+            frappe.throw(_("No se puede modificar la identidad interna del depósito."))
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()

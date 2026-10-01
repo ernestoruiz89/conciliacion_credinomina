@@ -652,7 +652,7 @@ def _reconcile_sources(employer=None):
         "CN Remittance Allocation",
         filters={"docstatus": 1, **company_filters},
         fields=[
-            "name", "deposit_reference", "deposit_voucher",
+            "name", "deposit_reference", "deposit_voucher", "reconciliation_identity",
             "amount_usd", "result", "employer", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate", "notes",
             "allocated_usd", "unallocated_usd",
@@ -1130,6 +1130,7 @@ def _registered_deposit_pairs(rows, allocations):
         fx_basis = remittance_fx_basis(item) if item.deposit_currency == "NIO" else "Moneda original USD"
         registered_row = _RegisteredDeposit(
             name=item.name,
+            reconciliation_identity=getattr(item, "reconciliation_identity", None) or item.name,
             reference=clean_text(item.deposit_reference),
             voucher=clean_text(item.deposit_voucher),
             event_date=item.deposit_date,
@@ -1491,6 +1492,7 @@ def _distribute_deposits(
             unresolved_employer_ids.add(account.name)
         deposits.append(
             {"id": account.name, "reference": clean_text(account.reference),
+             "reconciliation_identity": account.get("reconciliation_identity") or account.name,
              "amount_usd": amount_usd,
              "currency": account.currency, "bank_currency": bank.currency,
              "bank_amount_usd": flt(bank.amount) if bank.currency == "USD" else 0,

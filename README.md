@@ -178,6 +178,13 @@ los enlaces y bloques adicionales del sitio, sin modificar roles ni saldos.
 
 ## Primer uso
 
+Los depósitos se nombran `DEP-mes-año-####` según su fecha real, por ejemplo
+`DEP-9-2026-0001`, con consecutivo por mes y año. El identificador asignado
+se conserva al editar posteriormente la fecha. Al migrar, un parche renombra
+los depósitos anteriores y conserva sus vínculos, adjuntos y ajustes internos,
+sin recalcular importes ni reabrir períodos. Si alguno no tiene fecha, complete
+ese dato antes de volver a migrar. Realice una copia de seguridad antes de migrar.
+
 1. **Corte de cartera (opcional, recomendado).** En **Cortes mensuales de
    cartera**, cree un registro, adjunte el reporte mensual del core y pulse
    **Importar / actualizar corte**. El sistema detecta `FECHA_REPORTE`, conserva

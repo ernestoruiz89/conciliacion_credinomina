@@ -130,7 +130,7 @@ def rounding_movements(
             continue
         consumed = min(max(delta, Decimal(0)), money(deposit_remaining.get(deposit_id)))
         key_source = (
-            f"{deposit_id}|{claim_id}|{application_ids[0]}|"
+            f"{deposit.get('reconciliation_identity') or deposit_id}|{claim_id}|{application_ids[0]}|"
             f"{delta:.4f}|{claim_amount:.4f}|{consumed:.4f}|{tolerance:.4f}|"
             f"{deposit.get('reference') or ''}"
         )
