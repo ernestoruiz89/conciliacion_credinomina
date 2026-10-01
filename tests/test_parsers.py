@@ -12,6 +12,7 @@ from credinomina_reconciliation.parsers import (
     SourceFileError,
     apply_accounting_currency_override,
     has_legacy_numeric_credit_numbers,
+    normalize_credit_number,
     parse_collection_file,
     parse_credit_portfolio,
     parse_amount,
@@ -41,6 +42,19 @@ def workbook_bytes(rows):
 
 
 class CollectionParserTest(unittest.TestCase):
+    def test_credit_normalization_adds_only_a_missing_numeric_suffix(self):
+        cases = (
+            (13375, "13375-1"), (13375.0, "13375-1"),
+            (" 13375 ", "13375-1"), ("'0013375", "0013375-1"),
+            ("13375-1", "13375-1"), ("13375-2", "13375-2"),
+            ("L-13375", "L-13375"), ("13375.5", "13375.5"),
+            (None, ""), ("", ""),
+        )
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(normalize_credit_number(value), expected)
+                self.assertEqual(normalize_credit_number(expected), expected)
+
     def test_imported_money_rounds_half_up_but_fx_rate_keeps_precision(self):
         self.assertEqual(1.01, parse_amount("1.005"))
         self.assertEqual(36.6101, parse_exchange_rate("36,6101"))

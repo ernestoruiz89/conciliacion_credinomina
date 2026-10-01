@@ -35,6 +35,7 @@ from credinomina_reconciliation.parsers import (
     SourceFileError,
     clean_text,
     file_sha256,
+    normalize_credit_number,
     parse_collection_file,
     source_key,
 )
@@ -525,8 +526,15 @@ def import_collection(period_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Archivo de cobranza invalido"))
 
+    for record in parsed:
+        record["loan_number"] = normalize_credit_number(record.get("loan_number"))
+
     import_hash = file_sha256(content)
-    if period.collection_import_sha256 == import_hash and period.collection_rows:
+    needs_credit_normalization = any(
+        row.loan_number != normalize_credit_number(row.loan_number)
+        for row in period.collection_rows
+    )
+    if period.collection_import_sha256 == import_hash and period.collection_rows and not needs_credit_normalization:
         source_summary = _reconcile_if_sources()
         return {
             "period": period.name, "rows": len(period.collection_rows),
@@ -535,6 +543,11 @@ def import_collection(period_name: str):
         }
 
     existing = {row.row_key: row for row in period.collection_rows if row.row_key}
+    # Previously imported numeric credits have opaque row keys generated before
+    # adding -1. Keep those keys and child IDs so targets and exceptions survive.
+    existing_by_identity = {}
+    for row in existing.values():
+        existing_by_identity.setdefault(_collection_identity_key(period, row), []).append(row)
     ordered_rows = []
     clients = ClientIndex()
     seen = set()
@@ -548,14 +561,16 @@ def import_collection(period_name: str):
         if not record.get("loan_number"):
             frappe.throw(_("La fila {0} de cobranza no tiene número de crédito.").format(record["source_row"]))
         client = clients.ensure_from_collection(record, period.employer)
-        row_key = record.get("row_key") or source_key(
-            period.employer,
-            getdate(period.payroll_month).replace(day=1),
-            period.collection_cycle,
-            record.get("client_number") or record.get("national_id") or record.get("employee_number") or record.get("client_name"),
-            record.get("loan_number"),
-            record.get("installment_number"),
-        )[:24]
+        row_key = record.get("row_key") or _collection_identity_key(period, record)
+        if not record.get("row_key") and row_key not in existing:
+            candidates = existing_by_identity.get(row_key, [])
+            if len(candidates) > 1:
+                frappe.throw(_(
+                    "La fila {0} coincide con varias cuotas existentes al normalizar el crédito. "
+                    "Indique Fila ID para identificar la cuota sin alterar sus vínculos."
+                ).format(record["source_row"]))
+            if candidates:
+                row_key = candidates[0].row_key
         if row_key in seen:
             frappe.throw(
                 _("La fila {0} duplica cliente, credito y cuota.").format(
@@ -637,6 +652,17 @@ def import_collection(period_name: str):
     }
 
 
+def _collection_identity_key(period, record):
+    return source_key(
+        period.employer,
+        getdate(period.payroll_month).replace(day=1),
+        period.collection_cycle,
+        record.get("client_number") or record.get("national_id") or record.get("employee_number") or record.get("client_name"),
+        normalize_credit_number(record.get("loan_number")),
+        record.get("installment_number"),
+    )[:24]
+
+
 @frappe.whitelist(methods=["POST"])
 def recognize_collection_as_employer_detail(period_name: str, evidence_date: str, confirmed: int = 0):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
@@ -708,11 +734,21 @@ def import_employer_response(period_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de empresa invalido"))
 
+    for response in responses:
+        response["loan_number"] = normalize_credit_number(response.get("loan_number"))
+    needs_credit_normalization = any(
+        row.loan_number != normalize_credit_number(row.loan_number)
+        for row in period.collection_rows
+    )
+    for row in period.collection_rows:
+        row.loan_number = normalize_credit_number(row.loan_number)
+
     client_catalog = load_client_index()
     import_key = _employer_response_import_key(period, content, client_catalog)
     if (
         period.employer_response_import_key == import_key
         and period.deduction_basis == "Detalle de empresa"
+        and not needs_credit_normalization
     ):
         source_summary = _reconcile_if_sources()
         return {
@@ -1366,6 +1402,7 @@ def _employer_response_import_key(period, content, client_catalog=()):
         and (include_all_employer_clients or client["name"] in linked_names)
     )
     return source_key(
+        "credit-suffix-1",
         file_sha256(content), period.deduction_evidence_date,
         period.collection_import_sha256,
         json.dumps((identities, relevant_clients), ensure_ascii=False),

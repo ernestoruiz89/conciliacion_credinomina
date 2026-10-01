@@ -58,6 +58,12 @@ def clean_text(value: Any) -> str:
     return str(value).strip().lstrip("'")
 
 
+def normalize_credit_number(value: Any) -> str:
+    """Use the core's default cycle only for credit numbers without a suffix."""
+    number = clean_text(value)
+    return f"{number}-1" if re.fullmatch(r"\d+", number) else number
+
+
 def has_legacy_numeric_credit_numbers(credit_numbers: Iterable[Any]) -> bool:
     """Return whether stored portfolio rows still need the default ``-1`` suffix."""
     return any(clean_text(number).isdigit() for number in credit_numbers)
@@ -753,9 +759,7 @@ def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any
             index = mapping.get(fieldname)
             return row[index] if index is not None and index < len(row) else None
 
-        credit_number = clean_text(value("no_credito"))
-        if re.fullmatch(r"\d+", credit_number):
-            credit_number = f"{credit_number}-1"
+        credit_number = normalize_credit_number(value("no_credito"))
         client_name = clean_text(value("nombre_cliente"))
         if not credit_number and not client_name:
             continue
