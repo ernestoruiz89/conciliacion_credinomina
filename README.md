@@ -191,10 +191,12 @@ En **Partidas complementarias → Movimientos por revisar**:
 1. Identifique la empresa cuando corresponda y revise el movimiento.
 2. Si no interviene en conciliaciones, seleccione **No conciliatoria**, documente
    el motivo y guarde. Permanece en borrador, sin efecto financiero.
-3. Para ND o reversiones, use **Vincular aplicación original** y después
-   **Reversión identificada**. El vínculo es de seguimiento: **no resta automáticamente
-   el monto de la aplicación ni la da por pagada**. No se permite confirmar estas
-   reversiones como compensaciones de depósitos; revise su efecto en el core.
+3. Para una NC/ND que compensa una aplicación, use **Vincular a aplicación**,
+   seleccione la importación y su fila, y revise **Importe del ajuste US$**.
+   El tratamiento será **Ajuste de aplicación**. Es un importe positivo que reduce
+   la aplicación, sin superar el equivalente US$ de la partida ni el aplicado neto.
+   Guarde las observaciones y use **Confirmar ajuste** (requiere permiso de confirmar).
+   Vincular o guardar el borrador no afecta saldos; confirmar recalcula la empresa.
 4. Si realmente corresponde a un depósito, seleccione **Partida de depósito**,
    complete empresa, referencia y concepto, ajuste el importe/signo provisional y
    marque **Importe y signo revisados**. Un supervisor podrá confirmarla para usarla
@@ -203,6 +205,23 @@ En **Partidas complementarias → Movimientos por revisar**:
 No se reclasifican automáticamente los registros existentes. Al recargar, se impide
 reclasificar o quitar aplicaciones que ya tengan vínculos de conciliación. Ejecute
 `bench --site <sitio> migrate` y reinicie los procesos después de desplegar estos cambios.
+
+La aplicación conserva **Monto original**, **Ajustes confirmados US$**, **Aplicado
+neto US$** y el resultado «Aplicación ajustada parcialmente» o «Aplicación compensada
+totalmente». Los períodos, la antigüedad de saldos, los selectores de aplicaciones y
+el informe de control utilizan el neto. El ajuste no es efectivo recibido y no
+puede asignarse además como destino de un depósito. No modifica el core externo.
+
+Se bloquea la confirmación si hay destinos de depósitos vinculados (incluidos
+borradores), depósitos ya asignados o períodos cerrados. Revise y retire las
+asignaciones o reabra el período antes de ajustar. Cancelar la partida revierte
+su reducción y recalcula los saldos, con las mismas protecciones. En modalidad
+operativa no cambia lo cobrado ni lo deducido por la empresa: esas diferencias
+deben resolverse por su propio proceso.
+
+El parche inicializa los importes netos de registros existentes sin cambiar sus
+montos originales. Las antiguas «Reversiones identificadas» siguen siendo solo
+seguimiento: no se convierten automáticamente en ajustes confirmados.
 
 ## Instalación
 

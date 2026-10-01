@@ -74,7 +74,7 @@ function importExceptionRows(rows) {
                 reason: row.match_reason || __("No hay una coincidencia única. Revise cliente, crédito, empresa y período.")});
         }
         if (row.event_type === "Aplicacion" && Number(row.effective)
-                && row.deposit_match_status !== "Depósito conciliado") {
+                && !["Depósito conciliado", "Aplicación compensada"].includes(row.deposit_match_status)) {
             if (!["Conciliado", "Ambiguo", "Sin coincidencia"].includes(row.match_status)) {
                 reasons.push({stage: __("Aplicación"),
                     reason: row.match_reason || __("La aplicación aún no tiene un vínculo confirmado con el período o la cobranza.")});

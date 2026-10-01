@@ -30,7 +30,7 @@ class ExceptionCloseTests(unittest.TestCase):
 
         reconcile.assert_called_once()
         period.reload.assert_called_once()
-        self.assertIn("cubiertas por depósitos", reject.call_args.args[0])
+        self.assertIn("cubierto por depósitos o compensado por ajustes", reject.call_args.args[0])
         mark_closed.assert_not_called()
 
     def test_historical_period_cannot_close_with_open_exception(self):

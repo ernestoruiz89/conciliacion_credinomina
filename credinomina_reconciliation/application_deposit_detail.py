@@ -13,6 +13,7 @@ from credinomina_reconciliation.remittance_selection import target_key
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 from credinomina_reconciliation.templates import build_template_xlsx, DEPOSIT_HEADERS
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
+from credinomina_reconciliation.reconciliation import net_application_amount
 
 
 def pending_application_rows(candidates, deposits, movements, current_name):
@@ -68,12 +69,12 @@ def _preview(document, period):
             "parent": ["in", parents], "parenttype": "CN Accounting Import", "parentfield": "rows",
             "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
             "match_status": "Conciliado", "currency": "USD",
-        }, fields=["name", "parent", "amount", "reference", *identity],
+        }, fields=["name", "parent", "amount", "reference", "application_adjustment_usd", *identity],
             order_by="event_date asc, name asc", limit_page_length=0) if parents else []
         for row in rows:
             candidates.append({**{field: row.get(field) for field in identity},
                 "claim_id": "H:" + row.name, "historical_application": row.name,
-                "applied_usd": money_float(row.amount), "application_reference": row.reference,
+                "applied_usd": net_application_amount(row), "application_reference": row.reference,
                 "application_comment": f"{row.parent} / {row.name}", "row_key": ""})
     else:
         for row in period.collection_rows:

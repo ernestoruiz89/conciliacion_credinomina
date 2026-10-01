@@ -16,7 +16,7 @@ const frm = {doc: {category: "Diferencia por tolerancia", docstatus: 1, status: 
         {df: {fieldname: "amount_usd", read_only: 1}}],
     set_df_property: (field, property, value) => {properties[field + ":" + property] = value;},
     disable_save() {disabled = true;}, enable_save() {disabled = false;}, get_perm: () => true,
-    toggle_display() {}, trigger: name => events[name](frm),
+    toggle_display() {}, trigger: name => events[name](frm), is_new: () => true,
     dashboard: {set_headline_alert(message) {headline = message;}, clear_headline() {headline = "";}},
 };
 events.refresh(frm);

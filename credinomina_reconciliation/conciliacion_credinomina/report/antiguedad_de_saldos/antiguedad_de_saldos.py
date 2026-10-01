@@ -48,7 +48,7 @@ def _execute_applications(filters):
             "client", "client_name", "client_number", "national_id", "loan_number", "installment_number",
             "currency", "amount", "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
             "processing_route", "historical_period", "portfolio_employer", "collection_row_id",
-            "application_allocation_detail", "historical_remitted_usd", "historical_detail",
+            "application_allocation_detail", "historical_remitted_usd", "historical_detail", "application_adjustment_usd",
         ], limit_page_length=0,
     ) if imports else []
     collections = {row.name: row for row in frappe.get_all(

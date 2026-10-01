@@ -193,12 +193,12 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const unassigned = data.unassigned_historical_applications || [];
         const unassignedTable = unassigned.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Motivo"))}</th>
+                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Motivo"))}</th>
             </tr></thead><tbody>${unassigned.map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
                 <td><button class="cn-text-link" type="button" data-import="${esc(row.parent)}">${esc(row.reference)}</button></td>
                 <td>${esc(row.loan_number)}</td>
-                <td class="cn-number">${money(row.amount)}</td>
+                <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
                 <td>${esc(row.match_reason)}</td>
             </tr>`).join("")}</tbody></table></div>` : "";
         const depositTable = deposits.length ? `
@@ -242,12 +242,12 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const historicalTable = (period.historical_rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Referencia"))}</th>
-                <th>${esc(__("Aplicación US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción"))}</th>
+                <th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción"))}</th>
             </tr></thead><tbody>${(period.historical_rows || []).map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
                 <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}</td>
                 <td>${esc(row.reference)}</td>
-                <td class="cn-number">${money(row.amount)}</td>
+                <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
                 <td class="cn-number">${money(row.historical_remitted_usd)}</td>
                 <td class="cn-number">${money(row.historical_balance_usd)}</td>
                 <td>${allocationLines(row.historical_detail)}</td>
@@ -454,7 +454,7 @@ async function showApplicationException(period, row, onSaved) {
             {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito"), default: row.loan_number, read_only: 1},
             {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: row.reference, read_only: 1},
             {fieldtype: "Section Break", label: __("Diferencia identificada")},
-            {fieldname: "applied_usd", fieldtype: "Currency", options: "usd_currency", label: __("Aplicación US$"), default: row.amount, read_only: 1, precision: 2},
+            {fieldname: "applied_usd", fieldtype: "Currency", options: "usd_currency", label: __("Aplicado neto US$"), default: row.net_applied_usd ?? row.amount, read_only: 1, precision: 2},
             {fieldtype: "Column Break"},
             {fieldname: "assigned_usd", fieldtype: "Currency", options: "usd_currency", label: __("Depósito asignado US$"), default: row.historical_remitted_usd, read_only: 1, precision: 2},
             {fieldtype: "Column Break"},

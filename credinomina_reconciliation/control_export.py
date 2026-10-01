@@ -8,6 +8,8 @@ to a first reference match.
 
 from __future__ import annotations
 
+from credinomina_reconciliation.reconciliation import net_application_amount
+
 import io
 import json
 from datetime import date, datetime
@@ -127,7 +129,7 @@ def build_control_workbook(
         issue_rows.append(_issue(
             "Aplicación sin período", None, None,
             application.get("loan_number"), application.get("reference"),
-            _money(application.get("amount")), "Sin período",
+            net_application_amount(application), "Sin período",
             detail=application.get("match_reason"),
             event_date=application.get("event_date"),
         ))
@@ -354,7 +356,7 @@ def _historical_detail(period, application):
         application.get("client_number"), application.get("employee_number"), application.get("client_name"),
         application.get("national_id"), application.get("loan_number"), application.get("installment_number"),
         _date(application.get("event_date")), application.get("accounting_entry"), application.get("receipt"),
-        application.get("reference"), NA, NA, _money(application.get("amount")),
+        application.get("reference"), NA, NA, net_application_amount(application),
         0, 0, _money(application.get("historical_remitted_usd")), NA,
         _money(application.get("historical_balance_usd")),
         application.get("deposit_match_status"), None,

@@ -91,7 +91,7 @@ def _candidates(employer, kind, period=None, search=None, row_id=None):
             "CN Source Row", filters=filters, or_filters=search_filters,
             fields=["name", "parent", "source_row", "idx", "client_name", "client_number", "loan_number",
                     "event_date", "reference", "accounting_entry", "receipt", "amount", "currency",
-                    "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
+                    "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate", "application_adjustment_usd", "event_type",
                     "collection_row_id", "collection_period", "historical_period", "application_allocation_detail",
                     "deposit_match_status", "match_status"],
             order_by="event_date desc, parent asc, idx asc, name asc", limit_start=start, limit_page_length=200,

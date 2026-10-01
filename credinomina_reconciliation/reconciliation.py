@@ -12,6 +12,11 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 
 
 AMOUNT_TOLERANCE = 0.01
+def net_application_amount(row):
+    """USD-normalized source amount after confirmed reductions; preserve evidence."""
+    return money_float(max(money(row.get("amount")) - money(row.get("application_adjustment_usd")), 0))
+
+
 def remittance_fx_basis(remittance: Mapping[str, Any]) -> str:
     """Use the entered positive remittance rate; a written source is optional."""
     rate = decimal_value(remittance.get("fx_rate") or remittance.get("manual_fx_rate"))
@@ -62,6 +67,19 @@ def same_exact_money(left: Any, right: Any) -> bool:
 
 
 def converted_amount(row: Mapping[str, Any], target_currency: str) -> float | None:
+    value = _original_converted_amount(row, target_currency)
+    adjustment = money(row.get("application_adjustment_usd"))
+    if value is None or not adjustment or row.get("event_type") != "Aplicacion":
+        return value
+    if target_currency.upper() == "USD":
+        return money_float(max(money(value) - adjustment, 0))
+    original_usd = _original_converted_amount(row, "USD")
+    if not original_usd:
+        return None
+    return money_float(money(value) * max(money(original_usd) - adjustment, 0) / money(original_usd))
+
+
+def _original_converted_amount(row: Mapping[str, Any], target_currency: str) -> float | None:
     """Value a deposit in the requested currency using its conversion rate.
 
     The rate is NIO per USD. The source-file equivalent has priority over a

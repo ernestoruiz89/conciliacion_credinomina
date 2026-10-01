@@ -1154,7 +1154,7 @@ def close_period(period_name: str):
                 "No se puede cerrar un período histórico sin aplicaciones efectivas asignadas."
             ))
         if period.status != "Conciliado":
-            frappe.throw(_("Todas las aplicaciones históricas deben estar cubiertas por depósitos antes del cierre."))
+            frappe.throw(_("El aplicado neto debe estar cubierto por depósitos o compensado por ajustes confirmados antes del cierre."))
         if application_ids and _pending_registered_targets(
             {"historical_application": ["in", application_ids]}
         ):

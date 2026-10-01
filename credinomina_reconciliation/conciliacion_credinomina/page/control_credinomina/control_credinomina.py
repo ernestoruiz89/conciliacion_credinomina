@@ -13,6 +13,7 @@ from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.control_deposits import get_cash_deposits
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
+from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
@@ -197,7 +198,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             fields=[
                 "name", "parent", "source_row", "historical_period", "event_date",
                 "reference", "voucher", "accounting_entry", "receipt", "client_number", "employee_number", "client_name", "national_id",
-                "loan_number", "installment_number", "amount", "currency",
+                "loan_number", "installment_number", "amount", "currency", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status",
                 "historical_remitted_usd", "historical_balance_usd",
                 "historical_detail", "deposit_match_status", "deposit_match_reason",
             ],
@@ -415,7 +416,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                     },
                     fields=[
                         "parent", "event_date", "reference", "loan_number",
-                        "amount", "amount_usd", "currency", "match_reason",
+                        "amount", "amount_usd", "currency", "match_reason", "application_adjustment_usd", "net_applied_usd",
                         "processing_route",
                     ],
                     order_by="event_date asc, idx asc",
@@ -423,6 +424,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 )
                 imports_by_name = {item.name: item for item in source_imports}
                 for row in unassigned_applications:
+                    if net_application_amount(row) <= 0:
+                        continue
                     target = (
                         unassigned_historical_applications
                         if _unassigned_application_is_historical(
@@ -906,7 +909,7 @@ def _build_work_items(
             by_import[row.parent].append(row)
         for source, unmatched in by_import.items():
             known_usd = [
-                flt(row.get("amount_usd") or row.amount)
+                net_application_amount(row)
                 for row in unmatched if row.currency == "USD"
             ]
             add(1, label, "Aplicaciones sin período enlazado",

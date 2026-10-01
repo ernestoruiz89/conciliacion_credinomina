@@ -2,6 +2,10 @@ frappe.listview_settings["CN Complementary Item"] = {
     add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus"],
     has_indicator_for_draft: true,
     get_indicator(doc) {
+        if (doc.category === "Ajuste de aplicación") {
+            const status = doc.docstatus === 2 ? "Ajuste cancelado" : doc.review_status || "Ajuste pendiente de completar";
+            return [__(status), doc.docstatus === 1 ? "blue" : doc.docstatus === 2 ? "gray" : "orange", `review_status,=,${status}`];
+        }
         if (doc.accounting_source_key && doc.docstatus === 0) {
             const status = doc.review_status || "Pendiente de revisión";
             const color = ["No conciliatoria", "Reversión identificada"].includes(status) ? "gray"
@@ -19,7 +23,7 @@ frappe.listview_settings["CN Complementary Item"] = {
     },
     onload(listview) {
         listview.page.add_inner_button(__("Movimientos por revisar"), () => {
-            listview.filter_area.add([["CN Complementary Item", "review_status", "in", ["Pendiente de identificar", "Pendiente de revisión"]],
+            listview.filter_area.add([["CN Complementary Item", "review_status", "in", ["Pendiente de identificar", "Pendiente de revisión", "Ajuste pendiente de completar", "Ajuste pendiente de confirmar"]],
                 ["CN Complementary Item", "docstatus", "=", 0]]);
         });
         listview.page.add_inner_button(__("Pendientes de registro"), () => {

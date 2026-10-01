@@ -90,6 +90,9 @@ class _RegisteredDeposit(dict):
 
 
 PROVISIONAL_APPLICATION = "Enlace provisional"
+from credinomina_reconciliation.application_adjustments import net_amount, refresh_rows, guard_source_changes, CATEGORY as APPLICATION_ADJUSTMENT
+
+SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada"}
 LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
 _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
 
@@ -109,6 +112,7 @@ _SOURCE_EVIDENCE_FIELDS = (
     "portfolio_validation_status",
 )
 _SOURCE_DERIVED_FIELDS = (
+    "application_adjustment_usd", "net_applied_usd", "application_adjustment_status",
     "historical_application_id", "effective", "match_status", "match_reason",
     "collection_period", "collection_row_id", "application_allocation_detail",
     "deposit_match_status", "deposit_match_reason", "historical_remitted_usd",
@@ -160,6 +164,8 @@ class CNAccountingImport(Document):
 
     def on_trash(self):
         self._assert_no_closed_period_links(self.rows or [])
+        if self.rows and frappe.db.exists("CN Complementary Item", {"related_application": ["in", [row.name for row in self.rows]]}):
+            frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
 
     def validate(self):
         self._validate_bulk_scope()
@@ -167,6 +173,8 @@ class CNAccountingImport(Document):
         self._validate_historical_periods()
         self._validate_duplicate_file()
         self._validate_manual_rates()
+        guard_source_changes(self)
+        refresh_rows(self.rows or [])
         self._validate_closed_source_edits()
         self.recalculate_summary()
 
@@ -348,7 +356,7 @@ class CNAccountingImport(Document):
             )
             and (
                 row.event_type != "Aplicacion"
-                or row.deposit_match_status == "Depósito conciliado"
+                or row.deposit_match_status in SETTLED_APPLICATION_STATUSES
             )
             for row in rows
         )
@@ -362,13 +370,15 @@ class CNAccountingImport(Document):
             or (
                 row.event_type == "Aplicacion"
                 and row.effective
-                and row.deposit_match_status != "Depósito conciliado"
+                and row.deposit_match_status not in SETTLED_APPLICATION_STATUSES
             )
             for row in rows
         )
         self.ignored_count = sum(row.match_status == "Ignorado" for row in rows)
         self.total_usd = sum(flt(row.amount_usd) for row in rows if row.effective)
         self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
+        self.total_application_adjustment_usd = money_float(sum_money(row.get("application_adjustment_usd") for row in rows if row.effective and row.event_type == "Aplicacion"))
+        self.total_net_applied_usd = money_float(sum_money(net_amount(row) for row in rows if row.effective and row.event_type == "Aplicacion"))
 
 
 @frappe.whitelist()
@@ -604,7 +614,7 @@ def _reconciliation_feedback(rows):
         complete = (
             row.match_status == "Conciliado"
             and (row.event_type != "Deposito" or flt(row.unallocated_usd) <= CASH_EPSILON)
-            and (row.event_type != "Aplicacion" or row.deposit_match_status == "Depósito conciliado")
+            and (row.event_type != "Aplicacion" or row.deposit_match_status in SETTLED_APPLICATION_STATUSES)
         )
         if complete:
             matched += 1
@@ -612,14 +622,16 @@ def _reconciliation_feedback(rows):
                 matched_rows.append({
                     "import_name": row._source_import, "row": row.source_row or row.idx,
                     "client_name": row.client_name or "", "loan_number": row.loan_number or "",
-                    "reason": _("Aplicación y depósito conciliados.")
-                    if row.event_type == "Aplicacion" else _("Movimiento conciliado."),
+                    "reason": (_("Aplicación compensada totalmente por ajustes confirmados; sin depósito recibido.")
+                               if row.deposit_match_status == "Aplicación compensada"
+                               else _("Aplicación y depósito conciliados.")
+                               if row.event_type == "Aplicacion" else _("Movimiento conciliado.")),
                 })
             continue
         row_reasons = []
         if row.match_status != "Conciliado":
             row_reasons.append(clean_text(row.match_reason) or _("Aplicación sin coincidencia; revise su identificación y período."))
-        if row.event_type == "Aplicacion" and row.deposit_match_status != "Depósito conciliado":
+        if row.event_type == "Aplicacion" and row.deposit_match_status not in SETTLED_APPLICATION_STATUSES:
             row_reasons.append(clean_text(row.deposit_match_reason) or _("Falta conciliar el depósito de esta aplicación."))
         if row.event_type == "Deposito" and flt(row.unallocated_usd) > CASH_EPSILON:
             row_reasons.append(clean_text(row.allocation_reason) or _("Depósito con saldo sin distribuir."))
@@ -699,6 +711,7 @@ def _reconcile_sources(employer=None):
             all_rows.append(row)
 
     _deduplicate_applications(all_rows)
+    refresh_rows(all_rows)
     periods = _load_open_periods(employer) if employer else _load_open_periods()
     company_filters = {"employer": employer} if employer else {}
     closed_operative_state = {
@@ -709,7 +722,7 @@ def _reconcile_sources(employer=None):
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY]], **company_filters},
+        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -762,6 +775,11 @@ def _reconcile_sources(employer=None):
         closed_operative_state, closed_operative_links, complementary_items,
     )
     _rebuild_historical_balances(periods, all_rows, allocation)
+    for row in all_rows:
+        if row.event_type == "Aplicacion" and row.effective and row.application_adjustment_usd and net_amount(row) == 0:
+            row.match_status = "Conciliado"
+            row.deposit_match_status = "Aplicación compensada"
+            row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     _sync_registered_deposit_detail(allocation)
 
     for document in imports:
@@ -789,7 +807,7 @@ def _reconcile_sources(employer=None):
             )
             and (
                 row.event_type != "Aplicacion"
-                or row.deposit_match_status == "Depósito conciliado"
+                or row.deposit_match_status in SETTLED_APPLICATION_STATUSES
             )
             for row in all_rows
         ),
@@ -803,7 +821,7 @@ def _reconcile_sources(employer=None):
             or (
                 row.event_type == "Aplicacion"
                 and row.effective
-                and row.deposit_match_status != "Depósito conciliado"
+                and row.deposit_match_status not in SETTLED_APPLICATION_STATUSES
             )
             for row in all_rows
         ),
@@ -956,7 +974,7 @@ def _application_allocations(source):
         return detail
     if source.collection_row_id:
         return [{"collection_row_id": source.collection_row_id,
-                 "amount_usd": flt(source.amount)}]
+                 "amount_usd": net_amount(source)}]
     return []
 
 
@@ -987,6 +1005,10 @@ def _match_applications(
     applied_by_target = defaultdict(float)
     for source in source_rows:
         if source.event_type != "Aplicacion" or not source.effective:
+            continue
+        if source.get("application_adjustment_usd") and net_amount(source) == 0 and not source.historical_period:
+            source.match_status = "Conciliado"
+            source.match_reason = _("Aplicación compensada totalmente por ajustes confirmados.")
             continue
         if source.currency != "USD":
             source.match_status = "Sin coincidencia"
@@ -1104,9 +1126,9 @@ def _match_applications(
                         "detail_pending": detail_pending,
                         "converted_match": converted_match,
                     })
-            if flt(source.amount) > available + AMOUNT_TOLERANCE:
+            if net_amount(source) > available + AMOUNT_TOLERANCE:
                 continue
-            exact = same_amount(flt(source.amount), available)
+            exact = same_amount(net_amount(source), available)
             candidates.append((target, converted_match, exact, detail_pending))
         confirmed_candidates = [candidate for candidate in candidates if not candidate[3]]
         if confirmed_candidates:
@@ -1116,7 +1138,7 @@ def _match_applications(
             candidates = exact_candidates
         if len(candidates) == 1:
             target, converted_match, _exact, detail_pending = candidates[0]
-            applied_by_target[target.name] += flt(source.amount)
+            applied_by_target[target.name] += net_amount(source)
             source.match_status = (
                 PROVISIONAL_APPLICATION if detail_pending else "Conciliado"
             )
@@ -1141,10 +1163,10 @@ def _match_applications(
             source.application_allocation_detail = json.dumps([{
                 "collection_row_id": target.name,
                 "period": target.parent,
-                "amount_usd": money_float(source.amount),
+                "amount_usd": net_amount(source),
             }], ensure_ascii=False)
         elif not candidates and (
-            pair := unique_full_quincena_pair(pair_candidates, flt(source.amount))
+            pair := unique_full_quincena_pair(pair_candidates, net_amount(source))
         ):
             detail = []
             for candidate in pair:
@@ -1632,7 +1654,7 @@ def _distribute_deposits(
         claims.append(
             {
                 "id": "H:" + application.name,
-                "amount_usd": flt(application.amount),
+                "amount_usd": net_amount(application),
                 "kind": "H", "client_number": application.client_number,
                 "client": application.client or application.portfolio_client,
                 "employee_number": application.employee_number,
@@ -1644,7 +1666,7 @@ def _distribute_deposits(
                 "hints": {},
                 "group": employer_by_period.get(application.historical_period),
                 "period": application.historical_period,
-                "core_applied_usd": flt(application.amount),
+                "core_applied_usd": net_amount(application),
                 "application_ids": [application.name],
             }
         )
@@ -2600,7 +2622,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
     for application in applications.values():
         details = deposits_by_application[application.name]
         remitted = money_float(sum_money(item["importe_usd"] for item in details))
-        applied = flt(application.amount)
+        applied = net_amount(application)
         adjustment = money_float(rounding_by_application[application.name])
         application.historical_remitted_usd = remitted
         application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
@@ -2619,13 +2641,13 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
 
     for period in historical_periods.values():
         related = apps_by_period[period.name]
-        applied = money_float(sum_money(row.amount for row in related))
+        applied = money_float(sum_money(net_amount(row) for row in related))
         remitted = money_float(sum_money(row.historical_remitted_usd for row in related))
         adjustment = money_float(sum_money(rounding_by_application[row.name] for row in related))
         fingerprint_data = [
             {
                 "application_id": row.name,
-                "amount_usd": money_float(row.amount),
+                "amount_usd": net_amount(row),
                 "deposits": sorted(
                     deposits_by_application[row.name],
                     key=lambda item: (
@@ -2666,12 +2688,13 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         period.rounding_adjustment_usd = adjustment
         period.historical_fingerprint = fingerprint
         period.exception_count = sum(
-            row.deposit_match_status != "Depósito conciliado" for row in related
+            row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in related
         ) + len(unclassified_deposits_by_period[period.name])
         if period.status != "Cerrado":
             period.status = (
                 "Con excedente"
                 if unclassified_deposits_by_period[period.name]
+                else "Conciliado" if related and applied == 0 and all(row.get("application_adjustment_usd") for row in related)
                 else historical_status(applied + adjustment, remitted)
             )
         if period.status == "Cerrado":

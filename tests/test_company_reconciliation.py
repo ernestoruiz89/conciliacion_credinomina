@@ -48,6 +48,7 @@ class CompanyReconciliationTests(unittest.TestCase):
         allocation = {"rounding_movements": [], "registered_ids": {}, "deposit_meta": {}}
         with (
             patch.object(source.frappe, "has_permission", return_value=True),
+            patch.object(source.frappe, "db", Mock(sql=Mock(return_value=[]))),
             patch.object(source.frappe, "get_all", side_effect=get_all),
             patch.object(source.frappe, "get_doc", side_effect=lambda dt, name: (imports if dt == "CN Accounting Import" else periods)[name]),
             patch.object(source, "_deduplicate_applications"),
@@ -67,11 +68,11 @@ class CompanyReconciliationTests(unittest.TestCase):
         self.assertEqual([p.name for p in history.call_args.args[0]], ["PA"])
         self.assertEqual(rebuild.call_args.args[0], [])
         item_filters = [kwargs["filters"]["category"] for dt, kwargs in queries if dt == "CN Complementary Item"]
-        self.assertIn(["not in", ["Saldo a favor de la empresa", "Diferencia por tolerancia"]], item_filters)
+        self.assertIn(["not in", ["Saldo a favor de la empresa", "Diferencia por tolerancia", "Ajuste de aplicación"]], item_filters)
         self.assertIn("Saldo a favor de la empresa", item_filters)
         self.assertIn("Diferencia por tolerancia", item_filters)
         for doctype in ("CN Complementary Item", "CN Remittance Allocation"):
-            query = next(kwargs for dt, kwargs in queries if dt == doctype)
+            query = next(kwargs for dt, kwargs in queries if dt == doctype and "employer" in kwargs["filters"])
             self.assertEqual(query["filters"]["employer"], "A", doctype)
         self.assertEqual((result["imports"], result["rows"], result["matched"], result["pending"]), (1, 1, 1, 0))
 

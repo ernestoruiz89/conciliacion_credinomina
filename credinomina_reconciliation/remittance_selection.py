@@ -6,6 +6,7 @@ from collections import defaultdict
 from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
+from credinomina_reconciliation.reconciliation import net_application_amount
 
 
 def target_key(row):
@@ -103,7 +104,7 @@ def get_pending_targets(remittance_name, targets=None):
         "CN Remittance Allocation", filters={"docstatus": 1, "employer": doc.employer},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
-    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY]]},
+    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY, "Ajuste de aplicación"]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
                 "client_number", "loan_number", "installment_number", "description", "voucher"],
         limit_page_length=0)
@@ -155,9 +156,9 @@ def get_pending_targets(remittance_name, targets=None):
                 candidates.append({**identity(row), "kind": "Aplicación histórica",
                     "historical_application": row.name, "filter_period": period.name,
                     "period_label": period_label(period),
-                    "applied_usd": float(money(row.amount)),
+                    "applied_usd": net_application_amount(row),
                     "reference": " · ".join(str(v) for v in [row.reference, row.voucher, row.receipt] if v),
-                    "due_usd": float(money(row.amount) + min(money(row.rounding_adjustment_usd), money(0)))})
+                    "due_usd": float(money(net_application_amount(row)) + min(money(row.rounding_adjustment_usd), money(0)))})
     for item in items:
         period = open_periods.get(item.period)
         if item.period and not period:

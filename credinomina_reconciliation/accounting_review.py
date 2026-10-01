@@ -87,6 +87,11 @@ def validate_review_item(doc, previous=None):
                 return clean_text(value)
             if normalized(doc.get(field)) != normalized(previous.get(field)):
                 frappe.throw(_("No se puede modificar la evidencia contable original: {0}.").format(field))
+    if doc.get("review_action") == "Ajuste de aplicación":
+        doc.category = "Ajuste de aplicación"
+        return  # Financial and source-link checks run after currency conversion.
+    if doc.category == "Ajuste de aplicación":
+        frappe.throw(_("Use el tratamiento Ajuste de aplicación para este concepto."))
     if not doc.get("accounting_source_key"):
         if doc.category == "Por clasificar":
             frappe.throw(_("Por clasificar se reserva para movimientos contables importados."))
@@ -131,5 +136,6 @@ def application_candidates(item_name, accounting_import):
     if not item.employer or parent.employer != item.employer:
         frappe.throw(_("Seleccione una importación de la misma empresa."))
     return [{"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
-             "event_date": row.event_date, "amount_usd": row.amount_usd, "voucher": row.voucher}
+             "event_date": row.event_date, "amount_usd": row.amount_usd, "voucher": row.voucher,
+             "application_adjustment_usd": row.application_adjustment_usd, "net_applied_usd": row.net_applied_usd}
             for row in parent.rows if row.event_type == "Aplicacion" and row.effective]

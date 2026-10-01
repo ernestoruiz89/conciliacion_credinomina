@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
+from credinomina_reconciliation.application_adjustments import CATEGORY as APPLICATION_ADJUSTMENT, validate_adjustment, assert_adjustable
 from credinomina_reconciliation.company_credit import CATEGORY, ensure_related_periods_open, validate_company_credit
 from credinomina_reconciliation.tolerance_items import (
     guard_tolerance_item, is_tolerance_item, validate_tolerance_item,
@@ -21,7 +22,7 @@ class CNComplementaryItem(Document):
         validate_review_item(self, previous)
         self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
-        if not self.reference and not self.get("accounting_source_key"):
+        if not self.reference and not self.get("accounting_source_key") and self.category != APPLICATION_ADJUSTMENT:
             frappe.throw(_("Indique la referencia del depósito."))
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
@@ -40,6 +41,8 @@ class CNComplementaryItem(Document):
             frappe.throw(_("Seleccione USD o NIO como moneda de la partida."))
         if not money(self.amount_usd):
             frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
+        if self.category == APPLICATION_ADJUSTMENT:
+            validate_adjustment(self)
         if self.category == CATEGORY:
             validate_company_credit(self)
         duplicate = frappe.db.get_value(
@@ -66,6 +69,9 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
+        if self.category == APPLICATION_ADJUSTMENT:
+            self._reconcile_application()
+            return
         if is_tolerance_item(self):
             return
         if self.category == CATEGORY or not self.flags.get("defer_reconciliation"):
@@ -78,6 +84,11 @@ class CNComplementaryItem(Document):
 
     def before_cancel(self):
         guard_tolerance_item(self)
+        if self.category == APPLICATION_ADJUSTMENT:
+            frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)
+            assert_adjustable(frappe.get_doc("CN Source Row", self.related_application), self.name,
+                              frappe.parse_json(self.get("adjustment_periods") or "[]"),
+                              frappe.parse_json(self.get("adjustment_collection_rows") or "[]"))
         if self.category == CATEGORY:
             ensure_related_periods_open(self)
 
@@ -90,6 +101,10 @@ class CNComplementaryItem(Document):
         self.validate()
 
     def on_cancel(self):
+        if self.category == APPLICATION_ADJUSTMENT:
+            self.db_set("review_status", "Ajuste cancelado", update_modified=False)
+            self._reconcile_application()
+            return
         if is_tolerance_item(self):
             return
         self._reconcile()
@@ -103,3 +118,8 @@ class CNComplementaryItem(Document):
         )
 
         reconcile_all_sources()
+
+    def _reconcile_application(self):
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+
+        _reconcile_sources(self.employer)

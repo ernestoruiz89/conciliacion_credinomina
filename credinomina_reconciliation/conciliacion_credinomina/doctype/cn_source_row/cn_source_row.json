@@ -7,7 +7,7 @@
   "field_order": [
     "client_section", "usd_currency", "nio_currency", "source_key", "collection_row_id",
     "client_name", "client_number", "national_id", "client_column", "loan_number", "installment_number", "employee_number",
-    "movement_section", "event_date", "event_type", "currency", "amount", "movement_column", "accounting_entry", "receipt", "reference", "voucher",
+    "movement_section", "event_date", "event_type", "currency", "amount", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status", "movement_column", "accounting_entry", "receipt", "reference", "voucher",
     "classification_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "complementary_item", "classification_column", "source_account", "source_currency", "source_debit", "source_credit", "accounting_reference", "source_classification", "accounting_source_key",
     "matching_section", "match_status", "match_reason", "matching_column", "deposit_match_status", "deposit_match_reason",
     "routing_section", "processing_route", "historical_period", "routing_column", "collection_period",
@@ -27,6 +27,9 @@
     "rounding_trace_section", "rounding_movement_detail"
   ],
   "fields": [
+    {"fieldname": "application_adjustment_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Ajustes confirmados US$", "read_only": 1},
+    {"fieldname": "net_applied_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Aplicado neto US$", "read_only": 1},
+    {"fieldname": "application_adjustment_status", "fieldtype": "Data", "label": "Resultado del ajuste", "read_only": 1},
     {"fieldname": "classification_section", "fieldtype": "Section Break", "label": "Clasificación contable", "collapsible": 1},
     {"fieldname": "tmov", "fieldtype": "Data", "label": "TMOV", "read_only": 1},
     {"fieldname": "tdoc", "fieldtype": "Data", "label": "TDOC", "read_only": 1},
@@ -116,7 +119,7 @@
     {"description": "En una aplicación que cubre ambas quincenas, muestra el primer período; revise la distribución para ver los dos.", "fieldname": "collection_period", "fieldtype": "Link", "label": "Periodo", "options": "CN Reconciliation Period", "read_only": 1},
     {"fieldname": "collection_row_id", "fieldtype": "Data", "hidden": 1, "label": "Fila de cobranza", "read_only": 1},
     {"fieldname": "application_allocation_detail", "fieldtype": "Code", "label": "Distribución de la aplicación (JSON)", "options": "JSON", "read_only": 1},
-    {"fieldname": "deposit_match_status", "fieldtype": "Select", "label": "Estado de depósito", "options": "Pendiente\nDepósito conciliado\nDepósito parcial\nSin deposito\nDiferencia de importe\nFalta tipo de cambio\nAmbiguo", "read_only": 1},
+    {"fieldname": "deposit_match_status", "fieldtype": "Select", "label": "Estado de depósito", "options": "Pendiente\nAplicación compensada\nDepósito conciliado\nDepósito parcial\nSin deposito\nDiferencia de importe\nFalta tipo de cambio\nAmbiguo", "read_only": 1},
     {"fieldname": "deposit_match_reason", "fieldtype": "Small Text", "label": "Detalle de la conciliacion de depósito", "read_only": 1},
     {"fieldname": "historical_remitted_usd", "fieldtype": "Currency", "label": "Depósitos asignados a la aplicación US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "historical_balance_usd", "fieldtype": "Currency", "label": "Aplicación histórica sin depósito US$", "options": "usd_currency", "precision": "2", "read_only": 1},
@@ -135,7 +138,7 @@
   ],
   "istable": 1,
   "links": [],
-  "modified": "2026-10-01 12:00:00.000000",
+  "modified": "2026-10-01 15:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Source Row",
