@@ -8,6 +8,13 @@ function update_currency_fields(frm) {
 frappe.ui.form.on("CN Accounting Import", {
     refresh(frm) {
         update_currency_fields(frm);
+        if (frappe.model.can_create("CN Accounting Import")) {
+            frm.add_custom_button(__("Carga masiva"), () => {
+                frappe.require("/assets/credinomina_reconciliation/js/accounting_bulk.js", () => {
+                    credinomina.openAccountingBulk();
+                });
+            });
+        }
         frm.set_query("employer", () => ({filters: {active: 1}}));
         frm.set_query("historical_period", () => ({
             filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },

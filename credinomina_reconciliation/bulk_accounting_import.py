@@ -1,0 +1,263 @@
+"""Preview and transactional background creation of company/day imports."""
+
+import json
+
+import frappe
+from frappe import _
+from frappe.utils import cint, now_datetime
+from frappe.utils.file_manager import save_file
+
+from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
+from credinomina_reconciliation.client_registry import enrich_source_import_clients
+from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
+from credinomina_reconciliation.employer_naming import attach_employer_aliases
+from credinomina_reconciliation.parsers import (
+    SourceFileError, apply_accounting_currency_override, clean_text, file_sha256,
+    parse_accounting_movements, source_key, read_table, _records_from_header,
+)
+
+DOCTYPE = "CN Accounting Import"
+TTL = 24 * 60 * 60
+
+
+def _key(token):
+    return f"cn-accounting-batch:{token}"
+
+
+def _store(token, state):
+    frappe.cache.set_value(_key(token), state, expires_in_sec=TTL)
+
+
+def _permissions():
+    if not frappe.has_permission(DOCTYPE, "create") or not frappe.has_permission(DOCTYPE, "write"):
+        frappe.throw(_("No tiene permisos para crear importaciones contables."), frappe.PermissionError)
+
+
+def _state(token):
+    _permissions()
+    state = frappe.cache.get_value(_key(token))
+    if not state or state["user"] != frappe.session.user:
+        frappe.throw(_("La carga no existe, expiró o pertenece a otro usuario."), frappe.PermissionError)
+    return state
+
+
+def _file(url):
+    # An upload may be unattached or already attached to a readable document.
+    for name in frappe.get_all("File", filters={"file_url": url}, pluck="name"):
+        document = frappe.get_doc("File", name)
+        if document.has_permission("read"):
+            content = document.get_content()
+            if isinstance(content, str):
+                content = content.encode("utf-8")
+            if len(content) > 20 * 1024 * 1024:
+                frappe.throw(_("El archivo supera 20 MB. Divida la carga en varios archivos."))
+            return document, content
+    frappe.throw(_("No tiene acceso al archivo seleccionado."), frappe.PermissionError)
+
+
+def _plan(options):
+    _permissions()
+    file_doc, content = _file(options["source_file"])
+    employers = frappe.get_list(
+        "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
+    )
+    attach_employer_aliases(employers)
+    fallback = options.get("employer") or ""
+    if fallback:
+        frappe.get_doc("CN Employer", fallback).check_permission("read")
+    snapshot = options.get("portfolio_snapshot") or ""
+    if snapshot:
+        frappe.get_doc("CN Credit Portfolio Snapshot", snapshot).check_permission("read")
+    if not frappe.has_permission("CN Credit Portfolio Snapshot", "read"):
+        frappe.throw(_("Se requiere acceso de lectura a los cortes de cartera."), frappe.PermissionError)
+    records = apply_accounting_currency_override(
+        parse_accounting_movements(file_doc.file_name, content),
+        options["currency"], options.get("manual_fx_rate", 0),
+    )
+    if len(records) > 20000:
+        frappe.throw(_("La carga supera 20,000 movimientos. Divida el archivo."))
+    # Preview must never create clients or modify portfolio/master documents.
+    records = enrich_accounting_records(records, snapshot, register_clients=False)
+    parents = frappe.get_all(
+        DOCTYPE, filters={"status": ["!=", "Fallido"]}, fields=["name", "employer"],
+        limit_page_length=0,
+    )
+    companies = {parent.name: parent.employer for parent in parents}
+    dates = [str(row["event_date"])[:10] for row in records if row.get("event_date")]
+    existing = set()
+    if dates and companies:
+        for row in frappe.get_all(
+            "CN Source Row", filters={"parenttype": DOCTYPE, "event_type": "Aplicacion",
+                                      "event_date": ["between", [min(dates), max(dates)]]},
+            fields=["parent", "event_type", "loan_number", "reference", "currency", "amount", "event_date", "voucher"],
+            limit_page_length=0,
+        ):
+            if row.parent in companies:
+                existing.add((companies[row.parent], movement_key(row)))
+    plan = group_applications(records, employers, fallback, existing)
+    plan.update(file_hash=file_sha256(content), file_name=file_doc.file_name)
+    return plan
+
+
+def _summary(plan):
+    groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
+    return {
+        "groups": groups, "rows": sum(group["count"] for group in groups),
+        **{key: plan[key][:100] for key in ("issues", "duplicates", "excluded")},
+        **{f"{key}_count": len(plan[key]) for key in ("issues", "duplicates", "excluded")},
+    }
+
+
+def _signature(plan):
+    # Confirmation cannot silently import a different grouping or amount.
+    return source_key(plan["file_hash"], json.dumps(plan["groups"], sort_keys=True, default=str))
+
+
+@frappe.whitelist(methods=["POST"])
+def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", portfolio_snapshot="", historical_backfill=0):
+    _permissions()
+    _file(source_file)
+    token = frappe.generate_hash(length=32)
+    state = {"user": frappe.session.user, "status": "En cola", "phase": "preview", "options": {
+        "source_file": source_file, "currency": clean_text(currency), "manual_fx_rate": manual_fx_rate,
+        "employer": clean_text(employer), "portfolio_snapshot": clean_text(portfolio_snapshot),
+        "historical_backfill": cint(historical_backfill),
+    }}
+    _store(token, state)
+    _enqueue(token, state)
+    return {"token": token}
+
+
+def _enqueue(token, state):
+    try:
+        state["job_id"] = f"cn-accounting-batch-{token}-{state['phase']}"
+        _store(token, state)
+        frappe.enqueue(
+            "credinomina_reconciliation.bulk_accounting_import.run_bulk_job",
+            queue="long", timeout=3600, token=token, user=state["user"],
+            enqueue_after_commit=True, job_id=state["job_id"],
+        )
+    except Exception:
+        state.update(status="Error", error=_("No se pudo encolar la carga. Revise los workers y vuelva a intentarlo."))
+        _store(token, state)
+        raise
+
+
+@frappe.whitelist(methods=["POST"])
+def confirm_bulk_import(token):
+    with frappe.cache.lock(_key(token) + ":confirmation", timeout=30):
+        state = _state(token)
+        if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
+            frappe.throw(_("Primero genere una vista previa sin errores."))
+        if not state["summary"]["rows"]:
+            frappe.throw(_("No hay aplicaciones nuevas para importar."))
+        state.update(status="En cola", phase="create")
+        _store(token, state)
+        _enqueue(token, state)
+    return {"token": token}
+
+
+@frappe.whitelist()
+def get_bulk_import_status(token):
+    state = _state(token)
+    if state["status"] in {"En cola", "Procesando"} and state.get("job_id"):
+        from frappe.utils.background_jobs import get_job
+
+        job = get_job(state["job_id"])
+        if job and job.get_status() in {"failed", "stopped", "canceled"}:
+            state.update(status="Error", error=_(
+                "El worker interrumpió la carga. Genere una nueva vista previa para comprobar qué movimientos faltan; los ya importados no se duplicarán."
+            ))
+            _store(token, state)
+    return {key: state.get(key) for key in ("status", "phase", "summary", "created", "error", "progress", "options")}
+
+
+def _create_imports(plan, options, progress=None):
+    """One transaction, no reconciliation or period changes. Caller owns commit."""
+    created = []
+    source, content = _file(options["source_file"])
+    source_records = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+    records = []
+    for group in plan["groups"]:
+        for record in group["rows"]:
+            if not record.get("employer_text") and not record.get("portfolio_employer"):
+                record["employer_text"] = group["employer"]
+            records.append(record)
+    # The preview already selected the dated cut. Reuse that evidence and build
+    # the registry once for the whole batch, without changing its company scope.
+    enrich_source_import_clients(records)
+    for index, group in enumerate(plan["groups"], 1):
+        employer = group["employer"]
+        frappe.get_doc("CN Employer", employer).check_permission("read")
+        records = group["rows"]
+        csv_content = accounting_group_csv(source_records, records)
+        document = frappe.get_doc({
+            "doctype": DOCTYPE, "employer": employer, "source_file": options["source_file"],
+            "currency": options["currency"], "manual_fx_rate": options.get("manual_fx_rate", 0),
+            "portfolio_snapshot": options.get("portfolio_snapshot") or "",
+            "historical_backfill": options.get("historical_backfill", 0),
+            "bulk_source_hash": plan["file_hash"], "bulk_event_date": group["event_date"],
+            "bulk_source_file": options["source_file"],
+            "file_hash": file_sha256(csv_content),
+            "status": "Importado", "imported_on": now_datetime(), "imported_by": frappe.session.user,
+            "notes": _("Carga masiva de {0}. Fecha: {1}. Pendiente de conciliar esta empresa.").format(
+                plan["file_name"], group["event_date"]),
+            "rows": [{**record, "effective": 1, "match_status": "Pendiente", "deposit_match_status": "Pendiente"}
+                     for record in records],
+        }).insert()
+        csv_file = save_file(
+            f"{document.name}.csv", csv_content, DOCTYPE, document.name,
+            is_private=1, df="source_file",
+        )
+        document.source_file = csv_file.file_url
+        stored_content = csv_file.get_content()
+        if isinstance(stored_content, str):
+            stored_content = stored_content.encode("utf-8")
+        # File.get_content may strip the UTF-8 BOM; use the exact same input
+        # representation as the individual importer for duplicate detection.
+        document.file_hash = file_sha256(stored_content)
+        document.save()
+        # Keep the original report separately as provenance, never as reimport input.
+        frappe.get_doc({
+            "doctype": "File", "file_name": source.file_name, "file_url": source.file_url,
+            "is_private": source.is_private, "attached_to_doctype": DOCTYPE,
+            "attached_to_name": document.name, "attached_to_field": "bulk_source_file",
+        }).insert()
+        created.append({"name": document.name, "employer": employer, "event_date": group["event_date"],
+                        "rows": len(records), "total_usd": document.total_usd})
+        if progress:
+            progress(index, len(plan["groups"]))
+    return created
+
+
+def run_bulk_job(token, user):
+    frappe.set_user(user)
+    state = _state(token)
+    try:
+        state.update(status="Procesando", progress="")
+        _store(token, state)
+        # Serialize bulk confirmations, including files with overlapping rows.
+        with frappe.cache.lock(f"{frappe.local.site}:cn-accounting-batch-create", timeout=3700, blocking_timeout=5):
+            plan = _plan(state["options"])
+            if state["phase"] == "preview":
+                state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan))
+            else:
+                if plan["issues"] or _signature(plan) != state["signature"]:
+                    frappe.throw(_("Los datos o las aplicaciones existentes cambiaron. Genere otra vista previa antes de importar."))
+
+                def progress(done, total):
+                    state["progress"] = _("Creando documento {0} de {1}").format(done, total)
+                    _store(token, state)
+
+                created = _create_imports(plan, state["options"], progress)
+                frappe.db.commit()
+                state.update(status="Completado", created=created)
+        _store(token, state)
+    except Exception as exc:
+        frappe.db.rollback()
+        frappe.log_error(title="Carga masiva contable", message=frappe.get_traceback())
+        message = str(exc) if isinstance(exc, (frappe.ValidationError, SourceFileError)) else _(
+            "No se pudo completar o informar la carga. Revise el registro de errores y los workers; una nueva vista previa excluirá los movimientos ya importados."
+        )
+        state.update(status="Error", error=message)
+        _store(token, state)

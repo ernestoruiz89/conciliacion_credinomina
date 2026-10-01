@@ -306,7 +306,7 @@ def _register_portfolio_client(record, portfolio, client_index, allow_create=Tru
     return client_index
 
 
-def enrich_accounting_records(records, selected_snapshot="", employer=""):
+def enrich_accounting_records(records, selected_snapshot="", employer="", *, register_clients=True):
     """Enrich payment movements by loan or client number using the dated cut.
 
     A monthly cut applies to movements in that same month even when the report
@@ -430,7 +430,7 @@ def enrich_accounting_records(records, selected_snapshot="", employer=""):
                 ).format(portfolio.validation_status or _("Cliente identificado"))
             client_index = _register_portfolio_client(
                 record, portfolio, client_index
-            )
+            ) if register_clients else client_index
             continue
 
         matches = index["credit"].get(credit_key, [])
@@ -454,7 +454,7 @@ def enrich_accounting_records(records, selected_snapshot="", employer=""):
                         )
                     client_index = _register_portfolio_client(
                         record, portfolio, client_index
-                    )
+                    ) if register_clients else client_index
                 else:
                     record["portfolio_validation_status"] = (
                         "Crédito no encontrado en el corte; {0}"
@@ -506,5 +506,5 @@ def enrich_accounting_records(records, selected_snapshot="", employer=""):
         client_index = _register_portfolio_client(
             record, portfolio, client_index,
             allow_create=not client_number_mismatch,
-        )
+        ) if register_clients else client_index
     return records

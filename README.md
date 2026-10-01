@@ -133,6 +133,40 @@ su identificador interno en esa empresa, distinto del número de cliente; puede
 repetirse en otra empresa. Los nombres y alias se buscan solo dentro de la
 empresa correspondiente.
 
+### Carga masiva de movimientos contables
+
+Desde la lista o el formulario de **Importación contable**, use **Carga masiva**
+para subir un archivo con aplicaciones de varios meses o empresas:
+
+1. Adjunte el archivo y seleccione USD o NIO. Para NIO, indique una tasa para
+   toda la carga; si las fechas requieren tasas distintas, divida los archivos.
+2. Deje Empresa vacía para detectar cada convenio por nombre, código, alias o
+   cartera. Una empresa predeterminada solo completa filas sin empresa identificada;
+   no reemplaza una empresa distinta informada en el movimiento o la cartera.
+3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
+   de aplicación. Los movimientos contables que no son aplicaciones se excluyen;
+   los duplicados del archivo o de cargas previas se muestran como omitidos.
+   Las identidades ambiguas o fechas faltantes deben corregirse antes de continuar.
+4. Pulse **Crear importaciones**. Se crea un `CN Accounting Import` por grupo,
+   con sus filas, importes en US$, trazabilidad y un **CSV individual** en el campo
+   Archivo, nombrado como el documento. El archivo masivo se conserva por separado
+   como soporte en Historial. Se conserva
+   el nombre `CONTA-CódigoEmpresa-Mes-Año-###`. No modifica cargas anteriores.
+5. Abra los documentos y use **Conciliar esta empresa** cuando corresponda.
+   La carga masiva no crea/cierra períodos ni concilia automáticamente.
+
+El procesamiento requiere un worker de la cola `long`. Puede cerrar el modal
+y volver a **Carga masiva** desde el mismo navegador/usuario para consultar el
+resultado durante 24 horas. La creación es transaccional: un error revierte
+todo el lote. Use el mismo botón **3. Cargar movimientos contables** para recargar
+el CSV individual de un documento sin
+mezclarlo con los otros grupos. El CSV conserva las columnas e importes originales
+(antes de convertir NIO a USD), incluyendo una columna `CN_FILA_ORIGEN` para rastrear
+la fila del archivo masivo. Al reprocesar se conservan las identidades de las filas
+que no cambiaron y se valida que todos los movimientos sean de la misma empresa y
+fecha; no se permite reprocesar vínculos de períodos cerrados. Para nuevos grupos,
+vuelva a usar **Carga masiva**. Límite por archivo: 20 MB y 20,000 movimientos reconocidos.
+
 ## Instalación
 
 Requiere **Frappe Framework 15 o superior** y **Python 3.10 o superior**.

@@ -11,6 +11,7 @@ const result = {employer: "A", imports: 1, rows: 1, matched: 0, pending: 1, igno
 const context = vm.createContext({
     __: (text, values = []) => text.replace(/\{(\d+)\}/g, (_, i) => values[i]),
     frappe: {
+        model: {can_create: () => true},
         ui: {form: {on(doctype, handlers) {formHandlers[doctype] = handlers;}}, Dialog: function(options) {
             dialogOptions = options;
             this.show = () => events.push("dialog");
@@ -37,6 +38,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
         events.push("navigate");
     };
     formHandlers["CN Accounting Import"].refresh(accountingForm);
+    accountingForm.doc.bulk_source_hash = "bulk-file-hash";
+    formHandlers["CN Accounting Import"].refresh(accountingForm);
+    assert.ok(actions["3. Cargar movimientos contables"]);
+    assert.equal(actions["Reprocesar CSV individual"], undefined);
     result.import_name = "CONTA-5111-9-2026-001";
     await actions["3. Cargar movimientos contables"]();
     assert.deepEqual(events, ["save", "call", "navigate"]);

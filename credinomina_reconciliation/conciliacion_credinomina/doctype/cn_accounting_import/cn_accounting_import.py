@@ -159,12 +159,25 @@ class CNAccountingImport(Document):
         self._assert_no_closed_period_links(self.rows or [])
 
     def validate(self):
+        self._validate_bulk_scope()
         self._validate_employer_scope()
         self._validate_historical_periods()
         self._validate_duplicate_file()
         self._validate_manual_rates()
         self._validate_closed_source_edits()
         self.recalculate_summary()
+
+    def _validate_bulk_scope(self):
+        previous = self.get_doc_before_save()
+        if previous and any(str(previous.get(field) or "") != str(self.get(field) or "")
+                            for field in ("bulk_source_hash", "bulk_event_date", "bulk_source_file")):
+            frappe.throw(_("No se puede cambiar el origen ni la fecha de una carga masiva."))
+        if self.bulk_source_hash and any(
+            row.event_type != "Aplicacion" or not row.event_date
+            or getdate(row.event_date) != getdate(self.bulk_event_date)
+            for row in self.rows or []
+        ):
+            frappe.throw(_("Todas las filas de la carga masiva deben ser aplicaciones de la misma fecha."))
 
     def _validate_closed_source_edits(self):
         previous = self.get_doc_before_save()
@@ -408,7 +421,11 @@ def _attached_file(document):
 def import_source_file(import_name: str):
     document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
+    if document.bulk_source_hash:
+        document._assert_no_closed_period_links(document.rows or [])
     file_doc, content = _attached_file(document)
+    if document.bulk_source_hash and not file_doc.file_name.lower().endswith(".csv"):
+        frappe.throw(_("Use el CSV individual de esta importación, no el archivo masivo original."))
     try:
         parsed = parse_accounting_movements(file_doc.file_name, content)
         parsed = apply_accounting_currency_override(
@@ -418,6 +435,8 @@ def import_source_file(import_name: str):
         )
         if not document.employer:
             frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
+        if document.bulk_source_hash:
+            _validate_bulk_reimport(document, parsed)
         parsed = enrich_accounting_records(
             parsed, document.portfolio_snapshot, document.employer,
         )
@@ -468,9 +487,31 @@ def import_source_file(import_name: str):
         len(parsed), file_doc.file_name
     )
     document.save()
-    result = reconcile_all_sources()
+    result = _reconcile_sources(document.employer) if document.bulk_source_hash else reconcile_all_sources()
     result["import_name"] = document.name
     return result
+
+
+def _validate_bulk_reimport(document, records):
+    from credinomina_reconciliation.accounting_batch import group_applications
+
+    # Resolve across all companies first so a file from another company cannot
+    # slip through a company-filtered portfolio lookup.
+    enrich_accounting_records(records, document.portfolio_snapshot, register_clients=False)
+    employers = frappe.get_all(
+        "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
+    )
+    attach_employer_aliases(employers)
+    plan = group_applications(records, employers, document.employer)
+    groups = plan["groups"]
+    if (plan["issues"] or plan["duplicates"] or plan["excluded"] or len(groups) != 1
+            or groups[0]["event_date"] != str(document.bulk_event_date)[:10]):
+        frappe.throw(_("El CSV debe contener únicamente aplicaciones sin duplicados de la empresa {0} y fecha {1}. No se recargó el documento.").format(
+            document.employer, document.bulk_event_date,
+        ))
+    for record in records:
+        if not record.get("employer_text") and not record.get("portfolio_employer"):
+            record["employer_text"] = document.employer
 
 
 @frappe.whitelist(methods=["POST"])

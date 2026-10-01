@@ -43,7 +43,7 @@ class FakeClientIndex:
 
 
 class CreditPortfolioEnrichmentTests(unittest.TestCase):
-    def enrich(self, movement, rows):
+    def enrich(self, movement, rows, register_clients=True):
         with (
             patch.dict(
                 credit_portfolio.frappe.__dict__,
@@ -70,8 +70,18 @@ class CreditPortfolioEnrichmentTests(unittest.TestCase):
             ),
         ):
             return credit_portfolio.enrich_accounting_records(
-                [movement], selected_snapshot="SNAP-2026-09"
+                [movement], selected_snapshot="SNAP-2026-09", register_clients=register_clients
             )[0]
+
+    def test_bulk_preview_enriches_without_creating_clients(self):
+        with patch.object(credit_portfolio, "_register_portfolio_client") as register:
+            result = self.enrich(
+                {"event_type": "Aplicacion", "loan_number": "CR-100"},
+                [portfolio_row()], register_clients=False,
+            )
+        register.assert_not_called()
+        self.assertEqual(result["client_number"], "7")
+        self.assertEqual(result["portfolio_employer"], "Empresa Norte")
 
     def test_credit_and_client_number_both_validate_and_ignore_leading_zeroes(self):
         movement = {

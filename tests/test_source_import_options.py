@@ -51,6 +51,7 @@ class SourceImportOptionsTest(unittest.TestCase):
 
     def test_import_uses_accounting_parser_without_source_type(self):
         document = SimpleNamespace(name="IMPORT", employer="Empresa", currency="USD",
+            bulk_source_hash=None,
             manual_fx_rate=0, portfolio_snapshot=None, historical_period=None, rows=[],
             check_permission=Mock(), set=Mock(), append=Mock(), save=Mock())
         records = [{"source_key": "movement", "event_type": "Aplicacion"}]
