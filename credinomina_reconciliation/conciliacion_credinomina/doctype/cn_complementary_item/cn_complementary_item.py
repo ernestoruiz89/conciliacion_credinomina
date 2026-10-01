@@ -16,8 +16,13 @@ class CNComplementaryItem(Document):
         if guard_tolerance_item(self, previous):
             validate_tolerance_item(self)
             return
+        from credinomina_reconciliation.accounting_review import validate_review_item
+
+        validate_review_item(self, previous)
         self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
+        if not self.reference and not self.get("accounting_source_key"):
+            frappe.throw(_("Indique la referencia del depósito."))
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
         self.accounting_status = "Registrada" if self.voucher else "Pendiente de registro"

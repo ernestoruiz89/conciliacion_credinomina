@@ -25,7 +25,7 @@ class CurrencyDisplayTests(unittest.TestCase):
                     elif option == "nio_currency":
                         self.assertEqual(fields[option]["default"], "NIO")
                     else:
-                        self.assertIn(option, {"currency", "deposit_currency"})
+                        self.assertIn(option, {"currency", "deposit_currency", "source_currency"})
 
     def test_report_columns_reference_row_currency_fields(self):
         for report in (

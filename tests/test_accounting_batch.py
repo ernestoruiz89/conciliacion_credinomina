@@ -25,7 +25,7 @@ class AccountingBatchTest(unittest.TestCase):
                  "no_cmpte": "00123", "no_ref": "00044", "no_credito": "013375-1",
                  "descripcion": 'NOTA AL PRESTAMO 013375-1 PAGO APLICADO, "extra"\nDetalle',
                  "nombre_cliente": "María, Pérez", "empresa": "A", "debito_del_mes": 824.78,
-                 "credito_del_mes": 0, "columna_adicional": "=1+1"},
+                 "credito_del_mes": 0, "tmov": "12", "tdoc": "05", "columna_adicional": "=1+1"},
             26: {"cuenta_contable": "123", "fecha_aplica": "2025-05-30", "empresa": "B"},
         }
         content = accounting_group_csv(raw, [{"source_row": 25, "amount_usd": 22.52}])

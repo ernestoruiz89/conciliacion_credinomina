@@ -144,7 +144,7 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    cartera. Una empresa predeterminada solo completa filas sin empresa identificada;
    no reemplaza una empresa distinta informada en el movimiento o la cartera.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
-   de aplicación. Los movimientos contables que no son aplicaciones se excluyen;
+   de aplicación y las partidas complementarias que quedarán en revisión;
    los duplicados del archivo o de cargas previas se muestran como omitidos.
    Las identidades ambiguas o fechas faltantes deben corregirse antes de continuar.
 4. Pulse **Crear importaciones**. Se crea un `CN Accounting Import` por grupo,
@@ -166,6 +166,43 @@ la fila del archivo masivo. Al reprocesar se conservan las identidades de las fi
 que no cambiaron y se valida que todos los movimientos sean de la misma empresa y
 fecha; no se permite reprocesar vínculos de períodos cerrados. Para nuevos grupos,
 vuelva a usar **Carga masiva**. Límite por archivo: 20 MB y 20,000 movimientos reconocidos.
+
+### Clasificación contable y movimientos pendientes de identificar
+
+La importación individual y masiva clasifica por **TMOV / TDOC**, no solo por el
+texto «NOTA AL PRÉSTAMO». La columna `Clasificacion` del Excel se conserva como
+evidencia, pero no sustituye las reglas confirmadas:
+
+| TMOV / TDOC | Clasificación | Tratamiento inicial |
+| --- | --- | --- |
+| 12 / 05, 12 / 19, 12 / 06 | Aplicación de pago | Aplicación si tiene débito positivo, sin crédito ni indicación de reversión. |
+| 12 / 16 | ND de Aplicación de pago | Partida complementaria en borrador, para revisión. |
+| 01 / 01, 12 / 01, 05 / 01 | Movimiento interno | Partida complementaria en borrador, para revisión. |
+| Otros códigos o códigos ausentes | Por revisar | No se consideran automáticamente pagos. |
+
+Los créditos, reversiones y movimientos no identificados conservan empresa y
+crédito solo cuando pueden determinarse. No se inventa una empresa ni una referencia
+de depósito a partir de `NO_REF`. La evidencia incluye cuenta, asiento, descripción,
+fecha, débito/crédito, moneda, tasa, archivo y fila. Los duplicados se reutilizan u
+omiten, sin recrear partidas al reprocesar.
+
+En **Partidas complementarias → Movimientos por revisar**:
+
+1. Identifique la empresa cuando corresponda y revise el movimiento.
+2. Si no interviene en conciliaciones, seleccione **No conciliatoria**, documente
+   el motivo y guarde. Permanece en borrador, sin efecto financiero.
+3. Para ND o reversiones, use **Vincular aplicación original** y después
+   **Reversión identificada**. El vínculo es de seguimiento: **no resta automáticamente
+   el monto de la aplicación ni la da por pagada**. No se permite confirmar estas
+   reversiones como compensaciones de depósitos; revise su efecto en el core.
+4. Si realmente corresponde a un depósito, seleccione **Partida de depósito**,
+   complete empresa, referencia y concepto, ajuste el importe/signo provisional y
+   marque **Importe y signo revisados**. Un supervisor podrá confirmarla para usarla
+   en la distribución habitual. Positivo: exceso de depósito; negativo: faltante.
+
+No se reclasifican automáticamente los registros existentes. Al recargar, se impide
+reclasificar o quitar aplicaciones que ya tengan vínculos de conciliación. Ejecute
+`bench --site <sitio> migrate` y reinicie los procesos después de desplegar estos cambios.
 
 ## Instalación
 

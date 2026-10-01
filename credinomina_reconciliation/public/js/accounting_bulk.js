@@ -46,10 +46,17 @@ credinomina.openAccountingBulk = function (onComplete) {
         return `<div style="max-height:45vh;overflow:auto"><table class="table table-bordered"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     }
     function renderSummary(summary) {
-        let html = `<p><strong>${__("Documentos nuevos")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows}</strong></p>`;
+        let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
         html += table([__("Empresa"), __("Fecha de aplicación"), __("Filas"), __("Total US$")], summary.groups.map(group => [
             esc(group.employer), esc(frappe.datetime.str_to_user(group.event_date)), esc(group.count), esc(format_currency(group.total_usd, "USD")),
         ]));
+        if (summary.complementary_count) {
+            html += `<h5>${__("Partidas complementarias en borrador")}</h5><p>${__("No afectan saldos ni depósitos. Se conserva la evidencia aunque no se identifique empresa o crédito. Revise el concepto, vínculo e importe antes de confirmar cualquier partida.")}</p>`;
+            html += table([__("Fila"), __("Clasificación"), __("Empresa"), __("Motivo")], summary.complementary.map(row => [
+                esc(row.row), esc(row.classification), esc(row.employer || __("Pendiente de identificar")), esc(row.reason),
+            ]));
+            if (summary.complementary_count > 100) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
+        }
         for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Duplicados omitidos")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
             if (!summary[`${key}_count`]) continue;
             html += `<details${key === "issues" ? " open" : ""}><summary>${esc(label)}: ${summary[`${key}_count`]}</summary>`;
@@ -103,12 +110,12 @@ credinomina.openAccountingBulk = function (onComplete) {
                 lockOptions(true);
                 renderSummary(state.summary);
                 dialog.set_primary_action(__("Crear importaciones"), confirm);
-                dialog.get_primary_btn().prop("disabled", !!state.summary.issues_count || !state.summary.rows);
+                dialog.get_primary_btn().prop("disabled", !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count));
             } else if (state.status === "Completado") {
                 running = false;
-                result.html(`<div class="alert alert-success">${__("Carga completada. Abra cada importación, revise sus filas y use Conciliar esta empresa cuando corresponda.")}</div>` + table(
+                result.html(`<div class="alert alert-success">${__("Carga completada. Revise las importaciones y las partidas complementarias en borrador. Estas últimas no afectan saldos hasta revisar y confirmar su tratamiento.")}</div>` + table(
                     [__("Importación"), __("Empresa"), __("Fecha"), __("Filas"), __("Total US$")], state.created.map(doc => [
-                        `<a href="/app/cn-accounting-import/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, esc(doc.employer),
+                        `<a href="/app/${doc.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, esc(doc.employer || __("Por identificar")),
                         esc(frappe.datetime.str_to_user(doc.event_date)), esc(doc.rows), esc(format_currency(doc.total_usd, "USD")),
                     ])));
                 dialog.set_primary_action(__("Cerrar"), () => dialog.hide());

@@ -218,11 +218,11 @@ class SourceParserTest(unittest.TestCase):
             workbook_bytes([
                 [
                     "FECHA_APLICA", "CUENTA_CONTABLE", "DESCRIPCION_CTA_CONTABLE",
-                    "DESCRIPCION", "DEBITO_DEL_MES", "CREDITO_DEL_MES", "NO_CREDITO",
+                    "DESCRIPCION", "DEBITO_DEL_MES", "CREDITO_DEL_MES", "NO_CREDITO", "TMOV", "TDOC",
                 ],
                 [
                     "2026-08-31", "1602", "Créditos M.E.",
-                    "NOTA AL PRESTAMO 109136-1 PAGO APLICADO", 100, 0, "109136-1",
+                    "NOTA AL PRESTAMO 109136-1 PAGO APLICADO", 100, 0, "109136-1", "12", "05",
                 ],
             ]),
         )
@@ -246,6 +246,7 @@ class SourceParserTest(unittest.TestCase):
                     "DESCRIPCION",
                     "DEBITO_DEL_MES",
                     "CREDITO_DEL_MES",
+                    "TMOV", "TDOC",
                 ],
                 [
                     "1602",
@@ -266,6 +267,7 @@ class SourceParserTest(unittest.TestCase):
                     "NOTA AL PRESTAMO 109367-1 NO. DOCUM 7541 CLIENTE ANA PEREZ N.C. CONVENIO ACME |REF:321001591|",
                     46.72,
                     0,
+                    "12", "05",
                 ],
             ]
         )

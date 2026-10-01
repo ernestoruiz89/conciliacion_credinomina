@@ -94,6 +94,9 @@ LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
 _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
 
 _SOURCE_EVIDENCE_FIELDS = (
+    "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification",
+    "source_account", "source_debit", "source_credit", "source_currency", "accounting_reference",
+    "accounting_source_key", "complementary_item",
     "source_row", "source_key", "event_type", "event_date", "client_name",
     "client_number", "employee_number", "loan_number", "amount",
     "accounting_entry", "receipt", "reference", "voucher", "employer_text",
@@ -405,7 +408,9 @@ def get_company_portfolio_snapshots(doctype, txt, searchfield, start, page_len, 
 def _attached_file(document):
     if not document.source_file:
         frappe.throw(_("Adjunte el archivo de origen."))
-    file_doc = frappe.get_doc("File", {"file_url": document.source_file})
+    file_doc = frappe.get_doc("File", {"file_url": document.source_file,
+                                      "attached_to_doctype": document.doctype,
+                                      "attached_to_name": document.name})
     if (
         file_doc.attached_to_doctype != document.doctype
         or file_doc.attached_to_name != document.name
@@ -447,6 +452,29 @@ def import_source_file(import_name: str):
         document.save()
         frappe.throw(str(exc), title=_("No se pudo importar la fuente"))
 
+    # Do not reclassify/remove a previously linked application behind the user's back.
+    new_application_keys = {row["source_key"] for row in parsed if row["event_type"] == "Aplicacion"}
+    for row in document.rows or []:
+        if row.event_type == "Aplicacion" and row.source_key not in new_application_keys:
+            if (_source_linked_periods(row) or flt(row.historical_remitted_usd)
+                    or row.application_allocation_detail not in (None, "", "[]")
+                    or frappe.db.exists("CN Complementary Item", {"related_application": row.name})):
+                frappe.throw(_("La fila {0} ya tiene vínculos de conciliación. Revise y retire esos vínculos antes de reclasificarla o eliminarla al recargar.").format(row.idx))
+    adjustments = [row for row in parsed if row["event_type"] == "Ajuste"]
+    if adjustments:
+        from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
+
+        employers = frappe.get_list("CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0)
+        attach_employer_aliases(employers)
+        review = [dict(row, event_type="Aplicacion") for row in adjustments]
+        enrich_accounting_records(review, document.portfolio_snapshot, register_clients=False)
+        for row in review:
+            row["event_type"] = "Ajuste"
+        review = plan_review_items(review, employers, document.employer)
+        create_review_items(review, document.source_file, file_sha256(content))
+        links = {row["accounting_source_key"]: row["complementary_item"] for row in review}
+        for row in adjustments:
+            row["complementary_item"] = links[row["accounting_source_key"]]
     existing_settings = defaultdict(list)
     for row in document.rows or []:
         if row.source_key:
@@ -475,7 +503,7 @@ def import_source_file(import_name: str):
                     prior_period or document.historical_period
                     if record["event_type"] == "Aplicacion" else ""
                 ),
-                "effective": 1,
+                "effective": int(record["event_type"] != "Ajuste"),
                 "match_status": "Pendiente",
                 "deposit_match_status": "Pendiente",
             },
@@ -486,6 +514,8 @@ def import_source_file(import_name: str):
     document.notes = _("Se importaron {0} filas de {1}.").format(
         len(parsed), file_doc.file_name
     )
+    if adjustments:
+        document.notes += _(" {0} movimientos no son pagos nuevos: revise sus Partidas complementarias vinculadas; no afectan saldos mientras estén en borrador.").format(len(adjustments))
     document.save()
     result = _reconcile_sources(document.employer) if document.bulk_source_hash else reconcile_all_sources()
     result["import_name"] = document.name
@@ -793,6 +823,9 @@ def _deduplicate_applications(rows):
             row.match_reason = _(
                 "Las dispensas y ajustes no son pagos en efectivo y se revisan por separado."
             )
+            if row.get("complementary_item"):
+                row.match_reason = _("{0}. Revisar partida {1}; no se contabiliza como aplicación de pago.").format(
+                    row.get("classification_reason") or "Movimiento no conciliatorio", row.complementary_item)
     for row in application_rows:
         key = duplicate_business_key(row.as_dict())
         preferred = claimed.get(key)

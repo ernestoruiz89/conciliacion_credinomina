@@ -23,6 +23,7 @@ frappe.ui.form.on("CN Complementary Item", {
     refresh(frm) {
         const automatic = frm.doc.category === "Diferencia por tolerancia";
         const categories = ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Saldo a favor de la empresa"];
+        if (frm.doc.accounting_source_key) categories.unshift("Por clasificar");
         if (automatic) categories.push("Diferencia por tolerancia");
         frm.set_df_property("category", "options", categories.join("\n"));
         if (automatic) {
@@ -42,6 +43,11 @@ frappe.ui.form.on("CN Complementary Item", {
         if (frm.doc.registered_deposit) frm.add_custom_button(__("Abrir depósito"),
             () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.registered_deposit));
         if (frm.doc.docstatus === 2) return;
+        if (frm.doc.accounting_source_key && frm.doc.docstatus === 0) {
+            frm.dashboard.set_headline_alert(__("Movimiento contable en revisión: no afecta saldos. Las notas de débito y reversiones se vinculan a la aplicación original, sin alterar automáticamente sus importes."), "orange");
+            if (!frm.is_new()) frm.add_custom_button(__("Vincular aplicación original"), () => cn_select_original_application(frm));
+            return;
+        }
         if (!frm.doc.voucher) {
             frm.dashboard.set_headline_alert(__("Pendiente de registro contable: complete el Asiento contable cuando se registre, incluso si la partida ya está confirmada."), "orange");
         } else {
@@ -49,3 +55,42 @@ frappe.ui.form.on("CN Complementary Item", {
         }
     },
 });
+
+async function cn_select_original_application(frm) {
+    if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
+    if (frm.is_dirty()) await frm.save();
+    let rows = [];
+    const dialog = new frappe.ui.Dialog({
+        title: __("Vincular aplicación original"), size: "extra-large",
+        fields: [
+            {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"),
+                options: "CN Accounting Import", reqd: 1, get_query: () => ({filters: {employer: frm.doc.employer}}),
+                async onchange() {
+                    const selected = dialog.get_value("accounting_import");
+                    rows = [];
+                    dialog.fields_dict.applications.$wrapper.empty();
+                    if (!selected) return;
+                    const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
+                        args: {item_name: frm.doc.name, accounting_import: selected}});
+                    if (selected !== dialog.get_value("accounting_import")) return;
+                    rows = response.message || [];
+                    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+                    dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
+                        <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${rows.map((row, index) => `<tr>
+                        <td><input type="radio" name="original_application" value="${index}" aria-label="${esc(__("Seleccionar aplicación"))}"></td>
+                        <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td><td>${esc(frappe.datetime.str_to_user(row.event_date))}</td>
+                        <td>${esc(format_currency(row.amount_usd, "USD"))}</td><td>${esc(row.voucher)}</td></tr>`).join("")}</tbody></table></div>`);
+                }},
+            {fieldtype: "HTML", fieldname: "applications"},
+        ],
+        primary_action_label: __("Vincular"),
+        async primary_action() {
+            const selected = dialog.fields_dict.applications.$wrapper.find("input:checked").val();
+            if (selected === undefined || !rows[Number(selected)]) { frappe.msgprint(__("Seleccione una aplicación.")); return; }
+            await frm.set_value("related_application", rows[Number(selected)].name);
+            await frm.save();
+            dialog.hide();
+        },
+    });
+    dialog.show();
+}

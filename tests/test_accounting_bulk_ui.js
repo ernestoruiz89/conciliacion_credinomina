@@ -70,5 +70,16 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     await dialog.primary();
     assert.equal(dialog.disabled, true);
     assert.ok(html.includes("&lt;Crédito ambiguo&gt;"));
+    dialog.secondary();
+    state.summary = {groups: [], rows: 0, issues_count: 0, issues: [], duplicates_count: 0, duplicates: [], excluded_count: 0, excluded: [],
+        complementary_count: 1, complementary: [{row: 2, classification: "<Movimiento interno>", reason: "Revisar", employer: ""}]};
+    await dialog.primary();
+    assert.equal(dialog.disabled, false, "Files with only review drafts must be importable");
+    assert.ok(html.includes("&lt;Movimiento interno&gt;"));
+    assert.ok(html.includes("Pendiente de identificar"));
+    state.status = "Completado";
+    state.created = [{doctype: "CN Complementary Item", name: "COMP-1", event_date: "2025-04-15", rows: 1, total_usd: 1}];
+    await dialog.primary();
+    assert.ok(html.includes("/app/cn-complementary-item/COMP-1"));
     console.log("Carga masiva UI: preview, confirmation, escaping, dates, option locking and issues OK");
 })().catch(error => {console.error(error); process.exitCode = 1;});

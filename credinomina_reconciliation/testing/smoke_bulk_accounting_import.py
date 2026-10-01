@@ -26,7 +26,7 @@ def run():
         workbook = Workbook()
         sheet = workbook.active
         sheet.append(["CUENTA_CONTABLE", "FECHA_APLICA", "NO_CMPTE", "NO_REF", "DESCRIPCION",
-                      "DEBITO_DEL_MES", "CREDITO_DEL_MES", "NO_CREDITO", "EMPRESA", "NOMBRE_CLIENTE"])
+                      "DEBITO_DEL_MES", "CREDITO_DEL_MES", "NO_CREDITO", "EMPRESA", "NOMBRE_CLIENTE", "TMOV", "TDOC"])
         for company, employer in enumerate(employers):
             for month in range(4, 7):
                 for day in (15, 30):
@@ -34,7 +34,7 @@ def run():
                         loan = f"{marker}{company}{client}-1"
                         sheet.append(["123", f"2025-{month:02d}-{day}", f"{marker}-{month}-{day}",
                                       "REF", f"NOTA AL PRESTAMO {loan} PAGO APLICADO", 824.78, 0,
-                                      loan, employer, f"Cliente {marker}-{company}-{client}"])
+                                      loan, employer, f"Cliente {marker}-{company}-{client}", "12", "05"])
         stream = io.BytesIO()
         workbook.save(stream)
         source = save_file(f"{marker}.xlsx", stream.getvalue(), None, None, is_private=1)

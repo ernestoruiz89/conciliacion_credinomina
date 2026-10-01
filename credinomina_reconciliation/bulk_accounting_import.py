@@ -8,6 +8,7 @@ from frappe.utils import cint, now_datetime
 from frappe.utils.file_manager import save_file
 
 from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
+from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.employer_naming import attach_employer_aliases
@@ -94,7 +95,26 @@ def _plan(options):
         ):
             if row.parent in companies:
                 existing.add((companies[row.parent], movement_key(row)))
-    plan = group_applications(records, employers, fallback, existing)
+    review_records = [dict(row, event_type="Aplicacion") for row in records if row.get("event_type") == "Ajuste"]
+    enrich_accounting_records(review_records, snapshot, register_clients=False)
+    for row in review_records:
+        row["event_type"] = "Ajuste"
+    review_records = plan_review_items(review_records, employers, fallback)
+    plan = group_applications([row for row in records if row.get("event_type") != "Ajuste"], employers, fallback, existing)
+    if review_records and not frappe.has_permission("CN Complementary Item", "create"):
+        frappe.throw(_("Se requiere permiso para crear partidas complementarias en revisión."), frappe.PermissionError)
+    existing_review = set(frappe.get_all("CN Complementary Item", filters={
+        "accounting_source_key": ["in", [row["accounting_source_key"] for row in review_records]],
+    }, pluck="accounting_source_key")) if review_records else set()
+    plan["complementary"] = []
+    for row in review_records:
+        if not row.get("event_date"):
+            plan["issues"].append({"row": row["source_row"], "reason": "Falta fecha válida en el movimiento por revisar"})
+        elif row["accounting_source_key"] in existing_review:
+            plan["duplicates"].append({"row": row["source_row"], "reason": "Movimiento ya registrado como partida complementaria"})
+        else:
+            existing_review.add(row["accounting_source_key"])
+            plan["complementary"].append(row)
     plan.update(file_hash=file_sha256(content), file_name=file_doc.file_name)
     return plan
 
@@ -103,6 +123,10 @@ def _summary(plan):
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
         "groups": groups, "rows": sum(group["count"] for group in groups),
+        "complementary_count": len(plan.get("complementary", [])),
+        "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
+                           "employer": row.get("resolved_employer"), "reason": row["classification_reason"]}
+                          for row in plan.get("complementary", [])[:100]],
         **{key: plan[key][:100] for key in ("issues", "duplicates", "excluded")},
         **{f"{key}_count": len(plan[key]) for key in ("issues", "duplicates", "excluded")},
     }
@@ -110,7 +134,7 @@ def _summary(plan):
 
 def _signature(plan):
     # Confirmation cannot silently import a different grouping or amount.
-    return source_key(plan["file_hash"], json.dumps(plan["groups"], sort_keys=True, default=str))
+    return source_key(plan["file_hash"], json.dumps([plan["groups"], plan.get("complementary", [])], sort_keys=True, default=str))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -149,8 +173,8 @@ def confirm_bulk_import(token):
         state = _state(token)
         if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
             frappe.throw(_("Primero genere una vista previa sin errores."))
-        if not state["summary"]["rows"]:
-            frappe.throw(_("No hay aplicaciones nuevas para importar."))
+        if not state["summary"]["rows"] and not state["summary"].get("complementary_count"):
+            frappe.throw(_("No hay movimientos nuevos para importar."))
         state.update(status="En cola", phase="create")
         _store(token, state)
         _enqueue(token, state)
@@ -227,6 +251,9 @@ def _create_imports(plan, options, progress=None):
                         "rows": len(records), "total_usd": document.total_usd})
         if progress:
             progress(index, len(plan["groups"]))
+    for item in create_review_items(plan.get("complementary", []), options["source_file"], plan["file_hash"]):
+        created.append({"doctype": "CN Complementary Item", "name": item.name, "employer": item.employer,
+                        "event_date": item.posting_date, "rows": 1, "total_usd": item.amount_usd})
     return created
 
 

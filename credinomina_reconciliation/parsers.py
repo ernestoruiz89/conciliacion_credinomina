@@ -20,6 +20,7 @@ from typing import Any, Iterable
 from credinomina_reconciliation.rounding import (
     RATE_PRECISION, decimal_value, money, money_float,
 )
+from credinomina_reconciliation.accounting_types import accounting_code, classify_movement
 
 
 SOURCE_ACCOUNTING = "Movimientos contables"
@@ -406,7 +407,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
     parsed = []
     for row_number, record in records:
         description = clean_text(record.get("descripcion"))
-        if not description:
+        if not re.fullmatch(r"\d[\d.-]*", clean_text(record.get("cuenta_contable"))):
             continue
         upper = description.upper()
         event_type = None
@@ -414,11 +415,14 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         reference = ""
         employer = ""
         source_loan_number = clean_text(record.get("no_credito"))
-        if "NOTA AL PRESTAMO" in upper or (
-            "PAGO APLICADO" in upper
-            and (source_loan_number or "PRESTAMO" in upper)
-        ):
-            event_type = "Aplicacion"
+        debit = parse_amount(record.get("debito_del_mes"))
+        credit = parse_amount(record.get("credito_del_mes"))
+        if not debit and not credit:
+            continue
+        tmov, tdoc = accounting_code(record.get("tmov")), accounting_code(record.get("tdoc"))
+        classification, is_payment, reason = classify_movement(tmov, tdoc, debit, credit, description)
+        if tmov or tdoc or "DEPOSITO POR" not in upper:
+            event_type = "Aplicacion" if is_payment else "Ajuste"
             match = re.search(
                 r"(?:NOTA\s+AL\s+)?PRESTAMO\s+0*([A-Z0-9-]+)",
                 description, re.IGNORECASE,
@@ -427,7 +431,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
             reference = _extract_reference(description, record.get("no_ref"))
             account_name = _account_description(record)
             currency = "NIO" if "M.N" in account_name else "USD"
-            amount = parse_amount(record.get("debito_del_mes"))
+            amount = debit if is_payment else float(abs(money(debit) - money(credit)) or max(abs(money(debit)), abs(money(credit))))
             employer = clean_text(record.get("empresa")) or _extract_employer(description)
         elif "DEPOSITO POR" in upper:
             event_type = "Deposito"
@@ -461,13 +465,13 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 event_date=event_date,
                 reference=reference,
                 voucher=record.get("no_cmpte"),
-                accounting_entry=record.get("no_cmpte") if event_type == "Aplicacion" else "",
-                receipt=_extract_receipt(description) if event_type == "Aplicacion" else "",
+                accounting_entry=record.get("no_cmpte") if event_type != "Deposito" else "",
+                receipt=_extract_receipt(description) if event_type != "Deposito" else "",
                 employer=employer,
                 client_name=(
                     clean_text(record.get("nombre_cliente"))
                     or _extract_application_client_name(description)
-                    if event_type == "Aplicacion" else ""
+                    if event_type != "Deposito" else ""
                 ),
                 loan_number=loan_number,
                 currency=currency,
@@ -478,8 +482,20 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 fx_basis=fx_basis,
             )
         )
+        parsed[-1].update({
+            "tmov": tmov, "tdoc": tdoc,
+            "accounting_classification": classification, "classification_reason": reason,
+            "source_classification": clean_text(record.get("clasificacion")),
+            "source_account": clean_text(record.get("cuenta_contable")),
+            "source_debit": debit, "source_credit": credit,
+            "accounting_reference": clean_text(record.get("no_ref")),
+            "accounting_source_key": source_key(
+                "accounting-evidence-v1", record.get("cuenta_contable"), event_date, tmov, tdoc,
+                record.get("no_cmpte"), record.get("no_ref"), description, debit, credit,
+            ),
+        })
     if not parsed:
-        raise SourceFileError("No se encontraron aplicaciones o depositos contables.")
+        raise SourceFileError("No se encontraron movimientos contables con importe.")
     return parsed
 
 
@@ -507,9 +523,10 @@ def apply_accounting_currency_override(
         raise SourceFileError("La tasa manual solo se utiliza cuando la moneda del archivo es NIO.")
 
     for record in records:
-        if record.get("event_type") not in {"Aplicacion", "Deposito"}:
+        if record.get("event_type") not in {"Aplicacion", "Deposito", "Ajuste"}:
             continue
         source_amount = money(record.get("amount"))
+        record["source_currency"] = selected_currency
         if selected_currency == "USD":
             record.update({
                 "currency": "USD",
