@@ -396,7 +396,7 @@ def _recognition_candidates(period):
 def get_recognizable_deposits(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("read")
-    if not (frappe.has_permission("CN Source Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
+    if not (frappe.has_permission("CN Accounting Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
         frappe.throw(_("No tiene permiso para consultar depósitos."))
     return [
         {key: value for key, value in candidate.items() if key not in {"account", "bank"}}
@@ -417,7 +417,7 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
     )
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
-    if not (frappe.has_permission("CN Source Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
+    if not (frappe.has_permission("CN Accounting Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
         frappe.throw(_("No tiene permiso para consultar depósitos."))
     justification = clean_text(justification)
     if len(justification) < 12:
@@ -463,7 +463,7 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
         reconcile_all_sources,
     )
 
@@ -496,7 +496,7 @@ def revert_deposit_recognition(period_name: str):
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
         reconcile_all_sources,
     )
 
@@ -1171,7 +1171,7 @@ def close_period(period_name: str):
     references.discard(None)
     if references:
         import_names = frappe.get_all(
-            "CN Source Import",
+            "CN Accounting Import",
             filters={"source_type": SOURCE_ACCOUNTING},
             pluck="name",
         )
@@ -1318,7 +1318,7 @@ def export_collection(period_name: str):
 
 def _reconcile_if_sources():
     imported_core = frappe.db.exists(
-        "CN Source Import",
+        "CN Accounting Import",
         {"status": ["in", ["Importado", "Importado con excepciones"]]},
     )
     confirmed_cash = frappe.db.exists(
@@ -1329,7 +1329,7 @@ def _reconcile_if_sources():
     )
     if not (imported_core or confirmed_cash or confirmed_complement):
         return None
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
         reconcile_all_sources,
     )
 

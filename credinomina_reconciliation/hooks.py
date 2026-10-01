@@ -20,7 +20,7 @@ MONEY_DOCTYPES = (
     "CN Remittance Allocation",
     "CN Remittance Detail",
     "CN Remittance Target",
-    "CN Source Import",
+    "CN Accounting Import",
     "CN Source Row",
 )
 

@@ -17,8 +17,8 @@ from openpyxl import load_workbook
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import (
     cn_reconciliation_period as period_module,
 )
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import (
-    cn_source_import as source_module,
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import (
+    cn_accounting_import as source_module,
 )
 from credinomina_reconciliation.templates import build_template_xlsx
 

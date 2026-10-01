@@ -92,7 +92,7 @@ class ExceptionSelectionTests(unittest.TestCase):
             selection.resolve_related_case("E1", "Aplicación", "DELETED")
 
     def test_permissions_and_parent_scope(self):
-        self.permissions.add(("CN Source Import", "read"))
+        self.permissions.add(("CN Accounting Import", "read"))
         self.assertEqual(selection.get_related_cases("E1", "Aplicación")["rows"], [])
         self.assertFalse(any(d == "CN Source Row" for d, _ in self.queries))
         self.permissions.update({("CN Reconciliation Exception", "create"), ("CN Reconciliation Exception", "write")})

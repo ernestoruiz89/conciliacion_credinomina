@@ -11,6 +11,9 @@ from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
+from credinomina_reconciliation.accounting_naming import (
+    accounting_month, accounting_prefix, new_accounting_name, rename_accounting_import,
+)
 from credinomina_reconciliation.company_credit import CATEGORY as COMPANY_CREDIT
 from credinomina_reconciliation.tolerance_items import (
     CATEGORY as TOLERANCE_CATEGORY, item_values, tolerance_item_write,
@@ -146,7 +149,13 @@ def _source_linked_periods(row):
     return sorted(period for period in periods if period)
 
 
-class CNSourceImport(Document):
+class CNAccountingImport(Document):
+    def autoname(self):
+        self.name = new_accounting_name(accounting_prefix(self.employer, accounting_month(self.rows or [])))
+
+    def on_update(self):
+        rename_accounting_import(self)
+
     def on_trash(self):
         self._assert_no_closed_period_links(self.rows or [])
 
@@ -404,7 +413,7 @@ def _attached_file(document):
 
 @frappe.whitelist(methods=["POST"])
 def import_source_file(import_name: str):
-    document = frappe.get_doc("CN Source Import", import_name)
+    document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
     if document.source_type != SOURCE_ACCOUNTING:
         frappe.throw(_("Solo se admiten archivos de Movimientos contables."))
@@ -480,7 +489,7 @@ def reconcile_all_sources():
 
 @frappe.whitelist(methods=["POST"])
 def reconcile_company_sources(import_name: str):
-    document = frappe.get_doc("CN Source Import", import_name)
+    document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
     employer = clean_text(document.employer)
     if not employer:
@@ -569,16 +578,16 @@ def _reconciliation_feedback(rows):
 
 
 def _reconcile_sources(employer=None):
-    if not frappe.has_permission("CN Source Import", "write"):
+    if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
     import_names = frappe.get_all(
-        "CN Source Import",
+        "CN Accounting Import",
         filters={"status": ["in", ["Importado", "Importado con excepciones"]], "source_type": SOURCE_ACCOUNTING},
         order_by="creation asc",
         pluck="name",
     )
-    imports = [frappe.get_doc("CN Source Import", name) for name in import_names]
+    imports = [frappe.get_doc("CN Accounting Import", name) for name in import_names]
     if employer:
         imports = _company_imports(imports, employer)
     original_source_rows = [

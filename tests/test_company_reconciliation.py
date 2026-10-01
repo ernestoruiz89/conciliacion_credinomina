@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import cn_source_import as source
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as source
 
 
 class Record(dict):
@@ -30,7 +30,7 @@ class CompanyReconciliationTests(unittest.TestCase):
 
         def get_all(doctype, **kwargs):
             queries.append((doctype, kwargs))
-            if doctype == "CN Source Import":
+            if doctype == "CN Accounting Import":
                 return list(imports)
             if doctype == "CN Reconciliation Period":
                 if kwargs.get("pluck"):
@@ -49,7 +49,7 @@ class CompanyReconciliationTests(unittest.TestCase):
         with (
             patch.object(source.frappe, "has_permission", return_value=True),
             patch.object(source.frappe, "get_all", side_effect=get_all),
-            patch.object(source.frappe, "get_doc", side_effect=lambda dt, name: (imports if dt == "CN Source Import" else periods)[name]),
+            patch.object(source.frappe, "get_doc", side_effect=lambda dt, name: (imports if dt == "CN Accounting Import" else periods)[name]),
             patch.object(source, "_deduplicate_applications"),
             patch.object(source, "_allocate_complementary_items", return_value={}),
             patch.object(source, "_operative_links", return_value={}),

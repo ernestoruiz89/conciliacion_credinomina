@@ -2,7 +2,7 @@
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import _reconcile_sources
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.patches.v1_0.rename_deposits_by_date import execute
 from credinomina_reconciliation.tolerance_items import CATEGORY
 
@@ -17,7 +17,7 @@ def run():
             "employer_code": marker, "rounding_tolerance_usd": 0.01}).insert()
         period = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2025-04-01", "reconciliation_mode": "Historica"}).insert()
-        source = frappe.get_doc({"doctype": "CN Source Import", "employer": employer.name,
+        source = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
             "source_type": "Movimientos contables", "status": "Importado",
             "source_file": f"/private/files/{marker}.xlsx", "historical_backfill": 1,
             "historical_period": period.name})

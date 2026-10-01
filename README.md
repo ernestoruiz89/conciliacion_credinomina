@@ -178,6 +178,14 @@ los enlaces y bloques adicionales del sitio, sin modificar roles ni saldos.
 
 ## Primer uso
 
+Las aplicaciones se cargan en `CN Accounting Import` (Importación de Movimientos
+Contables). El identificador usa el código de empresa y el mes de la fecha
+`event_date` más antigua de sus filas: `CONTA-5111-9-2026-001`. El consecutivo
+es independiente por código de empresa y mes. Antes de completar empresa y
+filas con fecha se utiliza un nombre provisional `CONTA-BORRADOR-...`.
+La migración renombra el DocType anterior y sus documentos conservando filas,
+adjuntos, permisos y referencias; no vuelve a conciliar los movimientos.
+
 Los cortes de cartera importados se identifican como `CARTERA-mes-año`, por
 ejemplo `CARTERA-9-2026`, a partir de `FECHA_REPORTE` del archivo. Los borradores
 reciben un identificador provisional hasta importar el archivo. La migración

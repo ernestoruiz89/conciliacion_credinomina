@@ -4,7 +4,7 @@ from datetime import datetime
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -36,7 +36,7 @@ def run():
         "notes": "Corte histórico sintético sin reconstruir cobranza.",
     }).insert()
     source = frappe.get_doc({
-        "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
         "source_file": "/private/files/CN-HIST-A-202606-simulado.xlsx",
         "historical_backfill": 1, "historical_period": period.name,
         "status": "Importado", "notes": "Dos aplicaciones históricas sintéticas.",
@@ -60,7 +60,7 @@ def run():
         })
     source.insert()
     reconcile_all_sources()
-    source = frappe.get_doc("CN Source Import", source.name)
+    source = frappe.get_doc("CN Accounting Import", source.name)
     if any(row.deposit_match_status == "Depósito conciliado" for row in source.rows):
         raise AssertionError("No debe aparecer un depósito antes del depósito.")
 
@@ -93,7 +93,7 @@ def run():
     deposit.save()
     reconcile_all_sources()
     deposit = frappe.get_doc("CN Remittance Allocation", deposit.name)
-    source = frappe.get_doc("CN Source Import", source.name)
+    source = frappe.get_doc("CN Accounting Import", source.name)
     period = frappe.get_doc("CN Reconciliation Period", period.name)
     if (
         deposit.detail_status != "Conciliado"

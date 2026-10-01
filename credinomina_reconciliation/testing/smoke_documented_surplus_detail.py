@@ -5,7 +5,7 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period import (
     close_period,
 )
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -50,7 +50,7 @@ def run():
         period.insert(ignore_permissions=True)
 
         imported = frappe.get_doc({
-            "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+            "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
             "source_file": f"/private/files/{marker}-core.xlsx", "status": "Importado",
         })
         imported.append("rows", {

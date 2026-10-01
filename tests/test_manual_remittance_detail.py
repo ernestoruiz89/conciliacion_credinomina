@@ -6,7 +6,7 @@ import frappe
 
 from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.remittance_detail import manual_detail_targets
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import cn_source_import as source
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as source
 
 
 class ManualRemittanceDetailTests(unittest.TestCase):

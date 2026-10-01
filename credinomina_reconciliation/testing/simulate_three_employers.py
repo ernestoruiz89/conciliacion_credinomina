@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -126,13 +126,13 @@ def _get_or_create_period(employer, letter, month, month_index, clients):
 
 def _get_or_create_import(employer, letter, month, month_index):
     marker = f"/private/files/{_reference(letter, month)}-simulado.xlsx"
-    existing = frappe.db.get_value("CN Source Import", {"source_file": marker}, "name")
+    existing = frappe.db.get_value("CN Accounting Import", {"source_file": marker}, "name")
     if existing:
-        return frappe.get_doc("CN Source Import", existing)
+        return frappe.get_doc("CN Accounting Import", existing)
     reference = _reference(letter, month)
     source_date = _deposit_date(month).replace(day=5)
     document = frappe.get_doc({
-        "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
         "source_file": marker, "status": "Importado",
         "notes": "Aplicaciones sintéticas; sin archivo físico.",
     })

@@ -35,6 +35,7 @@ class EmployerNamingTest(unittest.TestCase):
         self.assertEqual(
             [
                 "credinomina_reconciliation.patches.v1_0.move_remittance_fx_evidence_to_notes",
+                "credinomina_reconciliation.patches.v1_0.rename_source_import_doctype",
             ],
             list(patches["pre_model_sync"]),
         )
@@ -60,6 +61,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.order_workspace_by_workflow",
                 "credinomina_reconciliation.patches.v1_0.rename_deposits_by_date",
                 "credinomina_reconciliation.patches.v1_0.rename_portfolio_snapshots_by_month",
+                "credinomina_reconciliation.patches.v1_0.rename_accounting_imports_by_month",
             ],
             list(patches["post_model_sync"]),
         )

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from credinomina_reconciliation.allocation import allocate_cash
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     _prepare_remittance_details,
 )
 
@@ -18,7 +18,7 @@ class LateRemittanceDetailTest(unittest.TestCase):
         )
         with patch(
             "credinomina_reconciliation.conciliacion_credinomina.doctype."
-            "cn_source_import.cn_source_import.frappe.get_all",
+            "cn_accounting_import.cn_accounting_import.frappe.get_all",
             return_value=[],
         ):
             return _prepare_remittance_details(

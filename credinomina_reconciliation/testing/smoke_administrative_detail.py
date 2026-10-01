@@ -6,7 +6,7 @@ Synthetic fixtures only, always rolled back. No user files or records are used.
 import frappe
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period import close_period
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import reconcile_all_sources
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import reconcile_all_sources
 
 
 def run():
@@ -21,7 +21,7 @@ def run():
                                  "payroll_month": "2025-04-01", "reconciliation_mode": "Historica",
                                  "historical_scope": "Mensual"}).insert()
         imported = frappe.get_doc({
-            "doctype": "CN Source Import", "employer": employer.name,
+            "doctype": "CN Accounting Import", "employer": employer.name,
             "source_type": "Movimientos contables", "status": "Importado",
             "source_file": f"/private/files/{marker}-core.xlsx", "historical_backfill": 1,
             "historical_period": period.name,

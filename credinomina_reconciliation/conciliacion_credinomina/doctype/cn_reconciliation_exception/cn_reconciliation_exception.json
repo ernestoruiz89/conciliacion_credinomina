@@ -47,7 +47,7 @@
     {"fieldname": "commitment_date", "fieldtype": "Date", "in_list_view": 1, "label": "Fecha compromiso"},
     {"fieldname": "period", "fieldtype": "Link", "in_list_view": 1, "label": "Periodo", "options": "CN Reconciliation Period"},
     {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer"},
-    {"fieldname": "source_import", "fieldtype": "Link", "label": "Importacion", "options": "CN Source Import"},
+    {"fieldname": "source_import", "fieldtype": "Link", "label": "Importacion", "options": "CN Accounting Import"},
     {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila de origen"},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente"},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito"},

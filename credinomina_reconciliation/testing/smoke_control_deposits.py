@@ -29,10 +29,10 @@ def run():
                         "docstatus": 1, "period": periods[1].name,
                         "category": "Cobranza administrativa", "amount_usd": 100}).db_insert()
         source_name, application_name = f"CASH-SRC-{marker}", f"CASH-APP-{marker}"
-        frappe.get_doc({"doctype": "CN Source Import", "name": source_name,
+        frappe.get_doc({"doctype": "CN Accounting Import", "name": source_name,
                         "employer": employer.name}).db_insert()
         frappe.get_doc({"doctype": "CN Source Row", "name": application_name,
-                        "parent": source_name, "parenttype": "CN Source Import", "parentfield": "rows",
+                        "parent": source_name, "parenttype": "CN Accounting Import", "parentfield": "rows",
                         "historical_period": periods[0].name, "client_name": "Ana Prueba",
                         "client_number": "100", "loan_number": "1000-1"}).db_insert()
         row_key = f"CASH-ROW-{marker}"

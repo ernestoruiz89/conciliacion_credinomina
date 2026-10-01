@@ -21,7 +21,7 @@ class ApplicationAgingReportTests(unittest.TestCase):
             calls.append(("all", doctype, kwargs))
             if doctype == "CN Source Row":
                 self.assertEqual(kwargs["filters"]["parent"], ["in", ["I"]])
-                self.assertEqual(kwargs["filters"]["parenttype"], "CN Source Import")
+                self.assertEqual(kwargs["filters"]["parenttype"], "CN Accounting Import")
                 return [frappe._dict(name="A", parent="I", event_type="Aplicacion", effective=1,
                                     match_status="Conciliado", historical_period="H", amount=22.52,
                                     currency="USD", event_date="2025-04-30", client_number="123")]
@@ -36,7 +36,7 @@ class ApplicationAgingReportTests(unittest.TestCase):
              patch.object(report.frappe, "get_all", side_effect=get_all), \
              patch.object(report, "_", side_effect=lambda text: text):
             result = report.execute(dict({"as_of_date": "2025-05-11"}, **(filters or {})))
-        self.assertTrue(any(kind == "list" and dt == "CN Source Import" for kind, dt, _ in calls))
+        self.assertTrue(any(kind == "list" and dt == "CN Accounting Import" for kind, dt, _ in calls))
         self.assertTrue(any(kind == "list" and dt == "CN Reconciliation Period" for kind, dt, _ in calls))
         return result
 

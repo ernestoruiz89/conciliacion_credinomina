@@ -152,11 +152,11 @@ class CNReconciliationException(Document):
                 )
             )
             and frappe.db.exists(
-                "CN Source Import",
+                "CN Accounting Import",
                 {"status": ["in", ["Importado", "Importado con excepciones"]]},
             )
         ):
-            from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+            from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
                 reconcile_all_sources,
             )
 

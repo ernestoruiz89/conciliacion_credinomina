@@ -97,7 +97,7 @@
       "is_query_report": 0,
       "label": "Movimientos contables / aplicaciones",
       "link_count": 0,
-      "link_to": "CN Source Import",
+      "link_to": "CN Accounting Import",
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
@@ -257,7 +257,7 @@
       "color": "Green",
       "doc_view": "New",
       "label": "Cargar aplicaciones",
-      "link_to": "CN Source Import",
+      "link_to": "CN Accounting Import",
       "type": "DocType"
     },
     {

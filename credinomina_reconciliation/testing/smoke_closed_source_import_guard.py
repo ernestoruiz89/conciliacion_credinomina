@@ -36,7 +36,7 @@ def run():
             periods.append(period)
         first, second = periods
         source = frappe.get_doc({
-            "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+            "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
             "source_file": f"/private/files/{marker}.xlsx", "status": "Importado",
         })
         source.append("rows", {
@@ -104,7 +104,7 @@ def run():
         assert len(source.rows) == 1
 
         fresh = frappe.get_doc({
-            "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+            "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
             "source_file": f"/private/files/{marker}-nuevo.xlsx", "status": "Importado",
         })
         fresh.append("rows", {
@@ -133,7 +133,7 @@ def run():
             "historical_scope": "Mensual", "status": "Pendiente",
         }).insert(ignore_permissions=True)
         historical_source = frappe.get_doc({
-            "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+            "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
             "source_file": f"/private/files/{marker}-historico.xlsx",
             "historical_period": historical.name, "status": "Importado",
         })

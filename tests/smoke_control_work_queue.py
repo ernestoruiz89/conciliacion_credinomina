@@ -53,7 +53,7 @@ def run():
                  allocation_detail),
             )
         frappe.db.sql(
-            """INSERT INTO `tabCN Source Import`
+            """INSERT INTO `tabCN Accounting Import`
             (name, owner, creation, modified, modified_by, docstatus, idx,
              source_type, historical_backfill, status)
             VALUES (%s, 'Administrator', %s, %s, 'Administrator', 0, 0,
@@ -65,7 +65,7 @@ def run():
             (name, parent, parenttype, parentfield, idx, owner, creation, modified,
              modified_by, docstatus, event_type, event_date, effective, reference,
              amount, amount_usd, currency)
-            VALUES (%s, %s, 'CN Source Import', 'rows', 1, 'Administrator',
+            VALUES (%s, %s, 'CN Accounting Import', 'rows', 1, 'Administrator',
                     %s, %s, 'Administrator', 0, 'Aplicacion', '2026-08-15', 1,
                     %s, 25, 25, 'USD')""",
             (row_name, import_name, now, now, prefix + "-H"),
@@ -91,4 +91,4 @@ def run():
         frappe.db.rollback()
         assert not frappe.db.exists("CN Remittance Allocation", detail_name)
         assert not frappe.db.exists("CN Remittance Allocation", allocation_name)
-        assert not frappe.db.exists("CN Source Import", import_name)
+        assert not frappe.db.exists("CN Accounting Import", import_name)

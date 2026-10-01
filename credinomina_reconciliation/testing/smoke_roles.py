@@ -37,7 +37,7 @@ def run():
         frappe.set_user(email)
         if not frappe.has_permission("CN Reconciliation Period", "read"):
             raise AssertionError(f"{role} no puede leer períodos.")
-        if not frappe.has_permission("CN Source Import", "write"):
+        if not frappe.has_permission("CN Accounting Import", "write"):
             raise AssertionError(f"{role} no puede importar aplicaciones.")
         if not frappe.has_permission("CN Remittance Allocation", "write"):
             raise AssertionError(f"{role} no puede registrar depósitos.")

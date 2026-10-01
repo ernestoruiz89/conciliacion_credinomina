@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import (
-    cn_source_import as source_module,
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import (
+    cn_accounting_import as source_module,
 )
 
 
@@ -33,7 +33,7 @@ def _document(old_rows, new_rows, **changes):
     new = frappe._dict({**old, "rows": new_rows, **changes})
     new.get_doc_before_save = lambda: old
     new._assert_no_closed_period_links = lambda rows: (
-        source_module.CNSourceImport._assert_no_closed_period_links(new, rows)
+        source_module.CNAccountingImport._assert_no_closed_period_links(new, rows)
     )
     return new
 
@@ -53,7 +53,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
         with patch.object(
             source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
         ):
-            source_module.CNSourceImport._validate_closed_source_edits(document)
+            source_module.CNAccountingImport._validate_closed_source_edits(document)
 
     def test_multiquincena_second_closed_period_rejects_rate_edit(self):
         original = _row(application_allocation_detail=json.dumps([
@@ -116,7 +116,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
                 with patch.object(
                     source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
                 ):
-                    source_module.CNSourceImport.on_trash(document)
+                    source_module.CNAccountingImport.on_trash(document)
 
     def test_deleting_import_linked_to_closed_period_requires_reopen(self):
         linked = _row(collection_period="PER-CLOSED")
@@ -126,7 +126,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
                 with patch.object(
                     source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
                 ):
-                    source_module.CNSourceImport.on_trash(document)
+                    source_module.CNAccountingImport.on_trash(document)
 
     def test_removing_linked_row_or_replacing_source_file_requires_reopen(self):
         linked = _row(collection_period="PER-CLOSED")

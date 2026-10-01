@@ -10,7 +10,7 @@ class ControlYearFilterTests(unittest.TestCase):
         queries = []
         def get_list(doctype, **kwargs):
             queries.append((doctype, kwargs))
-            if doctype == "CN Source Import":
+            if doctype == "CN Accounting Import":
                 return ["IMP"] if kwargs.get("pluck") else [frappe._dict(name="IMP")]
             return []
         def get_all(doctype, **kwargs):

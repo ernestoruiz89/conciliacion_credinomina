@@ -39,7 +39,7 @@ def _unassigned_application_is_historical(row, source_import):
 def export_control_excel(year=None, employer=None):
     """Download a complete, permission-scoped snapshot of the control matrix."""
     required_reads = (
-        "CN Reconciliation Period", "CN Source Import", "CN Remittance Allocation",
+        "CN Reconciliation Period", "CN Accounting Import", "CN Remittance Allocation",
         "CN Complementary Item", "CN Reconciliation Exception",
     )
     if any(not frappe.has_permission(doctype, "read") for doctype in required_reads):
@@ -118,13 +118,13 @@ def _available_years(employer=None):
                                        fields=[field], group_by=field, limit_page_length=0):
                 if row.get(field):
                     years.add(getdate(row[field]).year)
-    if frappe.has_permission("CN Source Import", "read"):
-        imports = frappe.get_list("CN Source Import", filters={**company,
+    if frappe.has_permission("CN Accounting Import", "read"):
+        imports = frappe.get_list("CN Accounting Import", filters={**company,
             "source_type": SOURCE_ACCOUNTING, "status": ["in", ["Importado", "Importado con excepciones"]]},
             pluck="name", limit_page_length=0)
         for offset in range(0, len(imports), 500):
             for row in frappe.get_all("CN Source Row",
-                filters={"parent": ["in", imports[offset:offset + 500]], "parenttype": "CN Source Import",
+                filters={"parent": ["in", imports[offset:offset + 500]], "parenttype": "CN Accounting Import",
                          "event_type": "Aplicacion", "effective": 1},
                 fields=["event_date"], group_by="event_date", limit_page_length=0):
                 if row.event_date:
@@ -393,9 +393,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     unassigned_operational_applications = []
     unassigned_surpluses = []
     related_deposits = []
-    if frappe.has_permission("CN Source Import", "read"):
+    if frappe.has_permission("CN Accounting Import", "read"):
         source_imports = frappe.get_list(
-            "CN Source Import",
+            "CN Accounting Import",
             filters={
                 "source_type": SOURCE_ACCOUNTING,
                 "status": ["in", ["Importado", "Importado con excepciones"]],
@@ -897,7 +897,7 @@ def _build_work_items(
         add(4, "classify_bank", "Depósitos bancarios sin clasificar",
             "Verificar si son de convenio, de otro cliente u operativos.",
             count=len(rows), amount_usd=sum(flt(row.unclassified_usd) for row in rows),
-            target_doctype="CN Source Import", target_name=source)
+            target_doctype="CN Accounting Import", target_name=source)
 
     for label, rows in (
         ("historical_application", historical_unassigned),
@@ -915,7 +915,7 @@ def _build_work_items(
                 "Identificar empresa, cliente y período; revisar el cruce en la importación.",
                 count=len(unmatched),
                 amount_usd=sum(known_usd) if len(known_usd) == len(unmatched) else None,
-                target_doctype="CN Source Import", target_name=source)
+                target_doctype="CN Accounting Import", target_name=source)
 
     return sorted(items, key=lambda item: (
         item["priority"], item["due_date"] or "9999-12-31",

@@ -6,7 +6,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
     close_period,
     reopen_period,
 )
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -14,7 +14,7 @@ from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 def _new_import(marker, employer, client_number, loan_number, reference, voucher, deposit_voucher=None):
     doc = frappe.get_doc({
-        "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
         "source_file": f"/private/files/{marker}-{voucher}.xlsx", "status": "Importado",
     })
     doc.append("rows", {
@@ -114,7 +114,7 @@ def run():
             "APP-OLD", deposit_voucher="DEP-OLD",
         )
         reconcile_all_sources()
-        provisional_import = frappe.get_doc("CN Source Import", original_import.name)
+        provisional_import = frappe.get_doc("CN Accounting Import", original_import.name)
         assert provisional_import.rows[0].match_status == "Enlace provisional"
         assert provisional_import.rows[0].deposit_match_status == "Pendiente"
         assert provisional_import.matched_count == 0
@@ -141,7 +141,7 @@ def run():
         reconcile_all_sources()
         period.reload()
         assert period.collection_rows[0].application_status == "Aplicado y remitido"
-        confirmed_import = frappe.get_doc("CN Source Import", original_import.name)
+        confirmed_import = frappe.get_doc("CN Accounting Import", original_import.name)
         assert confirmed_import.rows[0].match_status == "Conciliado"
         assert confirmed_import.rows[0].deposit_match_status == "Depósito conciliado"
 
@@ -176,14 +176,14 @@ def run():
         )
 
         frappe.db.savepoint("closed_guard_application")
-        frappe.db.set_value("CN Source Import", original_import.name, "status", "Fallido")
+        frappe.db.set_value("CN Accounting Import", original_import.name, "status", "Fallido")
         replacement_import = _new_import(
             marker, employer.name, client_number, loan_number, reference, "APP-NEW",
         )
         _must_reject_reconciliation()
         frappe.db.rollback(save_point="closed_guard_application")
-        assert frappe.db.get_value("CN Source Import", original_import.name, "status") == "Importado"
-        assert not frappe.db.exists("CN Source Import", replacement_import.name)
+        assert frappe.db.get_value("CN Accounting Import", original_import.name, "status") == "Importado"
+        assert not frappe.db.exists("CN Accounting Import", replacement_import.name)
         assert frappe.db.get_value(
             "CN Remittance Allocation", old_remittance.name, "result",
         ) == remittance_result_before

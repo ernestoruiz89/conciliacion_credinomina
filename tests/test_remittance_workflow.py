@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from credinomina_reconciliation.allocation import allocate_cash
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import _registered_deposit_pairs
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _registered_deposit_pairs
 from credinomina_reconciliation.reconciliation import converted_amount
 
 
@@ -31,12 +31,12 @@ class RegisteredRemittanceWorkflowTest(unittest.TestCase):
         with (
             patch(
                 "credinomina_reconciliation.conciliacion_credinomina.doctype."
-                "cn_source_import.cn_source_import.deposit_pair_result",
+                "cn_accounting_import.cn_accounting_import.deposit_pair_result",
                 return_value=(True, "Coincide"),
             ),
             patch(
                 "credinomina_reconciliation.conciliacion_credinomina.doctype."
-                "cn_source_import.cn_source_import.narrow_deposit_candidates_by_date",
+                "cn_accounting_import.cn_accounting_import.narrow_deposit_candidates_by_date",
                 side_effect=lambda _deposit, candidates: candidates,
             ),
         ):

@@ -10,8 +10,8 @@ SOURCE_IMPORT_DOCTYPE = (
     / "credinomina_reconciliation"
     / "conciliacion_credinomina"
     / "doctype"
-    / "cn_source_import"
-    / "cn_source_import.json"
+    / "cn_accounting_import"
+    / "cn_accounting_import.json"
 )
 
 

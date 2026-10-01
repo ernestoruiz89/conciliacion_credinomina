@@ -6,7 +6,7 @@ import frappe
 
 from credinomina_reconciliation.historical import historical_status
 from credinomina_reconciliation.patches.v1_0 import unify_period_statuses as migration
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import _operative_period_status
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _operative_period_status
 
 
 class SharedPeriodStatusTests(unittest.TestCase):

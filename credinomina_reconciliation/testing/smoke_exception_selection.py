@@ -25,7 +25,7 @@ def run():
             "client_name": "Ana Prueba", "client_number": "12", "loan_number": "100-1", "expected_usd": 100,
         })
         collection.db_insert()
-        source = frappe.get_doc({"doctype": "CN Source Import", "name": f"picker-i-{marker}",
+        source = frappe.get_doc({"doctype": "CN Accounting Import", "name": f"picker-i-{marker}",
                                  "employer": employer.name, "source_type": "Movimientos contables", "status": "Borrador"})
         source.db_insert()
         row = frappe.get_doc({

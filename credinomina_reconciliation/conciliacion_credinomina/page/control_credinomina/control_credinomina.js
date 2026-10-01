@@ -410,7 +410,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         if (currentData) render(currentData);
     });
     $root.on("click", "[data-import]", function () {
-        frappe.set_route("Form", "CN Source Import", $(this).attr("data-import"));
+        frappe.set_route("Form", "CN Accounting Import", $(this).attr("data-import"));
     });
     $root.on("click", "[data-remittance]", function () {
         frappe.set_route("Form", "CN Remittance Allocation", $(this).attr("data-remittance"));

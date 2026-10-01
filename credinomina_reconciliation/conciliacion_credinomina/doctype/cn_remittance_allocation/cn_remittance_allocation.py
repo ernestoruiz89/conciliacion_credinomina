@@ -296,7 +296,7 @@ class CNRemittanceAllocation(Document):
         return detail_identity(self) != detail_identity(previous)
 
     def _reconcile(self):
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
             reconcile_all_sources,
         )
 

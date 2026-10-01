@@ -34,7 +34,7 @@ def _execute_applications(filters):
         limit_page_length=0,
     )}
     imports = {row.name: row for row in frappe.get_list(
-        "CN Source Import",
+        "CN Accounting Import",
         filters={"status": ["in", ["Importado", "Importado con excepciones"]],
                  "source_type": "Movimientos contables"},
         fields=["name", "employer", "historical_backfill", "historical_period"],
@@ -42,7 +42,7 @@ def _execute_applications(filters):
     )}
     sources = frappe.get_all(
         "CN Source Row", filters={"parent": ["in", list(imports)],
-                                  "parenttype": "CN Source Import", "parentfield": "rows",
+                                  "parenttype": "CN Accounting Import", "parentfield": "rows",
                                   "event_type": "Aplicacion", "effective": 1},
         fields=[
             "name", "parent", "event_type", "event_date", "effective", "match_status",
@@ -246,7 +246,7 @@ def get_application_columns():
     index = next(i for i, column in enumerate(columns) if column["fieldname"] == "amount_usd")
     columns[index:index] = [
         {"fieldname": "reconciliation_mode", "label": _("Modalidad"), "fieldtype": "Data", "width": 105},
-        {"fieldname": "source_import", "label": _("Importación"), "fieldtype": "Link", "options": "CN Source Import", "width": 170},
+        {"fieldname": "source_import", "label": _("Importación"), "fieldtype": "Link", "options": "CN Accounting Import", "width": 170},
         {"fieldname": "application_date", "label": _("Fecha aplicación (primera si agrupada)"), "fieldtype": "Date", "width": 160},
         {"fieldname": "due_date", "label": _("Vencimiento de pago"), "fieldtype": "Date", "width": 145},
         {"fieldname": "age_days", "label": _("Días de atraso"), "fieldtype": "Int", "width": 110},

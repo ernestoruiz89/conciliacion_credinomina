@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from credinomina_reconciliation import company_credit as credit
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import import cn_source_import as source
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as source
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import CNRemittanceAllocation
 from credinomina_reconciliation.patches.v1_0 import integrate_deposit_surplus as migration
 

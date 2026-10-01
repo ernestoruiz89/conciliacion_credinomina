@@ -70,14 +70,14 @@ def _load_credit_people(deposits, periods):
     result = {}
     fields = ["client_name", "client_number", "loan_number"]
     historical_ids = sorted({key[2] for key in wanted if key[0] == "H" and key[2]})
-    if historical_ids and frappe.has_permission("CN Source Import", "read"):
+    if historical_ids and frappe.has_permission("CN Accounting Import", "read"):
         for offset in range(0, len(historical_ids), 500):
             rows = frappe.get_all("CN Source Row", filters={
                 "name": ["in", historical_ids[offset:offset + 500]],
-                "parenttype": "CN Source Import", "parentfield": "rows",
+                "parenttype": "CN Accounting Import", "parentfield": "rows",
             }, fields=["name", "parent", "historical_period", *fields], limit_page_length=0)
             parents = sorted({r["parent"] for r in rows})
-            allowed = set(frappe.get_list("CN Source Import", filters={"name": ["in", parents]},
+            allowed = set(frappe.get_list("CN Accounting Import", filters={"name": ["in", parents]},
                                          pluck="name", limit_page_length=0)) if parents else set()
             for row in rows:
                 key = ("H", row.get("historical_period"), row["name"])

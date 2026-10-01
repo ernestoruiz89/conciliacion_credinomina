@@ -5,7 +5,7 @@ function update_currency_fields(frm) {
     frm.toggle_reqd("manual_fx_rate", is_nio);
 }
 
-frappe.ui.form.on("CN Source Import", {
+frappe.ui.form.on("CN Accounting Import", {
     refresh(frm) {
         update_currency_fields(frm);
         frm.set_df_property("source_type", "read_only", 1);
@@ -17,7 +17,7 @@ frappe.ui.form.on("CN Source Import", {
             filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },
         }));
         frm.set_query("portfolio_snapshot", () => ({
-            query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.get_company_portfolio_snapshots",
+            query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.get_company_portfolio_snapshots",
             filters: {employer: frm.doc.employer},
         }));
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
@@ -26,12 +26,18 @@ frappe.ui.form.on("CN Source Import", {
 
         frm.add_custom_button(__("3. Cargar movimientos contables"), async () => {
             if (frm.is_dirty()) await frm.save();
-            frappe.call({
-                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.import_source_file",
+            return frappe.call({
+                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.import_source_file",
                 args: { import_name: frm.doc.name },
                 freeze: true,
                 freeze_message: __("Cargando aplicaciones y actualizando conciliaciones..."),
-            }).then(() => frm.reload_doc());
+            }).then(response => {
+                const name = response.message?.import_name;
+                if (name && name !== frm.doc.name) {
+                    return frappe.set_route("Form", frm.doctype, name);
+                }
+                return frm.reload_doc();
+            });
         });
 
         if (frm.get_perm(0, "write")) {
@@ -53,7 +59,7 @@ frappe.ui.form.on("CN Source Import", {
 });
 
 function importExceptionRows(rows) {
-    // Match CNSourceImport.recalculate_summary: a file exception is not
+    // Match CNAccountingImport.recalculate_summary: a file exception is not
     // necessarily an import error or a CN Reconciliation Exception document.
     return (rows || []).flatMap(row => {
         const reasons = [];
@@ -136,7 +142,7 @@ async function reconcileCompany(frm) {
     try {
         if (frm.is_dirty()) await frm.save();
         const response = await frappe.call({
-            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import.reconcile_company_sources",
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.reconcile_company_sources",
             args: {import_name: frm.doc.name},
             freeze: true,
             freeze_message: __("Conciliando las importaciones y depósitos de {0}…", [frm.doc.employer]),
@@ -160,7 +166,7 @@ function showCompanyReconciliation(result) {
         <div style="max-height:40vh;overflow:auto"><table class="table table-bordered">
         <thead><tr><th>${__("Importación / fila")}</th><th>${__("Cliente / crédito")}</th><th>${__("Estado")}</th><th>${__("Detalle")}</th></tr></thead>
         <tbody>${movements.map(row => `<tr${reconciled ? ' class="cn-row-reconciled"' : ""}>
-            <td><a href="/app/cn-source-import/${encodeURIComponent(row.import_name)}">${esc(row.import_name)}</a><br>${__("Fila")} ${esc(row.row)}</td>
+            <td><a href="/app/cn-accounting-import/${encodeURIComponent(row.import_name)}">${esc(row.import_name)}</a><br>${__("Fila")} ${esc(row.row)}</td>
             <td>${esc(row.client_name)}<br><span class="text-muted">${esc(row.loan_number)}</span></td>
             <td>${reconciled ? __("Conciliado") : __("Pendiente")}</td>
             <td style="white-space:normal">${esc(row.reason)}</td>
@@ -189,7 +195,7 @@ function showCompanyReconciliation(result) {
         secondary_action_label: __("Ver importaciones"),
         secondary_action: () => {
             dialog.hide();
-            frappe.set_route("List", "CN Source Import", {employer: result.employer});
+            frappe.set_route("List", "CN Accounting Import", {employer: result.employer});
         },
     });
     dialog.show();

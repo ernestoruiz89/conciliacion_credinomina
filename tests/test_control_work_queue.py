@@ -293,12 +293,12 @@ class ControlWorkQueueTests(unittest.TestCase):
         ]
 
         def get_list(doctype, **_kwargs):
-            if doctype == "CN Source Import":
+            if doctype == "CN Accounting Import":
                 self.assertEqual(
                     _kwargs["filters"]["status"],
                     ["in", ["Importado", "Importado con excepciones"]],
                 )
-            return imports if doctype == "CN Source Import" else []
+            return imports if doctype == "CN Accounting Import" else []
 
         def get_all(doctype, **kwargs):
             if doctype == "CN Source Row" and kwargs["filters"].get("event_type") == "Aplicacion":
@@ -307,7 +307,7 @@ class ControlWorkQueueTests(unittest.TestCase):
 
         with patch.object(control_credinomina.frappe, "has_permission",
                           side_effect=lambda doctype, *_args: doctype in {
-                              "CN Reconciliation Period", "CN Source Import",
+                              "CN Reconciliation Period", "CN Accounting Import",
                           }), \
              patch.object(control_credinomina.frappe, "get_list", side_effect=get_list), \
              patch.object(control_credinomina.frappe, "get_all", side_effect=get_all):

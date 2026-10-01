@@ -1,11 +1,11 @@
 {
   "actions": [],
-  "autoname": "naming_series:",
+  "autoname": "",
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
-    "usd_currency", "nio_currency", "naming_series",
+    "usd_currency", "nio_currency",
     "import_tab", "source_section", "employer", "source_type", "source_file", "source_column", "currency", "manual_fx_rate",
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
@@ -15,7 +15,6 @@
   "fields": [
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
-    {"default": "CN-IMP-.YYYY.-.#####", "fieldname": "naming_series", "fieldtype": "Select", "hidden": 1, "label": "Serie", "options": "CN-IMP-.YYYY.-.#####", "reqd": 1},
     {"fieldname": "import_tab", "fieldtype": "Tab Break", "label": "Importación"},
     {"fieldname": "source_section", "fieldtype": "Section Break", "label": "Archivo y moneda"},
     {"fieldname": "source_column", "fieldtype": "Column Break"},
@@ -54,8 +53,8 @@
   "modified": "2026-09-30 00:30:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
-  "name": "CN Source Import",
-  "naming_rule": "By naming series",
+  "name": "CN Accounting Import",
+  "naming_rule": "By script",
   "owner": "Administrator",
   "permissions": [
     {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},

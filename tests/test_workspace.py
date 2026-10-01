@@ -102,7 +102,7 @@ class WorkspaceTest(unittest.TestCase):
         ], [block["data"]["card_name"] for block in self.blocks if block["type"] == "card"])
         self.assertEqual([
             "CN Credit Portfolio Snapshot", "CN Reconciliation Period",
-            "CN Source Import", "CN Remittance Allocation",
+            "CN Accounting Import", "CN Remittance Allocation",
         ], [row["link_to"] for row in self.workspace["shortcuts"]])
         self.assertTrue(all(row["doc_view"] == "New" for row in self.workspace["shortcuts"]))
         self.assertNotIn("Importar fuentes", self.workspace["content"])

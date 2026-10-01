@@ -210,7 +210,7 @@ class PeriodControlCutTests(unittest.TestCase):
     def test_import_reconciliation_is_triggered_when_sources_exist(self):
         path = (
             "credinomina_reconciliation.conciliacion_credinomina.doctype"
-            ".cn_source_import.cn_source_import.reconcile_all_sources"
+            ".cn_accounting_import.cn_accounting_import.reconcile_all_sources"
         )
         with patch.object(period_module.frappe, "db", SimpleNamespace(exists=lambda *_: True)), \
              patch(path, return_value={"matched": 1}) as reconcile:
@@ -220,7 +220,7 @@ class PeriodControlCutTests(unittest.TestCase):
     def test_reconciliation_runs_when_remittance_precedes_collection(self):
         path = (
             "credinomina_reconciliation.conciliacion_credinomina.doctype"
-            ".cn_source_import.cn_source_import.reconcile_all_sources"
+            ".cn_accounting_import.cn_accounting_import.reconcile_all_sources"
         )
         db = SimpleNamespace(exists=lambda doctype, *_: doctype == "CN Remittance Allocation")
         with patch.object(period_module.frappe, "db", db), \

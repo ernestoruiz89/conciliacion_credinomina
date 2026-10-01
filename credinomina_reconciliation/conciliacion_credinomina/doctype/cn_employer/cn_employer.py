@@ -55,11 +55,11 @@ class CNEmployer(Document):
         if not previous and not (self.aliases or []):
             return
         if not frappe.db.exists(
-            "CN Source Import",
+            "CN Accounting Import",
             {"status": ["in", ["Importado", "Importado con excepciones"]]},
         ):
             return
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
             reconcile_all_sources,
         )
 

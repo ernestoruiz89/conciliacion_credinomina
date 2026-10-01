@@ -13,7 +13,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import (
     import_remittance_detail,
 )
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     import_source_file,
 )
 from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
@@ -68,13 +68,13 @@ def run():
         raise AssertionError(deduction_result)
 
     source = frappe.get_doc({
-        "doctype": "CN Source Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
         "source_file": "/private/files/pendiente-simulacion.xlsx",
     }).insert()
     source.source_file = _attach(movements, source)
     source.save()
     application_result = import_source_file(source.name)
-    source = frappe.get_doc("CN Source Import", source.name)
+    source = frappe.get_doc("CN Accounting Import", source.name)
     if len(source.rows) != 19 or any(row.match_status != "Conciliado" for row in source.rows):
         raise AssertionError("Las 19 aplicaciones no enlazaron con la cobranza.")
 

@@ -21,9 +21,27 @@ const context = vm.createContext({
         msgprint: () => events.push("message"),
     },
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_import/cn_source_import.js"), "utf8"), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js"), "utf8"), context);
 
 (async () => {
+    const actions = {};
+    const accountingForm = {
+        doc: {name: "IA", employer: "A", currency: "USD", rows: [], status: "Borrador"},
+        doctype: "CN Accounting Import", is_new: () => false, is_dirty: () => true,
+        save: async () => events.push("save"), reload_doc: async () => events.push("reload"),
+        toggle_reqd() {}, toggle_display() {}, set_df_property() {}, set_query() {}, set_intro() {},
+        get_perm: () => false, add_custom_button(label, action) { actions[label] = action; },
+    };
+    context.frappe.set_route = async (...route) => {
+        assert.deepEqual(route, ["Form", "CN Accounting Import", "CONTA-5111-9-2026-001"]);
+        events.push("navigate");
+    };
+    formHandlers["CN Accounting Import"].refresh(accountingForm);
+    result.import_name = "CONTA-5111-9-2026-001";
+    await actions["3. Cargar movimientos contables"]();
+    assert.deepEqual(events, ["save", "call", "navigate"]);
+    events.length = 0;
+    delete result.import_name;
     const exceptionRows = [
         {idx: 1, source_row: 5, event_type: "Aplicacion", effective: 1, match_status: "Conciliado",
             deposit_match_status: "Sin deposito", deposit_match_reason: "Faltan US$10", client_name: "<script>unsafe</script>"},

@@ -74,7 +74,7 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
 def get_pending_targets(remittance_name, targets=None):
     import frappe
     from frappe import _
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_import.cn_source_import import (
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
         _allocate_complementary_items, _deducted_amount,
     )
 
@@ -138,12 +138,12 @@ def get_pending_targets(remittance_name, targets=None):
                 "applied_usd": float(money(row.applied_usd)),
                 "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name]
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
-    if open_periods and frappe.has_permission("CN Source Import", "read"):
-        parents = frappe.get_list("CN Source Import",
+    if open_periods and frappe.has_permission("CN Accounting Import", "read"):
+        parents = frappe.get_list("CN Accounting Import",
             filters={"status": ["in", ["Importado", "Importado con excepciones"]],
                      "source_type": "Movimientos contables"}, pluck="name", limit_page_length=0)
         for parent in parents:
-            source = frappe.get_doc("CN Source Import", parent)
+            source = frappe.get_doc("CN Accounting Import", parent)
             if not source.has_permission("read"):
                 continue
             for row in source.rows:

@@ -66,15 +66,15 @@ def _candidates(employer, kind, period=None, search=None, row_id=None):
                         collection=row.name, amount=row.expected_usd,
                         date=periods[row.parent].payroll_month, status=row.application_status)
         return
-    if not frappe.has_permission("CN Source Import", "read"):
+    if not frappe.has_permission("CN Accounting Import", "read"):
         return
     imports = {p.name: p for p in frappe.get_list(
-        "CN Source Import", filters={"employer": employer},
+        "CN Accounting Import", filters={"employer": employer},
         fields=["name", "historical_period"], limit_page_length=0,
     )}
     if not imports:
         return
-    filters = {"parent": ["in", list(imports)], "parenttype": "CN Source Import",
+    filters = {"parent": ["in", list(imports)], "parenttype": "CN Accounting Import",
                "event_type": "Aplicacion", "effective": 1, "match_status": ["!=", "Ignorado"]}
     if row_id:
         filters["name"] = row_id

@@ -9,7 +9,7 @@ from credinomina_reconciliation.client_registry import (
 
 
 def execute():
-    parent_doctype = "CN Source Import"
+    parent_doctype = "CN Accounting Import"
     child_doctype = "CN Source Row"
     if not frappe.db.table_exists(parent_doctype) or not frappe.db.table_exists(child_doctype):
         return
