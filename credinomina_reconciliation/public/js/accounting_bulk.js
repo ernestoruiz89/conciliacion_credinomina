@@ -47,22 +47,11 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     }
     function renderSummary(summary) {
         let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
-        if (summary.unidentified_count) html += `<p class="alert alert-warning">${esc(summary.unidentified_count)} ${__("movimientos quedarán en NO IDENTIFICADA. La empresa se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
-        html += table([__("Empresa"), __("Fecha de aplicación"), __("Filas"), __("Total US$")], summary.groups.map(group => [
-            esc(group.employer), esc(frappe.datetime.str_to_user(group.event_date)), esc(group.count), esc(format_currency(group.total_usd, "USD")),
-        ]));
-        if (summary.complementary_count) {
-            html += `<h5>${__("Partidas complementarias en borrador")}</h5><p>${__("No afectan saldos ni depósitos. Se conserva la evidencia aunque no se identifique empresa o crédito. Revise el concepto, vínculo e importe antes de confirmar cualquier partida.")}</p>`;
-            html += table([__("Fila"), __("Clasificación"), __("Empresa"), __("Motivo")], summary.complementary.map(row => [
-                esc(row.row), esc(row.classification), esc(row.employer || __("Pendiente de identificar")), esc(row.reason),
-            ]));
-            if (summary.complementary_count > 100) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
-        }
-        if (summary.deposit_count) {
-            html += `<h5>${__("Depósitos detectados")}: ${summary.deposit_count}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe bancario antes de confirmar; no se concilian automáticamente.")}</p>`;
-            html += table([__("Fila"), __("Empresa"), __("Referencia"), __("Importe bancario")], summary.deposits.map(row => [
-                esc(row.row), esc(row.employer || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
-            ]));
+        if (!summary.sections) {
+            html += `<p class="alert alert-warning">${__("Esta vista previa es anterior a la separación por empresa. Pulse Nuevo análisis para ver los casos identificados y no identificados antes de confirmar.")}</p>`;
+        } else {
+            html += identificationSection(summary.sections.identified, false);
+            html += identificationSection(summary.sections.unidentified, true);
         }
         if (summary.duplicates_count) html += `<p class="alert alert-warning">${__("Hay movimientos similares. Revise las filas indicadas: se importarán todos, aunque coincidan cuenta, asiento e importe.")}</p>`;
         for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Posibles duplicados (se importarán)")], ["already_imported", __("Filas del mismo archivo ya registradas")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
@@ -75,6 +64,41 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (summary.issues_count) html += `<p class="text-danger">${__("Corrija estas filas o los alias de las empresas y vuelva a analizar. No se creará ningún documento mientras existan errores.")}</p>`;
         html += `<p class="text-muted">${__("Solo se muestran movimientos reconocidos por el importador contable. Totales, encabezados y otras líneas del reporte no generan aplicaciones.")}</p>`;
         result.html(html);
+    }
+    function identificationSection(section, unidentified) {
+        const count = section.rows + section.complementary_count + section.deposit_count;
+        const title = unidentified ? __("Casos no identificados") : __("Empresas identificadas");
+        let html = `<section data-identification="${unidentified ? "unidentified" : "identified"}" class="mb-4"><h4>${title} · ${esc(count)} ${__("movimientos")}</h4>`;
+        if (!count) return html + `<p class="text-muted">${__("No hay movimientos en este grupo.")}</p></section>`;
+        if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
+        html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
+        if (section.rows && unidentified) {
+            html += table([__("Fila"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [
+                esc(row.row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : "—"),
+                esc(row.client_name || "—"), esc(row.loan_number || "—"), esc(row.employer_text || __("Sin dato")),
+                esc(row.voucher || "—"), esc(format_currency(row.total_usd, "USD")), esc(row.reason || __("Sin empresa identificada")),
+            ]));
+            if (section.rows > section.applications.length) html += `<p>${__("Se muestran las primeras 100 aplicaciones; las cantidades y totales incluyen todos los casos.")}</p>`;
+        } else if (section.rows) {
+            html += table([__("Empresa"), __("Fecha de aplicación"), __("Filas"), __("Total US$")], section.groups.map(group => [
+                esc(group.employer), esc(frappe.datetime.str_to_user(group.event_date)), esc(group.count), esc(format_currency(group.total_usd, "USD")),
+            ]));
+        }
+        if (section.complementary_count) {
+            html += `<h5>${__("Partidas complementarias en borrador")}</h5><p>${__("No afectan saldos ni depósitos hasta confirmar su tratamiento.")}</p>`;
+            html += table([__("Fila"), __("Clasificación"), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Motivo")], section.complementary.map(row => [
+                esc(row.row), esc(row.classification), esc((unidentified ? row.employer_text : row.employer) || __("Pendiente de identificar")), esc(row.reason),
+            ]));
+            if (section.complementary_count > section.complementary.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
+        }
+        if (section.deposit_count) {
+            html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe antes de confirmar; no se concilian automáticamente.")}</p>`;
+            html += table([__("Fila"), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario")], section.deposits.map(row => [
+                esc(row.row), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
+            ]));
+            if (section.deposit_count > section.deposits.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
+        }
+        return html + "</section>";
     }
     async function preview() {
         if (running) return;
@@ -118,7 +142,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                 lockOptions(true);
                 renderSummary(state.summary);
                 dialog.set_primary_action(__("Crear importaciones"), confirm);
-                dialog.get_primary_btn().prop("disabled", !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
+                dialog.get_primary_btn().prop("disabled", !state.summary.sections || !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
             } else if (state.status === "Completado") {
                 running = false;
                 result.html(`<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>` + table(

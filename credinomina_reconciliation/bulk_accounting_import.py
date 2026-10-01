@@ -14,6 +14,7 @@ from credinomina_reconciliation.accounting_deposits import plan_deposits, create
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.employer_naming import attach_employer_aliases, UNIDENTIFIED_EMPLOYER, ensure_unidentified_employer
+from credinomina_reconciliation.rounding import money_float, sum_money
 from credinomina_reconciliation.parsers import (
     SourceFileError, apply_accounting_currency_override, clean_text, file_sha256,
     parse_accounting_movements, source_key, read_table, _records_from_header,
@@ -147,6 +148,8 @@ def _plan(options):
 def _summary(plan):
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
+        "sections": {key: _identification_summary(plan, unidentified)
+                     for key, unidentified in (("identified", False), ("unidentified", True))},
         "groups": groups, "rows": sum(group["count"] for group in groups),
         "complementary_count": len(plan.get("complementary", [])),
         "deposit_count": len(plan.get("deposits", [])),
@@ -161,6 +164,34 @@ def _summary(plan):
                           for row in plan.get("complementary", [])[:100]],
         **{key: plan[key][:100] for key in ("issues", "duplicates", "excluded", "already_imported")},
         **{f"{key}_count": len(plan[key]) for key in ("issues", "duplicates", "excluded", "already_imported")},
+    }
+
+
+def _identification_summary(plan, unidentified):
+    def belongs(employer):
+        return (not employer or employer == UNIDENTIFIED_EMPLOYER) == unidentified
+
+    groups = [group for group in plan["groups"] if belongs(group["employer"])]
+    items = [row for row in plan.get("complementary", []) if belongs(row.get("resolved_employer"))]
+    deposits = [row for row in plan.get("deposits", []) if belongs(row.get("resolved_employer"))]
+    applications = [row for group in groups for row in group["rows"]]
+    return {
+        "groups": [{key: value for key, value in group.items() if key != "rows"} for group in groups],
+        "rows": len(applications), "application_total_usd": money_float(sum_money(row.get("amount_usd") for row in applications)),
+        "applications": [{"row": row["source_row"], "event_date": row.get("event_date"),
+                          "client_name": row.get("client_name"), "loan_number": row.get("loan_number"),
+                          "employer_text": row.get("employer_text"), "voucher": row.get("voucher"),
+                          "total_usd": row.get("amount_usd"), "reason": row.get("portfolio_validation_status")}
+                         for row in applications[:100]] if unidentified else [],
+        "complementary_count": len(items),
+        "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
+                           "employer": row.get("resolved_employer"), "reason": row["classification_reason"],
+                           "employer_text": row.get("employer_text")} for row in items[:100]],
+        "deposit_count": len(deposits),
+        "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
+                      "currency": row["deposit_currency"], "amount": row["deposit_amount"],
+                      "reference": row["bank_deposit_reference"], "employer_text": row.get("employer_text")}
+                     for row in deposits[:100]],
     }
 
 

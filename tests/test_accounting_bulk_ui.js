@@ -3,14 +3,29 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 
-let dialog, calls = [], phase = "preview", html = "";
+let dialog, calls = [], phase = "preview", html = "", legacy = false;
 const storage = new Map();
 const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual_fx_rate: 0};
 const state = {status: "Vista previa", options, summary: {
-    groups: [{employer: "<Empresa>", event_date: "2025-04-15", count: 2, total_usd: 45.04}],
+    groups: [{employer: "<Empresa>", event_date: "2025-04-15", count: 2, total_usd: 45.04},
+        {employer: "NO IDENTIFICADA", event_date: "2025-04-15", count: 1, total_usd: 10}],
     rows: 2, issues: [], issues_count: 0, duplicates: [], duplicates_count: 1, excluded: [], excluded_count: 0,
     unidentified_count: 1,
 }};
+function addSections(summary) {
+    summary.sections = {};
+    for (const [key, unknown] of [["identified", false], ["unidentified", true]]) {
+        const belongs = employer => (!employer || employer === "NO IDENTIFICADA") === unknown;
+        const groups = summary.groups.filter(group => belongs(group.employer));
+        const complementary = (summary.complementary || []).filter(row => belongs(row.employer));
+        const deposits = (summary.deposits || []).filter(row => belongs(row.employer));
+        summary.sections[key] = {groups, rows: groups.reduce((sum, group) => sum + group.count, 0),
+            application_total_usd: groups.reduce((sum, group) => sum + group.total_usd, 0),
+            complementary, complementary_count: complementary.length, deposits, deposit_count: deposits.length,
+            applications: unknown && groups.length ? [{row: 8, event_date: "2025-04-15", client_name: "<Cliente pendiente>",
+                employer_text: "<Empresa original>", loan_number: "123-1", voucher: "AS-1", total_usd: 10}] : []};
+    }
+}
 const context = vm.createContext({
     __: text => text,
     format_currency: value => `USD ${value}`,
@@ -23,7 +38,10 @@ const context = vm.createContext({
         msgprint() {},
         call: async args => {
             calls.push(args);
-            if (args.method.endsWith("get_bulk_import_status")) return {message: state};
+            if (args.method.endsWith("get_bulk_import_status")) {
+                if (!legacy) addSections(state.summary);
+                return {message: state};
+            }
             return {message: {token: "token"}};
         },
         ui: {Dialog: function (opts) {
@@ -56,6 +74,12 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(html.includes("Posibles duplicados (se importarán)"));
     assert.ok(html.includes("se importarán todos"));
     assert.ok(html.includes("Cada aplicación tendrá su propia importación"));
+    const identified = html.split('data-identification="identified"')[1].split("</section>")[0];
+    const unidentified = html.split('data-identification="unidentified"')[1].split("</section>")[0];
+    assert.ok(identified.includes("&lt;Empresa&gt;") && !identified.includes("NO IDENTIFICADA"));
+    assert.ok(unidentified.includes("&lt;Cliente pendiente&gt;"));
+    assert.ok(unidentified.includes("&lt;Empresa original&gt;") && unidentified.includes("AS-1"));
+    assert.ok(!unidentified.includes("&lt;Empresa&gt;"));
     assert.ok(!html.includes("Duplicados omitidos"));
     assert.equal(dialog.props["source_file:read_only"], 1);
     assert.ok(html.includes("&lt;Empresa&gt;"));
@@ -99,5 +123,12 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     state.created = [{doctype: "CN Remittance Allocation", name: "DEP-4-2025-0001", event_date: "2025-04-15", rows: 1, total_usd: 100}];
     await dialog.primary();
     assert.ok(html.includes("/app/cn-remittance-allocation/DEP-4-2025-0001"));
+    dialog.secondary();
+    state.status = "Vista previa";
+    legacy = true;
+    delete state.summary.sections;
+    await dialog.primary();
+    assert.equal(dialog.disabled, true, "An old cached preview must be refreshed before confirmation");
+    assert.ok(html.includes("Pulse Nuevo análisis"));
     console.log("Carga masiva UI: preview, confirmation, escaping, dates, option locking and issues OK");
 })().catch(error => {console.error(error); process.exitCode = 1;});

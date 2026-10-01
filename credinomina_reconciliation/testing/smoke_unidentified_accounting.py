@@ -38,7 +38,13 @@ def run():
         plan = bulk._plan(options)
         assert frappe.db.count("CN Employer") == count_before, "Preview created a master"
         assert not plan["issues"] and len(plan["groups"]) == 4, plan
-        assert bulk._summary(plan)["unidentified_count"] == 3
+        summary = bulk._summary(plan)
+        assert summary["unidentified_count"] == 3
+        assert summary["sections"]["identified"]["rows"] == 1
+        assert summary["sections"]["identified"]["application_total_usd"] == 25
+        assert summary["sections"]["unidentified"]["rows"] == 3
+        assert summary["sections"]["unidentified"]["application_total_usd"] == 75
+        assert len(summary["sections"]["unidentified"]["applications"]) == 3
         created = bulk._create_imports(plan, options)
         documents = [frappe.get_doc("CN Accounting Import", result["name"]) for result in created]
         unknown = [doc for doc in documents if doc.employer == UNIDENTIFIED_EMPLOYER]

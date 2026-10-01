@@ -155,6 +155,10 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    Cada aplicación en **NO IDENTIFICADA** crea una importación independiente,
    incluso si varias tienen la misma fecha, para revisar y corregir su empresa
    caso por caso. Las empresas identificadas siguen agrupadas por empresa y fecha.
+   La vista previa separa **Empresas identificadas** de **Casos no identificados**,
+   con cantidades y total de aplicaciones por grupo. Para los casos no identificados
+   muestra fila, fecha, cliente, crédito, empresa original y asiento; las partidas
+   complementarias y depósitos también se muestran en su sección correspondiente.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
    de aplicación y las partidas complementarias que quedarán en revisión;
    las líneas similares del archivo o de cargas previas se advierten como posibles
