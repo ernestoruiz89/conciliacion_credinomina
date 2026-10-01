@@ -223,6 +223,71 @@ El parche inicializa los importes netos de registros existentes sin cambiar sus
 montos originales. Las antiguas «Reversiones identificadas» siguen siendo solo
 seguimiento: no se convierten automáticamente en ajustes confirmados.
 
+### Compensar partidas complementarias entre sí
+
+Si un movimiento contable de abril se revierte en agosto, abra una de las partidas
+y use **Compensar con otra partida**. Seleccione la contrapartida, revise ambos
+saldos, indique el importe US$, la fecha y el motivo, y confirme. Requiere permisos
+de escritura y confirmación sobre ambas partidas. No necesita identificar cliente
+ni empresa; si las dos empresas están identificadas, deben coincidir.
+
+La confirmación registra un historial en ambas partidas y las clasifica como
+**Compensación entre partidas**. Permite compensaciones parciales, totales y varias
+contrapartidas, sin superar los saldos disponibles. Conserva los movimientos,
+importes, fechas y evidencias originales; no representa un depósito, no reduce
+aplicaciones y no genera asientos en el core. En movimientos importados se verifica
+el sentido opuesto mediante débito/crédito original; en registros manuales use
+importes de signo contrario y este concepto, sin referencia de depósito.
+
+El formulario muestra **Compensado US$**, **Pendiente de compensar US$** y el estado
+**Sin compensar / Compensada parcialmente / Compensada totalmente**. La lista incluye
+**Compensaciones pendientes**. **Consultar saldo a fecha** usa únicamente las
+compensaciones realizadas hasta el corte: antes de agosto el movimiento de abril
+sigue pendiente, aunque actualmente esté compensado. Esta consulta corresponde a
+la partida; no incorpora estas operaciones como pagos en la antigüedad de créditos.
+
+Se bloquean fechas futuras o anteriores a los movimientos o a compensaciones ya
+registradas, empresas/cuentas contables conocidas diferentes, períodos cerrados,
+partidas destinadas a depósitos o ajustes de aplicaciones y reutilización de saldos.
+Los movimientos ya confirmados como partidas de depósito no pueden reclasificarse
+por esta vía. Una compensación confirmada y sus movimientos originales no pueden
+editarse, eliminarse ni cancelarse; sí puede completarse el asiento pendiente.
+No se compensan automáticamente registros existentes ni se modifican cortes previos.
+Para instalar los nuevos campos y la tabla de historial ejecute `migrate` y reinicie.
+
+### Control mensual de movimientos contables
+
+En el workspace, **Control mensual de movimientos contables** permite cotejar
+externamente la carga con la balanza. Filtre el mes, cuenta y moneda original;
+deje Empresa vacía para incluir también movimientos sin convenio identificado.
+El detalle muestra cliente, crédito, empresa, asiento, tipo, estado actual,
+importación/partida y **descripción original completa**. Pulse la descripción para
+abrirla en un modal legible; el texto del reporte no se sustituye por un resumen.
+
+Incluye débitos, créditos y neto en **C$ originales** para archivos NIO y en
+**US$** usando la tasa de importación de cada movimiento. Los archivos USD no
+generan importes ficticios en C$. El resumen separa cuenta y moneda original.
+Cada lado se convierte y redondea con Decimal antes de sumar; no se usa el saldo
+neto de una partida como si fuera su débito o crédito original.
+
+Las partidas complementarias importadas, aunque estén en revisión, compensadas
+o sin empresa, forman parte del control. El movimiento representado a la vez en
+una fila contable y una partida se cuenta una sola vez. Las posibles repeticiones
+entre cargas se detectan por identidad contable y ocurrencia y se advierten;
+las filas repetidas dentro de una misma importación se conservan. Revise los
+archivos si coincidencias de identidad corresponden realmente a asientos distintos.
+Las partidas creadas manualmente no prueban una carga contable y no se incluyen.
+
+No se carga ni se conecta la balanza externa. Los estados son actuales; no se
+reconstruye el estado histórico de conciliación. El control solo incluye registros
+guardados y visibles para el usuario: no puede enumerar filas rechazadas antes de
+guardarse ni certificar automáticamente la integridad del mes. Se advierten tasas
+o evidencias faltantes, sin tratarlas como importes cero.
+
+La migración conserva en el nuevo campo original las descripciones ya almacenadas
+y las tasas disponibles, sin reimportar archivos ni alterar montos. Los nuevos
+archivos conservan además el texto íntegro de DESCRIPCION, incluidos saltos de línea.
+
 ## Instalación
 
 Requiere **Frappe Framework 15 o superior** y **Python 3.10 o superior**.

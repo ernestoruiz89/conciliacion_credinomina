@@ -1,0 +1,132 @@
+"""Original accounting turnover, independent of cash allocation and internal offsets."""
+from collections import defaultdict
+
+from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
+
+MONEY_FIELDS = ("debit_nio", "credit_nio", "net_nio", "debit_usd", "credit_usd", "net_usd")
+
+
+def _status(row, item=None):
+    if item:
+        if item.get("docstatus") == 2:
+            return "Partida cancelada; evidencia conservada"
+        if item.get("docstatus") == 1 and item.get("category") not in {"Ajuste de aplicación", "Compensación entre partidas", "Saldo a favor de la empresa"}:
+            if item.get("cash_assigned_usd") is None:
+                return "Estado de depósito no disponible"
+            assigned = abs(money(item["cash_assigned_usd"]))
+            return "Conciliado" if assigned and assigned >= abs(money(item.get("amount_usd"))) else "Parcialmente conciliado" if assigned else "Pendiente"
+        return (item.get("compensation_status") or item.get("result") or item.get("review_status")
+                or "Por revisar")
+    if row.get("match_status") == "Ignorado":
+        return "Ignorado para conciliación"
+    deposit = row.get("deposit_match_status")
+    if deposit == "Depósito conciliado":
+        return "Conciliado"
+    if deposit == "Depósito parcial":
+        return "Parcialmente conciliado"
+    if deposit == "Aplicación compensada":
+        return "Compensada totalmente"
+    if row.get("event_type") == "Ajuste":
+        return "Por revisar"
+    if row.get("application_adjustment_status") and row["application_adjustment_status"] != "Sin ajuste":
+        return row["application_adjustment_status"]
+    return deposit if deposit and deposit != "Sin deposito" else "Pendiente"
+
+
+def _amounts(row, currency, rate):
+    values = {field: None for field in MONEY_FIELDS}
+    if not row.get("source_account") or not any(money(row.get(field)) for field in ("source_debit", "source_credit")):
+        return values, "Sin evidencia de débitos/créditos originales: revisar o reprocesar el archivo."
+    debit, credit = money(row.get("source_debit")), money(row.get("source_credit"))
+    if currency == "NIO":
+        values.update(debit_nio=money_float(debit), credit_nio=money_float(credit), net_nio=money_float(debit - credit))
+        if decimal_value(rate) <= 0:
+            return values, "Sin tasa para convertir a US$: totales convertidos incompletos."
+        debit, credit = money(debit / decimal_value(rate)), money(credit / decimal_value(rate))
+    elif currency != "USD":
+        return values, "Moneda original sin identificar: no se incluyen importes en los totales."
+    values.update(debit_usd=money_float(debit), credit_usd=money_float(credit), net_usd=money_float(debit - credit))
+    return values, ""
+
+
+def build_rows(sources, imports, items, clients=()):
+    """Count mirrors once; preserve repeated physical rows inside the same import.
+
+    Across imports use evidence identity + occurrence, never a loan/customer key.
+    Report possible repeat imports explicitly rather than calling the load complete.
+    """
+    by_item = {item["name"]: item for item in items}
+    by_client = defaultdict(list)
+    for client in clients:
+        by_client[client.get("client_number")].append(client)
+    occurrences = defaultdict(int)
+    seen, represented_items, represented_keys = set(), set(), set()
+    output, duplicates = [], 0
+
+    def make_row(row, parent=None, item=None):
+        parent = parent or {}
+        currency = row.get("source_currency") or parent.get("currency") or ""
+        rate = row.get("source_fx_rate") or row.get("manual_fx_rate") or row.get("fx_rate") or parent.get("manual_fx_rate") or 0
+        values, warning = _amounts(row, currency, rate)
+        source_import = parent.get("name") or ""
+        employer = (item or {}).get("employer") or row.get("portfolio_employer") or parent.get("employer") or ""
+        number = row.get("client_number") or (item or {}).get("client_number") or ""
+        client_name = row.get("client_name") or row.get("source_client_name") or row.get("portfolio_client_name") or ""
+        matches = [client for client in by_client.get(number, []) if not employer or client.get("employer") == employer]
+        if not client_name and len(matches) == 1:
+            client_name = matches[0].get("client_name") or ""
+        date = str(row.get("event_date") or row.get("source_date") or row.get("posting_date") or "")[:10]
+        return {"event_date": date, "month": date[:7], "source_account": row.get("source_account") or "Sin identificar",
+            "source_currency": currency or "Sin identificar", "nio_currency": "NIO", "usd_currency": "USD", **values,
+            "fx_rate": rate if currency == "NIO" else None,
+            "client_name": client_name or "Sin identificar", "client_number": number,
+            "loan_number": row.get("loan_number") or (item or {}).get("loan_number") or "",
+            "employer": employer, "voucher": row.get("source_voucher") or row.get("voucher") or "",
+            "movement_type": row.get("accounting_classification") or row.get("event_type") or "Por revisar",
+            "state": _status(row, item), "description": row.get("source_description") or row.get("description") or "",
+            "accounting_import": source_import, "complementary_item": (item or {}).get("name") or "",
+            "source_file": row.get("source_file") or parent.get("bulk_source_file") or parent.get("source_file") or "",
+            "source_hash": row.get("source_file_hash") or parent.get("bulk_source_hash") or parent.get("file_hash") or "",
+            "evidence_key": row.get("accounting_source_key") or "", "warning": warning,
+            "movement_count": 1, "missing_conversion": int(bool(warning)),
+            "import_status": parent.get("status") or ""}
+
+    for source in sorted(sources, key=lambda row: (str(imports.get(row.get("parent"), {}).get("creation") or ""), row.get("parent") or "", row.get("idx") or 0)):
+        parent = imports.get(source.get("parent"))
+        if not parent:
+            continue
+        key = (source.get("accounting_source_key") or source.get("source_key") or source["name"],
+               source.get("source_currency") or parent.get("currency"))
+        occurrences[(source["parent"], key)] += 1
+        occurrence_key = (key, occurrences[(source["parent"], key)])
+        if occurrence_key in seen:
+            duplicates += 1
+            continue
+        seen.add(occurrence_key)
+        represented_keys.add(key)
+        item = by_item.get(source.get("complementary_item"))
+        if source.get("complementary_item"):
+            represented_items.add(source["complementary_item"])
+        output.append(make_row(source, parent, item))
+    for item in items:
+        if not item.get("accounting_source_key"):
+            continue  # Manually created fees/offsets are not evidence of an imported ledger.
+        key = (item["accounting_source_key"], item.get("source_currency"))
+        if item["name"] in represented_items or key in represented_keys:
+            continue
+        output.append(make_row(item, item=item))
+    return sorted(output, key=lambda row: (row["event_date"], row["source_account"], row["voucher"], row["accounting_import"])), duplicates
+
+
+def summarize(rows):
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(row["month"], row["source_account"], row["source_currency"])].append(row)
+    result = []
+    for (month, account, currency), group in sorted(groups.items()):
+        result.append({"month": month, "source_account": account, "source_currency": currency,
+            "nio_currency": "NIO", "usd_currency": "USD", "movement_count": len(group),
+            "missing_conversion": sum(row["missing_conversion"] for row in group),
+            **{field: money_float(sum_money(row[field] for row in group if row[field] is not None))
+               if any(row[field] is not None for row in group) else None for field in MONEY_FIELDS}})
+    return result

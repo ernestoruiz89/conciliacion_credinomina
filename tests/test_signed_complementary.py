@@ -73,7 +73,8 @@ class SignedComplementaryTests(unittest.TestCase):
 
     def test_no_voucher_is_pending_and_does_not_collide_with_other_pending_items(self):
         doc = self.document()
-        doc.get = lambda field: getattr(doc, field, None)
+        doc.flags = {}
+        doc.get = lambda field, default=None: getattr(doc, field, default)
         with patch.object(frappe, "db", Mock()) as db:
             CNComplementaryItem.validate(doc)
             db.get_value.assert_not_called()

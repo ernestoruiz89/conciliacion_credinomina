@@ -483,6 +483,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
             )
         )
         parsed[-1].update({
+            "source_description": "" if record.get("descripcion") is None else str(record["descripcion"]),
             "tmov": tmov, "tdoc": tdoc,
             "accounting_classification": classification, "classification_reason": reason,
             "source_classification": clean_text(record.get("clasificacion")),
@@ -538,6 +539,7 @@ def apply_accounting_currency_override(
                 "fx_rate": 0,
                 "fx_basis": "",
                 "manual_fx_rate": 0,
+                "source_fx_rate": 0,
             })
             continue
 
@@ -567,6 +569,7 @@ def apply_accounting_currency_override(
             "fx_basis": source_fx_basis if used_source_equivalent else "",
             "manual_fx_rate": 0 if used_source_equivalent else rate,
         })
+        record["source_fx_rate"] = record["manual_fx_rate"] or record["fx_rate"]
     return records
 
 

@@ -214,6 +214,8 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("La diferencia por tolerancia ya se aplica automáticamente; no se puede agregar a Destinos."))
             if complementary.category == "Ajuste de aplicación":
                 frappe.throw(_("El ajuste reduce la aplicación; no puede asignarse también como destino de un depósito."))
+            if complementary.category == "Compensación entre partidas":
+                frappe.throw(_("Una compensación entre partidas no es un destino de depósito."))
             if money(target.amount_usd) * money(complementary.amount_usd) <= 0 or abs(money(target.amount_usd)) > abs(money(complementary.amount_usd)):
                 frappe.throw(_("El destino debe tener el signo de la partida complementaria y no superar su importe."))
             if complementary.period and frappe.db.get_value(

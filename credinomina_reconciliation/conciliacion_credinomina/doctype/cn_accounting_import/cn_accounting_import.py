@@ -99,7 +99,7 @@ _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=
 _SOURCE_EVIDENCE_FIELDS = (
     "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification",
     "source_account", "source_debit", "source_credit", "source_currency", "accounting_reference",
-    "accounting_source_key", "complementary_item",
+    "accounting_source_key", "complementary_item", "source_description", "source_fx_rate",
     "source_row", "source_key", "event_type", "event_date", "client_name",
     "client_number", "employee_number", "loan_number", "amount",
     "accounting_entry", "receipt", "reference", "voucher", "employer_text",
@@ -722,7 +722,7 @@ def _reconcile_sources(employer=None):
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT]], **company_filters},
+        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas"]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",

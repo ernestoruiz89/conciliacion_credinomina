@@ -12,7 +12,7 @@ EVIDENCE_FIELDS = (
     "accounting_source_key", "tmov", "tdoc", "accounting_classification",
     "classification_reason", "source_classification", "source_account", "source_debit",
     "source_credit", "source_currency", "accounting_reference", "source_file", "source_row",
-    "source_file_hash", "source_voucher", "source_description", "source_date", "source_fx_rate",
+    "source_file_hash", "source_voucher", "source_description", "source_date", "source_fx_rate", "source_client_name",
 )
 
 
@@ -64,7 +64,8 @@ def create_review_items(records, source_file, file_hash):
             "description": row.get("description") or row["classification_reason"],
             **{field: row.get(field) for field in EVIDENCE_FIELDS if field in row},
             "source_file": source_file, "source_file_hash": file_hash,
-            "source_voucher": row.get("voucher"), "source_description": row.get("description"),
+            "source_voucher": row.get("voucher"), "source_description": row.get("source_description") or row.get("description"),
+            "source_client_name": row.get("client_name") or row.get("portfolio_client_name") or "",
             "source_date": row["event_date"], "source_fx_rate": row.get("manual_fx_rate") or row.get("fx_rate") or 0,
             "review_action": "Pendiente de revisión",
         }).insert()
@@ -87,6 +88,11 @@ def validate_review_item(doc, previous=None):
                 return clean_text(value)
             if normalized(doc.get(field)) != normalized(previous.get(field)):
                 frappe.throw(_("No se puede modificar la evidencia contable original: {0}.").format(field))
+    if doc.category == "Compensación entre partidas":
+        doc.review_action = "Compensación entre partidas"
+        return  # Paired ledger validation and totals run in the controller.
+    if doc.get("review_action") == "Compensación entre partidas":
+        frappe.throw(_("Seleccione el concepto Compensación entre partidas."))
     if doc.get("review_action") == "Ajuste de aplicación":
         doc.category = "Ajuste de aplicación"
         return  # Financial and source-link checks run after currency conversion.

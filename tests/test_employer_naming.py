@@ -63,6 +63,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.rename_portfolio_snapshots_by_month",
                 "credinomina_reconciliation.patches.v1_0.rename_accounting_imports_by_month",
                 "credinomina_reconciliation.patches.v1_0.initialize_application_net_amounts",
+                "credinomina_reconciliation.patches.v1_0.add_accounting_control_report",
             ],
             list(patches["post_model_sync"]),
         )

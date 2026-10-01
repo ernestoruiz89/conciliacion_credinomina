@@ -68,7 +68,7 @@ class CompanyReconciliationTests(unittest.TestCase):
         self.assertEqual([p.name for p in history.call_args.args[0]], ["PA"])
         self.assertEqual(rebuild.call_args.args[0], [])
         item_filters = [kwargs["filters"]["category"] for dt, kwargs in queries if dt == "CN Complementary Item"]
-        self.assertIn(["not in", ["Saldo a favor de la empresa", "Diferencia por tolerancia", "Ajuste de aplicación"]], item_filters)
+        self.assertIn(["not in", ["Saldo a favor de la empresa", "Diferencia por tolerancia", "Ajuste de aplicación", "Compensación entre partidas"]], item_filters)
         self.assertIn("Saldo a favor de la empresa", item_filters)
         self.assertIn("Diferencia por tolerancia", item_filters)
         for doctype in ("CN Complementary Item", "CN Remittance Allocation"):

@@ -4,6 +4,7 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
+from credinomina_reconciliation import complementary_compensation as compensation
 from credinomina_reconciliation.application_adjustments import CATEGORY as APPLICATION_ADJUSTMENT, validate_adjustment, assert_adjustable
 from credinomina_reconciliation.company_credit import CATEGORY, ensure_related_periods_open, validate_company_credit
 from credinomina_reconciliation.tolerance_items import (
@@ -14,6 +15,7 @@ from credinomina_reconciliation.tolerance_items import (
 class CNComplementaryItem(Document):
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        compensation.guard_document(self, previous)
         if guard_tolerance_item(self, previous):
             validate_tolerance_item(self)
             return
@@ -22,7 +24,7 @@ class CNComplementaryItem(Document):
         validate_review_item(self, previous)
         self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
-        if not self.reference and not self.get("accounting_source_key") and self.category != APPLICATION_ADJUSTMENT:
+        if not self.reference and not self.get("accounting_source_key") and self.category not in {APPLICATION_ADJUSTMENT, compensation.CATEGORY}:
             frappe.throw(_("Indique la referencia del depósito."))
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
@@ -41,6 +43,7 @@ class CNComplementaryItem(Document):
             frappe.throw(_("Seleccione USD o NIO como moneda de la partida."))
         if not money(self.amount_usd):
             frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
+        compensation.update_totals(self)
         if self.category == APPLICATION_ADJUSTMENT:
             validate_adjustment(self)
         if self.category == CATEGORY:
@@ -69,6 +72,8 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
+        if self.category == compensation.CATEGORY:
+            return  # Direct offsets never participate in deposit reconciliation.
         if self.category == APPLICATION_ADJUSTMENT:
             self._reconcile_application()
             return
@@ -83,6 +88,7 @@ class CNComplementaryItem(Document):
             self.result = result
 
     def before_cancel(self):
+        compensation.guard_delete(self)
         guard_tolerance_item(self)
         if self.category == APPLICATION_ADJUSTMENT:
             frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)
@@ -93,6 +99,7 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        compensation.guard_delete(self)
         guard_tolerance_item(self)
         if self.category == CATEGORY:
             ensure_related_periods_open(self)
@@ -110,6 +117,7 @@ class CNComplementaryItem(Document):
         self._reconcile()
 
     def before_rename(self, old, new, merge=False):
+        compensation.guard_delete(self)
         guard_tolerance_item(self)
 
     def _reconcile(self):
