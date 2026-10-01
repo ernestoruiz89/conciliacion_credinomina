@@ -43,7 +43,7 @@ def run():
         items = [frappe.get_doc("CN Complementary Item", entry["name"]) for entry in created[1:]]
         assert all(item.docstatus == 0 and not item.reference and item.source_file for item in items)
         assert all(item.source_currency == "NIO" and item.source_fx_rate == 36.6243 for item in items)
-        assert len([item for item in items if not item.employer]) == 2
+        assert len([item for item in items if item.employer == "NO IDENTIFICADA"]) == 2
         for item in items:
             try:
                 item.submit()

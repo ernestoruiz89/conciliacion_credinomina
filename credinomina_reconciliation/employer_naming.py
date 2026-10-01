@@ -5,6 +5,39 @@ from __future__ import annotations
 from unicodedata import combining, normalize
 from uuid import uuid4
 
+UNIDENTIFIED_EMPLOYER = "NO IDENTIFICADA"
+
+
+def ensure_unidentified_employer():
+    """Provision only the fixed holding company inside an authorized import.
+
+    Like portfolio master provisioning, this is delegated to the import
+    workflow. No arbitrary names, existing masters or aliases are modified.
+    Preview must never call this helper. The caller owns the transaction.
+    """
+    import frappe
+
+    if not any(frappe.has_permission(dt, "create") for dt in (
+        "CN Accounting Import", "CN Complementary Item", "CN Remittance Allocation",
+    )):
+        frappe.throw("No tiene permisos para importar movimientos contables.", frappe.PermissionError)
+    existing = frappe.db.get_value("CN Employer", {"employer_name": UNIDENTIFIED_EMPLOYER}, "name")
+    if existing:
+        frappe.get_doc("CN Employer", existing).check_permission("read")
+        return existing
+    document = frappe.get_doc({
+        "doctype": "CN Employer", "employer_name": UNIDENTIFIED_EMPLOYER,
+        "employer_code": UNIDENTIFIED_EMPLOYER, "rounding_tolerance_usd": 0,
+        "notes": "Empresa provisional para movimientos pendientes de identificar. No acredita un convenio ni confirma la empresa del cliente.",
+    })
+    try:
+        # Exact-name primary key makes concurrent creation safe; never merge.
+        document.insert(ignore_permissions=True)
+    except frappe.DuplicateEntryError:
+        frappe.get_doc("CN Employer", UNIDENTIFIED_EMPLOYER).check_permission("read")
+        return UNIDENTIFIED_EMPLOYER
+    return document.name
+
 
 def _comparison_key(value: str) -> str:
     """Catch names likely to collide under a case/accent-insensitive DB collation."""
@@ -128,6 +161,14 @@ class AccountingEmployerResolver:
         if fallback in self.names:
             return fallback, ""
         return "", "No se pudo identificar una empresa de convenio por cartera, nombre ni alias"
+
+    def resolve_for_import(self, record, fallback=""):
+        employer, issue = self.resolve(record, fallback)
+        if not employer and issue.startswith(("No se identificó empresa por", "No se pudo identificar una empresa")):
+            return UNIDENTIFIED_EMPLOYER, ""
+        # An ambiguous identity or an inaccessible known company is not missing
+        # data: preserve that validation instead of hiding it in the holding group.
+        return employer, issue
 
 
 def attach_employer_aliases(records):

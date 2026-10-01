@@ -9,6 +9,7 @@ const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual
 const state = {status: "Vista previa", options, summary: {
     groups: [{employer: "<Empresa>", event_date: "2025-04-15", count: 2, total_usd: 45.04}],
     rows: 2, issues: [], issues_count: 0, duplicates: [], duplicates_count: 1, excluded: [], excluded_count: 0,
+    unidentified_count: 1,
 }};
 const context = vm.createContext({
     __: text => text,
@@ -54,6 +55,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.equal(dialog.disabled, false);
     assert.ok(html.includes("Posibles duplicados (se importarán)"));
     assert.ok(html.includes("se importarán todos"));
+    assert.ok(html.includes("Cada aplicación tendrá su propia importación"));
     assert.ok(!html.includes("Duplicados omitidos"));
     assert.equal(dialog.props["source_file:read_only"], 1);
     assert.ok(html.includes("&lt;Empresa&gt;"));

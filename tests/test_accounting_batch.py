@@ -69,10 +69,27 @@ class AccountingBatchTest(unittest.TestCase):
             self.assertEqual(len(result["issues"]), 1)
             self.assertEqual(result["groups"], [])
 
-    def test_unknown_employers_without_portfolio_require_review(self):
+    def test_unknown_employers_are_grouped_without_inventing_original_text(self):
         for row in (movement(employer_text="Desconocido"),
                     movement(employer_text="")):
-            self.assertEqual(len(group_applications([row], EMPLOYERS)["issues"]), 1)
+            plan = group_applications([row], EMPLOYERS)
+            self.assertEqual(plan["issues"], [])
+            self.assertEqual(plan["groups"][0]["employer"], "NO IDENTIFICADA")
+            self.assertEqual(plan["groups"][0]["rows"][0]["employer_text"], row["employer_text"])
+
+    def test_unknown_text_not_forced_into_default_company(self):
+        plan = group_applications([movement(employer_text="Desconocido")], EMPLOYERS, "A")
+        self.assertEqual(plan["issues"], [])
+        self.assertEqual(plan["groups"][0]["employer"], "NO IDENTIFICADA")
+
+    def test_each_unknown_movement_has_own_import_even_on_same_date(self):
+        rows = [movement(source_row=number, employer_text=label)
+                for number, label in [(2, "Desconocida"), (3, "Desconocida"), (4, ""), (5, "A"), (6, "A")]]
+        plan = group_applications(rows, EMPLOYERS)
+        unknown = [group for group in plan["groups"] if group["employer"] == "NO IDENTIFICADA"]
+        self.assertEqual(len(unknown), 3)
+        self.assertTrue(all(group["count"] == 1 for group in unknown))
+        self.assertEqual(next(group["count"] for group in plan["groups"] if group["employer"] == "A"), 2)
 
     def test_portfolio_company_wins_over_unknown_conflicting_or_ambiguous_text(self):
         employers = deepcopy(EMPLOYERS)

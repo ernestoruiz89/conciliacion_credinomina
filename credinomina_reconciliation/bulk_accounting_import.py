@@ -13,7 +13,7 @@ from credinomina_reconciliation.accounting_review import create_review_items, pl
 from credinomina_reconciliation.accounting_deposits import plan_deposits, create_deposits
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
-from credinomina_reconciliation.employer_naming import attach_employer_aliases
+from credinomina_reconciliation.employer_naming import attach_employer_aliases, UNIDENTIFIED_EMPLOYER, ensure_unidentified_employer
 from credinomina_reconciliation.parsers import (
     SourceFileError, apply_accounting_currency_override, clean_text, file_sha256,
     parse_accounting_movements, source_key, read_table, _records_from_header,
@@ -150,6 +150,9 @@ def _summary(plan):
         "groups": groups, "rows": sum(group["count"] for group in groups),
         "complementary_count": len(plan.get("complementary", [])),
         "deposit_count": len(plan.get("deposits", [])),
+        "unidentified_count": sum(group["count"] for group in groups if group["employer"] == UNIDENTIFIED_EMPLOYER)
+            + sum(row.get("resolved_employer") == UNIDENTIFIED_EMPLOYER
+                  for row in plan.get("complementary", []) + plan.get("deposits", [])),
         "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
                       "currency": row["deposit_currency"], "amount": row["deposit_amount"],
                       "reference": row["bank_deposit_reference"]} for row in plan.get("deposits", [])[:100]],
@@ -230,10 +233,12 @@ def _create_imports(plan, options, progress=None):
     created = []
     source, content = _file(options["source_file"])
     source_records = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+    if any(group["employer"] == UNIDENTIFIED_EMPLOYER for group in plan["groups"]):
+        ensure_unidentified_employer()
     records = []
     for group in plan["groups"]:
         for record in group["rows"]:
-            if not record.get("employer_text") and not record.get("portfolio_employer"):
+            if group["employer"] != UNIDENTIFIED_EMPLOYER and not record.get("employer_text") and not record.get("portfolio_employer"):
                 record["employer_text"] = group["employer"]
             records.append(record)
     # The preview already selected the dated cut. Reuse that evidence and build
@@ -254,7 +259,8 @@ def _create_imports(plan, options, progress=None):
             "file_hash": file_sha256(csv_content),
             "status": "Importado", "imported_on": now_datetime(), "imported_by": frappe.session.user,
             "notes": _("Carga masiva de {0}. Fecha: {1}. Pendiente de conciliar esta empresa.").format(
-                plan["file_name"], group["event_date"]),
+                plan["file_name"], group["event_date"])
+                + (_(" Empresa pendiente de identificar; se conservó el texto original del movimiento.") if employer == UNIDENTIFIED_EMPLOYER else ""),
             "rows": [{**record, "effective": 1, "match_status": "Pendiente", "deposit_match_status": "Pendiente"}
                      for record in records],
         }).insert()

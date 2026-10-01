@@ -3,6 +3,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.accounting_review import plan_review_items
+from credinomina_reconciliation.employer_naming import UNIDENTIFIED_EMPLOYER, ensure_unidentified_employer
 from credinomina_reconciliation.parsers import clean_text, SourceFileError
 from credinomina_reconciliation.rounding import decimal_value, money_float
 
@@ -27,7 +28,7 @@ def plan_deposits(records, employers, fallback=""):
             raise SourceFileError(f"Fila {row['source_row']}: el depósito necesita fecha y referencia bancaria.")
         if currency == "NIO" and decimal_value(rate) <= 0:
             raise SourceFileError(f"Fila {row['source_row']}: el depósito en C$ necesita una tasa C$/US$; importe el archivo contable en NIO con su tasa.")
-        if fallback and row.get("resolved_employer") and row["resolved_employer"] != fallback:
+        if fallback and row.get("resolved_employer") and row["resolved_employer"] not in {fallback, UNIDENTIFIED_EMPLOYER}:
             raise SourceFileError(f"Fila {row['source_row']}: el depósito corresponde a otra empresa; use carga masiva sin empresa predeterminada.")
         row.update(deposit_date=row.get("bank_deposit_date") or row["event_date"],
                    deposit_currency=currency, deposit_amount=money_float(amount), deposit_fx_rate=rate,
@@ -77,6 +78,8 @@ def create_deposits(records, source_file, file_hash):
         return []
     if not frappe.has_permission(DOCTYPE, "create"):
         frappe.throw(_("Se requiere permiso para crear depósitos."), frappe.PermissionError)
+    if any(row.get("resolved_employer") == UNIDENTIFIED_EMPLOYER for row in records):
+        ensure_unidentified_employer()
     result = []
     # Also serializes creation of previously unknown bank accounts.
     with frappe.cache.lock(f"{frappe.local.site}:cn-accounting-deposits", timeout=3600, blocking_timeout=5):
@@ -98,7 +101,7 @@ def create_deposits(records, source_file, file_hash):
             notes = ["Importado de contabilidad. Revise y confirme el depósito; no se ha conciliado.", bank_reason]
             if duplicates:
                 notes.append("Posible repetición: ya existe un depósito con referencia, fecha, moneda e importe iguales. Se conservó esta línea en borrador; revise antes de confirmar para no duplicar efectivo.")
-            if not row.get("resolved_employer"):
+            if not row.get("resolved_employer") or row["resolved_employer"] == UNIDENTIFIED_EMPLOYER:
                 notes.append("Empresa pendiente de identificar: " + (row.get("employer_text") or "Sin dato"))
             if not row.get("bank_deposit_currency"):
                 notes.append("Sin importe bancario explícito: se usó el crédito y moneda contables; verifique el depósito completo.")

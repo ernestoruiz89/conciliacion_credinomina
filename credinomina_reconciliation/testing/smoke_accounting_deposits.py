@@ -28,16 +28,18 @@ def run():
         assert first.docstatus == 0 and first.deposit_amount == 4394.92 and first.amount_usd == 120
         assert first.bank_account and first.source_credit == 3662.43
         assert str(first.deposit_date) == "2025-04-03" and str(first.source_date) == "2025-04-04"
-        assert not unknown.bank_account and not unknown.employer and unknown.amount_usd == 25
+        assert not unknown.bank_account and unknown.employer == "NO IDENTIFICADA" and unknown.amount_usd == 25
         assert not create_deposits(plan, file.file_url, file_sha256(content))
         assert plan[0]["remittance_allocation"] == first.name
         # A confirmed deposit may lack detail, but never lack a company.
         try:
+            unknown.employer = ""
             unknown.submit()
         except frappe.ValidationError:
             pass
         else:
             raise AssertionError("Unidentified employer was submitted")
+        unknown.reload()
         first.source_credit = 1
         try:
             first.save()

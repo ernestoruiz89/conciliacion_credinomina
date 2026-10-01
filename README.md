@@ -147,7 +147,14 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    libre sin alias no bloquea una empresa ya identificada en cartera. Una empresa
    predeterminada solo completa filas sin datos de empresa; no reemplaza otra
    empresa identificada. Créditos duplicados e identidades contradictorias
-   continúan requiriendo revisión.
+   continúan requiriendo revisión. Si no se encuentra empresa por cartera, nombre
+   ni alias, la carga usa **NO IDENTIFICADA** y la crea al confirmar si no existe,
+   con el mismo nombre como código. La vista previa muestra cuántos movimientos
+   quedarán pendientes de identificar y no crea empresas. El texto original se
+   conserva; esta empresa provisional no confirma la pertenencia del cliente.
+   Cada aplicación en **NO IDENTIFICADA** crea una importación independiente,
+   incluso si varias tienen la misma fecha, para revisar y corregir su empresa
+   caso por caso. Las empresas identificadas siguen agrupadas por empresa y fecha.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
    de aplicación y las partidas complementarias que quedarán en revisión;
    las líneas similares del archivo o de cargas previas se advierten como posibles

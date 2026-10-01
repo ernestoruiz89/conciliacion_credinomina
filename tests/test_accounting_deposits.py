@@ -80,4 +80,4 @@ class DepositTests(unittest.TestCase):
 
     def test_unknown_employer_not_forced(self):
         rows = apply_accounting_currency_override(parse_accounting_movements("x.csv", ledger()), "NIO", 36.6243)
-        self.assertEqual(deposits.plan_deposits(rows, [{"name": "B"}], "B")[0]["resolved_employer"], "")
+        self.assertEqual(deposits.plan_deposits(rows, [{"name": "B"}], "B")[0]["resolved_employer"], "NO IDENTIFICADA")

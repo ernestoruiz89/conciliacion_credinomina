@@ -59,7 +59,7 @@ class ClassificationTests(unittest.TestCase):
             {"event_type": "Ajuste", "employer_text": ""},
             {"event_type": "Ajuste", "employer_text": "A", "portfolio_employer": "B"},
         ], employers, "A")
-        self.assertEqual([row["resolved_employer"] for row in rows], ["", "A", "A", ""])
+        self.assertEqual([row["resolved_employer"] for row in rows], ["NO IDENTIFICADA", "A", "A", ""])
 
 
 class ReviewGuardTests(unittest.TestCase):

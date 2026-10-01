@@ -47,6 +47,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     }
     function renderSummary(summary) {
         let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
+        if (summary.unidentified_count) html += `<p class="alert alert-warning">${esc(summary.unidentified_count)} ${__("movimientos quedarán en NO IDENTIFICADA. La empresa se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
         html += table([__("Empresa"), __("Fecha de aplicación"), __("Filas"), __("Total US$")], summary.groups.map(group => [
             esc(group.employer), esc(frappe.datetime.str_to_user(group.event_date)), esc(group.count), esc(format_currency(group.total_usd, "USD")),
         ]));

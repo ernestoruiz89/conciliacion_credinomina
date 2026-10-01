@@ -5,7 +5,7 @@ from datetime import date, datetime
 import csv
 import io
 
-from credinomina_reconciliation.employer_naming import AccountingEmployerResolver
+from credinomina_reconciliation.employer_naming import AccountingEmployerResolver, UNIDENTIFIED_EMPLOYER
 from credinomina_reconciliation.parsers import SourceFileError, clean_text, source_key
 from credinomina_reconciliation.reconciliation import duplicate_business_key
 from credinomina_reconciliation.rounding import sum_money
@@ -52,7 +52,7 @@ def group_applications(records, employers, fallback_employer="", existing=()):
     groups = defaultdict(list)
     issues, duplicates, excluded = [], [], []
     seen = set()
-    for original in records:
+    for position, original in enumerate(records):
         row = dict(original)
         if row.get("event_type") != "Aplicacion":
             excluded.append({"row": row.get("source_row"), "reason": "No es una aplicación de pago"})
@@ -64,10 +64,10 @@ def group_applications(records, employers, fallback_employer="", existing=()):
         except ValueError:
             event_date = ""
             reasons.append("Falta una fecha de aplicación válida")
-        employer, employer_issue = resolver.resolve(row, fallback_employer)
+        employer, employer_issue = resolver.resolve_for_import(row, fallback_employer)
         if employer_issue:
             reasons.append(employer_issue)
-        if fallback_employer and employer and employer != fallback_employer:
+        if fallback_employer and employer and employer not in {fallback_employer, UNIDENTIFIED_EMPLOYER}:
             reasons.append("La fila pertenece a otra empresa; quite la empresa predeterminada para un archivo mixto")
         if reasons:
             issues.append({"row": row.get("source_row"), "loan_number": row.get("loan_number"),
@@ -79,8 +79,10 @@ def group_applications(records, employers, fallback_employer="", existing=()):
         seen.add(key)
         row["event_date"] = event_date
         # Preserve the original employer text; use this resolved value only for grouping.
-        groups[employer, event_date].append(row)
+        # Unknown companies may represent unrelated employers even on one date.
+        # Give each physical movement its own editable import document.
+        groups[employer, event_date, position if employer == UNIDENTIFIED_EMPLOYER else -1].append(row)
     result = [{"employer": employer, "event_date": event_date, "rows": rows,
                "count": len(rows), "total_usd": sum_money(row.get("amount_usd") for row in rows)}
-              for (employer, event_date), rows in sorted(groups.items())]
+              for (employer, event_date, _position), rows in sorted(groups.items())]
     return {"groups": result, "issues": issues, "duplicates": duplicates, "excluded": excluded}

@@ -32,6 +32,7 @@ from credinomina_reconciliation.deposit_scoping import (
 )
 from credinomina_reconciliation.employer_naming import (
     AccountingEmployerResolver,
+    UNIDENTIFIED_EMPLOYER,
     attach_employer_aliases,
     employer_alias_index,
 )
@@ -251,7 +252,7 @@ class CNAccountingImport(Document):
             frappe.throw(_("Seleccione la empresa de esta importación."))
         if self.employer and not frappe.db.exists("CN Employer", self.employer):
             frappe.throw(_("La empresa seleccionada no existe."))
-        if self.portfolio_snapshot and self.employer:
+        if self.portfolio_snapshot and self.employer and self.employer != UNIDENTIFIED_EMPLOYER:
             has_company_rows = frappe.get_all(
                 "CN Credit Portfolio Row",
                 filters={"parent": self.portfolio_snapshot, "employer": self.employer},
@@ -461,7 +462,8 @@ def import_source_file(import_name: str):
         if document.bulk_source_hash:
             _validate_bulk_reimport(document, parsed)
         parsed = enrich_accounting_records(
-            parsed, document.portfolio_snapshot, document.employer,
+            parsed, document.portfolio_snapshot,
+            "" if document.employer == UNIDENTIFIED_EMPLOYER else document.employer,
         )
         parsed = enrich_source_import_clients(parsed)
     except SourceFileError as exc:
@@ -565,13 +567,17 @@ def _validate_bulk_reimport(document, records):
     attach_employer_aliases(employers)
     plan = group_applications(records, employers, document.employer)
     groups = plan["groups"]
+    # A single unresolved case may have been manually assigned to a real
+    # company during review. Preserve that explicit assignment on CSV reload.
+    manual_unknown = len(records) == 1 and len(groups) == 1 and groups[0]["employer"] == UNIDENTIFIED_EMPLOYER
     if (plan["issues"] or plan["excluded"] or len(groups) != 1
-            or groups[0]["event_date"] != str(document.bulk_event_date)[:10]):
+            or groups[0]["event_date"] != str(document.bulk_event_date)[:10]
+            or (groups[0]["employer"] != document.employer and not manual_unknown)):
         frappe.throw(_("El CSV debe contener únicamente aplicaciones de la empresa {0} y fecha {1}. No se recargó el documento.").format(
             document.employer, document.bulk_event_date,
         ))
     for record in records:
-        if not record.get("employer_text") and not record.get("portfolio_employer"):
+        if document.employer != UNIDENTIFIED_EMPLOYER and not record.get("employer_text") and not record.get("portfolio_employer"):
             record["employer_text"] = document.employer
 
 
@@ -691,6 +697,7 @@ def _reconcile_sources(employer=None):
     for document in imports:
         for row in document.rows:
             row._source_import = document.name
+            row._source_employer = document.employer
             row._historical_backfill = (
                 row.processing_route == "Historica"
                 or (
@@ -1020,6 +1027,10 @@ def _match_applications(
     for source in source_rows:
         if source.event_type != "Aplicacion" or not source.effective:
             continue
+        if source.get("_source_employer") == UNIDENTIFIED_EMPLOYER:
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _("Empresa pendiente de identificar. Corrija la empresa de esta importación antes de conciliar.")
+            continue
         if source.get("application_adjustment_usd") and net_amount(source) == 0 and not source.historical_period:
             source.match_status = "Conciliado"
             source.match_reason = _("Aplicación compensada totalmente por ajustes confirmados.")
@@ -1057,6 +1068,8 @@ def _match_applications(
             )
             continue
         source_employer, _employer_issue = employer_resolver.resolve(source)
+        if not source_employer and employer_resolver.resolve_for_import(source)[0] == UNIDENTIFIED_EMPLOYER:
+            source_employer = source.get("_source_employer") or ""
         if not source_employer and not any((
             source.loan_number, source.client_number, source.national_id,
         )):

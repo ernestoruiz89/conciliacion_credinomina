@@ -4,7 +4,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.accounting_types import APPLICATION, DEBIT_NOTE
-from credinomina_reconciliation.employer_naming import AccountingEmployerResolver
+from credinomina_reconciliation.employer_naming import AccountingEmployerResolver, UNIDENTIFIED_EMPLOYER, ensure_unidentified_employer
 from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.rounding import decimal_value
 
@@ -24,7 +24,7 @@ def plan_review_items(records, employers, fallback=""):
         if record.get("event_type") != "Ajuste":
             continue
         row = dict(record)
-        row["resolved_employer"], _issue = resolver.resolve(row, fallback)
+        row["resolved_employer"], _issue = resolver.resolve_for_import(row, fallback)
         items.append(row)
     return items
 
@@ -34,6 +34,8 @@ def create_review_items(records, source_file, file_hash):
         return []
     if not frappe.has_permission("CN Complementary Item", "create"):
         frappe.throw(_("Se requiere permiso para crear las partidas complementarias pendientes de revisión."), frappe.PermissionError)
+    if any(row.get("resolved_employer") == UNIDENTIFIED_EMPLOYER for row in records):
+        ensure_unidentified_employer()
     result = []
     for row in records:
         key = row["accounting_source_key"]
