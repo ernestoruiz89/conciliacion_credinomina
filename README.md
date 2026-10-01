@@ -165,7 +165,7 @@ mezclarlo con los otros grupos. El CSV conserva las columnas e importes original
 la fila del archivo masivo. Al reprocesar se conservan las identidades de las filas
 que no cambiaron y se valida que todos los movimientos sean de la misma empresa y
 fecha; no se permite reprocesar vínculos de períodos cerrados. Para nuevos grupos,
-vuelva a usar **Carga masiva**. Límite por archivo: 20 MB y 20,000 movimientos reconocidos.
+vuelva a usar **Carga masiva**. Límite por archivo: 20 MB y 100,000 movimientos reconocidos.
 
 ### Clasificación contable y movimientos pendientes de identificar
 

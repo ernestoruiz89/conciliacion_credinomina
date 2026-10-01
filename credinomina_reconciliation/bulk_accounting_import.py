@@ -20,6 +20,7 @@ from credinomina_reconciliation.parsers import (
 
 DOCTYPE = "CN Accounting Import"
 TTL = 24 * 60 * 60
+MAX_MOVEMENTS = 100_000
 
 
 def _key(token):
@@ -76,8 +77,8 @@ def _plan(options):
         parse_accounting_movements(file_doc.file_name, content),
         options["currency"], options.get("manual_fx_rate", 0),
     )
-    if len(records) > 20000:
-        frappe.throw(_("La carga supera 20,000 movimientos. Divida el archivo."))
+    if len(records) > MAX_MOVEMENTS:
+        frappe.throw(_("La carga supera {0} movimientos. Divida el archivo.").format(f"{MAX_MOVEMENTS:,}"))
     # Preview must never create clients or modify portfolio/master documents.
     records = enrich_accounting_records(records, snapshot, register_clients=False)
     parents = frappe.get_all(
