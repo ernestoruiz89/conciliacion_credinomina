@@ -2,6 +2,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
     refresh(frm) {
         setPeriodEditing(frm);
         setRemittanceDateEditing(frm);
+        refreshPeriodExceptions(frm);
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
 
@@ -88,6 +89,68 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+async function refreshPeriodExceptions(frm, offset = 0, includeClosed = false) {
+    const wrapper = frm.fields_dict?.exceptions_html?.$wrapper;
+    if (!wrapper) return;
+    const request = {};
+    frm._cn_exception_request = request;
+    const period = frm.doc.name;
+    wrapper.off(".cnExceptions");
+    if (frm.is_new()) { wrapper.empty(); return; }
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    wrapper.html(`<p class="text-muted">${esc(__("Cargando excepciones…"))}</p>`);
+    const isCurrent = () => frm._cn_exception_request === request && frm.doc.name === period;
+    const filters = {period};
+    if (!includeClosed) filters.status = ["in", ["Abierta", "En revision"]];
+    try {
+        // Standard get_list enforces the exception DocType's read permissions
+        // and user restrictions; never fetch cases with an unrestricted API.
+        const response = await frappe.call({
+            method: "frappe.client.get_list",
+            args: {doctype: "CN Reconciliation Exception", filters,
+                fields: ["name", "exception_type", "client_name", "client_number", "loan_number",
+                    "amount_usd", "status", "assigned_to", "commitment_date"],
+                order_by: "status asc, modified desc, name asc", limit_start: offset, limit_page_length: 21},
+        });
+        if (!isCurrent()) return;
+        const rows = response.message;
+        if (!Array.isArray(rows)) throw new Error("missing_exception_list");
+        const visible = rows.slice(0, 20);
+        const colors = {Abierta: "red", "En revision": "orange", Resuelta: "green", Descartada: "gray"};
+        const body = visible.map(row => `<tr>
+            <td><a href="/app/cn-reconciliation-exception/${encodeURIComponent(row.name)}">${esc(row.name)}</a>
+                <div>${esc(row.exception_type)}</div></td>
+            <td>${esc(row.client_name || __("Sin cliente identificado"))}
+                <div class="text-muted">${esc(__("Cliente: {0} · Crédito: {1}", [row.client_number || "—", row.loan_number || "—"]))}</div></td>
+            <td class="text-right text-nowrap">${esc(format_currency(row.amount_usd || 0, "USD", 2))}</td>
+            <td><span class="indicator-pill ${colors[row.status] || "gray"}">${esc(row.status === "En revision" ? __("En revisión") : __(row.status))}</span></td>
+            <td>${esc(row.assigned_to || __("Sin asignar"))}
+                <div class="text-muted">${row.commitment_date ? esc(frappe.datetime.str_to_user(row.commitment_date)) : esc(__("Sin fecha compromiso"))}</div></td>
+        </tr>`).join("");
+        wrapper.html(`<div class="d-flex flex-wrap align-items-center justify-content-between mb-3" style="gap: 12px">
+            <label class="mb-0"><input type="checkbox" data-action="closed" ${includeClosed ? "checked" : ""}> ${esc(__("Incluir resueltas y descartadas"))}</label>
+            <div><button type="button" class="btn btn-default btn-sm" data-action="refresh">${esc(__("Actualizar"))}</button>
+                <button type="button" class="btn btn-default btn-sm" data-action="list">${esc(__("Ver listado"))}</button></div></div>
+            ${visible.length ? `<div class="table-responsive"><table class="table table-bordered" style="font-size: 14px">
+                <thead><tr>${["Excepción", "Cliente / crédito", "Monto US$", "Estado", "Responsable / compromiso"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
+                <tbody>${body}</tbody></table></div>` : `<p class="text-muted">${esc(__(includeClosed ? "No hay excepciones registradas para este período." : "No hay excepciones abiertas para este período. Puede incluir las resueltas y descartadas."))}</p>`}
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted">${visible.length ? esc(__("Mostrando {0}–{1}", [offset + 1, offset + visible.length])) : ""}</span>
+                <div>${offset ? `<button type="button" class="btn btn-default btn-sm" data-action="previous">${esc(__("Anterior"))}</button>` : ""}
+                ${rows.length > 20 ? `<button type="button" class="btn btn-default btn-sm" data-action="next">${esc(__("Siguiente"))}</button>` : ""}</div></div>`);
+        wrapper.on("change.cnExceptions", '[data-action="closed"]', event => refreshPeriodExceptions(frm, 0, event.currentTarget.checked));
+        wrapper.on("click.cnExceptions", '[data-action="refresh"]', () => refreshPeriodExceptions(frm, 0, includeClosed));
+        wrapper.on("click.cnExceptions", '[data-action="previous"]', () => refreshPeriodExceptions(frm, Math.max(0, offset - 20), includeClosed));
+        wrapper.on("click.cnExceptions", '[data-action="next"]', () => refreshPeriodExceptions(frm, offset + 20, includeClosed));
+        wrapper.on("click.cnExceptions", '[data-action="list"]', () => frappe.set_route("List", "CN Reconciliation Exception", {period}));
+    } catch (error) {
+        if (!isCurrent()) return;
+        wrapper.html(`<p class="text-danger">${esc(__("No se pudieron consultar las excepciones. Compruebe sus permisos o vuelva a intentar."))}</p>
+            <button type="button" class="btn btn-default btn-sm" data-action="retry">${esc(__("Reintentar"))}</button>`);
+        wrapper.on("click.cnExceptions", '[data-action="retry"]', () => refreshPeriodExceptions(frm, offset, includeClosed));
+    }
+}
 
 function setPeriodEditing(frm) {
     const closed = frm.doc.status === "Cerrado";

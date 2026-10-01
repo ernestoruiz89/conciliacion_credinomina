@@ -36,4 +36,19 @@ const view = {meta, list_view_settings: {fields: '[{"fieldname":"employer"}]'},
 settings.onload(view);
 settings.onload(view);
 assert.equal(JSON.parse(view.list_view_settings.fields).filter(field => field.fieldname === "status_before_close").length, 1);
+const hiddenColumns = ["reconciliation_mode", "historical_application_date", "historical_start_date", "historical_end_date"];
+for (const fieldname of hiddenColumns) {
+    assert.equal(meta.fields.find(field => field.fieldname === fieldname).in_list_view, 0);
+    assert.ok(meta.field_order.includes(fieldname));
+}
+view.list_view_settings.fields = JSON.stringify([
+    {fieldname: "employer"}, {fieldname: "status"}, {fieldname: "historical_scope"},
+    ...hiddenColumns.map(fieldname => ({fieldname})),
+]);
+settings.onload(view);
+const displayed = JSON.parse(view.list_view_settings.fields).map(field => field.fieldname);
+assert.ok(hiddenColumns.every(fieldname => !displayed.includes(fieldname)));
+assert.ok(["employer", "status", "historical_scope", "status_before_close"].every(fieldname => displayed.includes(fieldname)));
+view.list_view_settings.fields = null;
+settings.onload(view);
 console.log("OK: status column, complete color mapping and status fetch for personalized lists.");

@@ -41,6 +41,10 @@ class PackageLayoutTest(unittest.TestCase):
         for javascript in module_dir.rglob("*.js"):
             content = javascript.read_text(encoding="utf-8")
             for route in re.findall(r'method:\s*"([^"]+)"', content):
+                # Standard permission-aware Framework API; it is not shipped
+                # inside our application package.
+                if route == "frappe.client.get_list":
+                    continue
                 parts = route.split(".")
                 self.assertEqual(parts[0], "credinomina_reconciliation")
                 module_file = PACKAGE.joinpath(*parts[1:-1]).with_suffix(".py")

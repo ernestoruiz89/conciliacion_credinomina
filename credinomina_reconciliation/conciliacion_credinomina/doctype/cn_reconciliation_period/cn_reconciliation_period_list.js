@@ -13,8 +13,17 @@ frappe.listview_settings["CN Reconciliation Period"] = {
     },
     onload(listview) {
         const settings = listview.list_view_settings;
+        const hiddenColumns = new Set([
+            "reconciliation_mode", "historical_application_date",
+            "historical_start_date", "historical_end_date",
+        ]);
+        // Apply to default and previously personalized lists without hiding
+        // the fields in the form or removing their filter/search support.
+        for (const field of listview.meta.fields) {
+            if (hiddenColumns.has(field.fieldname)) field.in_list_view = 0;
+        }
         if (settings.fields) {
-            const fields = JSON.parse(settings.fields);
+            const fields = JSON.parse(settings.fields).filter(field => !hiddenColumns.has(field.fieldname));
             if (!fields.some(field => field.fieldname === "status_before_close")) {
                 fields.push({fieldname: "status_before_close"});
             }
