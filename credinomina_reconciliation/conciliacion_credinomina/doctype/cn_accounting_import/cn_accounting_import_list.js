@@ -3,9 +3,11 @@ frappe.listview_settings["CN Accounting Import"] = {
     onload(listview) {
         if (frappe.model.can_create("CN Accounting Import")) {
             listview.page.add_inner_button(__("Carga masiva"), () => {
-                frappe.require("/assets/credinomina_reconciliation/js/accounting_bulk.js", () => {
-                    credinomina.openAccountingBulk(() => listview.refresh());
-                });
+                if (typeof frappe.credinomina?.openAccountingBulk !== "function") {
+                    frappe.msgprint(__("No se cargó la herramienta de carga masiva. Recargue la página; si persiste, solicite limpiar la caché del sitio después de actualizar la app."));
+                    return;
+                }
+                frappe.credinomina.openAccountingBulk(() => listview.refresh());
             });
         }
         const settings = listview.list_view_settings;

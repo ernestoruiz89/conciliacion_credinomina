@@ -10,9 +10,11 @@ frappe.ui.form.on("CN Accounting Import", {
         update_currency_fields(frm);
         if (frappe.model.can_create("CN Accounting Import")) {
             frm.add_custom_button(__("Carga masiva"), () => {
-                frappe.require("/assets/credinomina_reconciliation/js/accounting_bulk.js", () => {
-                    credinomina.openAccountingBulk();
-                });
+                if (typeof frappe.credinomina?.openAccountingBulk !== "function") {
+                    frappe.msgprint(__("No se cargó la herramienta de carga masiva. Recargue la página; si persiste, solicite limpiar la caché del sitio después de actualizar la app."));
+                    return;
+                }
+                frappe.credinomina.openAccountingBulk();
             });
         }
         frm.set_query("employer", () => ({filters: {active: 1}}));

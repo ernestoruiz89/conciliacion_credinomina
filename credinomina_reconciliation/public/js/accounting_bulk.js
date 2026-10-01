@@ -1,6 +1,6 @@
-frappe.provide("credinomina");
+frappe.credinomina = frappe.credinomina || {};
 
-credinomina.openAccountingBulk = function (onComplete) {
+frappe.credinomina.openAccountingBulk = function (onComplete) {
     const api = "credinomina_reconciliation.bulk_accounting_import.";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const storageKey = `cn-accounting-bulk:${frappe.session.user}`;

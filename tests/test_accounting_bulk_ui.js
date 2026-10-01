@@ -16,7 +16,7 @@ const context = vm.createContext({
     localStorage: {getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key)},
     setTimeout: () => 0, clearTimeout() {},
     frappe: {
-        provide() { context.credinomina = {}; }, session: {user: "tester"},
+        session: {user: "tester"},
         utils: {escape_html: value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")},
         datetime: {str_to_user: value => `fecha:${value}`},
         msgprint() {},
@@ -48,7 +48,7 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/public/js/accounting_bulk.js"), "utf8"), context);
 
 (async () => {
-    context.credinomina.openAccountingBulk();
+    context.frappe.credinomina.openAccountingBulk();
     await dialog.primary();
     assert.equal(dialog.label, "Crear importaciones");
     assert.equal(dialog.disabled, false);

@@ -9,6 +9,11 @@ required_apps = []
 
 before_install = "credinomina_reconciliation.install.before_install"
 
+# Embed the shared dialog in DocType metadata, including list-only sessions.
+# No public asset request/build is needed when opening the bulk importer.
+doctype_js = {"CN Accounting Import": "public/js/accounting_bulk.js"}
+doctype_list_js = {"CN Accounting Import": "public/js/accounting_bulk.js"}
+
 MONEY_DOCTYPES = (
     "CN Collection Row",
     "CN Complementary Item",
