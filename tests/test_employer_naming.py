@@ -59,6 +59,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.integrate_reconciliation_movements",
                 "credinomina_reconciliation.patches.v1_0.order_workspace_by_workflow",
                 "credinomina_reconciliation.patches.v1_0.rename_deposits_by_date",
+                "credinomina_reconciliation.patches.v1_0.rename_portfolio_snapshots_by_month",
             ],
             list(patches["post_model_sync"]),
         )

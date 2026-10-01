@@ -4,6 +4,7 @@ from html import escape
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.model.naming import make_autoname
 from frappe.utils import getdate, now_datetime
 
 from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows, has_portfolio_employer
@@ -13,9 +14,15 @@ from credinomina_reconciliation.parsers import (
     has_legacy_numeric_credit_numbers,
     parse_credit_portfolio,
 )
+from credinomina_reconciliation.portfolio_naming import rename_snapshot_for_date
 
 
 class CNCreditPortfolioSnapshot(Document):
+    def autoname(self):
+        # The report date lives inside the attached workbook, so an unsaved
+        # draft needs a temporary name until its first successful import.
+        self.name = make_autoname("CARTERA-BORRADOR-.YYYY.-.#####")
+
     def validate(self):
         if self.report_date:
             cut_date = getdate(self.report_date)
@@ -155,11 +162,12 @@ def import_portfolio_snapshot(snapshot_name: str):
     # monthly cut can exceed MariaDB's packet limit even though every row is
     # valid. Keep normal validation/transactions and audit the import compactly.
     snapshot.save(ignore_version=True)
+    snapshot_name = rename_snapshot_for_date(snapshot, parsed[0]["report_date"])
     snapshot.add_comment("Comment", _portfolio_import_audit(
         snapshot, file_doc.file_name, previous_hash, previous_count, created,
     ))
     return {
-        "snapshot_name": snapshot.name,
+        "snapshot_name": snapshot_name,
         "row_count": snapshot.row_count,
         "matched_client_count": snapshot.matched_client_count,
         "unmatched_client_count": snapshot.unmatched_client_count,

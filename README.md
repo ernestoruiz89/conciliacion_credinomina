@@ -178,6 +178,11 @@ los enlaces y bloques adicionales del sitio, sin modificar roles ni saldos.
 
 ## Primer uso
 
+Los cortes de cartera importados se identifican como `CARTERA-mes-año`, por
+ejemplo `CARTERA-9-2026`, a partir de `FECHA_REPORTE` del archivo. Los borradores
+reciben un identificador provisional hasta importar el archivo. La migración
+renombra los cortes existentes y actualiza sus referencias.
+
 Los depósitos se nombran `DEP-mes-año-####` según su fecha real, por ejemplo
 `DEP-9-2026-0001`, con consecutivo por mes y año. El identificador asignado
 se conserva al editar posteriormente la fecha. Al migrar, un parche renombra

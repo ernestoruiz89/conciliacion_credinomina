@@ -1,11 +1,10 @@
 {
   "actions": [],
-  "autoname": "naming_series:",
+  "autoname": "",
   "doctype": "DocType",
   "engine": "InnoDB",
-  "field_order": ["naming_series", "source_file", "report_date", "cut_month", "status", "summary_section", "row_count", "matched_client_count", "unmatched_client_count", "active_count", "canceled_count", "saneado_count", "file_hash", "imported_on", "imported_by", "rows", "notes"],
+  "field_order": ["source_file", "report_date", "cut_month", "status", "summary_section", "row_count", "matched_client_count", "unmatched_client_count", "active_count", "canceled_count", "saneado_count", "file_hash", "imported_on", "imported_by", "rows", "notes"],
   "fields": [
-    {"fieldname": "naming_series", "fieldtype": "Select", "options": "CN-CARTERA-.YYYY.-.#####", "default": "CN-CARTERA-.YYYY.-.#####", "hidden": 1, "reqd": 1, "label": "Serie"},
     {"fieldname": "source_file", "fieldtype": "Attach", "label": "Archivo del corte", "reqd": 1, "description": "Un archivo por mes. El corte se identifica por FECHA_REPORTE dentro del Excel."},
     {"fieldname": "report_date", "fieldtype": "Date", "label": "Fecha del corte", "read_only": 1, "in_list_view": 1},
     {"fieldname": "cut_month", "fieldtype": "Data", "label": "Mes", "read_only": 1, "in_list_view": 1},
@@ -27,7 +26,7 @@
   "links": [],
   "module": "Conciliacion Credinomina",
   "name": "CN Credit Portfolio Snapshot",
-  "naming_rule": "By naming series",
+  "naming_rule": "By script",
   "permissions": [
     {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "System Manager", "share": 1, "write": 1},
     {"create": 1, "delete": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "write": 1},

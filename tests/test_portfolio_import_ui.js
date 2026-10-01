@@ -22,6 +22,18 @@ function form() {
     assert.ok(messages[0].message.includes("123 créditos") && messages[0].message.includes("120"));
     assert.ok(messages[0].message.includes("Empresas creadas: 2. Clientes creados: 5."));
     assert.equal(frm._cn_importing_portfolio, false);
+    messages = []; order = []; frm = form();
+    context.frappe.set_route = async (...route) => {
+        order.push("navigate");
+        assert.deepEqual(route, ["Form", "CN Credit Portfolio Snapshot", "CARTERA-9-2026"]);
+    };
+    frm.doctype = "CN Credit Portfolio Snapshot";
+    rpc = async () => ({message: {snapshot_name: "CARTERA-9-2026", row_count: 123,
+        matched_client_count: 120, unmatched_client_count: 3, status: "Importado con alertas"}});
+    await context.importPortfolioSnapshot(frm);
+    assert.deepEqual(order, ["save", "import", "navigate"]);
+    assert.equal(messages[0].indicator, "orange");
+    assert.ok(messages[0].message.includes("123 créditos") && messages[0].message.includes("120"));
     for (const status of [0, 500, 502, 504]) {
         messages = []; order = []; frm = form();
         rpc = async () => {throw {status, responseText: '<html><script>bad</script></html>'};};
