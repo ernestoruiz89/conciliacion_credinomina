@@ -25,7 +25,7 @@ def run():
         assert first.name == f"{marker}A-4-2025-01", first.name
         assert second.name == f"{marker}A-4-2025-02", second.name
         linked = frappe.get_doc({
-            "doctype": "CN Accounting Import", "source_type": "Movimientos contables",
+            "doctype": "CN Accounting Import",
             "source_file": "/private/files/naming-check.xlsx", "status": "Importado",
             "employer": employers[0].name, "historical_period": first.name,
         }).insert()

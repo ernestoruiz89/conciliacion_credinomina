@@ -8,7 +8,6 @@ function update_currency_fields(frm) {
 frappe.ui.form.on("CN Accounting Import", {
     refresh(frm) {
         update_currency_fields(frm);
-        frm.set_df_property("source_type", "read_only", 1);
         frm.set_query("employer", () => ({filters: {active: 1}}));
         frm.set_query("historical_period", () => ({
             filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },

@@ -9,12 +9,11 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 def _new_import(marker, employer, client_number, loan_number, reference, voucher, deposit_voucher=None):
     doc = frappe.get_doc({
-        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import",
         "source_file": f"/private/files/{marker}-{voucher}.xlsx", "status": "Importado",
     })
     doc.append("rows", {

@@ -6,7 +6,7 @@
   "engine": "InnoDB",
   "field_order": [
     "usd_currency", "nio_currency",
-    "import_tab", "source_section", "employer", "source_type", "source_file", "source_column", "currency", "manual_fx_rate",
+    "import_tab", "source_section", "employer", "source_file", "source_column", "currency", "manual_fx_rate",
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
     "rows_section", "rows", "notes",
@@ -26,8 +26,7 @@
     {"fieldname": "audit_tab", "fieldtype": "Tab Break", "label": "Historial"},
     {"fieldname": "audit_section", "fieldtype": "Section Break", "label": "Estado de importación"},
     {"fieldname": "audit_column", "fieldtype": "Column Break"},
-    {"fieldname": "source_type", "fieldtype": "Select", "in_list_view": 1, "label": "Tipo de fuente", "options": "Movimientos contables", "default": "Movimientos contables", "reqd": 1, "read_only": 1, "description": "Se cargan únicamente los movimientos contables del core."},
-    {"description": "Empresa a la que corresponde esta importación. Los cortes de cartera y períodos históricos se limitarán a esta empresa.", "fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "mandatory_depends_on": "eval:doc.status == 'Borrador'"},
+    {"description": "Empresa a la que corresponde esta importación. Los cortes de cartera y períodos históricos se limitarán a esta empresa.", "fieldname": "employer", "fieldtype": "Link", "in_list_view": 1, "label": "Empresa", "options": "CN Employer", "mandatory_depends_on": "eval:doc.status == 'Borrador'"},
     {"description": "Archivo de aplicaciones del core. El detalle bancario mensual no se importa en el flujo nuevo; adjunte el soporte a cada depósito registrado.", "fieldname": "source_file", "fieldtype": "Attach", "label": "Archivo", "no_copy": 1, "reqd": 1},
     {"description": "Seleccione antes de cargar. Se aplica a todas las aplicaciones y depósitos del archivo; importe por separado si el archivo mezcla monedas.", "fieldname": "currency", "fieldtype": "Select", "label": "Moneda reportada en el archivo", "options": "\nUSD\nNIO"},
     {"depends_on": "eval:doc.currency == 'NIO'", "description": "Tasa en córdobas por dólar. Se usa para convertir a US$ las filas sin equivalente en dólares dentro del movimiento contable.", "fieldname": "manual_fx_rate", "fieldtype": "Float", "label": "Tipo de cambio manual (C$ por US$)", "precision": "8"},
@@ -43,7 +42,7 @@
     {"fieldname": "matched_count", "fieldtype": "Int", "label": "Conciliadas", "read_only": 1},
     {"fieldname": "exception_count", "fieldtype": "Int", "label": "Excepciones", "read_only": 1},
     {"fieldname": "ignored_count", "fieldtype": "Int", "label": "Ignoradas", "read_only": 1},
-    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
+    {"fieldname": "total_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "2", "read_only": 1},
     {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row"},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}

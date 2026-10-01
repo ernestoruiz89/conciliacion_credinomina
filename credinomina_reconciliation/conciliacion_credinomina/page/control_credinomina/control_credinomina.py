@@ -15,7 +15,6 @@ from credinomina_reconciliation.control_deposits import get_cash_deposits
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
 
 
@@ -120,7 +119,7 @@ def _available_years(employer=None):
                     years.add(getdate(row[field]).year)
     if frappe.has_permission("CN Accounting Import", "read"):
         imports = frappe.get_list("CN Accounting Import", filters={**company,
-            "source_type": SOURCE_ACCOUNTING, "status": ["in", ["Importado", "Importado con excepciones"]]},
+            "status": ["in", ["Importado", "Importado con excepciones"]]},
             pluck="name", limit_page_length=0)
         for offset in range(0, len(imports), 500):
             for row in frappe.get_all("CN Source Row",
@@ -397,7 +396,6 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         source_imports = frappe.get_list(
             "CN Accounting Import",
             filters={
-                "source_type": SOURCE_ACCOUNTING,
                 "status": ["in", ["Importado", "Importado con excepciones"]],
             },
             fields=["name", "historical_backfill", "historical_period"],

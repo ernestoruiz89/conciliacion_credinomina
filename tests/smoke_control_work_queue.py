@@ -14,7 +14,6 @@ from frappe.utils import now_datetime
 from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import (
     get_control_data,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 def run():
@@ -55,10 +54,10 @@ def run():
         frappe.db.sql(
             """INSERT INTO `tabCN Accounting Import`
             (name, owner, creation, modified, modified_by, docstatus, idx,
-             source_type, historical_backfill, status)
+             historical_backfill, status)
             VALUES (%s, 'Administrator', %s, %s, 'Administrator', 0, 0,
-                    %s, 0, 'Importado')""",
-            (import_name, now, now, SOURCE_ACCOUNTING),
+                    0, 'Importado')""",
+            (import_name, now, now),
         )
         frappe.db.sql(
             """INSERT INTO `tabCN Source Row`

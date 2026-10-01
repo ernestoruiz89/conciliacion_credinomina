@@ -43,13 +43,12 @@ from credinomina_reconciliation.historical import (
     is_historical_date,
 )
 from credinomina_reconciliation.parsers import (
-    SOURCE_ACCOUNTING,
     SourceFileError,
     canonical_identifier,
     clean_text,
     file_sha256,
     apply_accounting_currency_override,
-    parse_source_file,
+    parse_accounting_movements,
 )
 from credinomina_reconciliation.period_lock import period_write_action
 from credinomina_reconciliation.reconciliation import (
@@ -117,7 +116,7 @@ _SOURCE_DERIVED_FIELDS = (
     "rounding_movement_detail",
 )
 _IMPORT_EVIDENCE_FIELDS = (
-    "source_type", "source_file", "file_hash", "historical_backfill",
+    "source_file", "file_hash", "historical_backfill",
     "employer", "historical_period", "currency", "manual_fx_rate",
     "portfolio_snapshot",
 )
@@ -160,7 +159,6 @@ class CNAccountingImport(Document):
         self._assert_no_closed_period_links(self.rows or [])
 
     def validate(self):
-        self._validate_source_type()
         self._validate_employer_scope()
         self._validate_historical_periods()
         self._validate_duplicate_file()
@@ -224,10 +222,6 @@ class CNAccountingImport(Document):
                         "cerrado {2}. Use Reabrir período antes de cambiar sus datos "
                         "de origen o su ruta."
                     ).format(self.name, row.name, period_name))
-
-    def _validate_source_type(self):
-        if self.source_type != SOURCE_ACCOUNTING:
-            frappe.throw(_("El tipo de fuente debe ser Movimientos contables."))
 
     def _validate_employer_scope(self):
         if self.status == "Borrador" and not self.employer:
@@ -319,7 +313,6 @@ class CNAccountingImport(Document):
             self.doctype,
             {
                 "name": ["!=", self.name or ""],
-                "source_type": self.source_type,
                 "file_hash": self.file_hash,
                 "status": ["!=", "Fallido"],
             },
@@ -415,11 +408,9 @@ def _attached_file(document):
 def import_source_file(import_name: str):
     document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
-    if document.source_type != SOURCE_ACCOUNTING:
-        frappe.throw(_("Solo se admiten archivos de Movimientos contables."))
     file_doc, content = _attached_file(document)
     try:
-        parsed = parse_source_file(document.source_type, file_doc.file_name, content)
+        parsed = parse_accounting_movements(file_doc.file_name, content)
         parsed = apply_accounting_currency_override(
             parsed,
             document.currency,
@@ -583,7 +574,7 @@ def _reconcile_sources(employer=None):
 
     import_names = frappe.get_all(
         "CN Accounting Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]], "source_type": SOURCE_ACCOUNTING},
+        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
         order_by="creation asc",
         pluck="name",
     )
@@ -596,7 +587,6 @@ def _reconcile_sources(employer=None):
     all_rows = []
     for document in imports:
         for row in document.rows:
-            row._source_type = document.source_type
             row._source_import = document.name
             row._historical_backfill = (
                 row.processing_route == "Historica"
@@ -1130,7 +1120,6 @@ def _registered_deposit_pairs(rows, allocations):
     accounting = [
         row for row in rows
         if row.event_type == "Deposito" and row.effective
-        and row._source_type == SOURCE_ACCOUNTING
     ]
     used_account_ids = set()
     pairs = []

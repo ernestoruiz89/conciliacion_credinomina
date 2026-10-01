@@ -25,7 +25,7 @@ class RegisteredRemittanceWorkflowTest(unittest.TestCase):
 
         accounting = SimpleNamespace(
             name="ROW-1", event_type="Deposito", effective=1,
-            _source_type="Movimientos contables", voucher="V-1",
+            voucher="V-1",
             as_dict=Mock(return_value={}),
         )
         with (

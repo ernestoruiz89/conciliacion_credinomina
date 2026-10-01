@@ -19,7 +19,7 @@ class CompanyReconciliationTests(unittest.TestCase):
         row = Record(name="RA", event_type="Aplicacion", source_row=2, idx=1,
                      client_name="Ana", loan_number="101-1")
         imports = {
-            name: Record(name=name, employer=employer, rows=rows, source_type="Movimientos contables",
+            name: Record(name=name, employer=employer, rows=rows,
                          exception_count=0, save=Mock(), check_permission=Mock(), recalculate_summary=Mock())
             for name, employer, rows in [("IA", "A", [row]), ("IB", "B", [])]
         }

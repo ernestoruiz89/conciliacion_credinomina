@@ -62,7 +62,7 @@ def _preview(document, period):
     identity = ("client_number", "employee_number", "client_name", "national_id", "loan_number", "installment_number")
     if period.reconciliation_mode == "Historica":
         parents = frappe.get_list("CN Accounting Import", filters={
-            "source_type": "Movimientos contables", "status": ["in", ["Importado", "Importado con excepciones"]],
+            "status": ["in", ["Importado", "Importado con excepciones"]],
         }, pluck="name", limit_page_length=0)
         rows = frappe.get_all("CN Source Row", filters={
             "parent": ["in", parents], "parenttype": "CN Accounting Import", "parentfield": "rows",

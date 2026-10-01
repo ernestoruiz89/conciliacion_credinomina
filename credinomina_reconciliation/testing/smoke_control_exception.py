@@ -14,7 +14,7 @@ def run():
         period = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
                                  "payroll_month": "2025-04-01", "reconciliation_mode": "Historica"}).insert()
         source = frappe.get_doc({"doctype": "CN Accounting Import", "name": marker, "employer": employer.name,
-                                 "source_type": "Movimientos contables", "status": "Borrador"})
+                                 "status": "Borrador"})
         source.db_insert()
         row = frappe.get_doc({"doctype": "CN Source Row", "name": marker, "parent": source.name,
                               "parenttype": source.doctype, "parentfield": "rows", "idx": 1, "source_row": 2,

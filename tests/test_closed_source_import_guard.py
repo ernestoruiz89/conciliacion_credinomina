@@ -25,7 +25,7 @@ def _row(**values):
 
 def _document(old_rows, new_rows, **changes):
     old = frappe._dict({
-        "name": "IMP-1", "source_type": "Movimientos contables",
+        "name": "IMP-1",
         "source_file": "/private/files/core.xlsx", "file_hash": "hash-1",
         "historical_backfill": 0, "historical_period": "",
         "status": "Importado", "rows": old_rows,

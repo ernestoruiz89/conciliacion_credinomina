@@ -20,7 +20,7 @@ def run():
             payroll_month="2025-04-01", reconciliation_mode="Historica", historical_scope="Mensual",
             status="Parcial", applied_usd=120)
         source = insert("CN Accounting Import", "I", employer=employer.name,
-            source_type="Movimientos contables", status="Importado")
+            status="Importado")
         application = insert("CN Source Row", "A", parent=source.name, parenttype=source.doctype,
             parentfield="rows", idx=1, historical_period=period.name, employer=employer.name,
             event_type="Aplicacion", event_date="2025-04-15", effective=1, match_status="Conciliado",

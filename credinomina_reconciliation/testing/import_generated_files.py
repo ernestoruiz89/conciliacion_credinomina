@@ -16,7 +16,6 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_a
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     import_source_file,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 TEST_SITE = "cn-reconciliation-test.local"
@@ -68,7 +67,7 @@ def run():
         raise AssertionError(deduction_result)
 
     source = frappe.get_doc({
-        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import",
         "source_file": "/private/files/pendiente-simulacion.xlsx",
     }).insert()
     source.source_file = _attach(movements, source)

@@ -140,8 +140,8 @@ def get_pending_targets(remittance_name, targets=None):
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
     if open_periods and frappe.has_permission("CN Accounting Import", "read"):
         parents = frappe.get_list("CN Accounting Import",
-            filters={"status": ["in", ["Importado", "Importado con excepciones"]],
-                     "source_type": "Movimientos contables"}, pluck="name", limit_page_length=0)
+            filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
+            pluck="name", limit_page_length=0)
         for parent in parents:
             source = frappe.get_doc("CN Accounting Import", parent)
             if not source.has_permission("read"):

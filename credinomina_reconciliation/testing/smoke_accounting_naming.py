@@ -51,7 +51,7 @@ def run():
         employer = frappe.get_doc({"doctype": "CN Employer", "employer_name": marker,
                                   "employer_code": marker}).insert()
         document = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
-            "source_type": "Movimientos contables", "source_file": f"/private/files/{marker}.xlsx",
+            "source_file": f"/private/files/{marker}.xlsx",
             "currency": "USD"}).insert()
         draft = document.name
         assert draft.startswith("CONTA-BORRADOR-")

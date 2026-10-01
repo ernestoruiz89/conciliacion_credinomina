@@ -7,7 +7,6 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 TEST_SITE = "cn-reconciliation-test.local"
@@ -36,7 +35,7 @@ def run():
         "notes": "Corte histórico sintético sin reconstruir cobranza.",
     }).insert()
     source = frappe.get_doc({
-        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import",
         "source_file": "/private/files/CN-HIST-A-202606-simulado.xlsx",
         "historical_backfill": 1, "historical_period": period.name,
         "status": "Importado", "notes": "Dos aplicaciones históricas sintéticas.",

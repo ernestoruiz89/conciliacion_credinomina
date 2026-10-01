@@ -14,7 +14,6 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 TEST_SITE = "copilot-demo.local"
@@ -91,7 +90,6 @@ def _create_period_and_applications(employer, letter, month, applied_on, amounts
     }).insert()
     source = frappe.get_doc({
         "doctype": "CN Accounting Import",
-        "source_type": SOURCE_ACCOUNTING,
         "source_file": f"/private/files/{reference}-SIMULADO-sin-archivo.xlsx",
         "historical_backfill": 1,
         "historical_period": period.name,

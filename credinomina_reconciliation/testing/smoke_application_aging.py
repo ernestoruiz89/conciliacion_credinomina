@@ -21,7 +21,7 @@ def run():
         period = insert("CN Reconciliation Period", "-P", employer=employer.name,
                         payroll_month="2025-04-01", reconciliation_mode="Historica")
         source = insert("CN Accounting Import", "-I", employer=employer.name,
-                        source_type="Movimientos contables", status="Importado", historical_backfill=1)
+                        status="Importado", historical_backfill=1)
         for i, amount in enumerate((16.21, 17.70, 27.14, 21.71, 20.40, 58.61)):
             insert("CN Source Row", f"-R{i}", parent=source.name, parenttype=source.doctype,
                    parentfield="rows", idx=i + 1, event_type="Aplicacion", effective=1,

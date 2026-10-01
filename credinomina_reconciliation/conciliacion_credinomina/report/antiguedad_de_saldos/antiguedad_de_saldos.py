@@ -35,8 +35,7 @@ def _execute_applications(filters):
     )}
     imports = {row.name: row for row in frappe.get_list(
         "CN Accounting Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]],
-                 "source_type": "Movimientos contables"},
+        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
         fields=["name", "employer", "historical_backfill", "historical_period"],
         limit_page_length=0,
     )}

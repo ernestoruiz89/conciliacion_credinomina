@@ -22,7 +22,7 @@ def run():
                                  "historical_scope": "Mensual"}).insert()
         imported = frappe.get_doc({
             "doctype": "CN Accounting Import", "employer": employer.name,
-            "source_type": "Movimientos contables", "status": "Importado",
+            "status": "Importado",
             "source_file": f"/private/files/{marker}-core.xlsx", "historical_backfill": 1,
             "historical_period": period.name,
         })

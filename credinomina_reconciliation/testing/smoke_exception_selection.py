@@ -26,7 +26,7 @@ def run():
         })
         collection.db_insert()
         source = frappe.get_doc({"doctype": "CN Accounting Import", "name": f"picker-i-{marker}",
-                                 "employer": employer.name, "source_type": "Movimientos contables", "status": "Borrador"})
+                                 "employer": employer.name, "status": "Borrador"})
         source.db_insert()
         row = frappe.get_doc({
             "doctype": "CN Source Row", "name": f"picker-s-{marker}", "parent": source.name,

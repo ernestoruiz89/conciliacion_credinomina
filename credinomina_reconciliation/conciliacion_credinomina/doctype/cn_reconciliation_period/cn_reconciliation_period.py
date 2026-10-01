@@ -32,7 +32,6 @@ from credinomina_reconciliation.historical import (
     is_historical_date,
 )
 from credinomina_reconciliation.parsers import (
-    SOURCE_ACCOUNTING,
     SourceFileError,
     clean_text,
     file_sha256,
@@ -1172,7 +1171,6 @@ def close_period(period_name: str):
     if references:
         import_names = frappe.get_all(
             "CN Accounting Import",
-            filters={"source_type": SOURCE_ACCOUNTING},
             pluck="name",
         )
         if import_names and frappe.db.count(

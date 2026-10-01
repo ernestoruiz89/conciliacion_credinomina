@@ -13,7 +13,6 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
     reconcile_all_sources,
 )
-from credinomina_reconciliation.parsers import SOURCE_ACCOUNTING
 
 
 TEST_SITE = "cn-reconciliation-test.local"
@@ -132,7 +131,7 @@ def _get_or_create_import(employer, letter, month, month_index):
     reference = _reference(letter, month)
     source_date = _deposit_date(month).replace(day=5)
     document = frappe.get_doc({
-        "doctype": "CN Accounting Import", "source_type": SOURCE_ACCOUNTING,
+        "doctype": "CN Accounting Import",
         "source_file": marker, "status": "Importado",
         "notes": "Aplicaciones sintéticas; sin archivo físico.",
     })
