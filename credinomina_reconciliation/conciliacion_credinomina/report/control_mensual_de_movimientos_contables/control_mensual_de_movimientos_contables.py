@@ -10,7 +10,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    for doctype in ("CN Accounting Import", "CN Complementary Item"):
+    for doctype in ("CN Accounting Import", "CN Complementary Item", "CN Remittance Allocation"):
         if not frappe.has_permission(doctype, "read"):
             frappe.throw(_("Se requiere permiso de lectura de importaciones y partidas complementarias para este control."), frappe.PermissionError)
     start = getdate(filters.get("month") or nowdate()).replace(day=1)
@@ -47,7 +47,11 @@ def execute(filters=None):
         for offset in range(0, len(client_numbers), 500):
             clients.extend(frappe.get_list("CN Client", filters={"client_number": ["in", client_numbers[offset:offset + 500]]},
                 fields=["name", "client_number", "client_name", "employer"], limit_page_length=0))
-    rows, duplicates = build_rows(sources, imports, items, clients)
+    deposits = frappe.get_list("CN Remittance Allocation", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
+        fields=["name", "docstatus", "result", "employer", "bank_account", "accounting_source_key", "source_date", "source_voucher",
+                "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description",
+                "source_file", "source_file_hash", "accounting_classification", "source_client_name", "source_loan_number"], limit_page_length=0)
+    rows, duplicates = build_rows(sources, imports, items, clients, deposits)
     for field in ("employer", "source_account", "source_currency"):
         if filters.get(field):
             rows = [row for row in rows if row.get(field) == filters[field]]
@@ -93,6 +97,8 @@ def columns(summary=False):
             {"fieldname": "description", "label": _("Descripción completa"), "fieldtype": "Long Text", "width": 440},
             {"fieldname": "accounting_import", "label": _("Importación contable"), "fieldtype": "Link", "options": "CN Accounting Import", "width": 200},
             {"fieldname": "complementary_item", "label": _("Partida complementaria"), "fieldtype": "Link", "options": "CN Complementary Item", "width": 190},
+            {"fieldname": "remittance_allocation", "label": _("Depósito"), "fieldtype": "Link", "options": "CN Remittance Allocation", "width": 190},
+            {"fieldname": "bank_account", "label": _("Cuenta bancaria"), "fieldtype": "Link", "options": "CN Bank Account", "width": 190},
             {"fieldname": "source_file", "label": _("Archivo de origen"), "fieldtype": "Data", "width": 220},
             {"fieldname": "source_hash", "label": _("Huella del archivo original"), "fieldtype": "Data", "width": 200},
             {"fieldname": "warning", "label": _("Advertencia"), "fieldtype": "Data", "width": 300},

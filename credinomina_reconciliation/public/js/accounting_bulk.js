@@ -57,6 +57,12 @@ credinomina.openAccountingBulk = function (onComplete) {
             ]));
             if (summary.complementary_count > 100) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
+        if (summary.deposit_count) {
+            html += `<h5>${__("Depósitos detectados")}: ${summary.deposit_count}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe bancario antes de confirmar; no se concilian automáticamente.")}</p>`;
+            html += table([__("Fila"), __("Empresa"), __("Referencia"), __("Importe bancario")], summary.deposits.map(row => [
+                esc(row.row), esc(row.employer || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
+            ]));
+        }
         for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Duplicados omitidos")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
             if (!summary[`${key}_count`]) continue;
             html += `<details${key === "issues" ? " open" : ""}><summary>${esc(label)}: ${summary[`${key}_count`]}</summary>`;
@@ -110,12 +116,12 @@ credinomina.openAccountingBulk = function (onComplete) {
                 lockOptions(true);
                 renderSummary(state.summary);
                 dialog.set_primary_action(__("Crear importaciones"), confirm);
-                dialog.get_primary_btn().prop("disabled", !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count));
+                dialog.get_primary_btn().prop("disabled", !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
             } else if (state.status === "Completado") {
                 running = false;
-                result.html(`<div class="alert alert-success">${__("Carga completada. Revise las importaciones y las partidas complementarias en borrador. Estas últimas no afectan saldos hasta revisar y confirmar su tratamiento.")}</div>` + table(
+                result.html(`<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>` + table(
                     [__("Importación"), __("Empresa"), __("Fecha"), __("Filas"), __("Total US$")], state.created.map(doc => [
-                        `<a href="/app/${doc.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, esc(doc.employer || __("Por identificar")),
+                        `<a href="/app/${doc.doctype === "CN Remittance Allocation" ? "cn-remittance-allocation" : doc.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, esc(doc.employer || __("Por identificar")),
                         esc(frappe.datetime.str_to_user(doc.event_date)), esc(doc.rows), esc(format_currency(doc.total_usd, "USD")),
                     ])));
                 dialog.set_primary_action(__("Cerrar"), () => dialog.hide());

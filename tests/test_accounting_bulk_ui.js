@@ -81,5 +81,18 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     state.created = [{doctype: "CN Complementary Item", name: "COMP-1", event_date: "2025-04-15", rows: 1, total_usd: 1}];
     await dialog.primary();
     assert.ok(html.includes("/app/cn-complementary-item/COMP-1"));
+    dialog.secondary();
+    state.status = "Vista previa";
+    state.summary.complementary_count = 0;
+    state.summary.deposit_count = 1;
+    state.summary.deposits = [{row: 2, employer: "<Empresa>", reference: "DEP", amount: 100, currency: "USD"}];
+    await dialog.primary();
+    assert.equal(dialog.disabled, false, "Files with only deposits must be importable");
+    assert.ok(html.includes("Depósitos detectados"));
+    assert.ok(html.includes("&lt;Empresa&gt;"));
+    state.status = "Completado";
+    state.created = [{doctype: "CN Remittance Allocation", name: "DEP-4-2025-0001", event_date: "2025-04-15", rows: 1, total_usd: 100}];
+    await dialog.primary();
+    assert.ok(html.includes("/app/cn-remittance-allocation/DEP-4-2025-0001"));
     console.log("Carga masiva UI: preview, confirmation, escaping, dates, option locking and issues OK");
 })().catch(error => {console.error(error); process.exitCode = 1;});

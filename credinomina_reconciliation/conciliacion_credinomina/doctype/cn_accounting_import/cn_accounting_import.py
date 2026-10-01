@@ -99,7 +99,7 @@ _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=
 _SOURCE_EVIDENCE_FIELDS = (
     "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification",
     "source_account", "source_debit", "source_credit", "source_currency", "accounting_reference",
-    "accounting_source_key", "complementary_item", "source_description", "source_fx_rate",
+    "accounting_source_key", "complementary_item", "source_description", "source_fx_rate", "remittance_allocation",
     "source_row", "source_key", "event_type", "event_date", "client_name",
     "client_number", "employee_number", "loan_number", "amount",
     "accounting_entry", "receipt", "reference", "voucher", "employer_text",
@@ -485,6 +485,17 @@ def import_source_file(import_name: str):
         links = {row["accounting_source_key"]: row["complementary_item"] for row in review}
         for row in adjustments:
             row["complementary_item"] = links[row["accounting_source_key"]]
+    from credinomina_reconciliation.accounting_deposits import plan_deposits, create_deposits
+    deposits = []
+    if any(row.get("accounting_classification") == "Depósito" for row in parsed):
+        employers = frappe.get_list("CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0)
+        attach_employer_aliases(employers)
+        deposits = plan_deposits(parsed, employers, document.employer)
+    if deposits:
+        create_deposits(deposits, document.source_file, file_sha256(content))
+    deposit_links = {row["accounting_source_key"]: row["remittance_allocation"] for row in deposits}
+    for row in parsed:
+        row["remittance_allocation"] = deposit_links.get(row.get("accounting_source_key"), "")
     existing_settings = defaultdict(list)
     for row in document.rows or []:
         if row.source_key:
@@ -513,7 +524,7 @@ def import_source_file(import_name: str):
                     prior_period or document.historical_period
                     if record["event_type"] == "Aplicacion" else ""
                 ),
-                "effective": int(record["event_type"] != "Ajuste"),
+                "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
                 "match_status": "Pendiente",
                 "deposit_match_status": "Pendiente",
             },
@@ -526,6 +537,8 @@ def import_source_file(import_name: str):
     )
     if adjustments:
         document.notes += _(" {0} movimientos no son pagos nuevos: revise sus Partidas complementarias vinculadas; no afectan saldos mientras estén en borrador.").format(len(adjustments))
+    if deposits:
+        document.notes += _(" {0} depósitos vinculados. Revise sus registros y confirme los borradores; la fila contable no aplica efectivo por separado.").format(len(deposits))
     document.save()
     result = _reconcile_sources(document.employer) if document.bulk_source_hash else reconcile_all_sources()
     result["import_name"] = document.name
@@ -835,6 +848,10 @@ def _deduplicate_applications(rows):
     application_rows.sort(key=lambda row: (row._source_import, row.idx))
     claimed = {}
     for row in rows:
+        if row.get("remittance_allocation"):
+            row.effective = 0
+            row.match_status = "Ignorado"
+            row.match_reason = _("Depósito registrado en {0}; confirme y concilie desde Distribución de Depósito.").format(row.remittance_allocation)
         if row.event_type == "Ajuste":
             row.effective = 0
             row.match_status = "Ignorado"

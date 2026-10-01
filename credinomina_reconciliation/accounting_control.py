@@ -6,6 +6,14 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 MONEY_FIELDS = ("debit_nio", "credit_nio", "net_nio", "debit_usd", "credit_usd", "net_usd")
 
 
+def _deposit_status(deposit):
+    if deposit.get("docstatus") == 2:
+        return "Depósito cancelado"
+    if not deposit.get("docstatus"):
+        return "Depósito en borrador"
+    return deposit.get("result") or "Pendiente"
+
+
 def _status(row, item=None):
     if item:
         if item.get("docstatus") == 2:
@@ -49,13 +57,14 @@ def _amounts(row, currency, rate):
     return values, ""
 
 
-def build_rows(sources, imports, items, clients=()):
+def build_rows(sources, imports, items, clients=(), deposits=()):
     """Count mirrors once; preserve repeated physical rows inside the same import.
 
     Across imports use evidence identity + occurrence, never a loan/customer key.
     Report possible repeat imports explicitly rather than calling the load complete.
     """
     by_item = {item["name"]: item for item in items}
+    by_deposit = {deposit["accounting_source_key"]: deposit for deposit in deposits if deposit.get("accounting_source_key")}
     by_client = defaultdict(list)
     for client in clients:
         by_client[client.get("client_number")].append(client)
@@ -69,7 +78,8 @@ def build_rows(sources, imports, items, clients=()):
         rate = row.get("source_fx_rate") or row.get("manual_fx_rate") or row.get("fx_rate") or parent.get("manual_fx_rate") or 0
         values, warning = _amounts(row, currency, rate)
         source_import = parent.get("name") or ""
-        employer = (item or {}).get("employer") or row.get("portfolio_employer") or parent.get("employer") or ""
+        deposit = by_deposit.get(row.get("accounting_source_key"))
+        employer = (deposit or item or {}).get("employer") or row.get("portfolio_employer") or parent.get("employer") or ""
         number = row.get("client_number") or (item or {}).get("client_number") or ""
         client_name = row.get("client_name") or row.get("source_client_name") or row.get("portfolio_client_name") or ""
         matches = [client for client in by_client.get(number, []) if not employer or client.get("employer") == employer]
@@ -80,10 +90,12 @@ def build_rows(sources, imports, items, clients=()):
             "source_currency": currency or "Sin identificar", "nio_currency": "NIO", "usd_currency": "USD", **values,
             "fx_rate": rate if currency == "NIO" else None,
             "client_name": client_name or "Sin identificar", "client_number": number,
-            "loan_number": row.get("loan_number") or (item or {}).get("loan_number") or "",
+            "loan_number": row.get("loan_number") or row.get("source_loan_number") or (item or {}).get("loan_number") or "",
             "employer": employer, "voucher": row.get("source_voucher") or row.get("voucher") or "",
             "movement_type": row.get("accounting_classification") or row.get("event_type") or "Por revisar",
-            "state": _status(row, item), "description": row.get("source_description") or row.get("description") or "",
+            "state": _deposit_status(deposit) if deposit else _status(row, item),
+            "description": row.get("source_description") or row.get("description") or "",
+            "remittance_allocation": deposit["name"] if deposit else "", "bank_account": (deposit or {}).get("bank_account") or "",
             "accounting_import": source_import, "complementary_item": (item or {}).get("name") or "",
             "source_file": row.get("source_file") or parent.get("bulk_source_file") or parent.get("source_file") or "",
             "source_hash": row.get("source_file_hash") or parent.get("bulk_source_hash") or parent.get("file_hash") or "",
@@ -115,6 +127,13 @@ def build_rows(sources, imports, items, clients=()):
         if item["name"] in represented_items or key in represented_keys:
             continue
         output.append(make_row(item, item=item))
+        represented_keys.add(key)
+    for deposit in deposits:
+        key = (deposit.get("accounting_source_key"), deposit.get("source_currency"))
+        if not key[0] or key in represented_keys:
+            continue
+        output.append(make_row(deposit))
+        represented_keys.add(key)
     return sorted(output, key=lambda row: (row["event_date"], row["source_account"], row["voucher"], row["accounting_import"])), duplicates
 
 

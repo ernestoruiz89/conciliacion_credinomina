@@ -9,6 +9,7 @@ from frappe.utils.file_manager import save_file
 
 from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
 from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
+from credinomina_reconciliation.accounting_deposits import plan_deposits, create_deposits
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.employer_naming import attach_employer_aliases
@@ -100,7 +101,13 @@ def _plan(options):
     for row in review_records:
         row["event_type"] = "Ajuste"
     review_records = plan_review_items(review_records, employers, fallback)
-    plan = group_applications([row for row in records if row.get("event_type") != "Ajuste"], employers, fallback, existing)
+    deposit_records = plan_deposits(records, employers, fallback)
+    plan = group_applications([row for row in records if row.get("event_type") != "Ajuste" and row.get("accounting_classification") != "Depósito"], employers, fallback, existing)
+    if deposit_records and not frappe.has_permission("CN Remittance Allocation", "create"):
+        frappe.throw(_("Se requiere permiso para crear depósitos."), frappe.PermissionError)
+    # Keep already imported evidence in the plan: creation is idempotent and
+    # checks currency/rate consistency instead of silently discarding changes.
+    plan["deposits"] = deposit_records
     if review_records and not frappe.has_permission("CN Complementary Item", "create"):
         frappe.throw(_("Se requiere permiso para crear partidas complementarias en revisión."), frappe.PermissionError)
     existing_review = set(frappe.get_all("CN Complementary Item", filters={
@@ -124,6 +131,10 @@ def _summary(plan):
     return {
         "groups": groups, "rows": sum(group["count"] for group in groups),
         "complementary_count": len(plan.get("complementary", [])),
+        "deposit_count": len(plan.get("deposits", [])),
+        "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
+                      "currency": row["deposit_currency"], "amount": row["deposit_amount"],
+                      "reference": row["bank_deposit_reference"]} for row in plan.get("deposits", [])[:100]],
         "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
                            "employer": row.get("resolved_employer"), "reason": row["classification_reason"]}
                           for row in plan.get("complementary", [])[:100]],
@@ -134,7 +145,7 @@ def _summary(plan):
 
 def _signature(plan):
     # Confirmation cannot silently import a different grouping or amount.
-    return source_key(plan["file_hash"], json.dumps([plan["groups"], plan.get("complementary", [])], sort_keys=True, default=str))
+    return source_key(plan["file_hash"], json.dumps([plan["groups"], plan.get("complementary", []), plan.get("deposits", [])], sort_keys=True, default=str))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -173,7 +184,7 @@ def confirm_bulk_import(token):
         state = _state(token)
         if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
             frappe.throw(_("Primero genere una vista previa sin errores."))
-        if not state["summary"]["rows"] and not state["summary"].get("complementary_count"):
+        if not state["summary"]["rows"] and not state["summary"].get("complementary_count") and not state["summary"].get("deposit_count"):
             frappe.throw(_("No hay movimientos nuevos para importar."))
         state.update(status="En cola", phase="create")
         _store(token, state)
@@ -254,6 +265,11 @@ def _create_imports(plan, options, progress=None):
     for item in create_review_items(plan.get("complementary", []), options["source_file"], plan["file_hash"]):
         created.append({"doctype": "CN Complementary Item", "name": item.name, "employer": item.employer,
                         "event_date": item.posting_date, "rows": 1, "total_usd": item.amount_usd})
+    create_deposits(plan.get("deposits", []), options["source_file"], plan["file_hash"])
+    for row in plan.get("deposits", []):
+        created.append({"doctype": "CN Remittance Allocation", "name": row["remittance_allocation"],
+                        "employer": row.get("resolved_employer"), "event_date": row["event_date"],
+                        "rows": 1, "total_usd": row["deposit_usd"]})
     return created
 
 

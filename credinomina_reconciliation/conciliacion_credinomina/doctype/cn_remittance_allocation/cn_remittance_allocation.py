@@ -42,6 +42,8 @@ class CNRemittanceAllocation(Document):
 
     def validate(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.accounting_deposits import validate_evidence
+        validate_evidence(self, previous)
         if previous and self.get("reconciliation_identity") != previous.get("reconciliation_identity"):
             frappe.throw(_("No se puede modificar la identidad interna del depósito."))
         self.deposit_reference = clean_text(self.deposit_reference)
@@ -78,7 +80,7 @@ class CNRemittanceAllocation(Document):
             frappe.throw(_("Indique la fecha real del depósito."))
         if self.docstatus == 1:
             self._assert_open_related_periods()
-        if not self.employer:
+        if not self.employer and (self.docstatus != 0 or not self.get("accounting_source_key")):
             frappe.throw(_("Indique la empresa del depósito."))
         if self.get("detail_rows"):
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients

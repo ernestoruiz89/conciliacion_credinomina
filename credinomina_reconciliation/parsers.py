@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from credinomina_reconciliation.rounding import (
     RATE_PRECISION, decimal_value, money, money_float,
 )
-from credinomina_reconciliation.accounting_types import accounting_code, classify_movement
+from credinomina_reconciliation.accounting_types import DEPOSIT, accounting_code, classify_movement
 
 
 SOURCE_ACCOUNTING = "Movimientos contables"
@@ -422,7 +422,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         tmov, tdoc = accounting_code(record.get("tmov")), accounting_code(record.get("tdoc"))
         classification, is_payment, reason = classify_movement(tmov, tdoc, debit, credit, description)
         if tmov or tdoc or "DEPOSITO POR" not in upper:
-            event_type = "Aplicacion" if is_payment else "Ajuste"
+            event_type = "Deposito" if classification == DEPOSIT else "Aplicacion" if is_payment else "Ajuste"
             match = re.search(
                 r"(?:NOTA\s+AL\s+)?PRESTAMO\s+0*([A-Z0-9-]+)",
                 description, re.IGNORECASE,
@@ -448,7 +448,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         equivalent_currency = ""
         equivalent_amount = 0.0
         fx_basis = ""
-        if event_type == "Deposito":
+        if event_type == "Deposito" and classification != DEPOSIT:
             account_name = _account_description(record)
             accounting_currency = (
                 "USD" if "M.E." in account_name else "NIO" if "M.N." in account_name else ""
@@ -471,7 +471,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 client_name=(
                     clean_text(record.get("nombre_cliente"))
                     or _extract_application_client_name(description)
-                    if event_type != "Deposito" else ""
+                    if event_type != "Deposito" else (clean_text(record.get("nombre_cliente")) if clean_text(record.get("nombre_cliente")) not in {"0", "N/A"} else "")
                 ),
                 loan_number=loan_number,
                 currency=currency,
@@ -495,6 +495,9 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 record.get("no_cmpte"), record.get("no_ref"), description, debit, credit,
             ),
         })
+        if classification == DEPOSIT:
+            from credinomina_reconciliation.deposit_evidence import extract_deposit
+            parsed[-1].update(extract_deposit(record, description))
     if not parsed:
         raise SourceFileError("No se encontraron movimientos contables con importe.")
     return parsed

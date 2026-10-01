@@ -8,7 +8,7 @@
     "client_section", "usd_currency", "nio_currency", "source_key", "collection_row_id",
     "client_name", "client_number", "national_id", "client_column", "loan_number", "installment_number", "employee_number",
     "movement_section", "event_date", "event_type", "currency", "amount", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status", "movement_column", "accounting_entry", "receipt", "reference", "voucher",
-    "classification_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "complementary_item", "classification_column", "source_account", "source_currency", "source_debit", "source_credit", "accounting_reference", "source_classification", "accounting_source_key",
+    "classification_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "complementary_item", "remittance_allocation", "classification_column", "source_account", "source_currency", "source_debit", "source_credit", "accounting_reference", "source_classification", "accounting_source_key",
     "matching_section", "match_status", "match_reason", "matching_column", "deposit_match_status", "deposit_match_reason",
     "routing_section", "processing_route", "historical_period", "routing_column", "collection_period",
     "historical_section", "historical_remitted_usd", "historical_column", "historical_balance_usd",
@@ -27,6 +27,7 @@
     "rounding_trace_section", "rounding_movement_detail"
   ],
   "fields": [
+    {"fieldname": "remittance_allocation", "fieldtype": "Link", "options": "CN Remittance Allocation", "label": "Depósito registrado", "read_only": 1},
     {"fieldname": "application_adjustment_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Ajustes confirmados US$", "read_only": 1},
     {"fieldname": "net_applied_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Aplicado neto US$", "read_only": 1},
     {"fieldname": "application_adjustment_status", "fieldtype": "Data", "label": "Resultado del ajuste", "read_only": 1},

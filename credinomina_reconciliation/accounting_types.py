@@ -4,8 +4,10 @@ APPLICATION = "Aplicación de pago"
 DEBIT_NOTE = "ND de Aplicación de pago"
 INTERNAL = "Movimiento interno"
 REVIEW = "Por revisar"
+DEPOSIT = "Depósito"
 
 TYPES = {
+    ("02", "12"): DEPOSIT,
     ("12", "05"): APPLICATION,
     ("12", "19"): APPLICATION,
     ("12", "06"): APPLICATION,
@@ -31,6 +33,10 @@ def classify_movement(tmov, tdoc, debit, credit, description=""):
         return kind, False, "Nota de débito: identificar la aplicación original; no es un pago nuevo"
     if kind == INTERNAL:
         return kind, False, "Movimiento interno: revisar su concepto y vínculo antes de conciliar"
+    if kind == DEPOSIT:
+        if credit <= 0 or debit != 0 or "REVERS" in description.upper():
+            return REVIEW, False, "Ajuste o reversión de depósito; revisar antes de registrar efectivo"
+        return kind, False, "Depósito identificado por TMOV 02 / TDOC 12; pendiente de confirmar"
     if debit <= 0 or credit != 0 or "REVERS" in description.upper():
         return kind, False, "Ajuste o reversión de aplicación: revisar el efecto y la aplicación original"
     return kind, True, "Aplicación identificada por TMOV/TDOC y débito positivo sin crédito"

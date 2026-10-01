@@ -538,6 +538,35 @@ pendiente**, no se presume deuda del empleado. La cifra es un control operativo
 en US$ y debe cotejarse con el saldo oficial del crédito en el core. En
 períodos históricos no se infiere CxC a empleados ni a empresas.
 
+## Depósitos incluidos en movimientos contables
+
+La combinación **TMOV 02 / TDOC 12**, con crédito positivo y sin débito ni
+indicación de reversión, crea un **Distribución de Depósito** en borrador.
+Funciona tanto en la importación individual como en **Carga masiva**; los
+depósitos no se confirman ni concilian automáticamente. La fila contable
+queda vinculada al depósito, sin aplicar efectivo una segunda vez.
+
+El importe bancario se toma de **Dep. en Banco + Moneda**, o del importe y
+moneda explícitos al inicio de la descripción. Si faltan, se usa el crédito
+contable con una advertencia para revisar. La moneda seleccionada al importar
+es la de los débitos/créditos del archivo, no necesariamente la de la cuenta
+bancaria. Se conservan ambos importes; el **Control Mensual de Movimientos
+Contables** suma la evidencia contable original en C$ y US$, no el total bancario.
+La fecha explícita «EL DIA dd/mm/aaaa» identifica la recepción; de no existir,
+se usa Fecha Aplica, conservada también como fecha contable original.
+
+La cuenta se busca por banco, identificador y moneda explícitos. Solo se crea
+si esos datos están identificados sin ambigüedad y el usuario tiene permiso
+para crear cuentas. Números abreviados se reutilizan únicamente si identifican
+una cuenta existente única. Si hay dudas o monedas contradictorias, se deja
+vacía y se explica en **Origen contable**. Una empresa desconocida también
+puede quedar pendiente en el borrador, pero debe completarse antes de confirmar.
+
+Reprocesar conserva el vínculo por identidad contable, sin duplicar depósitos
+ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
+complementaria anterior, la carga se detiene con un mensaje para revisar el
+registro previo. No se convierte evidencia anterior automáticamente.
+
 ## Desarrollo y documentación
 
 La evidencia de la simulación y los comandos de auditoría están en
