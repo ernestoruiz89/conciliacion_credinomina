@@ -159,6 +159,15 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    con cantidades y total de aplicaciones por grupo. Para los casos no identificados
    muestra fila, fecha, cliente, crédito, empresa original y asiento; las partidas
    complementarias y depósitos también se muestran en su sección correspondiente.
+   Pase el mouse por **NO IDENTIFICADA** para ver la descripción completa del asiento
+   y use **Cambiar empresa** para asignar una empresa registrada a esa fila. Pulse
+   **Nuevo análisis → Analizar archivo**: se conservan las selecciones del mismo
+   archivo y se reagrupan por empresa y fecha antes de permitir la importación.
+   **Quitar selecciones de empresa** permite volver a la identificación automática.
+   Las decisiones no reemplazan identidades contradictorias de cartera ni se
+   trasladan a otro archivo. El CSV individual conserva la decisión en
+   `CN_EMPRESA_ASIGNADA`, sin reemplazar la empresa ni descripción originales.
+   Al terminar, identificados y no identificados también aparecen en tablas separadas.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
    de aplicación y las partidas complementarias que quedarán en revisión;
    las líneas similares del archivo o de cargas previas se advierten como posibles

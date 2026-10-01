@@ -163,9 +163,9 @@ class AccountingEmployerResolver:
         return "", "No se pudo identificar una empresa de convenio por cartera, nombre ni alias"
 
     def resolve_for_import(self, record, fallback=""):
-        employer, issue = self.resolve(record, fallback)
+        employer, issue = self.resolve(record, "" if record.get("_manual_employer") else fallback)
         if not employer and issue.startswith(("No se identificó empresa por", "No se pudo identificar una empresa")):
-            return UNIDENTIFIED_EMPLOYER, ""
+            return record.get("_manual_employer") or UNIDENTIFIED_EMPLOYER, ""
         # An ambiguous identity or an inaccessible known company is not missing
         # data: preserve that validation instead of hiding it in the holding group.
         return employer, issue

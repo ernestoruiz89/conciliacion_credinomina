@@ -326,7 +326,7 @@ def enrich_source_import_clients(records, client_index=None):
         if record.get("event_type") != "Aplicacion":
             continue
 
-        employer = clean_text(record.get("portfolio_employer"))
+        employer = clean_text(record.get("portfolio_employer") or record.get("_manual_employer"))
         if employer not in employer_names:
             linked_name = clean_text(record.get("portfolio_client") or record.get("client"))
             linked_client = next(

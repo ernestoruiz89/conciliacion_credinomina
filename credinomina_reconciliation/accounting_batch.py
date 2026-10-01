@@ -27,6 +27,9 @@ def accounting_group_csv(source_records, rows):
         selected.append((row["source_row"], original))
         columns.update(dict.fromkeys(original))
     columns["cn_fila_origen"] = None
+    manual = {row["source_row"]: row.get("_manual_employer") or "" for row in rows}
+    if any(manual.values()):
+        columns["cn_empresa_asignada"] = None
     stream = io.StringIO(newline="")
     writer = csv.writer(stream)
     writer.writerow([column.upper() for column in columns])
@@ -41,7 +44,7 @@ def accounting_group_csv(source_records, rows):
         return text
 
     for source_row, original in selected:
-        writer.writerow([source_row if column == "cn_fila_origen" else cell(original.get(column))
+        writer.writerow([source_row if column == "cn_fila_origen" else cell(manual[source_row]) if column == "cn_empresa_asignada" else cell(original.get(column))
                          for column in columns])
     return stream.getvalue().encode("utf-8-sig")
 
@@ -67,7 +70,7 @@ def group_applications(records, employers, fallback_employer="", existing=()):
         employer, employer_issue = resolver.resolve_for_import(row, fallback_employer)
         if employer_issue:
             reasons.append(employer_issue)
-        if fallback_employer and employer and employer not in {fallback_employer, UNIDENTIFIED_EMPLOYER}:
+        if fallback_employer and employer and employer not in {fallback_employer, UNIDENTIFIED_EMPLOYER} and not row.get("_manual_employer"):
             reasons.append("La fila pertenece a otra empresa; quite la empresa predeterminada para un archivo mixto")
         if reasons:
             issues.append({"row": row.get("source_row"), "loan_number": row.get("loan_number"),

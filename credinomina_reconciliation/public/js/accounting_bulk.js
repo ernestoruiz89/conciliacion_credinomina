@@ -4,6 +4,12 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     const api = "credinomina_reconciliation.bulk_accounting_import.";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const storageKey = `cn-accounting-bulk:${frappe.session.user}`;
+    const choicesKey = storageKey + ":employers";
+    let choices = {}, choiceFile = "", choiceHash = "", choicesDirty = false, previewRows = new Map();
+    try {
+        const saved = JSON.parse(localStorage.getItem(choicesKey) || "null");
+        if (saved) ({choices, choiceFile, choiceHash, choicesDirty} = saved);
+    } catch (_) { localStorage.removeItem(choicesKey); }
     let token = localStorage.getItem(storageKey);
     let timer, closed = false, running = false;
     const dialog = new frappe.ui.Dialog({
@@ -31,6 +37,55 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         onhide() { closed = true; clearTimeout(timer); },
     });
     const result = dialog.fields_dict.result.$wrapper;
+    function saveChoices() {
+        localStorage.setItem(choicesKey, JSON.stringify({choices, choiceFile, choiceHash, choicesDirty}));
+    }
+    const attr = value => esc(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+    function companyChoice(row) {
+        previewRows.set(String(row.row), row);
+        const label = choices[String(row.row)] || "NO IDENTIFICADA";
+        return `<span tabindex="0" title="${attr(row.description || __("Sin descripción del asiento"))}" style="cursor:help;border-bottom:1px dotted currentColor">${esc(label)}</span><br><button type="button" class="btn btn-xs btn-default cn-change-employer" data-source-row="${attr(row.row)}">${__("Cambiar empresa")}</button>`;
+    }
+    result.on("click", ".cn-change-employer", function () {
+        if (running) return;
+        const number = this.getAttribute("data-source-row");
+        const row = previewRows.get(number);
+        if (!row) return;
+        const picker = new frappe.ui.Dialog({
+            title: __("Asignar empresa al movimiento"),
+            fields: [
+                {fieldtype: "HTML", options: `<p>${__("Fila")}: ${esc(number)}</p><div style="white-space:pre-wrap;max-height:220px;overflow:auto">${esc(row.description || __("Sin descripción del asiento"))}</div>`},
+                {fieldtype: "Link", fieldname: "employer", label: __("Empresa"), options: "CN Employer",
+                    default: choices[number] || "", get_query: () => ({filters: {name: ["!=", "NO IDENTIFICADA"]}}),
+                    description: __("Deje vacío para mantener NO IDENTIFICADA. La selección se aplicará al volver a analizar este archivo.")},
+            ],
+            primary_action_label: __("Guardar selección"),
+            primary_action(values) {
+                if (values.employer) choices[number] = values.employer;
+                else delete choices[number];
+                choicesDirty = true;
+                saveChoices();
+                picker.hide();
+                renderSummary(lastSummary);
+                dialog.get_primary_btn().prop("disabled", true);
+            },
+        });
+        picker.show();
+    });
+    let lastSummary;
+    result.on("click", ".cn-clear-employers", function () {
+        if (running) return;
+        choices = {}; choicesDirty = true;
+        saveChoices();
+        if (lastSummary) {
+            renderSummary(lastSummary);
+            dialog.get_primary_btn().prop("disabled", true);
+        } else {
+            result.empty();
+            dialog.set_primary_action(__("Analizar archivo"), preview);
+            dialog.get_primary_btn().prop("disabled", false);
+        }
+    });
     function lockOptions(locked) {
         for (const field of ["source_file", "currency", "manual_fx_rate", "employer", "portfolio_snapshot", "historical_backfill"]) {
             dialog.set_df_property(field, "read_only", locked ? 1 : 0);
@@ -38,7 +93,8 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     }
     function showError(error) {
         running = false;
-        result.html(`<div class="alert alert-danger">${esc(error)}</div>`);
+        result.html(`<div class="alert alert-danger">${esc(error)}</div>` + (Object.keys(choices).length
+            ? `<button type="button" class="btn btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button>` : ""));
         dialog.set_primary_action(__("Analizar archivo"), preview);
         dialog.get_primary_btn().prop("disabled", false);
     }
@@ -46,7 +102,11 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         return `<div style="max-height:45vh;overflow:auto"><table class="table table-bordered"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     }
     function renderSummary(summary) {
+        lastSummary = summary;
+        previewRows = new Map();
         let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
+        if (choicesDirty) html += `<p class="alert alert-warning">${__("Hay selecciones de empresa sin analizar. Pulse Nuevo análisis y luego Analizar archivo para reagrupar antes de importar.")}</p>`;
+        if (Object.keys(choices).length) html += `<p>${__("Empresas seleccionadas manualmente")}: ${Object.keys(choices).length} <button type="button" class="btn btn-xs btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button></p>`;
         if (!summary.sections) {
             html += `<p class="alert alert-warning">${__("Esta vista previa es anterior a la separación por empresa. Pulse Nuevo análisis para ver los casos identificados y no identificados antes de confirmar.")}</p>`;
         } else {
@@ -73,8 +133,8 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
         html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
         if (section.rows && unidentified) {
-            html += table([__("Fila"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [
-                esc(row.row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : "—"),
+            html += table([__("Fila"), __("Empresa asignada"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [
+                esc(row.row), companyChoice(row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : "—"),
                 esc(row.client_name || "—"), esc(row.loan_number || "—"), esc(row.employer_text || __("Sin dato")),
                 esc(row.voucher || "—"), esc(format_currency(row.total_usd, "USD")), esc(row.reason || __("Sin empresa identificada")),
             ]));
@@ -86,15 +146,15 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         }
         if (section.complementary_count) {
             html += `<h5>${__("Partidas complementarias en borrador")}</h5><p>${__("No afectan saldos ni depósitos hasta confirmar su tratamiento.")}</p>`;
-            html += table([__("Fila"), __("Clasificación"), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Motivo")], section.complementary.map(row => [
-                esc(row.row), esc(row.classification), esc((unidentified ? row.employer_text : row.employer) || __("Pendiente de identificar")), esc(row.reason),
+            html += table([__("Fila"), ...(unidentified ? [__("Empresa asignada")] : []), __("Clasificación"), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Motivo")], section.complementary.map(row => [
+                esc(row.row), ...(unidentified ? [companyChoice(row)] : []), esc(row.classification), esc((unidentified ? row.employer_text : row.employer) || __("Pendiente de identificar")), esc(row.reason),
             ]));
             if (section.complementary_count > section.complementary.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
         if (section.deposit_count) {
             html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe antes de confirmar; no se concilian automáticamente.")}</p>`;
-            html += table([__("Fila"), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario")], section.deposits.map(row => [
-                esc(row.row), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
+            html += table([__("Fila"), ...(unidentified ? [__("Empresa asignada")] : []), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario")], section.deposits.map(row => [
+                esc(row.row), ...(unidentified ? [companyChoice(row)] : []), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
             ]));
             if (section.deposit_count > section.deposits.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
@@ -104,6 +164,12 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (running) return;
         const values = dialog.get_values();
         if (!values) return;
+        if (values.source_file !== choiceFile) {
+            choices = {}; choiceHash = ""; choicesDirty = false;
+        }
+        choiceFile = values.source_file;
+        values.employer_assignments = JSON.stringify(choices);
+        values.assignments_file_hash = choiceHash;
         if (values.currency !== "NIO") values.manual_fx_rate = 0;
         running = true;
         lockOptions(true);
@@ -116,7 +182,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         } catch (error) { showError(__("No se pudo iniciar el análisis. Revise el mensaje del servidor e intente nuevamente.")); }
     }
     async function confirm() {
-        if (running) return;
+        if (running || choicesDirty) return;
         running = true;
         dialog.get_primary_btn().prop("disabled", true);
         try {
@@ -140,16 +206,29 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             } else if (state.status === "Vista previa") {
                 running = false;
                 lockOptions(true);
+                choiceHash = state.summary.file_hash || choiceHash;
+                choiceFile = state.options?.source_file || choiceFile;
+                const analyzed = state.options?.employer_assignments || {};
+                if (JSON.stringify(analyzed) === JSON.stringify(choices)) choicesDirty = false;
+                else if (!choicesDirty) choices = analyzed;
+                saveChoices();
                 renderSummary(state.summary);
                 dialog.set_primary_action(__("Crear importaciones"), confirm);
-                dialog.get_primary_btn().prop("disabled", !state.summary.sections || !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
+                dialog.get_primary_btn().prop("disabled", choicesDirty || !state.summary.sections || !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
             } else if (state.status === "Completado") {
                 running = false;
-                result.html(`<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>` + table(
-                    [__("Importación"), __("Empresa"), __("Fecha"), __("Filas"), __("Total US$")], state.created.map(doc => [
-                        `<a href="/app/${doc.doctype === "CN Remittance Allocation" ? "cn-remittance-allocation" : doc.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, esc(doc.employer || __("Por identificar")),
+                let completed = `<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>`;
+                for (const unidentified of [false, true]) {
+                    const records = state.created.filter(doc => (!doc.employer || doc.employer === "NO IDENTIFICADA") === unidentified);
+                    if (!records.length) continue;
+                    completed += `<section data-completed="${unidentified ? "unidentified" : "identified"}"><h4>${unidentified ? __("Casos no identificados") : __("Empresas identificadas")}</h4>` + table(
+                    [__("Importación"), __("Empresa"), __("Fecha"), __("Filas"), __("Total US$")], records.map(doc => [
+                        `<a href="/app/${doc.doctype === "CN Remittance Allocation" ? "cn-remittance-allocation" : doc.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(doc.name)}">${esc(doc.name)}</a>`, unidentified
+                            ? `<span tabindex="0" title="${attr(doc.description || __("Sin descripción del asiento"))}" style="cursor:help">${esc(doc.employer || __("Por identificar"))}</span>` : esc(doc.employer),
                         esc(frappe.datetime.str_to_user(doc.event_date)), esc(doc.rows), esc(format_currency(doc.total_usd, "USD")),
-                    ])));
+                    ])) + "</section>";
+                }
+                result.html(completed);
                 dialog.set_primary_action(__("Cerrar"), () => dialog.hide());
                 dialog.get_primary_btn().prop("disabled", false);
                 if (onComplete) onComplete();

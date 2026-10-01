@@ -28,7 +28,7 @@ def plan_deposits(records, employers, fallback=""):
             raise SourceFileError(f"Fila {row['source_row']}: el depósito necesita fecha y referencia bancaria.")
         if currency == "NIO" and decimal_value(rate) <= 0:
             raise SourceFileError(f"Fila {row['source_row']}: el depósito en C$ necesita una tasa C$/US$; importe el archivo contable en NIO con su tasa.")
-        if fallback and row.get("resolved_employer") and row["resolved_employer"] not in {fallback, UNIDENTIFIED_EMPLOYER}:
+        if fallback and row.get("resolved_employer") and row["resolved_employer"] not in {fallback, UNIDENTIFIED_EMPLOYER} and not row.get("_manual_employer"):
             raise SourceFileError(f"Fila {row['source_row']}: el depósito corresponde a otra empresa; use carga masiva sin empresa predeterminada.")
         row.update(deposit_date=row.get("bank_deposit_date") or row["event_date"],
                    deposit_currency=currency, deposit_amount=money_float(amount), deposit_fx_rate=rate,

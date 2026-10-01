@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 
-let dialog, calls = [], phase = "preview", html = "", legacy = false;
+let dialog, calls = [], phase = "preview", html = "", legacy = false, handlers = {};
 const storage = new Map();
 const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual_fx_rate: 0};
 const state = {status: "Vista previa", options, summary: {
@@ -11,6 +11,7 @@ const state = {status: "Vista previa", options, summary: {
         {employer: "NO IDENTIFICADA", event_date: "2025-04-15", count: 1, total_usd: 10}],
     rows: 2, issues: [], issues_count: 0, duplicates: [], duplicates_count: 1, excluded: [], excluded_count: 0,
     unidentified_count: 1,
+    file_hash: "FILE-HASH",
 }};
 function addSections(summary) {
     summary.sections = {};
@@ -23,7 +24,8 @@ function addSections(summary) {
             application_total_usd: groups.reduce((sum, group) => sum + group.total_usd, 0),
             complementary, complementary_count: complementary.length, deposits, deposit_count: deposits.length,
             applications: unknown && groups.length ? [{row: 8, event_date: "2025-04-15", client_name: "<Cliente pendiente>",
-                employer_text: "<Empresa original>", loan_number: "123-1", voucher: "AS-1", total_usd: 10}] : []};
+                employer_text: "<Empresa original>", loan_number: "123-1", voucher: "AS-1", total_usd: 10,
+                description: 'Asiento completo "cobranza" <script> & detalle'}] : []};
     }
 }
 const context = vm.createContext({
@@ -38,6 +40,8 @@ const context = vm.createContext({
         msgprint() {},
         call: async args => {
             calls.push(args);
+            if (args.method.endsWith("preview_bulk_import")) state.options = {...args.args,
+                employer_assignments: JSON.parse(args.args.employer_assignments || "{}")};
             if (args.method.endsWith("get_bulk_import_status")) {
                 if (!legacy) addSections(state.summary);
                 return {message: state};
@@ -51,7 +55,8 @@ const context = vm.createContext({
             this.label = opts.primary_action_label;
             this.values = {...options};
             this.props = {};
-            this.fields_dict = {result: {$wrapper: {html: value => {html = value;}, empty: () => {html = "";}}}};
+            this.fields_dict = {result: {$wrapper: {html: value => {html = value;}, empty: () => {html = "";},
+                on: (event, selector, callback) => {handlers[selector] = callback;}}}};
             this.get_values = () => this.values;
             this.set_values = async values => { this.values = {...values}; };
             this.set_df_property = (field, prop, value) => {this.props[`${field}:${prop}`] = value;};
@@ -60,7 +65,7 @@ const context = vm.createContext({
             this.set_secondary_action = action => {this.secondary = action;};
             this.set_secondary_action_label = () => {};
             this.show = () => {};
-            this.hide = () => opts.onhide();
+            this.hide = () => opts.onhide?.();
         }},
     },
 });
@@ -80,16 +85,36 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(unidentified.includes("&lt;Cliente pendiente&gt;"));
     assert.ok(unidentified.includes("&lt;Empresa original&gt;") && unidentified.includes("AS-1"));
     assert.ok(!unidentified.includes("&lt;Empresa&gt;"));
+    assert.ok(unidentified.includes('title="Asiento completo &quot;cobranza&quot; &lt;script&gt; &amp; detalle"'));
+    const main = dialog;
+    handlers[".cn-change-employer"].call({getAttribute: () => "8"});
+    assert.equal(dialog.opts.fields[1].options, "CN Employer");
+    dialog.primary({employer: "Empresa elegida"});
+    dialog = main;
+    assert.equal(dialog.disabled, true, "Changing the company invalidates confirmation until reanalysis");
+    assert.ok(html.includes("selecciones de empresa sin analizar"));
+    const confirmations = calls.filter(call => call.method.endsWith("confirm_bulk_import")).length;
+    await dialog.primary();
+    assert.equal(calls.filter(call => call.method.endsWith("confirm_bulk_import")).length, confirmations);
+    dialog.secondary();
+    await dialog.primary();
+    const reanalysis = calls.filter(call => call.method.endsWith("preview_bulk_import")).at(-1);
+    assert.equal(JSON.parse(reanalysis.args.employer_assignments)["8"], "Empresa elegida");
+    assert.equal(reanalysis.args.assignments_file_hash, "FILE-HASH");
+    assert.equal(dialog.disabled, false);
     assert.ok(!html.includes("Duplicados omitidos"));
     assert.equal(dialog.props["source_file:read_only"], 1);
     assert.ok(html.includes("&lt;Empresa&gt;"));
     assert.ok(html.includes("fecha:2025-04-15"));
     assert.equal(calls[0].args.currency, "USD");
     state.status = "Completado";
-    state.created = [{name: "CONTA-A-4-2025-001", employer: "A", event_date: "2025-04-15", rows: 2, total_usd: 45.04}];
+    state.created = [{name: "CONTA-A-4-2025-001", employer: "A", event_date: "2025-04-15", rows: 2, total_usd: 45.04},
+        {name: "CONTA-NO-IDENTIFICADA", employer: "NO IDENTIFICADA", event_date: "2025-04-15", rows: 1, total_usd: 10}];
     await dialog.primary();
     assert.ok(calls.some(call => call.method.endsWith("confirm_bulk_import")));
     assert.ok(html.includes("/app/cn-accounting-import/CONTA-A-4-2025-001"));
+    assert.ok(!html.split('data-completed="identified"')[1].split("</section>")[0].includes("CONTA-NO-IDENTIFICADA"));
+    assert.ok(html.split('data-completed="unidentified"')[1].split("</section>")[0].includes("CONTA-NO-IDENTIFICADA"));
     dialog.secondary();
     assert.equal(dialog.label, "Analizar archivo");
     assert.equal(dialog.props["source_file:read_only"], 0);

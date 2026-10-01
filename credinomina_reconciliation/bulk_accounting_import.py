@@ -9,6 +9,7 @@ from frappe.utils.file_manager import save_file
 
 from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
 from credinomina_reconciliation.accounting_identity import identify_lines
+from credinomina_reconciliation.accounting_assignments import apply_assignments
 from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
 from credinomina_reconciliation.accounting_deposits import plan_deposits, create_deposits
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
@@ -82,6 +83,9 @@ def _plan(options):
     if len(records) > MAX_MOVEMENTS:
         frappe.throw(_("La carga supera {0} movimientos. Divida el archivo.").format(f"{MAX_MOVEMENTS:,}"))
     file_hash = file_sha256(content)
+    assignments = options.get("employer_assignments") or {}
+    if assignments and options.get("assignments_file_hash") != file_hash:
+        raise SourceFileError("El archivo cambió. Quite las selecciones anteriores y analice el nuevo archivo.")
     repeated_evidence, seen_evidence = [], set()
     for row in records:
         key = row["accounting_source_key"]
@@ -115,6 +119,10 @@ def _plan(options):
     enrich_accounting_records(review_records, snapshot, register_clients=False)
     for row in review_records:
         row["event_type"] = "Ajuste"
+    # Review records carry their own enriched portfolio evidence; apply choices
+    # only after that enrichment and never mutate the original employer text.
+    candidates = [row for row in records if row.get("event_type") != "Ajuste"] + review_records
+    apply_assignments(candidates, employers, assignments)
     review_records = plan_review_items(review_records, employers, fallback)
     deposit_records = plan_deposits(records, employers, fallback)
     applications = [row for row in records if row.get("event_type") != "Ajuste" and row.get("accounting_classification") != "Depósito"]
@@ -148,6 +156,7 @@ def _plan(options):
 def _summary(plan):
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
+        "file_hash": plan.get("file_hash"),
         "sections": {key: _identification_summary(plan, unidentified)
                      for key, unidentified in (("identified", False), ("unidentified", True))},
         "groups": groups, "rows": sum(group["count"] for group in groups),
@@ -181,16 +190,19 @@ def _identification_summary(plan, unidentified):
         "applications": [{"row": row["source_row"], "event_date": row.get("event_date"),
                           "client_name": row.get("client_name"), "loan_number": row.get("loan_number"),
                           "employer_text": row.get("employer_text"), "voucher": row.get("voucher"),
+                          "description": row.get("source_description") or row.get("description") or "",
                           "total_usd": row.get("amount_usd"), "reason": row.get("portfolio_validation_status")}
                          for row in applications[:100]] if unidentified else [],
         "complementary_count": len(items),
         "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
                            "employer": row.get("resolved_employer"), "reason": row["classification_reason"],
-                           "employer_text": row.get("employer_text")} for row in items[:100]],
+                           "employer_text": row.get("employer_text"),
+                           "description": row.get("source_description") or row.get("description") or ""} for row in items[:100]],
         "deposit_count": len(deposits),
         "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
                       "currency": row["deposit_currency"], "amount": row["deposit_amount"],
-                      "reference": row["bank_deposit_reference"], "employer_text": row.get("employer_text")}
+                      "reference": row["bank_deposit_reference"], "employer_text": row.get("employer_text"),
+                      "description": row.get("source_description") or row.get("description") or ""}
                      for row in deposits[:100]],
     }
 
@@ -201,14 +213,19 @@ def _signature(plan):
 
 
 @frappe.whitelist(methods=["POST"])
-def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", portfolio_snapshot="", historical_backfill=0):
+def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", portfolio_snapshot="", historical_backfill=0,
+                        employer_assignments=None, assignments_file_hash=""):
     _permissions()
     _file(source_file)
+    assignments = frappe.parse_json(employer_assignments) if isinstance(employer_assignments, str) else employer_assignments or {}
+    if not isinstance(assignments, dict) or len(assignments) > MAX_MOVEMENTS:
+        frappe.throw(_("Las asignaciones de empresa no tienen un formato válido."))
     token = frappe.generate_hash(length=32)
     state = {"user": frappe.session.user, "status": "En cola", "phase": "preview", "options": {
         "source_file": source_file, "currency": clean_text(currency), "manual_fx_rate": manual_fx_rate,
         "employer": clean_text(employer), "portfolio_snapshot": clean_text(portfolio_snapshot),
         "historical_backfill": cint(historical_backfill),
+        "employer_assignments": assignments, "assignments_file_hash": clean_text(assignments_file_hash),
     }}
     _store(token, state)
     _enqueue(token, state)
@@ -269,21 +286,29 @@ def _create_imports(plan, options, progress=None):
     records = []
     for group in plan["groups"]:
         for record in group["rows"]:
-            if group["employer"] != UNIDENTIFIED_EMPLOYER and not record.get("employer_text") and not record.get("portfolio_employer"):
+            if group["employer"] != UNIDENTIFIED_EMPLOYER and not record.get("_manual_employer") and not record.get("employer_text") and not record.get("portfolio_employer"):
                 record["employer_text"] = group["employer"]
             records.append(record)
     # The preview already selected the dated cut. Reuse that evidence and build
     # the registry once for the whole batch, without changing its company scope.
     enrich_source_import_clients(records)
+    snapshot = options.get("portfolio_snapshot") or ""
+    snapshot_companies = None
+    if snapshot and any(row.get("_manual_employer") for row in records):
+        snapshot_companies = set(frappe.get_all("CN Credit Portfolio Row",
+            filters={"parent": snapshot}, pluck="employer", limit_page_length=0))
     for index, group in enumerate(plan["groups"], 1):
         employer = group["employer"]
         frappe.get_doc("CN Employer", employer).check_permission("read")
         records = group["rows"]
         csv_content = accounting_group_csv(source_records, records)
+        group_snapshot = snapshot
+        if snapshot_companies is not None and employer not in snapshot_companies and employer != UNIDENTIFIED_EMPLOYER:
+            group_snapshot = ""
         document = frappe.get_doc({
             "doctype": DOCTYPE, "employer": employer, "source_file": options["source_file"],
             "currency": options["currency"], "manual_fx_rate": options.get("manual_fx_rate", 0),
-            "portfolio_snapshot": options.get("portfolio_snapshot") or "",
+            "portfolio_snapshot": group_snapshot,
             "historical_backfill": options.get("historical_backfill", 0),
             "bulk_source_hash": plan["file_hash"], "bulk_event_date": group["event_date"],
             "bulk_source_file": options["source_file"],
@@ -291,7 +316,9 @@ def _create_imports(plan, options, progress=None):
             "status": "Importado", "imported_on": now_datetime(), "imported_by": frappe.session.user,
             "notes": _("Carga masiva de {0}. Fecha: {1}. Pendiente de conciliar esta empresa.").format(
                 plan["file_name"], group["event_date"])
-                + (_(" Empresa pendiente de identificar; se conservó el texto original del movimiento.") if employer == UNIDENTIFIED_EMPLOYER else ""),
+                + (_(" Empresa pendiente de identificar; se conservó el texto original del movimiento.") if employer == UNIDENTIFIED_EMPLOYER else "")
+                + (_(" Empresa seleccionada manualmente antes de importar; decisión conservada en CN_EMPRESA_ASIGNADA del CSV.") if any(row.get("_manual_employer") for row in records) else "")
+                + (_(" Corte usado en el análisis: {0}. No se fijó en el documento porque no contiene esta empresa.").format(snapshot) if snapshot and not group_snapshot else ""),
             "rows": [{**record, "effective": 1, "match_status": "Pendiente", "deposit_match_status": "Pendiente"}
                      for record in records],
         }).insert()
@@ -314,17 +341,20 @@ def _create_imports(plan, options, progress=None):
             "attached_to_name": document.name, "attached_to_field": "bulk_source_file",
         }).insert()
         created.append({"name": document.name, "employer": employer, "event_date": group["event_date"],
-                        "rows": len(records), "total_usd": document.total_usd})
+                        "rows": len(records), "total_usd": document.total_usd,
+                        "description": records[0].get("source_description") or records[0].get("description") or "" if employer == UNIDENTIFIED_EMPLOYER else ""})
         if progress:
             progress(index, len(plan["groups"]))
     for item in create_review_items(plan.get("complementary", []), options["source_file"], plan["file_hash"]):
         created.append({"doctype": "CN Complementary Item", "name": item.name, "employer": item.employer,
-                        "event_date": item.posting_date, "rows": 1, "total_usd": item.amount_usd})
+                        "event_date": item.posting_date, "rows": 1, "total_usd": item.amount_usd,
+                        "description": item.source_description if item.employer == UNIDENTIFIED_EMPLOYER else ""})
     create_deposits(plan.get("deposits", []), options["source_file"], plan["file_hash"])
     for row in plan.get("deposits", []):
         created.append({"doctype": "CN Remittance Allocation", "name": row["remittance_allocation"],
                         "employer": row.get("resolved_employer"), "event_date": row["event_date"],
-                        "rows": 1, "total_usd": row["deposit_usd"]})
+                        "rows": 1, "total_usd": row["deposit_usd"],
+                        "description": row.get("source_description") or "" if row.get("resolved_employer") == UNIDENTIFIED_EMPLOYER else ""})
     return created
 
 

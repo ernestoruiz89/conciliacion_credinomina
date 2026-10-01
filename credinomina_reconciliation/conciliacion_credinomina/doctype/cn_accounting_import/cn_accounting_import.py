@@ -557,6 +557,7 @@ def import_source_file(import_name: str):
 
 def _validate_bulk_reimport(document, records):
     from credinomina_reconciliation.accounting_batch import group_applications
+    from credinomina_reconciliation.accounting_assignments import apply_assignments
 
     # Resolve across all companies first so a file from another company cannot
     # slip through a company-filtered portfolio lookup.
@@ -565,6 +566,8 @@ def _validate_bulk_reimport(document, records):
         "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
     )
     attach_employer_aliases(employers)
+    apply_assignments(records, employers, {str(row["source_row"]): row["_csv_employer_assignment"]
+        for row in records if row.get("_csv_employer_assignment")})
     plan = group_applications(records, employers, document.employer)
     groups = plan["groups"]
     # A single unresolved case may have been manually assigned to a real
@@ -577,7 +580,7 @@ def _validate_bulk_reimport(document, records):
             document.employer, document.bulk_event_date,
         ))
     for record in records:
-        if document.employer != UNIDENTIFIED_EMPLOYER and not record.get("employer_text") and not record.get("portfolio_employer"):
+        if document.employer != UNIDENTIFIED_EMPLOYER and not record.get("_manual_employer") and not record.get("employer_text") and not record.get("portfolio_employer"):
             record["employer_text"] = document.employer
 
 

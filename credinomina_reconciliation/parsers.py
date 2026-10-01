@@ -483,6 +483,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
             )
         )
         parsed[-1].update({
+            "_csv_employer_assignment": clean_text(record.get("cn_empresa_asignada")),
             "source_description": "" if record.get("descripcion") is None else str(record["descripcion"]),
             "tmov": tmov, "tdoc": tdoc,
             "accounting_classification": classification, "classification_reason": reason,
