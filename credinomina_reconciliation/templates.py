@@ -31,6 +31,9 @@ DETAIL_HEADERS = (
 )
 
 _DEPOSIT_OMITTED_HEADERS = {
+    "Nro. cuota",
+    "Referencia de Aplicación",
+    "Comentario de Aplicación",
     "Nro. de cuotas totales",
     "Monto de la cuota en US$",
     "Monto de la cuota en C$",
@@ -73,10 +76,13 @@ _COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 22, 24, 24, 32, 27, 32, 19, 19, 28)
 _TEXT_COLUMNS = (1, 2, 4, 5, 6, 7, 11)
 _DEPOSIT_ROW_FIELDS = tuple(
     field for field in _ROW_FIELDS
-    if field not in {"total_installments", "expected_usd", "expected_nio"}
+    if field not in {
+        "installment_number", "application_reference", "application_comment",
+        "total_installments", "expected_usd", "expected_nio",
+    }
 )
-_DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 32, 27, 32, 19, 19, 19)
-_DEPOSIT_TEXT_COLUMNS = (1, 2, 4, 5, 6, 8, 12)
+_DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 32, 19, 19, 19)
+_DEPOSIT_TEXT_COLUMNS = (1, 2, 4, 5, 9)
 
 
 def build_template_xlsx(

@@ -20,6 +20,9 @@ ROOT = Path(__file__).resolve().parents[1]
 class DepositDetailColumnTests(unittest.TestCase):
     def test_deposit_template_omits_total_installments_and_installment_amounts(self):
         omitted = {
+            "Nro. cuota",
+            "Referencia de Aplicación",
+            "Comentario de Aplicación",
             "Nro. de cuotas totales",
             "Monto de la cuota en US$",
             "Monto de la cuota en C$",
@@ -40,12 +43,27 @@ class DepositDetailColumnTests(unittest.TestCase):
             "total_installments": "12",
             "expected_usd": 46.52,
             "expected_nio": 1700,
+            "installment_number": "3",
+            "application_reference": "REF-OMITIDA",
+            "application_comment": "Comentario omitido",
+            "comments": "Observación del depósito",
             "row_key": "FILA-1",
         }])), read_only=True).active
         self.assertEqual("ANA PÉREZ", sheet["C2"].value)
-        self.assertIsNone(sheet["J2"].value)
-        self.assertIsNone(sheet["K2"].value)
-        self.assertEqual("FILA-1", sheet["L2"].value)
+        self.assertEqual(sheet.max_column, 9)
+        self.assertEqual(sheet["F2"].value, "Observación del depósito")
+        self.assertIsNone(sheet["G2"].value)
+        self.assertIsNone(sheet["H2"].value)
+        self.assertEqual("FILA-1", sheet["I2"].value)
+
+    def test_deposit_template_keeps_widths_formats_and_filter_aligned(self):
+        sheet = load_workbook(io.BytesIO(build_template_xlsx("deposito"))).active
+        self.assertEqual(sheet.auto_filter.ref, "A1:I2")
+        self.assertEqual(sheet.freeze_panes, "A2")
+        self.assertEqual(sheet.column_dimensions["F"].width, 32)
+        self.assertEqual(sheet.column_dimensions["I"].number_format, "@")
+        for column in ("G", "H"):
+            self.assertNotEqual(sheet.column_dimensions[column].number_format, "@")
 
     def test_detail_rows_hide_legacy_expected_amounts_and_import_no_longer_assigns_them(self):
         doctype_dir = (
