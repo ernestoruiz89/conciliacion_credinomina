@@ -45,14 +45,18 @@ class PeriodFormLayoutTest(unittest.TestCase):
             fields["historical_section"]["depends_on"],
         )
 
-    def test_exceptions_are_visible_in_main_tab_in_both_modes(self):
+    def test_exceptions_have_their_own_tab_in_both_modes(self):
         doctype = json.loads(PERIOD_DOCTYPE.read_text(encoding="utf-8"))
         fields = {field["fieldname"]: field for field in doctype["fields"]}
         order = doctype["field_order"]
         self.assertEqual("HTML", fields["exceptions_html"]["fieldtype"])
-        self.assertEqual("eval:!doc.__islocal", fields["exceptions_section"]["depends_on"])
-        self.assertLess(order.index("exception_count"), order.index("exceptions_section"))
-        self.assertLess(order.index("exceptions_html"), order.index("detail_tab"))
+        self.assertEqual("Tab Break", fields["exceptions_tab"]["fieldtype"])
+        self.assertEqual("Excepciones del período", fields["exceptions_tab"]["label"])
+        self.assertEqual("eval:!doc.__islocal", fields["exceptions_tab"]["depends_on"])
+        self.assertLess(order.index("notes"), order.index("exceptions_tab"))
+        self.assertLess(order.index("exceptions_tab"), order.index("exceptions_section"))
+        self.assertLess(order.index("exceptions_section"), order.index("exceptions_html"))
+        self.assertLess(order.index("exceptions_html"), order.index("tracking_tab"))
         self.assertEqual("Excepciones abiertas", fields["exception_count"]["label"])
 
 
