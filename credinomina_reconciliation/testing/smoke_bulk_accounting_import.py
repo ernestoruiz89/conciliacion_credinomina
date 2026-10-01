@@ -105,7 +105,7 @@ def run():
                 raise AssertionError("CSV from another date/company must be rejected")
         repeated = bulk._plan(options)
         assert not repeated["groups"]
-        assert len(repeated["duplicates"]) == 36
+        assert len(repeated["already_imported"]) == 36
         # The original all-company report must never be used to reload one group.
         with patch.object(accounting, "_attached_file", return_value=(source, stream.getvalue())):
             try:

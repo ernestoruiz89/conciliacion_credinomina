@@ -69,10 +69,39 @@ class AccountingBatchTest(unittest.TestCase):
             self.assertEqual(len(result["issues"]), 1)
             self.assertEqual(result["groups"], [])
 
-    def test_conflicting_or_unknown_employers_require_review(self):
-        for row in (movement(portfolio_employer="B"), movement(employer_text="Desconocido"),
+    def test_unknown_employers_without_portfolio_require_review(self):
+        for row in (movement(employer_text="Desconocido"),
                     movement(employer_text="")):
             self.assertEqual(len(group_applications([row], EMPLOYERS)["issues"]), 1)
+
+    def test_portfolio_company_wins_over_unknown_conflicting_or_ambiguous_text(self):
+        employers = deepcopy(EMPLOYERS)
+        employers[1]["aliases"] = ["Planilla A"]
+        for label in ("Desconocido", "A", "Planilla A", ""):
+            row = movement(employer_text=label, portfolio_employer="B")
+            result = group_applications([row], employers)
+            self.assertEqual(result["issues"], [])
+            self.assertEqual(result["groups"][0]["employer"], "B")
+            self.assertEqual(result["groups"][0]["rows"][0]["employer_text"], label)
+
+    def test_exact_name_takes_precedence_over_another_company_alias(self):
+        employers = deepcopy(EMPLOYERS)
+        employers[1]["aliases"] = ["Empresa A"]
+        result = group_applications([movement(employer_text=" Empresa  A ")], employers)
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(result["groups"][0]["employer"], "A")
+
+    def test_unavailable_portfolio_company_cannot_fall_back_to_another(self):
+        self.assertTrue(group_applications([movement(portfolio_employer="No disponible")], EMPLOYERS)["issues"])
+
+    def test_8008_portfolio_resolved_rows_do_not_require_8008_aliases(self):
+        rows = [movement(source_row=i + 2, loan_number=f"{i + 1}-1",
+                         portfolio_employer="A", employer_text=f"Texto contable {i}")
+                for i in range(8008)]
+        result = group_applications(rows, EMPLOYERS)
+        self.assertEqual(result["issues"], [])
+        self.assertEqual(result["groups"][0]["count"], 8008)
+        self.assertEqual(result["groups"][0]["total_usd"], 200200)
 
     def test_fallback_does_not_override_company_found_in_file_or_portfolio(self):
         for row in (movement(employer_text="B"), movement(employer_text="", portfolio_employer="B")):
@@ -93,8 +122,9 @@ class AccountingBatchTest(unittest.TestCase):
         row = movement()
         plan = group_applications([row, dict(row, source_row=5)], EMPLOYERS)
         self.assertEqual(len(plan["duplicates"]), 1)
+        self.assertEqual(plan["groups"][0]["count"], 2)
         plan = group_applications([row], EMPLOYERS, existing={("A", movement_key(row))})
-        self.assertEqual(plan["groups"], [])
+        self.assertEqual(plan["groups"][0]["count"], 1)
         self.assertEqual(len(plan["duplicates"]), 1)
         # Another accounting entry is not silently discarded as a duplicate.
         self.assertNotEqual(movement_key(row), movement_key(movement(voucher="AS-2")))

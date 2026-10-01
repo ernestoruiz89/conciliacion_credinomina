@@ -58,17 +58,12 @@ def _amounts(row, currency, rate):
 
 
 def build_rows(sources, imports, items, clients=(), deposits=()):
-    """Count mirrors once; preserve repeated physical rows inside the same import.
-
-    Across imports use evidence identity + occurrence, never a loan/customer key.
-    Report possible repeat imports explicitly rather than calling the load complete.
-    """
+    """Count mirrors once, but never remove physical lines by value similarity."""
     by_item = {item["name"]: item for item in items}
     by_deposit = {deposit["accounting_source_key"]: deposit for deposit in deposits if deposit.get("accounting_source_key")}
     by_client = defaultdict(list)
     for client in clients:
         by_client[client.get("client_number")].append(client)
-    occurrences = defaultdict(int)
     seen, represented_items, represented_keys = set(), set(), set()
     output, duplicates = [], 0
 
@@ -109,12 +104,6 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             continue
         key = (source.get("accounting_source_key") or source.get("source_key") or source["name"],
                source.get("source_currency") or parent.get("currency"))
-        occurrences[(source["parent"], key)] += 1
-        occurrence_key = (key, occurrences[(source["parent"], key)])
-        if occurrence_key in seen:
-            duplicates += 1
-            continue
-        seen.add(occurrence_key)
         represented_keys.add(key)
         item = by_item.get(source.get("complementary_item"))
         if source.get("complementary_item"):
@@ -134,6 +123,16 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             continue
         output.append(make_row(deposit))
         represented_keys.add(key)
+    for row in output:
+        key = tuple(row.get(field) for field in (
+            "event_date", "source_account", "source_currency", "voucher", "description",
+            "debit_nio", "credit_nio", "debit_usd", "credit_usd", "employer", "movement_type",
+        ))
+        if key in seen:
+            duplicates += 1
+            row["warning"] = "; ".join(filter(None, [row["warning"],
+                "Posible repetición contable: incluida en los totales; revise la evidencia original."]))
+        seen.add(key)
     return sorted(output, key=lambda row: (row["event_date"], row["source_account"], row["voucher"], row["accounting_import"])), duplicates
 
 

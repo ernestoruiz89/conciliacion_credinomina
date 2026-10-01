@@ -69,7 +69,7 @@ def run():
         internal.submit()
         assert internal.docstatus == 1 and internal.review_status == "Lista para conciliar"
         repeat = bulk._plan(options)
-        assert not repeat["groups"] and not repeat["complementary"] and len(repeat["duplicates"]) == 5
+        assert not repeat["groups"] and not repeat["complementary"] and len(repeat["already_imported"]) == 5
         # Individual import routes non-payments the same way and does not duplicate drafts.
         individual_stream = io.StringIO()
         writer = csv.writer(individual_stream)

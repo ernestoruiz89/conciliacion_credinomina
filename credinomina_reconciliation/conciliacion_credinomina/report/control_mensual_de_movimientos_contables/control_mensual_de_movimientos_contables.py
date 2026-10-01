@@ -66,7 +66,7 @@ def execute(filters=None):
                 "US$ incluye USD original y conversiones. El estado de conciliación es actual, no un corte histórico. "
                 "No certifica carga completa: los movimientos que no llegaron a guardarse no aparecen aquí.")
     if duplicates:
-        message += " " + _("Se omitieron {0} posibles repeticiones entre importaciones por identidad contable y ocurrencia; revise los archivos si son asientos distintos.").format(duplicates)
+        message += " " + _("Se detectaron {0} posibles repeticiones contables. Se conservaron y están incluidas en los totales; revise su evidencia original.").format(duplicates)
     if missing:
         message += " " + _("ATENCIÓN: {0} movimientos sin evidencia o conversión completa; los totales solo suman los importes disponibles.").format(missing)
     pending = sum(bool(row["import_status"] and row["import_status"] not in {"Importado", "Importado con excepciones"}) for row in rows)

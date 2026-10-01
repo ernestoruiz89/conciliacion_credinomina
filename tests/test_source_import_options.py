@@ -62,6 +62,7 @@ class SourceImportOptionsTest(unittest.TestCase):
             patch.object(source, "_", side_effect=lambda text: text),
             patch.object(source, "_attached_file", return_value=(SimpleNamespace(file_name="movimientos.xlsx"), b"data")),
             patch.object(source, "parse_accounting_movements", return_value=records) as parser,
+            patch("credinomina_reconciliation.accounting_identity.identify_lines"),
             patch.object(source, "apply_accounting_currency_override", return_value=records),
             patch.object(source, "enrich_accounting_records", return_value=records),
             patch.object(source, "enrich_source_import_clients", return_value=records),
@@ -78,7 +79,7 @@ class SourceImportOptionsTest(unittest.TestCase):
         document = SimpleNamespace(doctype="CN Accounting Import", name="IMPORT", file_hash="hash")
         with patch.object(source.frappe, "db", Mock(get_value=Mock(return_value=None))) as database:
             source.CNAccountingImport._validate_duplicate_file(document)
-        filters = database.get_value.call_args.args[1]
+        filters = database.get_value.call_args_list[0].args[1]
         self.assertEqual(filters["file_hash"], "hash")
         self.assertNotIn("source_type", filters)
 

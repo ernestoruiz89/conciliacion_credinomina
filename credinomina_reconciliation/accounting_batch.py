@@ -5,14 +5,14 @@ from datetime import date, datetime
 import csv
 import io
 
-from credinomina_reconciliation.employer_naming import employer_alias_index, employer_label_key
+from credinomina_reconciliation.employer_naming import AccountingEmployerResolver
 from credinomina_reconciliation.parsers import SourceFileError, clean_text, source_key
 from credinomina_reconciliation.reconciliation import duplicate_business_key
 from credinomina_reconciliation.rounding import sum_money
 
 
 def movement_key(record):
-    # Same business identity used by reconciliation (includes voucher and date).
+    # Similarity for review only, never proof that two physical lines are one.
     return source_key(*duplicate_business_key(record))
 
 
@@ -47,8 +47,7 @@ def accounting_group_csv(source_records, rows):
 
 
 def group_applications(records, employers, fallback_employer="", existing=()):
-    aliases, ambiguous = employer_alias_index(employers)
-    names = {row["name"] for row in employers}
+    resolver = AccountingEmployerResolver(employers)
     existing = set(existing)
     groups = defaultdict(list)
     issues, duplicates, excluded = [], [], []
@@ -65,33 +64,18 @@ def group_applications(records, employers, fallback_employer="", existing=()):
         except ValueError:
             event_date = ""
             reasons.append("Falta una fecha de aplicación válida")
-        label = employer_label_key(row.get("employer_text"))
-        from_file = aliases.get(label, "")
-        from_portfolio = clean_text(row.get("portfolio_employer"))
-        if label in ambiguous:
-            reasons.append("Empresa o alias ambiguo")
-        elif label and not from_file:
-            reasons.append("Empresa del movimiento no registrada; agregue su alias al convenio")
-        if from_file and from_portfolio and from_file != from_portfolio:
-            reasons.append("La empresa del movimiento no coincide con la cartera")
-        employer = from_file or from_portfolio or fallback_employer
-        if employer not in names:
-            reasons.append("No se pudo identificar una empresa de convenio")
-        if fallback_employer and employer != fallback_employer:
+        employer, employer_issue = resolver.resolve(row, fallback_employer)
+        if employer_issue:
+            reasons.append(employer_issue)
+        if fallback_employer and employer and employer != fallback_employer:
             reasons.append("La fila pertenece a otra empresa; quite la empresa predeterminada para un archivo mixto")
-        if row.get("portfolio_validation_status") in {
-            "Crédito duplicado en corte", "Número de cliente ambiguo en el corte",
-            "Número de cliente del movimiento no coincide con el crédito en cartera",
-        }:
-            reasons.append(row["portfolio_validation_status"])
         if reasons:
             issues.append({"row": row.get("source_row"), "loan_number": row.get("loan_number"),
                            "reason": "; ".join(reasons)})
             continue
         key = (employer, movement_key(row))
         if key in existing or key in seen:
-            duplicates.append({"row": row.get("source_row"), "reason": "Aplicación ya importada o repetida en el archivo"})
-            continue
+            duplicates.append({"row": row.get("source_row"), "reason": "Aplicación similar a otra línea del archivo o de una carga previa; se importará para revisión"})
         seen.add(key)
         row["event_date"] = event_date
         # Preserve the original employer text; use this resolved value only for grouping.

@@ -63,9 +63,10 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                 esc(row.row), esc(row.employer || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
             ]));
         }
-        for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Duplicados omitidos")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
+        if (summary.duplicates_count) html += `<p class="alert alert-warning">${__("Hay movimientos similares. Revise las filas indicadas: se importarán todos, aunque coincidan cuenta, asiento e importe.")}</p>`;
+        for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Posibles duplicados (se importarán)")], ["already_imported", __("Filas del mismo archivo ya registradas")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
             if (!summary[`${key}_count`]) continue;
-            html += `<details${key === "issues" ? " open" : ""}><summary>${esc(label)}: ${summary[`${key}_count`]}</summary>`;
+            html += `<details${key === "issues" || key === "duplicates" ? " open" : ""}><summary>${esc(label)}: ${summary[`${key}_count`]}</summary>`;
             html += table([__("Fila del archivo"), __("Motivo")], summary[key].map(row => [esc(row.row), esc(row.reason)]));
             if (summary[`${key}_count`] > 100) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
             html += "</details>";

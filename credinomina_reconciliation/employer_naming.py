@@ -80,6 +80,56 @@ def employer_alias_index(records):
     return aliases, ambiguous
 
 
+class AccountingEmployerResolver:
+    """Portfolio identity first; exact company names before registered aliases."""
+
+    def __init__(self, records):
+        records = list(records)
+        self.names = {row["name"] for row in records}
+        self.indexes = []
+        for fields in (("name", "employer_name"), ("employer_code",), ("aliases",)):
+            index, ambiguous = {}, set()
+            for row in records:
+                labels = [row.get(field) for field in fields] if fields != ("aliases",) else [
+                    alias.get("alias_name") if hasattr(alias, "get") else alias
+                    for alias in row.get("aliases") or []
+                ]
+                for label in labels:
+                    key = employer_label_key(label)
+                    if not key or key in ambiguous:
+                        continue
+                    if key in index and index[key] != row["name"]:
+                        index.pop(key)
+                        ambiguous.add(key)
+                    else:
+                        index[key] = row["name"]
+            self.indexes.append((index, ambiguous))
+
+    def resolve(self, record, fallback=""):
+        status = record.get("portfolio_validation_status") or ""
+        if status in {
+            "Crédito duplicado en corte", "Número de cliente ambiguo en el corte",
+            "Número de cliente del movimiento no coincide con el crédito en cartera",
+        }:
+            return "", status
+        portfolio = str(record.get("portfolio_employer") or "").strip()
+        if portfolio:
+            if portfolio in self.names:
+                return portfolio, ""
+            return "", "La empresa identificada en cartera no está disponible para esta carga"
+        key = employer_label_key(record.get("employer_text"))
+        for index, ambiguous in self.indexes:
+            if key in ambiguous:
+                return "", "Empresa o alias ambiguo"
+            if key in index:
+                return index[key], ""
+        if key:
+            return "", "No se identificó empresa por cartera, nombre ni alias; revise el crédito y el corte seleccionado o registre el alias"
+        if fallback in self.names:
+            return fallback, ""
+        return "", "No se pudo identificar una empresa de convenio por cartera, nombre ni alias"
+
+
 def attach_employer_aliases(records):
     """Attach child-table aliases to employer rows fetched with ``frappe.get_all``.
 

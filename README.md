@@ -140,12 +140,20 @@ para subir un archivo con aplicaciones de varios meses o empresas:
 
 1. Adjunte el archivo y seleccione USD o NIO. Para NIO, indique una tasa para
    toda la carga; si las fechas requieren tasas distintas, divida los archivos.
-2. Deje Empresa vacía para detectar cada convenio por nombre, código, alias o
-   cartera. Una empresa predeterminada solo completa filas sin empresa identificada;
-   no reemplaza una empresa distinta informada en el movimiento o la cartera.
+2. Deje Empresa vacía para archivos mixtos. Primero se busca el crédito en el
+   **Corte de cartera** seleccionado (o el corte aplicable a la fecha si no selecciona
+   uno) y se toma su empresa. Si no se obtiene empresa de cartera, se busca el
+   nombre de la empresa, su código y finalmente sus alias registrados. Un nombre
+   libre sin alias no bloquea una empresa ya identificada en cartera. Una empresa
+   predeterminada solo completa filas sin datos de empresa; no reemplaza otra
+   empresa identificada. Créditos duplicados e identidades contradictorias
+   continúan requiriendo revisión.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
    de aplicación y las partidas complementarias que quedarán en revisión;
-   los duplicados del archivo o de cargas previas se muestran como omitidos.
+   las líneas similares del archivo o de cargas previas se advierten como posibles
+   duplicados, pero **se importan todas** y participan en los totales y conciliación.
+   Solo se evita recrear una misma fila del mismo archivo ya registrado; para
+   actualizarla, reprocese su documento existente.
    Las identidades ambiguas o fechas faltantes deben corregirse antes de continuar.
 4. Pulse **Crear importaciones**. Se crea un `CN Accounting Import` por grupo,
    con sus filas, importes en US$, trazabilidad y un **CSV individual** en el campo
@@ -183,8 +191,10 @@ evidencia, pero no sustituye las reglas confirmadas:
 Los créditos, reversiones y movimientos no identificados conservan empresa y
 crédito solo cuando pueden determinarse. No se inventa una empresa ni una referencia
 de depósito a partir de `NO_REF`. La evidencia incluye cuenta, asiento, descripción,
-fecha, débito/crédito, moneda, tasa, archivo y fila. Los duplicados se reutilizan u
-omiten, sin recrear partidas al reprocesar.
+fecha, débito/crédito, moneda, tasa, archivo y fila. Cada línea física tiene identidad
+propia, aunque sus valores coincidan con otra. Al reprocesar el mismo origen se
+reutilizan sus partidas y depósitos; las coincidencias nuevas se conservan en borrador
+para revisión. Esto no confirma efectivo automáticamente.
 
 En **Partidas complementarias → Movimientos por revisar**:
 
@@ -273,8 +283,8 @@ neto de una partida como si fuera su débito o crédito original.
 Las partidas complementarias importadas, aunque estén en revisión, compensadas
 o sin empresa, forman parte del control. El movimiento representado a la vez en
 una fila contable y una partida se cuenta una sola vez. Las posibles repeticiones
-entre cargas se detectan por identidad contable y ocurrencia y se advierten;
-las filas repetidas dentro de una misma importación se conservan. Revise los
+entre cargas se advierten, sin excluirlas de los totales;
+las filas repetidas dentro de una misma importación también se conservan. Revise los
 archivos si coincidencias de identidad corresponden realmente a asientos distintos.
 Las partidas creadas manualmente no prueban una carga contable y no se incluyen.
 

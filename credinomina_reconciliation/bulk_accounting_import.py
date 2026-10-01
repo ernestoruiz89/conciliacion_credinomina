@@ -8,6 +8,7 @@ from frappe.utils import cint, now_datetime
 from frappe.utils.file_manager import save_file
 
 from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
+from credinomina_reconciliation.accounting_identity import identify_lines
 from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
 from credinomina_reconciliation.accounting_deposits import plan_deposits, create_deposits
 from credinomina_reconciliation.client_registry import enrich_source_import_clients
@@ -79,31 +80,47 @@ def _plan(options):
     )
     if len(records) > MAX_MOVEMENTS:
         frappe.throw(_("La carga supera {0} movimientos. Divida el archivo.").format(f"{MAX_MOVEMENTS:,}"))
+    file_hash = file_sha256(content)
+    repeated_evidence, seen_evidence = [], set()
+    for row in records:
+        key = row["accounting_source_key"]
+        if key in seen_evidence and row.get("event_type") != "Aplicacion":
+            repeated_evidence.append({"row": row["source_row"], "reason": "Movimiento similar a otra línea del archivo; se conservará como registro independiente en borrador"})
+        seen_evidence.add(key)
+    identify_lines(records, file_hash)
     # Preview must never create clients or modify portfolio/master documents.
     records = enrich_accounting_records(records, snapshot, register_clients=False)
     parents = frappe.get_all(
-        DOCTYPE, filters={"status": ["!=", "Fallido"]}, fields=["name", "employer"],
+        DOCTYPE, filters={"status": ["!=", "Fallido"]}, fields=["name", "employer", "file_hash", "bulk_source_hash"],
         limit_page_length=0,
     )
     companies = {parent.name: parent.employer for parent in parents}
+    same_file_parents = {parent.name for parent in parents if file_hash in (parent.file_hash, parent.bulk_source_hash)}
     dates = [str(row["event_date"])[:10] for row in records if row.get("event_date")]
     existing = set()
+    imported_lines = set()
     if dates and companies:
         for row in frappe.get_all(
             "CN Source Row", filters={"parenttype": DOCTYPE, "event_type": "Aplicacion",
                                       "event_date": ["between", [min(dates), max(dates)]]},
-            fields=["parent", "event_type", "loan_number", "reference", "currency", "amount", "event_date", "voucher"],
+            fields=["parent", "source_row", "event_type", "loan_number", "reference", "currency", "amount", "event_date", "voucher"],
             limit_page_length=0,
         ):
             if row.parent in companies:
                 existing.add((companies[row.parent], movement_key(row)))
+            if row.parent in same_file_parents:
+                imported_lines.add(row.source_row)
     review_records = [dict(row, event_type="Aplicacion") for row in records if row.get("event_type") == "Ajuste"]
     enrich_accounting_records(review_records, snapshot, register_clients=False)
     for row in review_records:
         row["event_type"] = "Ajuste"
     review_records = plan_review_items(review_records, employers, fallback)
     deposit_records = plan_deposits(records, employers, fallback)
-    plan = group_applications([row for row in records if row.get("event_type") != "Ajuste" and row.get("accounting_classification") != "Depósito"], employers, fallback, existing)
+    applications = [row for row in records if row.get("event_type") != "Ajuste" and row.get("accounting_classification") != "Depósito"]
+    plan = group_applications([row for row in applications if row["source_row"] not in imported_lines], employers, fallback, existing)
+    plan["already_imported"] = [{"row": row["source_row"], "reason": "Esta misma fila del mismo archivo ya fue importada; use su documento para reprocesarla"}
+                                for row in applications if row["source_row"] in imported_lines]
+    plan["duplicates"].extend(repeated_evidence)
     if deposit_records and not frappe.has_permission("CN Remittance Allocation", "create"):
         frappe.throw(_("Se requiere permiso para crear depósitos."), frappe.PermissionError)
     # Keep already imported evidence in the plan: creation is idempotent and
@@ -119,7 +136,7 @@ def _plan(options):
         if not row.get("event_date"):
             plan["issues"].append({"row": row["source_row"], "reason": "Falta fecha válida en el movimiento por revisar"})
         elif row["accounting_source_key"] in existing_review:
-            plan["duplicates"].append({"row": row["source_row"], "reason": "Movimiento ya registrado como partida complementaria"})
+            plan["already_imported"].append({"row": row["source_row"], "reason": "Esta misma fila del mismo archivo ya tiene una partida complementaria"})
         else:
             existing_review.add(row["accounting_source_key"])
             plan["complementary"].append(row)
@@ -139,8 +156,8 @@ def _summary(plan):
         "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
                            "employer": row.get("resolved_employer"), "reason": row["classification_reason"]}
                           for row in plan.get("complementary", [])[:100]],
-        **{key: plan[key][:100] for key in ("issues", "duplicates", "excluded")},
-        **{f"{key}_count": len(plan[key]) for key in ("issues", "duplicates", "excluded")},
+        **{key: plan[key][:100] for key in ("issues", "duplicates", "excluded", "already_imported")},
+        **{f"{key}_count": len(plan[key]) for key in ("issues", "duplicates", "excluded", "already_imported")},
     }
 
 

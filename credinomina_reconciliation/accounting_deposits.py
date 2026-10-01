@@ -94,10 +94,10 @@ def create_deposits(records, source_file, file_hash):
             duplicates = frappe.get_all(DOCTYPE, filters={"docstatus": ["!=", 2],
                 "deposit_reference": row["bank_deposit_reference"], "deposit_date": row["deposit_date"],
                 "deposit_currency": row["deposit_currency"], "deposit_amount": row["deposit_amount"]}, pluck="name")
-            if duplicates:
-                frappe.throw(_("Fila {0}: ya existe un depósito con referencia, fecha, moneda e importe iguales. Revise el registro existente antes de importar para no duplicar efectivo.").format(row["source_row"]))
             bank, bank_reason = _bank_account(row)
             notes = ["Importado de contabilidad. Revise y confirme el depósito; no se ha conciliado.", bank_reason]
+            if duplicates:
+                notes.append("Posible repetición: ya existe un depósito con referencia, fecha, moneda e importe iguales. Se conservó esta línea en borrador; revise antes de confirmar para no duplicar efectivo.")
             if not row.get("resolved_employer"):
                 notes.append("Empresa pendiente de identificar: " + (row.get("employer_text") or "Sin dato"))
             if not row.get("bank_deposit_currency"):

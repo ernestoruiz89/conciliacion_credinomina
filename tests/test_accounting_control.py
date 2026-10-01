@@ -43,16 +43,17 @@ class AccountingControlTests(unittest.TestCase):
         self.assertEqual(rows[0]["credit_usd"], 50)
         self.assertEqual(rows[0]["net_usd"], 50)
 
-    def test_mirror_and_repeat_import_count_once_but_physical_repetitions_remain(self):
+    def test_mirror_counted_once_but_similar_lines_across_imports_remain(self):
         parents = imports()
-        parents["IMP2"] = {"name": "IMP2", "currency": "NIO"}
+        parents["IMP2"] = {"name": "IMP2", "currency": "NIO", "employer": "Empresa"}
         sources = [source(complementary_item="C"), source("ROW2", idx=2, complementary_item="C"), source("REPEAT", "IMP2")]
         complementary = {**source("C"), "source_date": "2025-04-01", "compensation_status": "Compensada totalmente"}
         rows, duplicates = build_rows(sources, parents, [complementary])
-        self.assertEqual(len(rows), 2)
-        self.assertEqual(duplicates, 1)
-        self.assertEqual(sum(row["debit_usd"] for row in rows), 200)
-        self.assertTrue(all(row["state"] == "Compensada totalmente" for row in rows))
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(duplicates, 2)
+        self.assertEqual(sum(row["debit_usd"] for row in rows), 300)
+        self.assertEqual(sum(row["state"] == "Compensada totalmente" for row in rows), 2)
+        self.assertEqual(sum(bool(row["warning"]) for row in rows), 2)
 
     def test_standalone_bulk_items_unknown_company_and_usd_original(self):
         item = {**source("C", source_currency="USD", source_debit=0, source_credit=20),

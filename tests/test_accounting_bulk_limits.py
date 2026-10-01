@@ -26,7 +26,8 @@ class BulkMovementLimitTests(unittest.TestCase):
                 stack.enter_context(patch.object(bulk, "_", side_effect=lambda text: text))
                 stack.enter_context(patch.object(bulk, "attach_employer_aliases"))
                 stack.enter_context(patch.object(bulk, "parse_accounting_movements", return_value=[]))
-                stack.enter_context(patch.object(bulk, "apply_accounting_currency_override", return_value=[{}] * count))
+                stack.enter_context(patch.object(bulk, "apply_accounting_currency_override", return_value=[{"accounting_source_key": "key", "event_type": "Aplicacion"}] * count))
+                stack.enter_context(patch.object(bulk, "identify_lines"))
                 enrich = stack.enter_context(patch.object(bulk, "enrich_accounting_records", side_effect=PassedLimitCheck))
                 options = {"source_file": "/private/files/test.csv", "currency": "USD"}
                 if count <= 100_000:

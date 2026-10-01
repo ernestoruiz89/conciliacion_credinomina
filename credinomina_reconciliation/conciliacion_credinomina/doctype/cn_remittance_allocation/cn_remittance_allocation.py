@@ -117,7 +117,7 @@ class CNRemittanceAllocation(Document):
             },
             fields=["name", "deposit_voucher"],
         )
-        if any(
+        if not (self.docstatus == 0 and self.get("accounting_source_key")) and any(
             row.name != self.name
             and clean_text(row.deposit_voucher) == self.deposit_voucher
             for row in duplicates

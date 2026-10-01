@@ -4,7 +4,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.accounting_types import APPLICATION, DEBIT_NOTE
-from credinomina_reconciliation.employer_naming import employer_alias_index, employer_label_key
+from credinomina_reconciliation.employer_naming import AccountingEmployerResolver
 from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.rounding import decimal_value
 
@@ -18,20 +18,13 @@ EVIDENCE_FIELDS = (
 
 def plan_review_items(records, employers, fallback=""):
     """Resolve only unambiguous companies; lack of identity does not discard evidence."""
-    aliases, ambiguous = employer_alias_index(employers)
-    names = {row["name"] for row in employers}
+    resolver = AccountingEmployerResolver(employers)
     items = []
     for record in records:
         if record.get("event_type") != "Ajuste":
             continue
         row = dict(record)
-        label = employer_label_key(row.get("employer_text"))
-        company = aliases.get(label, "") if label not in ambiguous else ""
-        portfolio = clean_text(row.get("portfolio_employer"))
-        conflict = bool(label and not company) or bool(company and portfolio and company != portfolio)
-        row["resolved_employer"] = "" if conflict else (company or portfolio or fallback)
-        if row["resolved_employer"] not in names:
-            row["resolved_employer"] = ""
+        row["resolved_employer"], _issue = resolver.resolve(row, fallback)
         items.append(row)
     return items
 

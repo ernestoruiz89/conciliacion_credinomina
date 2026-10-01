@@ -31,9 +31,9 @@ from credinomina_reconciliation.deposit_scoping import (
     resolved_deposit_employer,
 )
 from credinomina_reconciliation.employer_naming import (
+    AccountingEmployerResolver,
     attach_employer_aliases,
     employer_alias_index,
-    employer_label_key,
 )
 from credinomina_reconciliation.historical import (
     blocked_historical_deposits,
@@ -58,7 +58,6 @@ from credinomina_reconciliation.reconciliation import (
     converted_amount,
     deposit_pair_result,
     documented_rate,
-    duplicate_business_key,
     matching_exception_notes,
     narrow_deposit_candidates_by_date,
     remittance_fx_basis,
@@ -339,9 +338,15 @@ class CNAccountingImport(Document):
                 "name": ["!=", self.name or ""],
                 "file_hash": self.file_hash,
                 "status": ["!=", "Fallido"],
+                **({"bulk_source_hash": self.bulk_source_hash} if getattr(self, "bulk_source_hash", None) else {}),
             },
             "name",
         )
+        if not duplicate and not getattr(self, "bulk_source_hash", None):
+            duplicate = frappe.db.get_value(self.doctype, {
+                "name": ["!=", self.name or ""], "bulk_source_hash": self.file_hash,
+                "status": ["!=", "Fallido"],
+            }, "name")
         if duplicate:
             frappe.throw(_("Este archivo ya fue importado en {0}.").format(duplicate))
 
@@ -443,6 +448,9 @@ def import_source_file(import_name: str):
         frappe.throw(_("Use el CSV individual de esta importación, no el archivo masivo original."))
     try:
         parsed = parse_accounting_movements(file_doc.file_name, content)
+        from credinomina_reconciliation.accounting_identity import identify_lines
+
+        identify_lines(parsed, document.bulk_source_hash or file_sha256(content))
         parsed = apply_accounting_currency_override(
             parsed,
             document.currency,
@@ -557,9 +565,9 @@ def _validate_bulk_reimport(document, records):
     attach_employer_aliases(employers)
     plan = group_applications(records, employers, document.employer)
     groups = plan["groups"]
-    if (plan["issues"] or plan["duplicates"] or plan["excluded"] or len(groups) != 1
+    if (plan["issues"] or plan["excluded"] or len(groups) != 1
             or groups[0]["event_date"] != str(document.bulk_event_date)[:10]):
-        frappe.throw(_("El CSV debe contener únicamente aplicaciones sin duplicados de la empresa {0} y fecha {1}. No se recargó el documento.").format(
+        frappe.throw(_("El CSV debe contener únicamente aplicaciones de la empresa {0} y fecha {1}. No se recargó el documento.").format(
             document.employer, document.bulk_event_date,
         ))
     for record in records:
@@ -592,14 +600,13 @@ def _company_imports(imports, employer):
         "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
     )
     attach_employer_aliases(employers)
-    aliases, _ambiguous = employer_alias_index(employers)
+    employer_resolver = AccountingEmployerResolver(employers)
     selected = []
     for document in imports:
         belongs = document.get("employer") == employer
         related = {period_employers.get(document.historical_period)}
         for row in document.rows:
-            related.add(row.get("portfolio_employer"))
-            related.add(aliases.get(employer_label_key(row.get("employer_text"))))
+            related.add(row.get("portfolio_employer") or employer_resolver.resolve(row)[0])
             related.update(period_employers.get(name) for name in _source_linked_periods(row))
         related.discard(None)
         related.discard("")
@@ -844,9 +851,8 @@ def _reconcile_sources(employer=None):
 
 
 def _deduplicate_applications(rows):
-    application_rows = [row for row in rows if row.event_type == "Aplicacion"]
-    application_rows.sort(key=lambda row: (row._source_import, row.idx))
-    claimed = {}
+    # Equal amounts/vouchers are not duplicate evidence. All physical payment
+    # lines remain effective; only mirrors of non-payment documents are excluded.
     for row in rows:
         if row.get("remittance_allocation"):
             row.effective = 0
@@ -861,15 +867,6 @@ def _deduplicate_applications(rows):
             if row.get("complementary_item"):
                 row.match_reason = _("{0}. Revisar partida {1}; no se contabiliza como aplicación de pago.").format(
                     row.get("classification_reason") or "Movimiento no conciliatorio", row.complementary_item)
-    for row in application_rows:
-        key = duplicate_business_key(row.as_dict())
-        preferred = claimed.get(key)
-        if not preferred:
-            claimed[key] = row
-            continue
-        row.effective = 0
-        row.match_status = "Ignorado"
-        row.match_reason = _("Esta aplicación ya existe en otra importación contable.")
 
 
 def _load_open_periods(employer=None):
@@ -1015,7 +1012,7 @@ def _match_applications(
         limit_page_length=100000,
     )
     attach_employer_aliases(known_employers)
-    employer_labels, _ambiguous_employers = employer_alias_index(known_employers)
+    employer_resolver = AccountingEmployerResolver(known_employers)
     pairs_by_reference = defaultdict(list)
     for account, bank in deposit_pairs:
         pairs_by_reference[clean_text(account.reference)].append((account, bank))
@@ -1059,7 +1056,7 @@ def _match_applications(
                 "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
             )
             continue
-        source_employer = employer_labels.get(employer_label_key(source.employer_text))
+        source_employer, _employer_issue = employer_resolver.resolve(source)
         if not source_employer and not any((
             source.loan_number, source.client_number, source.national_id,
         )):

@@ -83,6 +83,21 @@ class CreditPortfolioEnrichmentTests(unittest.TestCase):
         self.assertEqual(result["client_number"], "7")
         self.assertEqual(result["portfolio_employer"], "Empresa Norte")
 
+    def test_credit_resolves_company_without_requiring_free_text_alias(self):
+        result = self.enrich({"event_type": "Aplicacion", "loan_number": "13375",
+                             "employer_text": "Texto contable no registrado"},
+                            [portfolio_row(credit_number="13375-1")], register_clients=False)
+        self.assertEqual(result["portfolio_employer"], "Empresa Norte")
+        self.assertEqual(result["portfolio_validation_status"], "Cliente y empresa validados")
+        self.assertEqual(result["portfolio_snapshot_used"], "SNAP-2026-09")
+        self.assertEqual(result["employer_text"], "Texto contable no registrado")
+
+    def test_different_credit_cycle_does_not_match(self):
+        result = self.enrich({"event_type": "Aplicacion", "loan_number": "13375-2"},
+                            [portfolio_row(credit_number="13375-1")], register_clients=False)
+        self.assertEqual(result["portfolio_validation_status"], "Crédito no encontrado en el corte")
+        self.assertNotIn("portfolio_employer", result)
+
     def test_credit_and_client_number_both_validate_and_ignore_leading_zeroes(self):
         movement = {
             "event_type": "Aplicacion",

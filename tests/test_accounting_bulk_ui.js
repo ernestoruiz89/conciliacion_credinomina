@@ -52,6 +52,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     await dialog.primary();
     assert.equal(dialog.label, "Crear importaciones");
     assert.equal(dialog.disabled, false);
+    assert.ok(html.includes("Posibles duplicados (se importarán)"));
+    assert.ok(html.includes("se importarán todos"));
+    assert.ok(!html.includes("Duplicados omitidos"));
     assert.equal(dialog.props["source_file:read_only"], 1);
     assert.ok(html.includes("&lt;Empresa&gt;"));
     assert.ok(html.includes("fecha:2025-04-15"));

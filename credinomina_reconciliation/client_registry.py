@@ -13,9 +13,8 @@ from credinomina_reconciliation.client_identity import (
     name_key,
 )
 from credinomina_reconciliation.employer_naming import (
+    AccountingEmployerResolver,
     attach_employer_aliases,
-    employer_alias_index,
-    employer_label_key,
 )
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 
@@ -320,7 +319,7 @@ def enrich_source_import_clients(records, client_index=None):
         limit_page_length=100000,
     )
     attach_employer_aliases(employers)
-    employer_aliases, ambiguous_employers = employer_alias_index(employers)
+    employer_resolver = AccountingEmployerResolver(employers)
     employer_names = {clean_text(row.get("name")) for row in employers}
 
     for record in records:
@@ -339,12 +338,11 @@ def enrich_source_import_clients(records, client_index=None):
 
         employer_text = clean_text(record.get("employer_text"))
         if employer not in employer_names and employer_text:
-            key = employer_label_key(employer_text)
-            if key in ambiguous_employers:
+            employer, issue = employer_resolver.resolve({"employer_text": employer_text})
+            if issue == "Empresa o alias ambiguo":
                 record["client"] = ""
                 record["client_registry_status"] = "No creado: empresa ambigua"
                 continue
-            employer = employer_aliases.get(key, "")
 
         client_name, status = client_index.ensure_from_source_import(record, employer)
         record["client"] = client_name

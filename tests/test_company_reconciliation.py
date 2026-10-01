@@ -15,6 +15,15 @@ class Record(dict):
 
 
 class CompanyReconciliationTests(unittest.TestCase):
+    def test_company_scope_uses_portfolio_before_conflicting_description(self):
+        document = Record(name="IA", employer="A", rows=[Record(portfolio_employer="A", employer_text="B")], check_permission=Mock())
+        with (
+            patch.object(source.frappe, "get_all", side_effect=[[], [Record(name="A"), Record(name="B")]]),
+            patch.object(source, "attach_employer_aliases"),
+        ):
+            self.assertEqual(source._company_imports([document], "A"), [document])
+        document.check_permission.assert_called_once_with("write")
+
     def test_company_engine_limits_every_persisted_group(self):
         row = Record(name="RA", event_type="Aplicacion", source_row=2, idx=1,
                      client_name="Ana", loan_number="101-1")
