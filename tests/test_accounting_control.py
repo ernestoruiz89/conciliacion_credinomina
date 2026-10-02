@@ -1,12 +1,14 @@
 import csv
 import io
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 import frappe
 from credinomina_reconciliation.accounting_control import build_rows, summarize
 from credinomina_reconciliation.parsers import parse_accounting_movements, apply_accounting_currency_override
 from credinomina_reconciliation.conciliacion_credinomina.report.control_mensual_de_movimientos_contables.control_mensual_de_movimientos_contables import execute
+from credinomina_reconciliation.conciliacion_credinomina.report.control_mensual_de_movimientos_contables import control_mensual_de_movimientos_contables as report
 
 DESCRIPTION = "REGISTRAMOS RELASIFICACION DE SALDOS A FAVOR DE LA CUENTA DE CONVENIO A LA 3001, DE LOS MESES DE NOVIEMBRE A DICIEMBRE 2025, SEGUN DETALLE-INGRIS MASSIEL HERNANDEZ AGROSACO 2426.73"
 
@@ -23,6 +25,25 @@ def imports():
 
 
 class AccountingControlTests(unittest.TestCase):
+    def test_default_range_covers_current_month_including_leap_year(self):
+        for today, last in [("2026-10-15", "2026-10-31"), ("2026-04-20", "2026-04-30"),
+                            ("2026-02-10", "2026-02-28"), ("2024-02-10", "2024-02-29")]:
+            with self.subTest(today=today), patch.object(report, "nowdate", return_value=today):
+                self.assertEqual(report._date_range({}), [date.fromisoformat(today[:8] + "01"), date.fromisoformat(last)])
+
+    def test_explicit_ranges_can_cross_months_years_or_be_one_day(self):
+        for start, end in [("2025-04-15", "2025-06-10"), ("2025-12-31", "2026-01-01"), ("2025-04-15", "2025-04-15")]:
+            self.assertEqual(report._date_range({"from_date": start, "to_date": end, "month": "2020-01-01"}),
+                             [date.fromisoformat(start), date.fromisoformat(end)])
+
+    def test_reject_incomplete_or_reversed_date_ranges(self):
+        for filters in ({"from_date": "2025-04-15"}, {"to_date": "2025-04-15"},
+                        {"from_date": "2025-04-16", "to_date": "2025-04-15"}):
+            with self.subTest(filters=filters), patch.object(report, "_", side_effect=lambda value: value), \
+                 patch.object(frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError):
+                    report._date_range(filters)
+
     def test_description_preserved_without_truncation_in_parser_and_report(self):
         text = "  " + DESCRIPTION + "\n" + "Detalle " * 1000 + "  "
         stream = io.StringIO()
@@ -81,6 +102,19 @@ class AccountingControlTests(unittest.TestCase):
         self.assertEqual(rows[0]["state"], "Pendiente")
         rows, _ = build_rows([source(deposit_match_status="Depósito parcial")], imports(), [])
         self.assertEqual(rows[0]["state"], "Parcialmente conciliado")
+
+    def test_deposit_state_is_its_result_for_standalone_and_mirrored_movements(self):
+        for docstatus in (0, 1, 2):
+            for result in ("Pendiente", "Revisar detalle", "Conciliado", "Parcial con saldo a favor", ""):
+                for mirrored in (False, True):
+                    with self.subTest(docstatus=docstatus, result=result, mirrored=mirrored):
+                        deposit = {**source("DEP", accounting_classification="Depósito"),
+                                   "source_date": "2025-04-01", "docstatus": docstatus, "result": result}
+                        sources = [source(accounting_classification="Depósito", deposit_match_status="Pendiente")] if mirrored else []
+                        rows, _ = build_rows(sources, imports(), [], deposits=[deposit])
+                        self.assertEqual(len(rows), 1)
+                        self.assertEqual(rows[0]["state"], result)
+                        self.assertEqual(rows[0]["remittance_allocation"], "DEP")
 
     def test_report_requires_both_read_permissions(self):
         with patch.object(frappe, "has_permission", return_value=False), patch.object(frappe, "throw", side_effect=PermissionError), \

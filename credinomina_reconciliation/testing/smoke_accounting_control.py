@@ -54,6 +54,33 @@ def run():
         _, rows, *_ = execute({"month": "2025-04-01", "source_account": marker})
         assert next(row for row in rows if row["complementary_item"] == standalone.name)["state"] == "No conciliatoria"
         assert sum(row["credit_usd"] for row in rows) == 60  # original turnover is unchanged
+        # New filters match the displayed values, not the source import's status.
+        base = {"month": "2025-04-01", "source_account": marker}
+        for filters, expected in [({"movement_type": "Aplicacion"}, 1), ({"state": "No conciliatoria"}, 1),
+                                  ({"movement_type": "Aplicacion", "state": "No conciliatoria"}, 0),
+                                  ({"movement_type": "", "state": ""}, 3)]:
+            _, selected, _, _, kpis = execute({**base, **filters})
+            assert len(selected) == expected, (filters, selected)
+            assert next(kpi["value"] for kpi in kpis if kpi["label"] == "Movimientos") == expected
+            assert next(kpi["value"] for kpi in kpis if kpi["label"] == "Créditos US$") == sum(row["credit_usd"] or 0 for row in selected)
+        _, selected, _, _, kpis = execute({**base, "state": "No conciliatoria", "summary": 1})
+        assert len(selected) == 1 and selected[0]["movement_count"] == 1 and selected[0]["credit_usd"] == 10
+        assert selected[0]["source_currency"] == "USD"
+        deposit = frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": employer.name,
+            "deposit_date": "2025-06-10", "deposit_reference": marker, "deposit_currency": "USD", "deposit_amount": 7,
+            "source_date": "2025-05-01", "source_account": marker, "source_currency": "USD", "source_credit": 7,
+            "accounting_source_key": marker + "-deposit", "accounting_classification": "Depósito"}).insert()
+        span = {"from_date": "2025-04-30", "to_date": "2025-05-01", "source_account": marker}
+        _, selected, _, _, kpis = execute(span)
+        assert len(selected) == 2 and {row["event_date"] for row in selected} == {"2025-04-30", "2025-05-01"}
+        assert any(row["remittance_allocation"] == deposit.name for row in selected)
+        assert sum(row["credit_usd"] for row in selected) == 17
+        _, grouped, *_ = execute({**span, "summary": 1})
+        assert len(grouped) == 2 and {row["month"] for row in grouped} == {"2025-04", "2025-05"}
+        _, same_day, *_ = execute({**span, "from_date": "2025-05-01"})
+        assert len(same_day) == 1 and same_day[0]["remittance_allocation"] == deposit.name
+        _, no_rows, *_ = execute({**span, "from_date": "2025-05-02", "to_date": "2025-05-03"})
+        assert no_rows == []
         # Data backfill is idempotent and does not overwrite existing full descriptions.
         from unittest.mock import patch
         from credinomina_reconciliation.patches.v1_0.add_accounting_control_report import execute as backfill
@@ -67,6 +94,7 @@ def run():
         assert document.rows[0].source_fx_rate == 36.6243 and document.rows[0].amount == original_amount
         assert document.rows[1].source_description == description
         return {"full_description": "OK", "mirror_counted_once": "OK", "nio_usd_totals": "OK",
-                "standalone_unidentified": "OK", "classification_preserves_totals": "OK", "idempotent_backfill": "OK", "rolled_back": True}
+                "standalone_unidentified": "OK", "classification_preserves_totals": "OK", "idempotent_backfill": "OK",
+                "movement_and_state_filters_details_summary_totals": "OK", "inclusive_date_range_and_monthly_summary": "OK", "rolled_back": True}
     finally:
         frappe.db.rollback()

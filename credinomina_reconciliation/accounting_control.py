@@ -7,11 +7,8 @@ MONEY_FIELDS = ("debit_nio", "credit_nio", "net_nio", "debit_usd", "credit_usd",
 
 
 def _deposit_status(deposit):
-    if deposit.get("docstatus") == 2:
-        return "Depósito cancelado"
-    if not deposit.get("docstatus"):
-        return "Depósito en borrador"
-    return deposit.get("result") or "Pendiente"
+    # Show the actual reconciliation result, not the document lifecycle status.
+    return deposit.get("result") or ""
 
 
 def _status(row, item=None):

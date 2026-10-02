@@ -60,8 +60,15 @@ def run():
         _, data, *_ = execute({"month": "2025-04-01", "employer": employer.name})
         data = [row for row in data if row["evidence_key"] == first.accounting_source_key]
         assert len(data) == 1 and data[0]["credit_nio"] == 3662.43 and data[0]["credit_usd"] == 100, data
-        assert data[0]["state"] == "Depósito en borrador" and data[0]["accounting_import"] == document.name
+        assert data[0]["state"] == first.result and data[0]["accounting_import"] == document.name
         assert data[0]["bank_account"] == first.bank_account
+        for result in ("Revisar detalle", "Conciliado"):
+            frappe.db.set_value("CN Remittance Allocation", first.name, "result", result)
+            _, filtered, _, _, totals = execute({"month": "2025-04-01", "employer": employer.name,
+                                                 "movement_type": "Depósito", "state": result})
+            assert len(filtered) == 1 and filtered[0]["state"] == result
+            assert next(kpi["value"] for kpi in totals if kpi["label"] == "Movimientos") == 1
+        frappe.db.set_value("CN Remittance Allocation", first.name, "result", first.result)
         frappe.get_doc({"doctype": "File", "file_name": file.file_name, "file_url": file.file_url,
             "is_private": 1, "attached_to_doctype": document.doctype, "attached_to_name": document.name}).insert()
         response = import_source_file(document.name)
@@ -70,6 +77,7 @@ def run():
         assert all(row.remittance_allocation and not row.effective for row in document.rows)
         assert document.total_usd == 0, "Deposit mirrors must not become new applications/cash"
         assert frappe.db.count("CN Remittance Allocation", {"source_file": file.file_url}) == 2
+        first.reload()
         first.submit()
         _, data, *_ = execute({"month": "2025-04-01", "employer": employer.name})
         assert next(row for row in data if row["evidence_key"] == first.accounting_source_key)["state"] == "Pendiente"

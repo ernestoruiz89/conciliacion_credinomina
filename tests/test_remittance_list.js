@@ -9,6 +9,12 @@ for (const name of ["deposit_date", "deposit_amount", "bank_account"]) {
     assert.equal(meta.fields.find(field => field.fieldname === name).in_list_view, 1);
 }
 assert.equal(meta.fields.find(field => field.fieldname === "deposit_amount").options, "deposit_currency");
+for (const name of ["employer", "deposit_reference", "bank_account", "result"]) {
+    assert.equal(meta.fields.find(field => field.fieldname === name).in_standard_filter, 1,
+        `${name} must be available as a standard list filter`);
+}
+assert.equal(meta.fields.find(field => field.fieldname === "result").read_only, 1,
+    "Filtering must not make the reconciliation result editable");
 const context = vm.createContext({frappe: {listview_settings: {}}});
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_remittance_allocation_list.js"), "utf8"), context);
 const settings = context.frappe.listview_settings[meta.name];

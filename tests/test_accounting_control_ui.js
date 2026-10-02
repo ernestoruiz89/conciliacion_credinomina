@@ -2,10 +2,15 @@ const assert = require("node:assert/strict"), fs = require("node:fs"), vm = requ
 let handler, message;
 const escape = value => String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const context = vm.createContext({__: text => text, $: element => ({attr: () => element.description}), frappe: {
-    query_reports: {}, datetime: {month_start: () => "2026-10-01"}, utils: {escape_html: escape}, msgprint: value => {message = value;},
+    query_reports: {}, datetime: {month_start: () => "2026-10-01", month_end: () => "2026-10-31"}, utils: {escape_html: escape}, msgprint: value => {message = value;},
 }});
 vm.runInContext(fs.readFileSync(require("node:path").join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/report/control_mensual_de_movimientos_contables/control_mensual_de_movimientos_contables.js"), "utf8"), context);
 const report = context.frappe.query_reports["Control Mensual de Movimientos Contables"];
+assert.equal(report.filters.find(field => field.fieldname === "from_date").default, "2026-10-01");
+assert.equal(report.filters.find(field => field.fieldname === "to_date").default, "2026-10-31");
+assert.ok(report.filters.find(field => field.fieldname === "from_date").reqd);
+assert.ok(report.filters.find(field => field.fieldname === "to_date").reqd);
+assert.ok(!report.filters.some(field => field.fieldname === "month"));
 const description = 'REGISTRAMOS RECLASIFICACION "a gasto"\n<script>alert(1)</script> ' + "Texto completo ".repeat(1000);
 const formatted = report.formatter(description, {}, {fieldname: "description"}, {}, () => "default");
 assert.ok(formatted.includes(escape(description)));
@@ -15,4 +20,14 @@ handler.call({description}, {preventDefault() {}});
 assert.ok(message.message.includes(escape(description)));
 assert.equal(report.formatter(null, {}, {fieldname: "debit_nio"}, {}, () => "0"), "—");
 assert.equal(report.filters.find(field => field.fieldname === "summary").default, 0);
+const movement = report.filters.find(field => field.fieldname === "movement_type");
+assert.equal(movement.fieldtype, "Select");
+assert.equal(movement.options.split("\n")[0], "");
+for (const type of ["Aplicación de pago", "ND de Aplicación de pago", "Movimiento interno", "Depósito", "Por revisar"]) {
+    assert.ok(movement.options.split("\n").includes(type));
+}
+const state = report.filters.find(field => field.fieldname === "state");
+assert.equal(state.fieldtype, "Autocomplete");
+assert.ok(state.options.includes("Conciliado") && state.options.includes("Pendiente") && state.options.includes("No conciliatoria"));
+assert.ok(!state.reqd && !movement.reqd, "Empty filters must retain all movements");
 console.log("OK: descripción completa sin recortes, modal seguro, valores no disponibles y filtros.");

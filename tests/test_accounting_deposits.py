@@ -65,7 +65,7 @@ class DepositTests(unittest.TestCase):
 
     def test_report_deduplicates_mirror_and_uses_current_deposit_state(self):
         row = apply_accounting_currency_override(parse_accounting_movements("x.csv", ledger()), "NIO", 36.6243)[0]
-        cash = {**row, "name": "DEP-4-2025-0001", "source_date": "2025-04-04", "docstatus": 0,
+        cash = {**row, "name": "DEP-4-2025-0001", "source_date": "2025-04-04", "docstatus": 0, "result": "Pendiente",
                 "bank_account": "BAC 6906 C$", "employer": "A", "deposit_amount": 4394.92}
         row.update(name="ROW", parent="IMPORT", remittance_allocation=cash["name"])
         for sources, parents in [([], {}), ([row], {"IMPORT": {"name": "IMPORT", "employer": "A"}})]:
@@ -73,7 +73,7 @@ class DepositTests(unittest.TestCase):
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["credit_nio"], 3662.43)
             self.assertEqual(result[0]["credit_usd"], 100)
-            self.assertEqual(result[0]["state"], "Depósito en borrador")
+            self.assertEqual(result[0]["state"], "Pendiente")
             self.assertEqual(result[0]["remittance_allocation"], cash["name"])
         cash.update(docstatus=1, result="Conciliado")
         self.assertEqual(build_rows([row], parents, [], deposits=[cash])[0][0]["state"], "Conciliado")

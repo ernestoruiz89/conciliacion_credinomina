@@ -8,13 +8,26 @@ from credinomina_reconciliation.accounting_control import build_rows, summarize
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
+def _date_range(filters):
+    start, end = filters.get("from_date"), filters.get("to_date")
+    if bool(start) != bool(end):
+        frappe.throw(_("Indique ambas fechas: Desde y Hasta."))
+    if not start and not end:
+        # Keep existing saved links/API calls using month; explicit ranges win.
+        start = getdate(filters.get("month") or nowdate()).replace(day=1)
+        end = get_last_day(start)
+    start, end = getdate(start), getdate(end)
+    if start > end:
+        frappe.throw(_("La fecha Desde no puede ser posterior a la fecha Hasta."))
+    return [start, end]
+
+
 def execute(filters=None):
     filters = frappe._dict(filters or {})
     for doctype in ("CN Accounting Import", "CN Complementary Item", "CN Remittance Allocation"):
         if not frappe.has_permission(doctype, "read"):
             frappe.throw(_("Se requiere permiso de lectura de importaciones y partidas complementarias para este control."), frappe.PermissionError)
-    start = getdate(filters.get("month") or nowdate()).replace(day=1)
-    dates = [start, get_last_day(start)]
+    dates = _date_range(filters)
     imports = {row.name: row for row in frappe.get_list("CN Accounting Import",
         fields=["name", "employer", "currency", "manual_fx_rate", "creation", "status", "source_file", "file_hash", "bulk_source_file", "bulk_source_hash"],
         limit_page_length=0)}
@@ -52,7 +65,9 @@ def execute(filters=None):
                 "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description",
                 "source_file", "source_file_hash", "accounting_classification", "source_client_name", "source_loan_number"], limit_page_length=0)
     rows, duplicates = build_rows(sources, imports, items, clients, deposits)
-    for field in ("employer", "source_account", "source_currency"):
+    # Filter the displayed classification/current state, after resolving mirrors
+    # and financial statuses, and before both KPI totals and account summaries.
+    for field in ("employer", "source_account", "source_currency", "movement_type", "state"):
         if filters.get(field):
             rows = [row for row in rows if row.get(field) == filters[field]]
     summary = [{"label": _(label), "value": money_float(sum_money(row.get(field) for row in rows)),
