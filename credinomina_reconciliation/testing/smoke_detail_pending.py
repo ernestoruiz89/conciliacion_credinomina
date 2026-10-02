@@ -5,6 +5,7 @@ import frappe
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.patches.v1_0.separate_period_and_deposit_balances import execute as backfill
+from credinomina_reconciliation.period_pending import get_period_pending
 
 
 def run():
@@ -56,6 +57,15 @@ def run():
             assert deposit.detail_rows[1].pending_usd == 0
             assert deposit.result == "Revisar detalle"
             before = deposit.allocation_detail
+            pending = get_period_pending(period.name)
+            assert pending["total"] == 2, pending
+            application_issue, = [row for row in pending["rows"] if row["kind"] == "Aplicación"]
+            deposit_issue, = [row for row in pending["rows"] if row["kind"] == "Depósito"]
+            assert application_issue["pending"] == 142.32, application_issue
+            assert deposit_issue["pending"] == 118.99, deposit_issue
+            assert get_period_pending(period.name, kind="Aplicación")["count"] == 1
+            deposit.reload()
+            assert deposit.allocation_detail == before
             frappe.db.set_value(period.doctype, period.name, "status", "Con excedente")
             backfill()
             backfill()

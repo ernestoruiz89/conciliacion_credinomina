@@ -180,37 +180,129 @@ function updateImportExceptionNotice(frm) {
     frm.add_custom_button(__("Ver excepciones"), () => showImportExceptions(frm));
 }
 
-function importExceptionsHtml(frm) {
-    const esc = value => frappe.utils.escape_html(String(value ?? ""));
-    const exceptions = importExceptionRows(frm.doc.rows);
-    const summary = new Map();
-    for (const {reasons} of exceptions) {
-        for (const stage of new Set(reasons.map(reason => reason.stage))) {
-            summary.set(stage, (summary.get(stage) || 0) + 1);
+function importExceptionAmounts(row, doc) {
+    const cents = value => Math.round((Number(value || 0) + Number.EPSILON) * 100);
+    const amount = row.amount_usd != null ? cents(row.amount_usd) : row.currency === "USD" ? cents(row.amount) : null;
+    if (row.event_type !== "Aplicacion") return {amount, adjustment: null, net: null,
+        paid: row.event_type === "Deposito" ? amount : null,
+        pending: row.event_type === "Deposito" ? cents(row.unallocated_usd) : null};
+    const adjustment = cents(row.application_adjustment_usd);
+    const net = row.net_applied_usd != null ? cents(row.net_applied_usd) : amount == null ? null : Math.max(amount - adjustment, 0);
+    const historical = row.historical_period || row.processing_route === "Historica" || doc.historical_period || doc.historical_backfill;
+    let paid = null, pending = null;
+    if (historical && row.match_status === "Conciliado" && row.historical_period) {
+        paid = cents(row.historical_remitted_usd);
+        pending = cents(row.historical_balance_usd);
+    } else if (historical || row.deposit_match_status === "Sin deposito") {
+        paid = 0;
+        pending = net;
+    }
+    // Operational cash can cover several applications sharing a collection.
+    // Do not parse a reason string or invent a per-application allocation.
+    return {amount, adjustment, net, paid, pending};
+}
+
+function importExceptionFilterError(filters) {
+    for (const field of ["min_amount", "max_amount"]) {
+        if (filters[field] == null || String(filters[field]).trim() === "") continue;
+        if (!/^-?\d+(\.\d{1,2})?$/.test(String(filters[field]).trim())) {
+            return __("Indique montos con hasta dos decimales, usando punto decimal y sin separadores de miles.");
         }
     }
-    return `<p>${__("Los motivos corresponden únicamente a esta carga. Una aplicación puede estar importada y vinculada al período, pero seguir pendiente de depósito.")}</p>
-        <p><strong>${__("Filas con excepciones")}: ${esc(exceptions.length)}</strong></p>
+    const min = filters.min_amount, max = filters.max_amount;
+    if (min != null && max != null && String(min).trim() !== "" && String(max).trim() !== "" && Number(min) > Number(max)) {
+        return __("Monto desde no puede ser mayor que Monto hasta.");
+    }
+    return "";
+}
+
+function filterImportExceptions(frm, filters = {}) {
+    if (importExceptionFilterError(filters)) return [];
+    const normalize = value => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const terms = normalize(filters.search).trim().split(/\s+/).filter(Boolean);
+    return importExceptionRows(frm.doc.rows).map(entry => ({...entry,
+        amounts: importExceptionAmounts(entry.row, frm.doc),
+        status: entry.row.deposit_match_status || entry.row.match_status || __("Pendiente"),
+    })).filter(entry => {
+        const {row, reasons, amounts, status} = entry;
+        const text = normalize([row.idx, row.client_name, row.client_number, row.loan_number,
+            row.accounting_entry, row.receipt, row.reference, ...reasons.map(reason => reason.reason)].join(" "));
+        if (!terms.every(term => text.includes(term))) return false;
+        if (filters.state && status !== filters.state) return false;
+        if (filters.stage && !reasons.some(reason => reason.stage === filters.stage)) return false;
+        for (const [field, minimum] of [["min_amount", true], ["max_amount", false]]) {
+            if (filters[field] == null || String(filters[field]).trim() === "") continue;
+            const limit = Math.round(Number(filters[field]) * 100);
+            if (amounts.amount == null || (minimum ? amounts.amount < limit : amounts.amount > limit)) return false;
+        }
+        return true;
+    });
+}
+
+function importExceptionsHtml(frm, filters = {}, offset = 0) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const error = importExceptionFilterError(filters);
+    if (error) return `<p class="text-danger" role="alert">${esc(error)}</p>`;
+    const total = importExceptionRows(frm.doc.rows).length;
+    const exceptions = filterImportExceptions(frm, filters);
+    const money = value => value == null ? "—" : esc(new Intl.NumberFormat("es-NI", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(value / 100));
+    const numeric = value => `<td class="text-right text-nowrap">${money(value)}</td>`;
+    return `<p role="status">${esc(__("Filas filtradas: {0} de {1}", [exceptions.length, total]))}</p>
         ${exceptions.length ? `
-            <ul>${[...summary].map(([stage, count]) => `<li>${esc(stage)}: ${esc(count)}</li>`).join("")}</ul>
-            <p class="text-muted">${__("Una fila puede tener varios motivos; los conteos por etapa no se suman.")}</p>
             <div style="max-height:55vh;overflow:auto"><table class="table table-bordered">
-                <thead><tr><th>${__("Fila del archivo / tabla")}</th><th>${__("Cliente / crédito")}</th><th>${__("Etapa y motivo")}</th></tr></thead>
-                <tbody>${exceptions.map(({row, reasons}) => `<tr>
-                    <td>${esc(row.source_row || row.idx)} / ${esc(row.idx)}</td>
+                <thead style="position:sticky;top:0;background:var(--fg-color,white);z-index:1"><tr>
+                    ${["Fila", "Cliente / crédito", "Monto US$", "Ajustes US$", "Aplicado neto US$", "Depositado US$", "Pendiente US$", "Estado / motivo"].map(label => `<th>${esc(__(label))}</th>`).join("")}
+                </tr></thead>
+                <tbody>${exceptions.slice(offset, offset + 50).map(({row, reasons, amounts, status}) => `<tr>
+                    <td>${esc(row.idx)}</td>
                     <td>${esc(row.client_name)}<br>${__("Nro. Cliente")}: ${esc(row.client_number)}<br>${__("Crédito")}: ${esc(row.loan_number)}</td>
-                    <td style="white-space:normal">${reasons.map(({stage, reason}) => `<p><strong>${esc(stage)}</strong><br>${esc(reason)}</p>`).join("")}</td>
+                    ${[amounts.amount, amounts.adjustment, amounts.net, amounts.paid, amounts.pending].map(numeric).join("")}
+                    <td style="white-space:normal;min-width:200px">${esc(status)}<details><summary>${esc(__("Ver motivos"))}</summary>
+                        ${reasons.map(({stage, reason}) => `<p><strong>${esc(stage)}</strong><br>${esc(reason)}</p>`).join("")}</details></td>
                 </tr>`).join("")}</tbody>
-            </table></div>`
-            : `<p>${__("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar esta empresa» para recalcularlo.")}</p>`}
-        <p class="text-muted">${__("Este detalle no guarda cambios ni ejecuta una conciliación. Las filas inactivas, como los duplicados descartados, no se consideran pendientes de depósito.")}</p>`;
+            </table></div>
+            <div class="d-flex justify-content-between align-items-center">
+                <button class="btn btn-default btn-sm" data-exception-page="previous" ${offset ? "" : "disabled"}>${esc(__("Anterior"))}</button>
+                <span>${esc(__("Mostrando {0}–{1} de {2}", [offset + 1, Math.min(offset + 50, exceptions.length), exceptions.length]))}</span>
+                <button class="btn btn-default btn-sm" data-exception-page="next" ${offset + 50 < exceptions.length ? "" : "disabled"}>${esc(__("Siguiente"))}</button>
+            </div>`
+            : `<p>${esc(total ? __("No hay filas que coincidan con los filtros.") : __("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar esta empresa» para recalcularlo."))}</p>`}
+        <p class="text-muted mt-3">${esc(__("Fila corresponde al número en la tabla de esta importación. Los importes están en US$. — indica un importe no disponible por aplicación; en operativo un depósito puede cubrir aplicaciones agrupadas. Consulte Ver motivos."))}</p>
+        <p class="text-muted">${esc(__("Esta consulta no modifica datos ni concilia. Una fila aparece una sola vez aunque tenga varios motivos."))}</p>`;
 }
 
 function showImportExceptions(frm) {
-    const dialog = new frappe.ui.Dialog({
+    let dialog, offset = 0;
+    const exceptions = importExceptionRows(frm.doc.rows);
+    const values = () => Object.fromEntries(["search", "state", "stage", "min_amount", "max_amount"].map(field => [field, dialog.get_value(field)]));
+    const render = () => dialog.get_field("exception_list").$wrapper.html(importExceptionsHtml(frm, values(), offset));
+    const changed = () => { if (dialog) { offset = 0; render(); } };
+    dialog = new frappe.ui.Dialog({
         title: __("Excepciones de {0}", [frm.doc.name]), size: "extra-large",
-        fields: [{fieldtype: "HTML", options: importExceptionsHtml(frm)}],
+        fields: [
+            {fieldtype: "Data", fieldname: "search", label: __("Buscar"), description: __("Cliente, crédito, asiento, recibo, fila o motivo"), onchange: changed},
+            {fieldtype: "Column Break"},
+            {fieldtype: "Select", fieldname: "state", label: __("Estado"), options: ["", ...new Set(exceptions.map(({row}) => row.deposit_match_status || row.match_status || __("Pendiente")))], onchange: changed},
+            {fieldtype: "Column Break"},
+            {fieldtype: "Select", fieldname: "stage", label: __("Etapa"), options: ["", ...new Set(exceptions.flatMap(({reasons}) => reasons.map(reason => reason.stage)))], onchange: changed},
+            {fieldtype: "Section Break", label: __("Rango de monto US$ (opcional)"), collapsible: 1},
+            {fieldtype: "Data", fieldname: "min_amount", label: __("Monto desde"), description: __("Ejemplo: 26.01. Vacío: sin límite."), onchange: changed},
+            {fieldtype: "Column Break"},
+            {fieldtype: "Data", fieldname: "max_amount", label: __("Monto hasta"), onchange: changed},
+            {fieldtype: "Section Break"},
+            {fieldtype: "HTML", fieldname: "exception_list", options: importExceptionsHtml(frm)},
+        ],
         primary_action_label: __("Cerrar"), primary_action: () => dialog.hide(),
+        secondary_action_label: __("Limpiar filtros"), secondary_action: async () => {
+            await dialog.set_values({search: "", state: "", stage: "", min_amount: "", max_amount: ""});
+            changed();
+        },
+    });
+    dialog.get_field("exception_list").$wrapper.on("click", "[data-exception-page]", event => {
+        const direction = event.currentTarget.getAttribute("data-exception-page");
+        const count = filterImportExceptions(frm, values()).length;
+        offset = direction === "next" ? Math.min(offset + 50, Math.max(0, Math.ceil(count / 50) - 1) * 50) : Math.max(0, offset - 50);
+        render();
     });
     dialog.show();
 }

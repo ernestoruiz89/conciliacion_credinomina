@@ -16,6 +16,9 @@ const context = vm.createContext({
             dialogOptions = options;
             this.show = () => events.push("dialog");
             this.hide = () => {};
+            this.get_field = () => ({$wrapper: {on() {}, html() {}}});
+            this.get_value = () => "";
+            this.set_values = async () => {};
         }},
         utils: {escape_html: value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")},
         call: async args => {events.push("call"); assert.equal(args.args.import_name, "IA"); return {message: result};},
@@ -65,7 +68,8 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(exceptionHtml.includes("Faltan US$10"));
     assert.ok(exceptionHtml.includes("Dos créditos posibles"));
     assert.ok(exceptionHtml.includes("saldo sin distribuir"));
-    assert.ok(exceptionHtml.includes("5 / 1"));
+    assert.ok(exceptionHtml.includes("<td>1</td>"));
+    assert.ok(!exceptionHtml.includes("5 / 1"));
     assert.ok(exceptionHtml.includes("&lt;script&gt;unsafe&lt;/script&gt;"));
     assert.ok(!exceptionHtml.includes("<script>unsafe</script>"));
     let intro, exceptionAction;

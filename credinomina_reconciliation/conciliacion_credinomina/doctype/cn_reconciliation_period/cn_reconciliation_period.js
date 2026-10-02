@@ -3,6 +3,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
         setPeriodEditing(frm);
         setRemittanceDateEditing(frm);
         refreshPeriodExceptions(frm);
+        refreshPeriodPending(frm);
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
 
@@ -89,6 +90,61 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
+    const wrapper = frm.fields_dict?.pending_html?.$wrapper;
+    if (!wrapper) return;
+    const request = {};
+    frm._cn_pending_request = request;
+    wrapper.off(".cnPending");
+    if (frm.is_new()) { wrapper.empty(); return; }
+    const period = frm.doc.name;
+    const current = () => frm._cn_pending_request === request && frm.doc.name === period;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    wrapper.html(`<p>${esc(__("Consultando pendientes detectados…"))}</p>`);
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.period_pending.get_period_pending",
+            args: {period_name: period, start, search, kind},
+        });
+        if (!current()) return;
+        const data = response.message;
+        if (!Array.isArray(data?.rows)) throw new Error("missing_pending_rows");
+        const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
+        const routes = {"CN Accounting Import": "cn-accounting-import", "CN Reconciliation Period": "cn-reconciliation-period", "CN Remittance Allocation": "cn-remittance-allocation"};
+        wrapper.html(`<p class="text-muted">${esc(__("Diferencias detectadas en la última conciliación guardada. No son necesariamente excepciones registradas; consultar no modifica datos ni concilia."))}</p>
+            <div class="row mb-3">
+                <div class="col-sm-6"><label>${esc(__("Buscar"))}</label><input class="form-control" data-pending="search" value="${esc(search)}" placeholder="${esc(__("Cliente, crédito, documento, fila o motivo"))}"></div>
+                <div class="col-sm-4"><label>${esc(__("Tipo"))}</label><select class="form-control" data-pending="kind">${["", "Aplicación", "Cobranza", "Depósito"].map(value => `<option value="${esc(value)}" ${kind === value ? "selected" : ""}>${esc(__(value || "Todos"))}</option>`).join("")}</select></div>
+                <div class="col-sm-2 d-flex align-items-end"><button type="button" class="btn btn-default" data-pending="filter">${esc(__("Consultar"))}</button></div>
+            </div>
+            ${data.restricted?.length ? `<p class="text-warning">${esc(__("Vista parcial: no tiene acceso a algunos movimientos o depósitos relacionados."))}</p>` : ""}
+            <p role="status">${esc(__("Pendientes visibles: {0} · Con los filtros: {1}", [data.total, data.count]))}</p>
+            ${data.rows.length ? `<div class="table-responsive"><table class="table table-bordered" style="font-size:14px">
+                <thead><tr>${["Tipo / documento", "Fila", "Cliente / crédito", "Aplicado neto US$", "Depositado US$", "Pendiente US$", "Estado / motivo"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
+                <tbody>${data.rows.map(row => `<tr>
+                    <td>${esc(__(row.kind))}<br><a href="/app/${routes[row.doctype] || "cn-reconciliation-period"}/${encodeURIComponent(row.source)}">${esc(row.source)}</a></td>
+                    <td>${esc(row.row ?? "—")}</td>
+                    <td>${esc(row.client_name || "—")}<div class="text-muted">${esc(row.client_number)} ${esc(row.loan_number)}</div></td>
+                    <td class="text-right text-nowrap">${money(row.applied)}</td><td class="text-right text-nowrap">${money(row.paid)}</td><td class="text-right text-nowrap">${money(row.pending)}</td>
+                    <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}</details></td>
+                </tr>`).join("")}</tbody></table></div>` : `<p>${esc(__(data.total ? "No hay pendientes que coincidan con los filtros." : "No hay pendientes detectados en los registros visibles vinculados a este período."))}</p>`}
+            <p class="text-muted">${esc(__("En depósitos se muestra el importe completo y su saldo sin distribuir, que puede corresponder a otros períodos. No se suma a lo pendiente de aplicaciones o cobranzas."))}</p>
+            <div class="d-flex justify-content-between"><button type="button" class="btn btn-default btn-sm" data-pending="previous" ${start ? "" : "disabled"}>${esc(__("Anterior"))}</button>
+                <span>${data.rows.length ? esc(__("Mostrando {0}–{1} de {2}", [start + 1, start + data.rows.length, data.count])) : ""}</span>
+                <button type="button" class="btn btn-default btn-sm" data-pending="next" ${start + data.rows.length < data.count ? "" : "disabled"}>${esc(__("Siguiente"))}</button></div>`);
+        const filter = () => refreshPeriodPending(frm, 0, wrapper.find('[data-pending="search"]').val(), wrapper.find('[data-pending="kind"]').val());
+        wrapper.on("click.cnPending", '[data-pending="filter"]', filter);
+        wrapper.on("change.cnPending", '[data-pending="kind"]', filter);
+        wrapper.on("keydown.cnPending", '[data-pending="search"]', event => { if (event.key === "Enter") { event.preventDefault(); filter(); } });
+        wrapper.on("click.cnPending", '[data-pending="previous"]', () => refreshPeriodPending(frm, Math.max(start - 50, 0), search, kind));
+        wrapper.on("click.cnPending", '[data-pending="next"]', () => refreshPeriodPending(frm, start + 50, search, kind));
+    } catch (error) {
+        if (!current()) return;
+        wrapper.html(`<p class="text-danger">${esc(__("No se pudieron consultar los pendientes. Compruebe sus permisos o vuelva a intentar."))}</p><button type="button" class="btn btn-default btn-sm" data-pending="retry">${esc(__("Reintentar"))}</button>`);
+        wrapper.on("click.cnPending", '[data-pending="retry"]', () => refreshPeriodPending(frm, start, search, kind));
+    }
+}
 
 async function refreshPeriodExceptions(frm, offset = 0, includeClosed = false) {
     const wrapper = frm.fields_dict?.exceptions_html?.$wrapper;

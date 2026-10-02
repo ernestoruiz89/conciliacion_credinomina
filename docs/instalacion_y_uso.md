@@ -68,6 +68,21 @@ Consultar este detalle no guarda ni concilia; después de corregir los datos,
 use **Conciliar esta empresa** para actualizar el resultado. Si el estado guardado
 ya no coincide con las filas actuales, el aviso lo indica expresamente.
 
+### Pendientes detectados en el período
+
+En **CN Reconciliation Period → Excepciones del período**, la sección
+**Pendientes detectados** muestra los resultados guardados de aplicaciones,
+cobranzas y depósitos vinculados que requieren atención. Incluye documento de
+origen, fila, cliente, crédito e importes en US$, con búsqueda, filtro por tipo
+y páginas de 50 registros. Está disponible también en períodos cerrados y solo
+consulta datos; no crea excepciones ni recalcula la conciliación.
+
+En los depósitos, el pendiente corresponde al saldo sin distribuir del depósito
+completo y puede pertenecer a otros períodos: no debe sumarse al pendiente de las
+aplicaciones. Las **Excepciones registradas** se muestran aparte, debajo, para
+dar seguimiento a casos documentados. Ambas secciones respetan los permisos del
+usuario y pueden mostrar cantidades diferentes.
+
 ### Operación desde septiembre 2026
 
 1. Configure la empresa y cree un período **Operativo** mensual o quincenal. Descargue **Plantillas → Plantilla de cobranza** desde el período, complete las filas, adjunte el archivo y pulse **1. Cargar cobranza**. Se crean los clientes no registrados, vinculados a esa empresa; la tabla guarda nombre, cédula, número de cliente, número de empleado (si viene), crédito y cuota. El número de empleado es interno de la empresa y puede repetirse en otra. En este paso no hay conciliación ni deducción confirmada.
