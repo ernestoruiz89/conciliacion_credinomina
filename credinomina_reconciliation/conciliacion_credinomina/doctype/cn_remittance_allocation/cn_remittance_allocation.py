@@ -375,7 +375,8 @@ def reconcile_remittance(remittance_name: str, progress_id: str = ""):
                  "percent": percent, "message": message},
                 user=frappe.session.user,
             )
-    return document._reconcile(progress=progress)
+    from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
+    return reconcile_deposit(document, progress=progress)
 
 
 @frappe.whitelist(methods=["POST"])

@@ -16,7 +16,7 @@ const context = {
         call: async args => { calls++; request = args;
             await new Promise(resolve => {release = resolve;});
             if (fail) throw new Error("Error de prueba");
-            return {message: {rows: 10, matched: 9, pending: 1, imports: 2, saved_imports: 1, reconciled_employers: ["A", "B"]}};
+            return {message: {deposit: "DEP-1", detail_rows: 10, detail_matched: 9, detail_pending: 1, targets: 2, periods: ["P1", "P2"]}};
         },
     },
 };
@@ -40,7 +40,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
     assert.equal(listeners.size, 0);
     assert.equal(frm.reconciliation_running, false);
     assert.match(messages[0].message, /Parcial/);
-    assert.match(messages[0].message, /A, B/);
+    assert.match(messages[0].message, /DEP-1/);
+    assert.match(messages[0].message, /P1, P2/);
+    assert.match(request.freeze_message, /este depósito/);
+    assert.ok(!messages[0].message.includes("Se recalculó la empresa"));
     fail = true;
     const next = run(frm); release();
     await assert.rejects(next, /Error de prueba/);

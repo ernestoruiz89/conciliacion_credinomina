@@ -120,7 +120,7 @@ async function reconcileRemittance(frm) {
             method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.reconcile_remittance",
             args: { remittance_name: name, progress_id: progressId },
             freeze: true,
-            freeze_message: __("Conciliando la empresa del depósito y sus empresas vinculadas…"),
+            freeze_message: __("Conciliando este depósito y actualizando sus destinos…"),
         });
         await frm.reload_doc();
         const result = response.message || {};
@@ -129,13 +129,12 @@ async function reconcileRemittance(frm) {
             title: __("Conciliación finalizada"),
             indicator: frm.doc.result === "Conciliado" ? "green" : "orange",
             message: `<p><b>${__("Estado del depósito")}:</b> ${escape(frm.doc.result)}</p>
-                <p>${__("Se recalculó la empresa y sus vínculos, incluyendo otros meses.")}</p>
-                <p>${__("Empresas")}: ${escape((result.reconciled_employers || []).join(", "))}</p>
-                <p>${__("Movimientos procesados")}: ${escape(result.rows || 0)} ·
-                ${__("Conciliados")}: ${escape(result.matched || 0)} ·
-                ${__("Pendientes")}: ${escape(result.pending || 0)} ·
-                ${__("Ignorados")}: ${escape(result.ignored || 0)}</p>
-                <p>${__("Importaciones actualizadas")}: ${escape(result.saved_imports || 0)} / ${escape(result.imports || 0)}</p>`,
+                <p>${__("Depósito")}: ${escape(result.deposit || name)}</p>
+                <p>${__("Filas del detalle")}: ${escape(result.detail_rows || 0)} ·
+                ${__("Conciliadas")}: ${escape(result.detail_matched || 0)} ·
+                ${__("Pendientes")}: ${escape(result.detail_pending || 0)}</p>
+                <p>${__("Destinos")}: ${escape(result.targets || 0)}</p>
+                <p>${__("Períodos afectados")}: ${escape((result.periods || []).join(", ") || "—")}</p>`,
         });
     } finally {
         frappe.realtime.off(event, onProgress);

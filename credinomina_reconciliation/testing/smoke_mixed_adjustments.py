@@ -4,6 +4,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation.application_adjustments import confirm_adjustment, MIXED_STATUS
+from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
@@ -55,6 +56,7 @@ def run():
                     raise AssertionError("Adjustment consumed assigned cash")
                 adjustment = new_adjustment(26.01)
                 confirm_adjustment(adjustment.name)
+                reconcile_deposit(deposit)
                 source.reload(); deposit.reload(); period.reload()
                 assert source.rows[0].amount == 137.33 and source.rows[0].net_applied_usd == 111.32
                 assert source.rows[0].deposit_match_status == MIXED_STATUS, source.rows[0].as_dict()

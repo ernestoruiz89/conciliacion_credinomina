@@ -5,6 +5,7 @@ from frappe.utils import now_datetime
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.patches.v1_0 import integrate_reconciliation_movements as migration
 from credinomina_reconciliation.tolerance_items import CATEGORY
+from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 
 
 def _reject(action):
@@ -85,7 +86,7 @@ def run():
                 "application_reference": company, "deducted_usd": paid})
             deposit.insert()
             deposit.submit()
-            _reconcile_sources(employer.name)
+            reconcile_deposit(deposit)
             filters = {"employer": employer.name, "category": CATEGORY}
             name, = frappe.get_all(migration.NEW, filters=filters, pluck="name")
             item = frappe.get_doc(migration.NEW, name)
@@ -99,7 +100,7 @@ def run():
             deposit.reload()
             assert deposit.unallocated_usd == 0
             balances = (period.applied_usd, period.remitted_usd, deposit.allocated_usd)
-            _reconcile_sources(employer.name)
+            reconcile_deposit(deposit)
             period.reload()
             deposit.reload()
             assert (period.applied_usd, period.remitted_usd, deposit.allocated_usd) == balances
@@ -114,11 +115,11 @@ def run():
             _reject(edited.save)
             # Tolerance is withdrawn: reverse, keep history, and restore the gap.
             frappe.db.set_value("CN Employer", employer.name, "rounding_tolerance_usd", 0)
-            _reconcile_sources(employer.name)
+            reconcile_deposit(deposit)
             item.reload()
             assert item.status == "Revertido" and item.reversed_on
             frappe.db.set_value("CN Employer", employer.name, "rounding_tolerance_usd", 0.01)
-            _reconcile_sources(employer.name)
+            reconcile_deposit(deposit)
             item.reload()
             assert item.status == "Vigente" and not item.reversed_on
             assert frappe.db.count(migration.NEW, filters) == 1

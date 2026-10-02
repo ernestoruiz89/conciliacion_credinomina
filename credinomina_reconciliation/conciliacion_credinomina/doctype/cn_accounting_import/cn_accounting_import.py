@@ -700,6 +700,8 @@ def _reconcile_sources(employer=None, progress=None):
     report(5, _("Validando empresas y cargando movimientos relacionados…"))
     from credinomina_reconciliation.paying_employers import reconciliation_companies
     companies = reconciliation_companies(employer) if employer else []
+    from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
+    lock_cash_pool(companies or frappe.get_all("CN Employer", pluck="name", limit_page_length=0))
     if employer:
         imports = load_scoped_imports(companies)
     else:
@@ -1590,7 +1592,7 @@ def _sync_remittance_details(context, allocation, claims=()):
 
 def _distribute_deposits(
     periods, source_rows, deposit_pairs, complementary_items,
-    complementary_by_target, manual_allocations, registered_ids,
+    complementary_by_target, manual_allocations, registered_ids, fixed_coverage=None,
 ):
     rows_by_name = {
         row.name: row for period in periods for row in period.collection_rows
@@ -1765,6 +1767,19 @@ def _distribute_deposits(
             claim["employee_number"] = claim.get("employee_number") or client["employee_number"]
             claim["national_id"] = claim.get("national_id") or client["national_id"]
 
+    # A single-deposit run can use only the capacity left by other deposits.
+    # Signed complements retain their sign; settled claims remain at zero.
+    if fixed_coverage:
+        for claim in claims:
+            covered = money(fixed_coverage.get(claim["id"]))
+            original = money(claim["amount_usd"])
+            remaining = original - covered
+            claim["amount_usd"] = money_float(min(remaining, 0) if original < 0 else max(remaining, 0))
+            claim["core_applied_usd"] = money_float(max(money(claim.get("core_applied_usd")) - covered, 0))
+            if covered:
+                # Preserve the existing rule: tolerance requires one deposit,
+                # not the final installment of a multi-deposit settlement.
+                claim["application_ids"] = []
     claims_by_id = {claim["id"]: claim for claim in claims}
     instructions = []
     # A user-approved exact deposit is reserved for every row of its payroll
@@ -2096,14 +2111,16 @@ def _sync_registered_deposit_detail(allocation):
         )
 
 
-def _sync_rounding_movements(movements, allocation, source_rows, employer=None):
+def _sync_rounding_movements(movements, allocation, source_rows, employer=None, deposit_name=None):
     """Persist deterministic movements and reverse stale ones; never post GL."""
     desired = {movement["name"]: movement for movement in movements}
     existing = {
         item.name: item
         for item in frappe.get_all(
             "CN Complementary Item",
-            filters={"category": TOLERANCE_CATEGORY, "docstatus": 1, **({"employer": employer} if employer else {})},
+            filters={"category": TOLERANCE_CATEGORY, "docstatus": 1,
+                     **({"employer": employer} if employer else {}),
+                     **({"deposit_source_row": deposit_name} if deposit_name else {})},
             fields=["name", "status", "period"],
             limit_page_length=100000,
         )
@@ -2311,7 +2328,7 @@ def _operative_period_status(period, has_unclassified_surplus=False):
 
 def _rebuild_period_balances(
     periods, source_rows, deposit_pairs, allocation,
-    closed_state, closed_links, complementary_items,
+    closed_state, closed_links, complementary_items, source_status_collections=(), status_source_ids=None,
 ):
     rows_by_name = {}
     for period in periods:
@@ -2462,16 +2479,22 @@ def _rebuild_period_balances(
 
     _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation)
 
+    # Applications covering more than one period still use all their stored
+    # collection balances when deriving their deposit status.
+    status_rows = {row.name: row for row in source_status_collections}
+    status_rows.update(rows_by_name)
     paired_references = {
         clean_text(account.reference) for account, _bank in deposit_pairs
     }
     for source in source_rows:
         if source.event_type != "Aplicacion" or not source.effective:
             continue
+        if status_source_ids is not None and source.name not in status_source_ids:
+            continue
         targets = [
-            rows_by_name[link["collection_row_id"]]
+            status_rows[link["collection_row_id"]]
             for link in _application_allocations(source)
-            if link["collection_row_id"] in rows_by_name
+            if link["collection_row_id"] in status_rows
         ]
         if not targets:
             source.deposit_match_status = (
@@ -2534,7 +2557,7 @@ def _rebuild_period_balances(
     if closed_state:
         registered_rows = [
             allocation["deposit_meta"][deposit_id]["account"]
-            for deposit_id in allocation["registered_ids"].values()
+            for deposit_id in allocation.get("balance_registered_ids", allocation["registered_ids"]).values()
             if deposit_id in allocation["deposit_meta"]
         ]
         current_links = _operative_links(

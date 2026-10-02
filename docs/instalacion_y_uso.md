@@ -88,6 +88,14 @@ usuario y pueden mostrar cantidades diferentes.
 
 ### Operación desde septiembre 2026
 
+El botón **Conciliar** de **Distribución de Depósito** procesa únicamente el
+depósito abierto: su detalle, destinos y ajustes por tolerancia. Actualiza los
+saldos de los períodos afectados considerando las asignaciones ya guardadas de
+otros depósitos. Las aplicaciones deben estar vinculadas previamente a sus
+períodos/cobranzas desde **CN Accounting Import → Conciliar esta empresa**.
+El resultado muestra las filas del detalle y los períodos afectados por ese
+depósito.
+
 1. Configure la empresa y cree un período **Operativo** mensual o quincenal. Descargue **Plantillas → Plantilla de cobranza** desde el período, complete las filas, adjunte el archivo y pulse **1. Cargar cobranza**. Se crean los clientes no registrados, vinculados a esa empresa; la tabla guarda nombre, cédula, número de cliente, número de empleado (si viene), crédito y cuota. El número de empleado es interno de la empresa y puede repetirse en otra. En este paso no hay conciliación ni deducción confirmada.
 2. Cuando la empresa responda, adjunte en el mismo período el archivo con `Deducido C$` y/o `Deducido US$`, indique la fecha de esa evidencia y pulse **2. Cargar deducción de empresa**. Puede descargar **Plantilla de detalle empresa** con la cobranza y `Fila ID` precargadas. El nombre del cliente es obligatorio. El número de empleado identifica dentro de esa empresa; si faltan identificadores, solo un nombre normalizado o alias único de la misma empresa permite vincular la fila. Un error ortográfico requiere agregar un alias verificado en **Clientes y alias** y volver a importar. La `Fila ID` exportada también permite identificar con precisión una cuota.
 3. Importe las aplicaciones del core con **3. Cargar movimientos contables** en **Importación de Fuente**. Es el único tipo permitido. Seleccione la moneda del archivo; si está en NIO, indique la tasa C$/US$ para normalizar las filas a US$. Cada importación debe ser de una sola moneda. El archivo puede llegar antes o después de la respuesta de la empresa. El core puede agrupar las dos quincenas en una aplicación.
