@@ -8,6 +8,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.client_identity import (
+    ClientIdentityIndex,
     choose_client,
     matching_name,
     name_key,
@@ -19,17 +20,21 @@ from credinomina_reconciliation.employer_naming import (
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 
 
-def load_client_index():
+def load_client_index(employers=None):
+    if employers is not None and not employers:
+        return []
     rows = frappe.get_all(
         "CN Client",
+        filters={"employer": ["in", sorted(set(employers))]} if employers is not None else {},
         fields=["name", "employer", "client_name", "client_number", "employee_number", "national_id"],
         limit_page_length=100000,
     )
     aliases = defaultdict(list)
     for row in frappe.get_all(
         "CN Client Alias", fields=["parent", "alias_name"],
+        filters={"parent": ["in", [row.name for row in rows]]} if employers is not None else {},
         limit_page_length=100000,
-    ):
+    ) if rows else []:
         aliases[row.parent].append(row.alias_name)
     return [
         {**row, "client_aliases": aliases[row.name]}
@@ -295,7 +300,7 @@ def names_for_claim(claim, clients, employer=""):
     """Return verified names for a claim, or its own source name if unknown."""
     names = [clean_text(claim.get("client_name"))]
     linked_name = claim.get("client") or claim.get("portfolio_client")
-    found = next(
+    found = clients.by_name.get(linked_name) if isinstance(clients, ClientIdentityIndex) else next(
         (row for row in clients if linked_name and row.get("name") == linked_name),
         None,
     )

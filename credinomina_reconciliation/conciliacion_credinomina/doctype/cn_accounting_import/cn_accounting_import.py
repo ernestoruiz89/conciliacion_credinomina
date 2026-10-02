@@ -24,7 +24,7 @@ from credinomina_reconciliation.client_registry import (
     load_client_index,
     names_for_claim,
 )
-from credinomina_reconciliation.client_identity import choose_client
+from credinomina_reconciliation.client_identity import ClientIdentityIndex, choose_client
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
@@ -52,6 +52,7 @@ from credinomina_reconciliation.parsers import (
     parse_accounting_movements,
 )
 from credinomina_reconciliation.period_lock import period_write_action
+from credinomina_reconciliation.reconciliation_scope import document_state, load_scoped_imports
 from credinomina_reconciliation.reconciliation import (
     AMOUNT_TOLERANCE,
     application_matches_collection,
@@ -683,21 +684,33 @@ def _reconciliation_feedback(rows):
     }
 
 
-def _reconcile_sources(employer=None):
+def _save_reconciled_document(document):
+    original = document.get("_reconciliation_original_state")
+    if original is not None and original == document_state(document):
+        return False
+    document.save(ignore_permissions=True)
+    return True
+
+
+def _reconcile_sources(employer=None, progress=None):
     if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
-    import_names = frappe.get_all(
-        "CN Accounting Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
-        order_by="creation asc",
-        pluck="name",
-    )
-    imports = [frappe.get_doc("CN Accounting Import", name) for name in import_names]
+    report = progress or (lambda percent, message: None)
+    report(5, _("Validando empresas y cargando movimientos relacionados…"))
     from credinomina_reconciliation.paying_employers import reconciliation_companies
     companies = reconciliation_companies(employer) if employer else []
     if employer:
-        imports = [document for company in companies for document in _company_imports(imports, company)]
+        imports = load_scoped_imports(companies)
+    else:
+        import_names = frappe.get_all(
+            "CN Accounting Import",
+            filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
+            order_by="creation asc", pluck="name", limit_page_length=0,
+        )
+        imports = [frappe.get_doc("CN Accounting Import", name) for name in import_names]
+    for document in imports:
+        document._reconciliation_original_state = document_state(document)
     original_source_rows = [
         row.as_dict() for document in imports for row in document.rows
     ]
@@ -749,6 +762,8 @@ def _reconcile_sources(employer=None):
     refresh_rows(all_rows)
     scope_filter = ["in", companies] if len(companies) > 1 else employer
     periods = _load_open_periods(scope_filter) if employer else _load_open_periods()
+    for period in periods:
+        period._reconciliation_original_state = document_state(period)
     company_filters = {"employer": scope_filter} if employer else {}
     closed_operative_state = {
         period.name: _operative_period_state(period)
@@ -796,13 +811,16 @@ def _reconcile_sources(employer=None):
     )
     deposit_pairs, registered_ids = _registered_deposit_pairs(all_rows, manual_allocations)
     _refresh_recognition_evidence(periods, deposit_pairs)
+    report(30, _("Conciliando aplicaciones de pago…"))
     _match_applications(
         all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
     )
+    report(50, _("Distribuyendo depósitos y revisando sus detalles…"))
     allocation = _distribute_deposits(
         periods, all_rows, deposit_pairs, complementary_items,
         complementary_by_target, manual_allocations, registered_ids,
     )
+    report(75, _("Actualizando saldos y verificando períodos cerrados…"))
     _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=scope_filter)
     _classify_surplus(allocation, surplus_items)
     _rebuild_period_balances(
@@ -818,6 +836,8 @@ def _reconcile_sources(employer=None):
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     _sync_registered_deposit_detail(allocation)
 
+    report(90, _("Guardando únicamente las importaciones modificadas…"))
+    saved_imports = 0
     for document in imports:
         document.recalculate_summary()
         document.status = (
@@ -827,12 +847,13 @@ def _reconcile_sources(employer=None):
         # recomputation may refresh the derived child fields after closure.
         token = _source_reconcile_verified.set(True)
         try:
-            document.save(ignore_permissions=True)
+            saved_imports += int(_save_reconciled_document(document))
         finally:
             _source_reconcile_verified.reset(token)
 
     return {
         "imports": len(imports),
+        "saved_imports": saved_imports,
         "rows": len(all_rows),
         "employer": employer,
         "reconciled_employers": companies,
@@ -1012,7 +1033,7 @@ def _application_allocations(source):
 def _match_applications(
     source_rows, collection_rows, deposit_pairs, complementary_by_target, periods
 ):
-    clients = load_client_index()
+    clients = load_client_index(employers={period.employer for period in periods if period.employer})
     clients_by_name = {client["name"]: client for client in clients}
     aliases_by_target = {
         row.name: (clients_by_name.get(row.get("client")) or {}).get("client_aliases", ())
@@ -1726,10 +1747,13 @@ def _distribute_deposits(
                 "application_ids": [application.name],
             }
         )
+    # Keep global identifier conflict detection, but resolve each claim through
+    # an index rather than scanning every client and normalizing every alias.
     client_catalog = load_client_index()
+    client_lookup = ClientIdentityIndex(client_catalog)
     for claim in claims:
-        claim["client_names"] = names_for_claim(claim, client_catalog, claim.get("group"))
-        client, reason = choose_client(claim, client_catalog, claim.get("group"))
+        claim["client_names"] = names_for_claim(claim, client_lookup, claim.get("group"))
+        client, reason = choose_client(claim, client_lookup, claim.get("group"))
         if client and reason in {"Identificador exacto", "Nombre o alias único"}:
             claim["client"] = client["name"]
             claim["client_number"] = claim.get("client_number") or client["client_number"]
@@ -1784,15 +1808,18 @@ def _distribute_deposits(
         order_by="parent asc, idx asc",
         limit_page_length=100000,
     ) if registered_names else []
+    targets_by_parent = defaultdict(list)
+    for target in target_rows:
+        targets_by_parent[target.parent].append(target)
+    deposits_by_id = defaultdict(list)
+    for deposit in deposits:
+        deposits_by_id[deposit["id"]].append(deposit)
     allocation_instructions = [
         (item, target) for item in manual_allocations
-        for target in target_rows if target.parent == item.name
+        for target in targets_by_parent[item.name]
     ]
     for parent, item in allocation_instructions:
-        candidates = [
-            deposit for deposit in deposits
-            if deposit["id"] == registered_ids.get(parent.name)
-        ]
+        candidates = deposits_by_id.get(registered_ids.get(parent.name), [])
         if len(candidates) != 1:
             manual_results[item.name] = (
                 "Falta deposito" if not candidates else "Deposito ambiguo"
@@ -1858,7 +1885,7 @@ def _distribute_deposits(
             flt(item.amount_usd) - flt(result["deposit_remaining"].get(deposit_id, item.amount_usd))
         )
         remaining = money_float(flt(item.amount_usd) - allocated)
-        statuses = [manual_results.get(row.name, "Pendiente") for row in target_rows if row.parent == item.name]
+        statuses = [manual_results.get(row.name, "Pendiente") for row in targets_by_parent[item.name]]
         application_pending = any(
             entry["deposit_id"] == deposit_id
             and entry["claim_id"].startswith("C:")
@@ -2523,7 +2550,7 @@ def _rebuild_period_balances(
 
     for period in periods:
         if period.status != "Cerrado":
-            period.save(ignore_permissions=True)
+            _save_reconciled_document(period)
 
 
 def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation):
@@ -2753,9 +2780,9 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
             )
         if period.status == "Cerrado":
             with period_write_action("reconcile"):
-                period.save(ignore_permissions=True)
+                _save_reconciled_document(period)
         else:
-            period.save(ignore_permissions=True)
+            _save_reconciled_document(period)
 
 
 def _equivalent_amount(target, source, amount_usd):

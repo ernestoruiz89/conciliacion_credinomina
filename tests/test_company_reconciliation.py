@@ -40,7 +40,7 @@ class CompanyReconciliationTests(unittest.TestCase):
         def get_all(doctype, **kwargs):
             queries.append((doctype, kwargs))
             if doctype == "CN Accounting Import":
-                return list(imports)
+                return list(imports.values())
             if doctype == "CN Reconciliation Period":
                 if kwargs.get("pluck"):
                     return [p.name for p in periods.values() if p.employer == kwargs["filters"]["employer"]]

@@ -43,16 +43,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
             });
         }
         if (!frm.is_new() && frm.doc.docstatus === 1 && frm.get_perm(0, "write")) {
-            frm.add_custom_button(__("Conciliar"), async () => {
-                if (frm.is_dirty()) await frm.save();
-                await frappe.call({
-                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.reconcile_remittance",
-                    args: { remittance_name: frm.doc.name },
-                    freeze: true,
-                    freeze_message: __("Conciliando depósito…"),
-                });
-                await frm.reload_doc();
-            }, __("Conciliación"));
+            frm.add_custom_button(__("Conciliar"), () => reconcileRemittance(frm), __("Conciliación"));
         }
         const file = frm.doc.detail_file || frm.doc.support_file || "";
         if (frm.is_new() || frm.doc.docstatus === 2 || !/\.(xlsx|xls|csv)(\?|$)/i.test(file)) return;
@@ -110,6 +101,47 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+async function reconcileRemittance(frm) {
+    if (frm.reconciliation_running) return;
+    frm.reconciliation_running = true;
+    const name = frm.doc.name;
+    const progressId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const event = "cn_remittance_reconciliation_progress";
+    const onProgress = data => {
+        if (data.remittance_name !== name || data.progress_id !== progressId) return;
+        // The percentages identify stages, not an estimated remaining duration.
+        $("#freeze .freeze-message").text(`${__("Conciliando")}: ${data.percent}% — ${__(data.message)}`);
+    };
+    try {
+        if (frm.is_dirty()) await frm.save();
+        frappe.realtime.on(event, onProgress);
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.reconcile_remittance",
+            args: { remittance_name: name, progress_id: progressId },
+            freeze: true,
+            freeze_message: __("Conciliando la empresa del depósito y sus empresas vinculadas…"),
+        });
+        await frm.reload_doc();
+        const result = response.message || {};
+        const escape = value => frappe.utils.escape_html(String(value ?? ""));
+        frappe.msgprint({
+            title: __("Conciliación finalizada"),
+            indicator: frm.doc.result === "Conciliado" ? "green" : "orange",
+            message: `<p><b>${__("Estado del depósito")}:</b> ${escape(frm.doc.result)}</p>
+                <p>${__("Se recalculó la empresa y sus vínculos, incluyendo otros meses.")}</p>
+                <p>${__("Empresas")}: ${escape((result.reconciled_employers || []).join(", "))}</p>
+                <p>${__("Movimientos procesados")}: ${escape(result.rows || 0)} ·
+                ${__("Conciliados")}: ${escape(result.matched || 0)} ·
+                ${__("Pendientes")}: ${escape(result.pending || 0)} ·
+                ${__("Ignorados")}: ${escape(result.ignored || 0)}</p>
+                <p>${__("Importaciones actualizadas")}: ${escape(result.saved_imports || 0)} / ${escape(result.imports || 0)}</p>`,
+        });
+    } finally {
+        frappe.realtime.off(event, onProgress);
+        frm.reconciliation_running = false;
+    }
+}
 
 function toggleApplicationDetailAction(frm) {
     frm.toggle_display("use_applications_detail", !!frm.doc.detail_period &&

@@ -106,6 +106,22 @@ un reconocimiento provisional y justificado. Se muestra como **deducción
 inferida por depósito**, nunca como descuento individual confirmado por la
 empresa, y puede revertirse o sustituirse cuando llegue el detalle real.
 
+## Alcance del botón Conciliar en un depósito
+
+**Conciliar** recalcula solamente la empresa pagadora y las empresas vinculadas
+por pagos compartidos. Incluye todos sus meses, porque un depósito puede cubrir
+aplicaciones anteriores, y conserva las validaciones de períodos cerrados.
+No ejecuta la conciliación global de todas las empresas.
+
+Antes de procesar, se revisan los vínculos entre empresas mediante lecturas por
+lotes; solo se cargan como documentos completos las importaciones del grupo.
+Las importaciones y los períodos sin cambios no se vuelven a guardar. El formulario
+muestra avance por etapas (requiere conexión de tiempo real) y al terminar informa
+el estado del depósito, las empresas procesadas y los movimientos conciliados,
+pendientes e ignorados. Los contadores corresponden al grupo de empresas, no solo
+a las filas del depósito. Si falla la conexión de tiempo real, la respuesta final
+sigue disponible. Confirmar y conciliar siguen siendo acciones separadas.
+
 ## Archivos de entrada
 
 Se admiten archivos `.xlsx`, `.xls` y `.csv`. El archivo de cobranza que se

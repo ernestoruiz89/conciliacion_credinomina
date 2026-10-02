@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -28,11 +29,46 @@ def matching_name(value: Any, candidate: Mapping[str, Any]) -> bool:
     )
 
 
+class ClientIdentityIndex:
+    """Select a small candidate set without weakening the existing conflict rules."""
+
+    def __init__(self, clients):
+        self.records = list(clients)
+        self.by_name = {row["name"]: row for row in self.records}
+        self.identifiers = {field: defaultdict(set) for field in
+                            ("client_number", "national_id", "employee_number")}
+        self.names = defaultdict(set)
+        for position, row in enumerate(self.records):
+            for field, index in self.identifiers.items():
+                key = canonical_identifier(row.get(field))
+                if key:
+                    index[key].add(position)
+            for label in (row.get("client_name"), *(row.get("client_aliases") or ())):
+                key = name_key(label)
+                if key:
+                    self.names[key].add(position)
+
+    def __iter__(self):
+        return iter(self.records)
+
+    def candidates(self, record):
+        positions = set()
+        has_identifier = False
+        for field, index in self.identifiers.items():
+            key = canonical_identifier(record.get(field))
+            if key:
+                has_identifier = True
+                positions.update(index.get(key, ()))
+        if not has_identifier:
+            positions.update(self.names.get(name_key(record.get("client_name")), ()))
+        return [self.records[position] for position in sorted(positions)]
+
+
 def choose_client(
     record: Mapping[str, Any], clients: Iterable[Mapping[str, Any]], employer: str = "",
 ) -> tuple[Mapping[str, Any] | None, str]:
     """Return an existing client or a reason to create/review; never fuzzy merge."""
-    clients = list(clients)
+    clients = clients.candidates(record) if isinstance(clients, ClientIdentityIndex) else list(clients)
     number = canonical_identifier(record.get("client_number"))
     national_id = canonical_identifier(record.get("national_id"))
     employee_number = canonical_identifier(record.get("employee_number"))

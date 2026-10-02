@@ -6,7 +6,7 @@ from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
 from credinomina_reconciliation.parsers import (
-    SourceFileError, clean_text, file_sha256, parse_collection_file,
+    SourceFileError, clean_text, file_sha256, normalize_credit_number, parse_collection_file,
 )
 from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
@@ -89,7 +89,7 @@ class CNRemittanceAllocation(Document):
             for row in self.detail_rows:
                 if row.get("employer") and row.employer not in allowed:
                     frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
-            complete_detail_clients(self.detail_rows, load_client_index(), self.employer, allowed)
+            complete_detail_clients(self.detail_rows, load_client_index(employers=allowed), self.employer, allowed)
         if self.detail_period:
             period = frappe.db.get_value(
                 "CN Reconciliation Period", self.detail_period,
@@ -306,12 +306,13 @@ class CNRemittanceAllocation(Document):
                     for row in (document.get("detail_rows") or [])]
         return detail_identity(self) != detail_identity(previous)
 
-    def _reconcile(self):
+    def _reconcile(self, progress=None):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-            reconcile_all_sources,
+            _reconcile_sources,
         )
-
-        return reconcile_all_sources()
+        if not self.employer:
+            frappe.throw(_("Indique la empresa del depósito antes de conciliar."))
+        return _reconcile_sources(self.employer, progress=progress)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -356,14 +357,23 @@ def create_complementary_item(remittance_name: str, modified: str, values):
 
 
 @frappe.whitelist(methods=["POST"])
-def reconcile_remittance(remittance_name: str):
+def reconcile_remittance(remittance_name: str, progress_id: str = ""):
     """Run reconciliation only when the user explicitly requests it."""
     document = frappe.get_doc("CN Remittance Allocation", remittance_name)
     document.check_permission("write")
     if document.docstatus != 1:
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
     document._validate_deposit()
-    return document._reconcile()
+
+    def progress(percent, message):
+        if progress_id:
+            frappe.publish_realtime(
+                "cn_remittance_reconciliation_progress",
+                {"remittance_name": document.name, "progress_id": progress_id,
+                 "percent": percent, "message": message},
+                user=frappe.session.user,
+            )
+    return document._reconcile(progress=progress)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -398,6 +408,8 @@ def import_remittance_detail(remittance_name: str):
         )
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
+    for record in records:
+        record["loan_number"] = normalize_credit_number(record.get("loan_number"))
     _apply_remittance_detail(document, records, content, source_url)
     return {
         "deposit": document.name,
