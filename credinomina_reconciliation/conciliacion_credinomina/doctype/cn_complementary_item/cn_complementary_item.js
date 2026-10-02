@@ -57,6 +57,7 @@ frappe.ui.form.on("CN Complementary Item", {
             deposit_voucher: r.message.deposit_voucher, posting_date: frm.doc.posting_date || r.message.deposit_date});
     },
     refresh(frm) {
+        cn_comp_add_exception_button(frm);
         const automatic = frm.doc.category === "Diferencia por tolerancia";
         const categories = ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Saldo a favor de la empresa", "Ajuste de aplicación", "Compensación entre partidas"];
         if (frm.doc.accounting_source_key) categories.unshift("Por clasificar");
@@ -67,7 +68,9 @@ frappe.ui.form.on("CN Complementary Item", {
                 frm.fields.map(field => [field.df.fieldname, field.df.read_only || 0]));
             frm.fields.forEach(field => frm.set_df_property(field.df.fieldname, "read_only", 1));
             frm.disable_save();
-            frm.dashboard.set_headline_alert(__("Ajuste automático por tolerancia. No requiere asiento contable; su vigencia se controla al conciliar."), "blue");
+            frm.dashboard.set_headline_alert(frm.doc.accounting_exception
+                ? __("Ajuste automático por tolerancia. El registro en el core se gestiona en su excepción; su vigencia financiera se controla al conciliar.")
+                : __("Ajuste automático por tolerancia. No requiere asiento por defecto. Si necesita registrarlo en el core, use Crear excepción; su vigencia se controla al conciliar."), "blue");
             return;
         }
         if (frm._cn_tolerance_read_only) {
@@ -128,6 +131,63 @@ frappe.ui.form.on("CN Complementary Item", {
         }
     },
 });
+
+function cn_comp_add_exception_button(frm) {
+    if (frm.is_new() || frm.doc.docstatus === 2) return;
+    if (frm.doc.accounting_exception || frm.doc.registration_exception) {
+        frm.add_custom_button(__("Ver excepción"), () => frappe.set_route("Form", "CN Reconciliation Exception",
+            frm.doc.accounting_exception || frm.doc.registration_exception));
+    } else if (frappe.model?.can_create?.("CN Reconciliation Exception")) {
+        frm.add_custom_button(__("Crear excepción"), () => cn_comp_create_exception(frm));
+    }
+}
+
+async function cn_comp_create_exception(frm) {
+    if (frm._cn_creating_exception) return;
+    frm._cn_creating_exception = true;
+    const api = "credinomina_reconciliation.complementary_exceptions.";
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const existing = await frappe.call({method: api + "get_item_exception", args: {item_name: frm.doc.name}});
+        if (existing.message) {
+            frappe.set_route("Form", "CN Reconciliation Exception", existing.message);
+            return;
+        }
+        let busy = false;
+        const dialog = new frappe.ui.Dialog({
+            title: __("Registrar ajuste en el core"),
+            fields: [
+                {fieldname: "assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"),
+                    reqd: 1, default: frappe.session.user, get_query: () => ({filters: {enabled: 1}})},
+                {fieldname: "commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), reqd: 1},
+                {fieldname: "next_action", fieldtype: "Small Text", label: __("Próxima gestión"),
+                    read_only: 1, default: __("Registrar ajuste en el core")},
+                {fieldname: "help", fieldtype: "HTML", options: `<p class="text-muted">${frappe.utils.escape_html(__(
+                    "La excepción se resolverá al verificar el asiento en los movimientos contables importados. No cambia la distribución del depósito ni registra asientos en el core."))}</p>`},
+            ],
+            primary_action_label: __("Crear excepción"),
+            primary_action: async values => {
+                if (busy) return;
+                busy = true;
+                dialog.get_primary_btn().prop("disabled", true);
+                try {
+                    const response = await frappe.call({method: api + "create_item_exception", args: {
+                        item_name: frm.doc.name, assigned_to: values.assigned_to, commitment_date: values.commitment_date,
+                    }, freeze: true, freeze_message: __("Creando seguimiento contable…")});
+                    dialog.hide();
+                    await frm.reload_doc();
+                    frappe.set_route("Form", "CN Reconciliation Exception", response.message);
+                } finally {
+                    busy = false;
+                    dialog.get_primary_btn().prop("disabled", false);
+                }
+            },
+        });
+        dialog.show();
+    } finally {
+        frm._cn_creating_exception = false;
+    }
+}
 
 async function cn_compensate_items_dialog(frm) {
     if (frm.is_dirty()) await frm.save();

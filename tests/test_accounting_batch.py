@@ -39,6 +39,8 @@ class AccountingBatchTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["amount"], 824.78)  # not already-converted USD
         self.assertEqual(rows[0]["voucher"], "00123")
+        self.assertEqual(rows[0]["source_row"], 25)
+        self.assertEqual(rows[0]["_csv_original_row"], 25)
         self.assertEqual(rows[0]["loan_number"], "013375-1")
         self.assertEqual(rows[0]["client_name"], "María, Pérez")
         self.assertEqual(str(rows[0]["event_date"]), "2025-04-15")

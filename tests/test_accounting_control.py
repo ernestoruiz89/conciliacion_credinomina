@@ -108,9 +108,9 @@ class AccountingControlTests(unittest.TestCase):
             for result in ("Pendiente", "Revisar detalle", "Conciliado", "Parcial con saldo a favor", ""):
                 for mirrored in (False, True):
                     with self.subTest(docstatus=docstatus, result=result, mirrored=mirrored):
-                        deposit = {**source("DEP", accounting_classification="Depósito"),
+                        deposit = {**source("DEP", event_type="Deposito", accounting_classification="Depósito"),
                                    "source_date": "2025-04-01", "docstatus": docstatus, "result": result}
-                        sources = [source(accounting_classification="Depósito", deposit_match_status="Pendiente")] if mirrored else []
+                        sources = [source(event_type="Deposito", accounting_classification="Depósito", deposit_match_status="Pendiente")] if mirrored else []
                         rows, _ = build_rows(sources, imports(), [], deposits=[deposit])
                         self.assertEqual(len(rows), 1)
                         self.assertEqual(rows[0]["state"], result)
@@ -121,6 +121,57 @@ class AccountingControlTests(unittest.TestCase):
              patch("credinomina_reconciliation.conciliacion_credinomina.report.control_mensual_de_movimientos_contables.control_mensual_de_movimientos_contables._", side_effect=lambda text: text):
             with self.assertRaises(PermissionError):
                 execute({"month": "2025-04-01"})
+
+    def test_repsa_applications_cannot_inherit_centrolac_deposit_with_stale_key(self):
+        parent = {"IMP": {"name": "IMP", "employer": "REPSA", "currency": "NIO"}}
+        applications = [source(name=str(day), event_date=f"2025-04-{day}", voucher=f"AS-{day}",
+            client_name="BENJAMIN FRANCISCO HERNANDEZ BRENES", client_number="4294",
+            loan_number="109070-1", source_debit=1870.77, source_row=6,
+            accounting_classification="Aplicación de pago") for day in (26, 30)]
+        deposit = {"name": "DEP-4-2025-0006", "employer": "CENTROLAC, S.A", "source_row": 6,
+            "accounting_source_key": "KEY", "source_date": "2025-04-01", "source_voucher": "00101922",
+            "source_account": "1602", "source_currency": "NIO", "source_credit": 113167.26,
+            "source_fx_rate": 36.6243, "bank_account": "BANPRO 3268 C$", "result": "Pendiente",
+            "accounting_classification": "Depósito", "source_description": "Depósito de CENTROLAC"}
+        rows, _ = build_rows(applications, parent, [], deposits=[deposit])
+        self.assertEqual(len(rows), 3)
+        cash = next(row for row in rows if row["remittance_allocation"])
+        self.assertEqual((cash["client_name"], cash["client_number"], cash["loan_number"]), ("", "", ""))
+        self.assertEqual(cash["employer"], "CENTROLAC, S.A")
+        self.assertEqual(cash["credit_nio"], 113167.26)
+        self.assertEqual(cash["credit_usd"], 3089.95)
+        for row in rows:
+            if row is not cash:
+                self.assertEqual(row["employer"], "REPSA")
+                self.assertEqual(row["remittance_allocation"], "")
+                self.assertEqual(row["bank_account"], "")
+                self.assertEqual(row["debit_usd"], 51.08)
+                self.assertIn("inconsistente", row["warning"])
+                self.assertEqual(row["missing_conversion"], 0)
+
+    def test_deposit_mirror_requires_exact_evidence_and_physical_origin(self):
+        original = source(event_type="Deposito", accounting_classification="Depósito", voucher="V",
+                          source_row=100, source_file_hash="file", source_debit=0, source_credit=10)
+        deposit = {**original, "name": "DEP", "employer": "Empresa", "bank_account": "BANK", "result": "Conciliado"}
+        for mismatch in ({"event_date": "2025-04-02"}, {"voucher": "OTHER"}, {"source_account": "OTHER"},
+                         {"source_currency": "USD"}, {"source_credit": 20}, {"source_description": "OTHER"},
+                         {"source_row": 101}, {"source_file_hash": "other-file"}, {"event_type": "Aplicacion"},
+                         {"accounting_reference": "OTHER"}, {"tmov": "OTHER"}, {"tdoc": "OTHER"}):
+            with self.subTest(mismatch=mismatch):
+                rows, _ = build_rows([{**original, **mismatch}], imports(), [], deposits=[deposit])
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(sum(bool(row["remittance_allocation"]) for row in rows), 1)
+        rows, _ = build_rows([original], imports(), [], deposits=[deposit])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["state"], "Conciliado")
+
+    def test_stale_key_does_not_hide_unrelated_complement(self):
+        item = {**source("COMP", source_credit=20, source_debit=0), "source_date": "2025-04-01", "employer": "Other"}
+        rows, _ = build_rows([source(complementary_item="COMP")], imports(), [item])
+        self.assertEqual(len(rows), 2)
+        application = next(row for row in rows if row["accounting_import"])
+        self.assertEqual(application["employer"], "Empresa")
+        self.assertEqual(application["complementary_item"], "")
 
 
 if __name__ == "__main__":

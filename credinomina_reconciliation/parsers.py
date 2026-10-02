@@ -407,6 +407,7 @@ def _native_deposit_amount(description: str, fallback: Any) -> tuple[str, float]
 def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str, Any]]:
     records = _records_from_header(read_table(file_name, content), "cuenta_contable")
     parsed = []
+    original_rows = set()
     for row_number, record in records:
         description = clean_text(record.get("descripcion"))
         if not re.fullmatch(r"\d[\d.-]*", clean_text(record.get("cuenta_contable"))):
@@ -446,6 +447,15 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
             continue
         if amount <= 0:
             continue
+        original_row = row_number
+        if "cn_fila_origen" in record:
+            value = clean_text(record["cn_fila_origen"])
+            if not re.fullmatch(r"[1-9]\d*", value):
+                raise SourceFileError(f"Fila {row_number}: CN_FILA_ORIGEN debe ser un entero positivo.")
+            original_row = int(value)
+            if original_row in original_rows:
+                raise SourceFileError(f"Fila {row_number}: CN_FILA_ORIGEN {original_row} está repetida; revise el CSV individual.")
+        original_rows.add(original_row)
         event_date = parse_date(record.get("fecha_aplica"))
         equivalent_currency = ""
         equivalent_amount = 0.0
@@ -462,7 +472,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
                 fx_basis = "Importe del movimiento contable"
         parsed.append(
             _source_record(
-                row_number=row_number,
+                row_number=original_row,
                 event_type=event_type,
                 event_date=event_date,
                 reference=reference,
@@ -485,6 +495,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
             )
         )
         parsed[-1].update({
+            "_csv_original_row": original_row if "cn_fila_origen" in record else None,
             "_csv_employer_assignment": clean_text(record.get("cn_empresa_asignada")),
             "source_description": "" if record.get("descripcion") is None else str(record["descripcion"]),
             "tmov": tmov, "tdoc": tdoc,

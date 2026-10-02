@@ -91,6 +91,8 @@ def run():
                                              "attached_to_name": document.name, "file_url": source.file_url})
         reprocessed = frappe.get_doc("CN Accounting Import", created[0]["name"])
         old_row_ids = [row.name for row in reprocessed.rows]
+        old_original_rows = [row.source_row for row in reprocessed.rows]
+        old_accounting_keys = [row.accounting_source_key for row in reprocessed.rows]
         other_modified = frappe.db.get_value("CN Accounting Import", created[1]["name"], "modified")
         with patch.object(accounting, "_reconcile_sources", return_value={}) as reconcile:
             import_source_file(reprocessed.name)
@@ -98,11 +100,13 @@ def run():
             import_source_file(reprocessed.name)
         reprocessed.reload()
         assert [row.name for row in reprocessed.rows] == old_row_ids
+        assert [row.source_row for row in reprocessed.rows] == old_original_rows
+        assert [row.accounting_source_key for row in reprocessed.rows] == old_accounting_keys
         assert reprocessed.total_usd == 45.04
         assert reprocessed.total_nio == 1649.56
         assert frappe.db.get_value("CN Accounting Import", created[1]["name"], "modified") == other_modified
         for changes in ({"event_date": "2025-07-01"}, {"employer_text": employers[1]}):
-            wrong_rows = [{**row.as_dict(), **changes} for row in reprocessed.rows]
+            wrong_rows = [{**row.as_dict(), "_csv_original_row": row.source_row, **changes} for row in reprocessed.rows]
             try:
                 accounting._validate_bulk_reimport(reprocessed, wrong_rows)
             except frappe.ValidationError:

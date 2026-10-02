@@ -165,6 +165,8 @@ class CNAccountingImport(Document):
 
     def on_trash(self):
         self._assert_no_closed_period_links(self.rows or [])
+        from credinomina_reconciliation.complementary_exceptions import guard_verified_import
+        guard_verified_import(frappe._dict(rows=[]), self, _SOURCE_EVIDENCE_FIELDS)
         if self.rows and frappe.db.exists("CN Complementary Item", {"related_application": ["in", [row.name for row in self.rows]]}):
             frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
 
@@ -175,6 +177,8 @@ class CNAccountingImport(Document):
         self._validate_duplicate_file()
         self._validate_manual_rates()
         guard_source_changes(self)
+        from credinomina_reconciliation.complementary_exceptions import guard_verified_import
+        guard_verified_import(self, self.get_doc_before_save(), _SOURCE_EVIDENCE_FIELDS)
         refresh_rows(self.rows or [])
         self._validate_closed_source_edits()
         self.recalculate_summary()
@@ -452,12 +456,17 @@ def import_source_file(import_name: str):
         parsed = parse_accounting_movements(file_doc.file_name, content)
         from credinomina_reconciliation.accounting_identity import identify_lines
 
-        identify_lines(parsed, document.bulk_source_hash or file_sha256(content))
         parsed = apply_accounting_currency_override(
             parsed,
             document.currency,
             document.manual_fx_rate,
         )
+        if document.bulk_source_hash and file_sha256(content) != document.file_hash:
+            # A changed CSV may alter formatting/company choices, but must not
+            # claim a different physical ledger line from the same original.
+            from credinomina_reconciliation.accounting_origin_repair import assert_csv_origins
+            assert_csv_origins(document, parsed)
+        identify_lines(parsed, document.bulk_source_hash or file_sha256(content))
         if not document.employer:
             frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
         if document.bulk_source_hash:
@@ -560,6 +569,8 @@ def _validate_bulk_reimport(document, records):
     from credinomina_reconciliation.accounting_batch import group_applications
     from credinomina_reconciliation.accounting_assignments import apply_assignments
 
+    if any(not row.get("_csv_original_row") for row in records):
+        frappe.throw(_("El CSV individual debe conservar CN_FILA_ORIGEN; no se recargó la importación."))
     # Resolve across all companies first so a file from another company cannot
     # slip through a company-filtered portfolio lookup.
     enrich_accounting_records(records, document.portfolio_snapshot, register_clients=False)
@@ -1036,7 +1047,8 @@ def _application_allocations(source):
 
 
 def _match_applications(
-    source_rows, collection_rows, deposit_pairs, complementary_by_target, periods
+    source_rows, collection_rows, deposit_pairs, complementary_by_target, periods,
+    fixed_sources=(),
 ):
     clients = load_client_index(employers={period.employer for period in periods if period.employer})
     clients_by_name = {client["name"]: client for client in clients}
@@ -1060,6 +1072,12 @@ def _match_applications(
     for account, bank in deposit_pairs:
         pairs_by_reference[clean_text(account.reference)].append((account, bank))
     applied_by_target = defaultdict(float)
+    # Scoped adjustment cancellation reserves other applications' existing
+    # splits; it must not rematch or displace those applications.
+    for fixed in fixed_sources:
+        if fixed.event_type == "Aplicacion" and fixed.effective and fixed.match_status in LINKED_APPLICATION_STATUSES:
+            for link in _application_allocations(fixed):
+                applied_by_target[link["collection_row_id"]] += flt(link["amount_usd"])
     for source in source_rows:
         if source.event_type != "Aplicacion" or not source.effective:
             continue

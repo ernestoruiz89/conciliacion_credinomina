@@ -67,6 +67,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.separate_period_and_deposit_balances",
                 "credinomina_reconciliation.patches.v1_0.migrate_remittance_detail_periods",
                 "credinomina_reconciliation.patches.v1_0.index_period_closure_links",
+                "credinomina_reconciliation.patches.v1_0.repair_accounting_csv_origins",
             ],
             list(patches["post_model_sync"]),
         )

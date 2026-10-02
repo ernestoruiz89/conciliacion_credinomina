@@ -37,6 +37,8 @@ class CNReconciliationException(Document):
         from credinomina_reconciliation.exception_selection import validate_selected_case
 
         validate_selected_case(self, previous)
+        from credinomina_reconciliation.complementary_exceptions import validate_exception
+        validate_exception(self, previous)
         if self.status in {"Resuelta", "Descartada"} and not self.resolution:
             frappe.throw(_("Escriba la resolucion antes de cerrar la excepcion."))
         # Existing review/resolution records are grandfathered until edited,
@@ -76,6 +78,8 @@ class CNReconciliationException(Document):
 
     def on_trash(self):
         self._assert_related_periods_open()
+        if getattr(self, "complementary_item", None):
+            frappe.throw(_("Conserve la excepción de registro contable y su historial; no se puede eliminar."))
 
     def before_cancel(self):
         self._assert_related_periods_open()
@@ -137,6 +141,10 @@ class CNReconciliationException(Document):
     def on_update(self):
         previous = self.get_doc_before_save()
         self._assert_related_periods_open(previous)
+        if getattr(self, "complementary_item", None):
+            from credinomina_reconciliation.complementary_exceptions import sync_item_registration
+            sync_item_registration(self)
+            return  # Accounting follow-up never recalculates financial periods.
         self._refresh_period_exception_count(self.period)
         if previous and previous.period and previous.period != self.period:
             self._refresh_period_exception_count(previous.period)

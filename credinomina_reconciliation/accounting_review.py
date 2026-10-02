@@ -96,6 +96,8 @@ def prepare_deposit_treatment(doc, previous=None):
 
 
 def validate_review_item(doc, previous=None):
+    from credinomina_reconciliation.complementary_exceptions import guard_registered_evidence
+    guard_registered_evidence(doc)
     if previous and previous.get("accounting_source_key"):
         for field in EVIDENCE_FIELDS:
             def normalized(value):

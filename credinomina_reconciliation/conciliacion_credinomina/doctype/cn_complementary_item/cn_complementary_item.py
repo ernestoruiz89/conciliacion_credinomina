@@ -15,9 +15,12 @@ from credinomina_reconciliation.tolerance_items import (
 class CNComplementaryItem(Document):
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        from credinomina_reconciliation.complementary_exceptions import guard_item_link, apply_registration_status
+        guard_item_link(self, previous)
         compensation.guard_document(self, previous)
         if guard_tolerance_item(self, previous):
             validate_tolerance_item(self)
+            apply_registration_status(self)
             return
         from credinomina_reconciliation.accounting_review import validate_review_item
 
@@ -31,6 +34,7 @@ class CNComplementaryItem(Document):
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
         self.accounting_status = "Registrada" if self.voucher else "Pendiente de registro"
+        apply_registration_status(self)
         if not money(self.amount):
             frappe.throw(_("El importe complementario debe ser distinto de cero."))
         if self.currency == "NIO":
@@ -90,10 +94,18 @@ class CNComplementaryItem(Document):
             self.result = result
 
     def before_cancel(self):
+        from credinomina_reconciliation.complementary_exceptions import guard_item_delete
+        guard_item_delete(self)
         compensation.guard_delete(self)
         from credinomina_reconciliation.complementary_distribution import guard_closed_distributions
         guard_closed_distributions(self)
         guard_tolerance_item(self)
+        if not is_tolerance_item(self) and self.category != compensation.CATEGORY:
+            from credinomina_reconciliation.complementary_cancellation import prepare_cancellation
+            self.flags.cancellation_scope = prepare_cancellation(self)
+            # Keep the canceled target as audit evidence. Only this dependency
+            # is allowed: its confirmed deposit is recalculated in on_cancel.
+            self.ignore_linked_doctypes = ["CN Remittance Target"]
         if self.category == APPLICATION_ADJUSTMENT:
             frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)
             row = frappe.get_doc("CN Source Row", self.related_application)
@@ -107,6 +119,8 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        from credinomina_reconciliation.complementary_exceptions import guard_item_delete
+        guard_item_delete(self)
         compensation.guard_delete(self)
         guard_tolerance_item(self)
         if self.category == CATEGORY:
@@ -118,13 +132,14 @@ class CNComplementaryItem(Document):
     def on_cancel(self):
         if self.category == APPLICATION_ADJUSTMENT:
             self.db_set("review_status", "Ajuste cancelado", update_modified=False)
-            self._reconcile_application()
+        if is_tolerance_item(self) or self.category == compensation.CATEGORY:
             return
-        if is_tolerance_item(self):
-            return
-        self._reconcile()
+        from credinomina_reconciliation.complementary_cancellation import reconcile_cancellation
+        self.flags.cancellation_result = reconcile_cancellation(self, self.flags.cancellation_scope)
 
     def before_rename(self, old, new, merge=False):
+        from credinomina_reconciliation.complementary_exceptions import guard_item_delete
+        guard_item_delete(self)
         compensation.guard_delete(self)
         guard_tolerance_item(self)
 

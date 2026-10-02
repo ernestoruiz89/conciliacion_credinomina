@@ -116,6 +116,9 @@ diferencias cambiarias ni repartos múltiples.
 Estos ajustes se consultan en **Partidas complementarias**, categoría
 **Diferencia por tolerancia**. Se generan y revierten automáticamente,
 son de solo lectura y muestran **No requiere registro** contable.
+Si la IMF necesita contabilizar uno de estos ajustes, use **Crear excepción**
+en la partida: el seguimiento cambia a **Pendiente de registro** hasta verificar
+el asiento importado. No se habilita la edición del ajuste automático.
 No deben agregarse manualmente a los destinos del depósito: su efecto ya
 está incluido en la conciliación. Los ajustes manuales siguen usando
 **Ajuste de conciliación** y conservan su seguimiento contable.
@@ -335,6 +338,14 @@ Los períodos cerrados siguen bloqueados. Cancelar la partida revierte
 su reducción y recalcula los saldos conservando los depósitos. En modalidad
 operativa no cambia lo cobrado ni lo deducido por la empresa: esas diferencias
 deben resolverse por su propio proceso.
+
+Cancelar una partida complementaria recalcula únicamente sus depósitos y períodos
+vinculados, incluyendo destinos manuales, distribuciones automáticas y partidas
+genéricas compartidas entre empresas. Se carga solo la contabilidad relacionada;
+los demás depósitos se conservan como evidencia de saldo, sin redistribuirlos.
+En un ajuste de aplicación se restaura el neto y se conservan íntegramente las
+distribuciones de efectivo. Si un período afectado está cerrado, hay que reabrirlo
+primero. Una partida sin vínculos no dispara una conciliación global.
 
 El parche inicializa los importes netos de registros existentes sin cambiar sus
 montos originales. Las antiguas «Reversiones identificadas» siguen siendo solo
@@ -666,6 +677,33 @@ distribuida entre varios períodos aparece por cada período; seleccione el que
 corresponde al caso. Los períodos cerrados y documentos sin permiso de lectura
 no están disponibles. Las excepciones automáticas conservan su vínculo de origen.
 
+Desde una **Partida complementaria**, **Crear / Ver excepción** permite dar
+seguimiento a **Registrar ajuste en el core**, con responsable y fecha compromiso.
+La partida y la excepción tienen vínculos directos. Esta gestión es independiente
+del cierre financiero: el período de origen es informativo y puede estar cerrado.
+No crea un asiento en el core ni cambia lo distribuido por el depósito.
+
+Una vez registrado el ajuste en el core, importe sus movimientos contables y,
+en la excepción, use **Verificar asiento y resolver**. Indique el número de asiento,
+seleccione su línea importada y documente la resolución. Se verifica empresa,
+signo e importe neto en US$ (con conversión de NIO usando la tasa de la evidencia).
+No basta con escribir un asiento o cambiar el estado a Resuelta. El movimiento
+debe tener débitos/créditos originales y no estar usado por otra excepción ni
+como otra partida conciliatoria. Un asiento genérico debe corresponder a una
+empresa autorizada para distribuir la partida.
+
+La verificación conserva fecha, usuario, línea y descripción de la evidencia,
+y agrega una gestión al historial. El ajuste manual/interno no se agrega a los
+totales del **Control mensual de movimientos contables**: allí se cuenta una
+sola vez su registro real importado. Si este llegó como una nueva partida en
+revisión, se marca **No conciliatoria** y se vincula a la excepción para evitar
+volver a distribuir el mismo importe. La validación es por línea completa;
+no suma arbitrariamente líneas de un asiento ni admite verificaciones parciales.
+El reporte identifica su registro real como **Registro contable verificado**.
+La evidencia verificada se conserva: no se puede borrar al reprocesar su carga,
+cambiar de empresa ni volver a usar como partida conciliatoria. Las correcciones
+posteriores del core se cargan como movimientos nuevos, sin reescribir el asiento original.
+
 El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
@@ -715,6 +753,49 @@ Reprocesar conserva el vínculo por identidad contable, sin duplicar depósitos
 ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
 complementaria anterior, la carga se detiene con un mensaje para revisar el
 registro previo. No se convierte evidencia anterior automáticamente.
+
+### Corrección de vínculos y filas originales del CSV
+
+El Control Mensual solo incorpora los datos de un depósito cuando la fila es
+un depósito y coincide su evidencia original: fecha contable, cuenta, moneda,
+asiento, débitos/créditos, descripción, TMOV/TDOC y referencia. También valida
+la huella del archivo y la fila original cuando están disponibles. Una clave
+coincidente por sí sola no vincula un depósito a un cliente ni cambia la empresa
+de una aplicación. Los depósitos sin cliente en el origen muestran esos campos
+vacíos; sus débitos/créditos contables se muestran en su propia fila.
+
+Los CSV individuales conservan **CN_FILA_ORIGEN**. Al recargarlos se utiliza
+esa posición del archivo masivo, no su posición dentro del CSV. No quite ni
+modifique la columna: valores vacíos, inválidos o repetidos detienen la carga.
+Las líneas contables iguales en posiciones originales distintas se conservan
+como movimientos independientes.
+Si reemplaza o edita el CSV, se contrasta también con el archivo masivo original
+antes de reutilizar identidades o crear clientes: no se puede cambiar la evidencia
+contable ni atribuirla a otra fila. Las elecciones de empresa y cambios de formato
+pueden conservarse sin alterar los datos contables originales.
+
+Para instalaciones existentes, el parche `repair_accounting_csv_origins`,
+ejecutado con `bench --site <sitio> migrate`, restaura las filas originales y
+claves incorrectas de las importaciones masivas. Contrasta el CSV sin modificar
+con el archivo masivo original, preserva los IDs de filas, los importes,
+períodos cerrados, ajustes y distribuciones de depósitos, y registra un comentario
+con los valores anteriores y nuevos. No reimporta ni ejecuta una conciliación
+global. Repetir la reparación no duplica movimientos ni comentarios.
+
+Haga un respaldo antes de actualizar, ejecute la migración y reinicie los procesos.
+Puede revisar primero qué cambiaría con este diagnóstico de solo lectura:
+
+```bash
+bench --site <sitio> execute credinomina_reconciliation.accounting_origin_repair.repair_accounting_origins
+```
+
+La respuesta incluye importaciones revisadas, importaciones y filas afectadas,
+y casos que necesitan revisión. Si falta un archivo o no puede acreditarse la
+coincidencia, el parche no modifica esa importación y la registra en **Error Log**
+como «Revisar origen de importaciones contables». Tras corregir esos soportes,
+puede repetir la reparación con `--kwargs '{"dry_run": false}'` en una ventana de
+mantenimiento. El modo predeterminado es diagnóstico, sin cambios; los modos de
+reparación bloquean las conciliaciones y cargas concurrentes durante su transacción.
 
 ## Una empresa paga por otras empresas
 

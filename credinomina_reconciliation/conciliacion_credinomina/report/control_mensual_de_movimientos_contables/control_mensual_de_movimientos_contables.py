@@ -38,12 +38,12 @@ def execute(filters=None):
             "parenttype": "CN Accounting Import", "parentfield": "rows", "event_date": ["between", dates]},
             fields=["name", "parent", "idx", "event_date", "source_account", "source_currency", "source_debit", "source_credit",
                 "source_description", "description", "source_fx_rate", "manual_fx_rate", "fx_rate", "accounting_source_key", "source_key",
-                "complementary_item", "client_name", "client_number", "loan_number", "portfolio_client_name", "portfolio_employer",
-                "voucher", "event_type", "accounting_classification", "match_status", "deposit_match_status", "application_adjustment_status"], limit_page_length=0))
+                "complementary_item", "remittance_allocation", "source_row", "client_name", "client_number", "loan_number", "portfolio_client_name", "portfolio_employer",
+                "voucher", "tmov", "tdoc", "accounting_reference", "event_type", "accounting_classification", "match_status", "deposit_match_status", "application_adjustment_status"], limit_page_length=0))
     items = frappe.get_list("CN Complementary Item", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
         fields=["name", "docstatus", "source_date", "posting_date", "source_account", "source_currency", "source_debit", "source_credit", "source_description",
-            "description", "source_fx_rate", "accounting_source_key", "source_client_name", "client_number", "loan_number", "employer", "source_voucher",
-            "voucher", "category", "amount_usd", "accounting_classification", "review_status", "compensation_status", "result", "source_file", "source_file_hash"], limit_page_length=0)
+            "description", "source_fx_rate", "accounting_source_key", "source_row", "source_client_name", "client_number", "loan_number", "employer", "source_voucher",
+            "voucher", "tmov", "tdoc", "accounting_reference", "category", "amount_usd", "accounting_classification", "review_status", "compensation_status", "result", "source_file", "source_file_hash", "registration_exception"], limit_page_length=0)
     if items and frappe.has_permission("CN Remittance Allocation", "read"):
         assigned = defaultdict(lambda: money(0))
         for deposit in frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1}, fields=["name", "allocation_detail"], limit_page_length=0):
@@ -63,7 +63,7 @@ def execute(filters=None):
     deposits = frappe.get_list("CN Remittance Allocation", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
         fields=["name", "docstatus", "result", "employer", "bank_account", "accounting_source_key", "source_date", "source_voucher",
                 "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description",
-                "source_file", "source_file_hash", "accounting_classification", "source_client_name", "source_loan_number"], limit_page_length=0)
+                "source_file", "source_file_hash", "source_row", "tmov", "tdoc", "accounting_reference", "accounting_classification", "source_client_name", "source_loan_number"], limit_page_length=0)
     rows, duplicates = build_rows(sources, imports, items, clients, deposits)
     # Filter the displayed classification/current state, after resolving mirrors
     # and financial statuses, and before both KPI totals and account summaries.
@@ -84,6 +84,9 @@ def execute(filters=None):
         message += " " + _("Se detectaron {0} posibles repeticiones contables. Se conservaron y están incluidas en los totales; revise su evidencia original.").format(duplicates)
     if missing:
         message += " " + _("ATENCIÓN: {0} movimientos sin evidencia o conversión completa; los totales solo suman los importes disponibles.").format(missing)
+    conflicts = sum(row["identity_conflict"] for row in rows)
+    if conflicts:
+        message += " " + _("ATENCIÓN: {0} filas con un vínculo de origen contable inconsistente. No se mezclaron los datos de sus depósitos; revise la advertencia de cada fila y ejecute la reparación de orígenes.").format(conflicts)
     pending = sum(bool(row["import_status"] and row["import_status"] not in {"Importado", "Importado con excepciones"}) for row in rows)
     if pending:
         message += " " + _("Hay {0} movimientos en importaciones no finalizadas correctamente; revise su origen.").format(pending)

@@ -1,6 +1,7 @@
 """Original accounting turnover, independent of cash allocation and internal offsets."""
 from collections import defaultdict
 
+from credinomina_reconciliation.accounting_evidence import is_deposit, same_ledger_evidence
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 
 MONEY_FIELDS = ("debit_nio", "credit_nio", "net_nio", "debit_usd", "credit_usd", "net_usd")
@@ -15,6 +16,8 @@ def _status(row, item=None):
     if item:
         if item.get("docstatus") == 2:
             return "Partida cancelada; evidencia conservada"
+        if item.get("registration_exception"):
+            return "Registro contable verificado"
         if item.get("docstatus") == 1 and item.get("category") not in {"Ajuste de aplicación", "Compensación entre partidas", "Saldo a favor de la empresa"}:
             if item.get("cash_assigned_usd") is None:
                 return "Estado de depósito no disponible"
@@ -59,21 +62,46 @@ def _amounts(row, currency, rate):
 def build_rows(sources, imports, items, clients=(), deposits=()):
     """Count mirrors once, but never remove physical lines by value similarity."""
     by_item = {item["name"]: item for item in items}
-    by_deposit = {deposit["accounting_source_key"]: deposit for deposit in deposits if deposit.get("accounting_source_key")}
+    by_deposit = defaultdict(list)
+    by_deposit_name = {deposit["name"]: deposit for deposit in deposits}
+    for deposit in deposits:
+        if deposit.get("accounting_source_key"):
+            by_deposit[deposit["accounting_source_key"]].append(deposit)
     by_client = defaultdict(list)
     for client in clients:
         by_client[client.get("client_number")].append(client)
-    seen, represented_items, represented_keys = set(), set(), set()
+    seen, represented_items, represented_deposits = set(), set(), set()
+    represented_evidence = defaultdict(list)
     output, duplicates = [], 0
 
-    def make_row(row, parent=None, item=None):
+    def provenance(row, parent=None):
+        parent = parent or {}
+        return {**row, "source_currency": row.get("source_currency") or parent.get("currency"),
+                "source_file_hash": row.get("source_file_hash") or parent.get("bulk_source_hash") or parent.get("file_hash")}
+
+    def deposit_for(row, parent=None):
+        candidates = by_deposit.get(row.get("accounting_source_key"), [])
+        linked = by_deposit_name.get(row.get("remittance_allocation"))
+        if linked and linked not in candidates:
+            candidates = [*candidates, linked]
+        matches = [candidate for candidate in candidates
+                   if is_deposit(row) and same_ledger_evidence(provenance(row, parent), candidate)]
+        if len(matches) == 1:
+            return matches[0], ""
+        warning = ("Vínculo de origen contable inconsistente: no se mezclaron los datos del depósito; revise la identidad de esta fila."
+                   if candidates else "")
+        return None, warning
+
+    def make_row(row, parent=None, item=None, deposit=None, identity_warning=""):
         parent = parent or {}
         currency = row.get("source_currency") or parent.get("currency") or ""
         rate = row.get("source_fx_rate") or row.get("manual_fx_rate") or row.get("fx_rate") or parent.get("manual_fx_rate") or 0
         values, warning = _amounts(row, currency, rate)
+        missing_conversion = int(bool(warning))
+        warning = "; ".join(filter(None, [warning, identity_warning]))
         source_import = parent.get("name") or ""
-        deposit = by_deposit.get(row.get("accounting_source_key"))
-        employer = (deposit or item or {}).get("employer") or row.get("portfolio_employer") or parent.get("employer") or ""
+        # Cash beneficiaries/other companies never change the owner of an application.
+        employer = (deposit or item or {}).get("employer") or row.get("portfolio_employer") or parent.get("employer") or row.get("employer") or ""
         number = row.get("client_number") or (item or {}).get("client_number") or ""
         client_name = row.get("client_name") or row.get("source_client_name") or row.get("portfolio_client_name") or ""
         matches = [client for client in by_client.get(number, []) if not employer or client.get("employer") == employer]
@@ -83,7 +111,7 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
         return {"event_date": date, "month": date[:7], "source_account": row.get("source_account") or "Sin identificar",
             "source_currency": currency or "Sin identificar", "nio_currency": "NIO", "usd_currency": "USD", **values,
             "fx_rate": rate if currency == "NIO" else None,
-            "client_name": client_name or "Sin identificar", "client_number": number,
+            "client_name": client_name or ("" if deposit else "Sin identificar"), "client_number": number,
             "loan_number": row.get("loan_number") or row.get("source_loan_number") or (item or {}).get("loan_number") or "",
             "employer": employer, "voucher": row.get("source_voucher") or row.get("voucher") or "",
             "movement_type": row.get("accounting_classification") or row.get("event_type") or "Por revisar",
@@ -94,34 +122,38 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             "source_file": row.get("source_file") or parent.get("bulk_source_file") or parent.get("source_file") or "",
             "source_hash": row.get("source_file_hash") or parent.get("bulk_source_hash") or parent.get("file_hash") or "",
             "evidence_key": row.get("accounting_source_key") or "", "warning": warning,
-            "movement_count": 1, "missing_conversion": int(bool(warning)),
+            "identity_conflict": int(bool(identity_warning)),
+            "movement_count": 1, "missing_conversion": missing_conversion,
             "import_status": parent.get("status") or ""}
 
     for source in sorted(sources, key=lambda row: (str(imports.get(row.get("parent"), {}).get("creation") or ""), row.get("parent") or "", row.get("idx") or 0)):
         parent = imports.get(source.get("parent"))
         if not parent:
             continue
-        key = (source.get("accounting_source_key") or source.get("source_key") or source["name"],
-               source.get("source_currency") or parent.get("currency"))
-        represented_keys.add(key)
+        evidence = provenance(source, parent)
+        represented_evidence[source.get("accounting_source_key")].append(evidence)
         item = by_item.get(source.get("complementary_item"))
-        if source.get("complementary_item"):
-            represented_items.add(source["complementary_item"])
-        output.append(make_row(source, parent, item))
+        if item and same_ledger_evidence(evidence, item):
+            represented_items.add(item["name"])
+        else:
+            item = None
+        deposit, warning = deposit_for(source, parent)
+        if deposit:
+            represented_deposits.add(deposit["name"])
+        output.append(make_row(source, parent, item, deposit, warning))
     for item in items:
         if not item.get("accounting_source_key"):
             continue  # Manually created fees/offsets are not evidence of an imported ledger.
-        key = (item["accounting_source_key"], item.get("source_currency"))
-        if item["name"] in represented_items or key in represented_keys:
+        if item["name"] in represented_items or any(
+            same_ledger_evidence(item, source)
+            for source in represented_evidence.get(item["accounting_source_key"], [])
+        ):
             continue
         output.append(make_row(item, item=item))
-        represented_keys.add(key)
     for deposit in deposits:
-        key = (deposit.get("accounting_source_key"), deposit.get("source_currency"))
-        if not key[0] or key in represented_keys:
+        if not deposit.get("accounting_source_key") or deposit["name"] in represented_deposits:
             continue
-        output.append(make_row(deposit))
-        represented_keys.add(key)
+        output.append(make_row(deposit, deposit=deposit))
     for row in output:
         key = tuple(row.get(field) for field in (
             "event_date", "source_account", "source_currency", "voucher", "description",

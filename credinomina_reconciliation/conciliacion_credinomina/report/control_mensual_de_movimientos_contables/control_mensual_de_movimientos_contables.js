@@ -10,7 +10,7 @@ frappe.query_reports["Control Mensual de Movimientos Contables"] = {
         {fieldname: "state", label: __("Estado"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto mostrado en el reporte."),
             options: ["Pendiente", "Conciliado", "Conciliada: depósito + ajuste", "Parcialmente conciliado", "Por revisar",
-                "Pendiente de identificar", "Pendiente de revisión", "No conciliatoria", "Reversión identificada",
+                "Pendiente de identificar", "Pendiente de revisión", "No conciliatoria", "Registro contable verificado", "Reversión identificada",
                 "Lista para conciliar", "Ignorado para conciliación", "Compensada totalmente", "Compensada parcialmente",
                 "Sin compensar", "Aplicación compensada totalmente", "Aplicación ajustada parcialmente",
                 "Ajuste pendiente de completar", "Ajuste pendiente de confirmar", "Ajuste confirmado",

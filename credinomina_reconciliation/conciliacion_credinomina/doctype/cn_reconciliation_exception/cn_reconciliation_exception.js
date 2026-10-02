@@ -7,8 +7,9 @@ frappe.ui.form.on("CN Reconciliation Exception", {
         frm.set_query("source_import", () => ({filters: frm.doc.employer ? {employer: frm.doc.employer} : {}}));
     },
     refresh(frm) {
-        frm.toggle_display("select_related_case", !frm.doc.exception_key && frm.doc.docstatus !== 2);
+        frm.toggle_display("select_related_case", !frm.doc.exception_key && !frm.doc.complementary_item && frm.doc.docstatus !== 2);
         cn_exception_lock_relation(frm);
+        cn_exception_core_buttons(frm);
         if (frm.doc.exception_key) {
             frm.set_intro(__("Excepción generada por conciliación. Su vínculo de origen se conserva; puede registrar la causa, el seguimiento y la resolución."), "blue");
         }
@@ -146,6 +147,106 @@ function cn_exception_open_case_picker(frm) {
 
 function cn_exception_lock_relation(frm) {
     for (const field of ["employer", "period", "source_import", "source_row", "client_number", "loan_number"]) {
-        frm.set_df_property(field, "read_only", Boolean(frm.doc.related_case_id || frm.doc.exception_key));
+        frm.set_df_property(field, "read_only", Boolean(frm.doc.related_case_id || frm.doc.exception_key || frm.doc.complementary_item));
+    }
+}
+
+function cn_exception_core_buttons(frm) {
+    if (!frm.doc.complementary_item) return;
+    frm.set_df_property("relation_section", "label", __("Partida relacionada"));
+    frm.toggle_display("origin_section", false);
+    ["period", "source_import", "source_row"].forEach(field => frm.toggle_display(field, false));
+    ["amount_usd", "amount_nio"].forEach(field => frm.set_df_property(field, "read_only", 1));
+    frm.set_df_property("core_voucher", "read_only", Boolean(frm.doc.core_evidence_key));
+    frm.set_df_property("status", "options", frm.doc.core_evidence_key ? "Abierta\nEn revision\nResuelta" : "Abierta\nEn revision");
+    frm.set_intro(__("Seguimiento del registro en el core. No modifica la conciliación financiera del depósito ni el período de origen. Documente el asiento y verifíquelo contra la importación contable para resolver."), "blue");
+    frm.add_custom_button(__("Ver partida"), () => frappe.set_route("Form", "CN Complementary Item", frm.doc.complementary_item));
+    if (frm.doc.core_evidence_key) {
+        frm.add_custom_button(__("Ver asiento importado"), async () => {
+            const response = await frappe.call({method: "credinomina_reconciliation.complementary_exceptions.get_verified_document",
+                args: {exception_name: frm.doc.name}});
+            frappe.set_route("Form", response.message.doctype, response.message.name);
+        });
+    } else if (!frm.is_new() && frm.doc.docstatus !== 2 && frm.get_perm(0, "write")) {
+        frm.add_custom_button(__("Verificar asiento y resolver"), () => cn_exception_verify_core(frm));
+    }
+}
+
+async function cn_exception_verify_core(frm) {
+    if (frm._cn_verifying_core) return;
+    frm._cn_verifying_core = true;
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const api = "credinomina_reconciliation.complementary_exceptions.";
+        const esc = value => frappe.utils.escape_html(String(value ?? ""));
+        let dialog, rows = [], selected = null, request = 0, busy = false;
+        function invalidate() {
+            if (!dialog) return;
+            request += 1; rows = []; selected = null;
+            dialog.get_primary_btn().prop("disabled", true);
+            dialog.fields_dict.results.$wrapper.html(`<p class="text-muted">${esc(__("Indique el asiento y pulse Buscar registro importado."))}</p>`);
+        }
+        async function search() {
+            const voucher = dialog.get_value("voucher");
+            if (!voucher) { frappe.msgprint(__("Indique el asiento contable.")); return; }
+            invalidate();
+            const version = request;
+            const response = await frappe.call({method: api + "get_registration_candidates",
+                args: {exception_name: frm.doc.name, voucher}});
+            if (version !== request) return;
+            rows = response.message || [];
+            const wrapper = dialog.fields_dict.results.$wrapper;
+            wrapper.html(`<div class="table-responsive"><table class="table table-bordered"><thead><tr>
+                <th></th><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa / registro"))}</th>
+                <th>${esc(__("Importe original"))}</th><th>${esc(__("Neto US$"))}</th><th>${esc(__("Descripción"))}</th>
+                </tr></thead><tbody>${rows.map((row, index) => `<tr data-core-index="${index}">
+                    <td><input type="radio" name="core-evidence"></td>
+                    <td>${esc(row.source_date ? frappe.datetime.str_to_user(row.source_date) : "—")}</td>
+                    <td>${esc(row.employer)}<br>${esc(row.import || row.name)} · ${esc(__("Fila"))} ${esc(row.source_row)}</td>
+                    <td class="text-right">${esc(format_currency(row.original_amount, row.currency))}</td>
+                    <td class="text-right">${esc(format_currency(row.amount_usd, "USD"))}</td>
+                    <td>${esc(row.description)}</td></tr>`).join("") || `<tr><td colspan="6">${esc(__(
+                        "No hay una línea disponible que coincida en empresa, signo e importe. Importe el asiento del core, revise la tasa y confirme que no se haya usado para otra conciliación."))}</td></tr>`}
+                </tbody></table></div>`);
+            wrapper.find("tr[data-core-index]").on("click", function () {
+                selected = rows[Number($(this).attr("data-core-index"))];
+                wrapper.find('input[name="core-evidence"]').prop("checked", false);
+                $(this).find("input").prop("checked", true);
+                dialog.get_primary_btn().prop("disabled", false);
+            });
+        }
+        dialog = new frappe.ui.Dialog({
+            title: __("Verificar registro en el core"), size: "extra-large",
+            fields: [
+                {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable"), reqd: 1,
+                    default: frm.doc.core_voucher, onchange: invalidate},
+                {fieldname: "find", fieldtype: "Button", label: __("Buscar registro importado"), click: search},
+                {fieldname: "results", fieldtype: "HTML"},
+                {fieldname: "resolution", fieldtype: "Small Text", label: __("Resolución"), reqd: 1,
+                    default: frm.doc.resolution || __("Ajuste registrado en el core y verificado contra la importación contable.")},
+            ],
+            primary_action_label: __("Verificar y resolver excepción"),
+            primary_action: async values => {
+                if (!selected || busy) return;
+                busy = true;
+                dialog.get_primary_btn().prop("disabled", true);
+                try {
+                    await frappe.call({method: api + "verify_and_resolve", args: {
+                        exception_name: frm.doc.name, voucher: values.voucher, resolution: values.resolution,
+                        evidence_type: selected.type, evidence_name: selected.name,
+                    }, freeze: true, freeze_message: __("Verificando asiento y resolviendo la excepción…")});
+                    dialog.hide();
+                    await frm.reload_doc();
+                    frappe.show_alert({message: __("Excepción resuelta. El asiento importado fue verificado sin duplicar los importes contables."), indicator: "green"});
+                } finally {
+                    busy = false;
+                    dialog.get_primary_btn().prop("disabled", !selected);
+                }
+            },
+        });
+        dialog.show(); invalidate();
+        if (frm.doc.core_voucher) await search();
+    } finally {
+        frm._cn_verifying_core = false;
     }
 }
