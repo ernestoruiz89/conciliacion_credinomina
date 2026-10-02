@@ -25,5 +25,37 @@ const frm = {doc: {name: "NC", docstatus: 0, category: "Ajuste de aplicación", 
     allow = false;
     handlers.refresh(frm);
     assert.equal(actions["Confirmar ajuste"], undefined);
+    const updates = [];
+    frm.remove_custom_button = label => { delete actions[label]; };
+    frm.set_value = async (field, value) => {
+        const values = typeof field === "object" ? field : {[field]: value};
+        updates.push(values);
+        Object.assign(frm.doc, values);
+    };
+    for (const category of ["Ajuste de aplicación", "Compensación entre partidas"]) {
+        frm.doc = {docstatus: 0, category, review_action: "Partida de depósito",
+            related_import: "IMPORT", related_application: "APP", application_adjustment_usd: 63.74,
+            adjustment_periods: '["P"]', adjustment_collection_rows: '["C"]',
+            amount: 63.74, source_debit: 2334.43, source_voucher: "001016152"};
+        actions["Confirmar ajuste"] = () => {};
+        actions["Compensar con otra partida"] = () => {};
+        await handlers.review_action(frm);
+        assert.equal(actions["Confirmar ajuste"], undefined);
+        assert.equal(actions["Compensar con otra partida"], undefined);
+        assert.equal(frm.doc.related_import, "");
+        assert.equal(frm.doc.related_application, "");
+        assert.equal(frm.doc.application_adjustment_usd, 0);
+        assert.equal(frm.doc.category, "Ajuste de conciliación");
+        assert.equal(frm.doc.amount, 63.74);
+        assert.equal(frm.doc.source_debit, 2334.43);
+        assert.equal(frm.doc.source_voucher, "001016152");
+    }
+    const before = updates.length;
+    for (const protection of [{docstatus: 1}, {compensations: [{}]}, {accounting_classification: "ND de Aplicación de pago"}]) {
+        frm.doc = {docstatus: 0, review_action: "Partida de depósito", related_application: "APP", ...protection};
+        await handlers.review_action(frm);
+        assert.equal(frm.doc.related_application, "APP");
+    }
+    assert.equal(updates.length, before);
     console.log("OK: Vincular a aplicación, guardar antes de confirmar, permiso y recarga.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

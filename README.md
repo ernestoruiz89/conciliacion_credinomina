@@ -283,6 +283,14 @@ En **Partidas complementarias → Movimientos por revisar**:
    marque **Importe y signo revisados**. Un supervisor podrá confirmarla para usarla
    en la distribución habitual. Positivo: exceso de depósito; negativo: faltante.
 
+Al cambiar un **borrador** a **Partida de depósito**, se retiran automáticamente
+`related_import`, `related_application` y los datos del ajuste provisional.
+Si el concepto era **Ajuste de aplicación** o **Compensación entre partidas**, pasa
+a **Ajuste de conciliación**; revise el concepto antes de confirmar. Guarde para
+registrar el cambio. Se conservan archivo, fila, asiento y evidencia contable original,
+y no se modifica la aplicación. No se permite esta conversión en ajustes confirmados
+ni en partidas con compensaciones registradas; no se reclasifican masivamente los existentes.
+
 No se reclasifican automáticamente los registros existentes. Al recargar, se impide
 reclasificar o quitar aplicaciones que ya tengan vínculos de conciliación. Ejecute
 `bench --site <sitio> migrate` y reinicie los procesos después de desplegar estos cambios.

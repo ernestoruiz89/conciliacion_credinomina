@@ -6,6 +6,12 @@ frappe.ui.form.on("CN Complementary Item", {
             ...(frm.doc.employer ? {employer: frm.doc.employer} : {})}}));
     },
     category(frm) {
+        if (frm.doc.docstatus === 0 && frm.doc.review_action === "Partida de depósito" &&
+            ["Ajuste de aplicación", "Compensación entre partidas"].includes(frm.doc.category) &&
+            !(frm.doc.compensations || []).length) {
+            frm.trigger("review_action");
+            return;
+        }
         if (frm.doc.category === "Compensación entre partidas" && frm.doc.review_action !== frm.doc.category) {
             frm.set_value("review_action", frm.doc.category);
         }
@@ -17,7 +23,22 @@ frappe.ui.form.on("CN Complementary Item", {
         ["client_number", "loan_number", "installment_number"].forEach(f => frm.toggle_display(f, !credit || !!frm.doc[f]));
         frm.set_df_property("reference", "read_only", credit);
     },
-    review_action(frm) {
+    async review_action(frm) {
+        if (frm.doc.review_action === "Partida de depósito" && frm.doc.docstatus === 0 &&
+            !(frm.doc.compensations || []).length &&
+            !["Aplicación de pago", "ND de Aplicación de pago"].includes(frm.doc.accounting_classification)) {
+            const hadLink = !!(frm.doc.related_application || frm.doc.related_import);
+            const values = {related_application: "", related_import: "", application_adjustment_usd: 0,
+                adjustment_periods: "[]", adjustment_collection_rows: "[]", review_status: ""};
+            if (["Ajuste de aplicación", "Compensación entre partidas"].includes(frm.doc.category)) {
+                values.category = "Ajuste de conciliación";
+            }
+            await frm.set_value(values);
+            frm.remove_custom_button?.(__("Confirmar ajuste"));
+            frm.remove_custom_button?.(__("Compensar con otra partida"));
+            if (hadLink) frappe.show_alert({message: __("Se retiró el vínculo provisional con la aplicación. La evidencia contable se conserva. Guarde la partida para registrar el cambio."), indicator: "blue"});
+            return;
+        }
         if (frm.doc.review_action === "Ajuste de aplicación") frm.set_value("category", "Ajuste de aplicación");
         if (frm.doc.review_action === "Compensación entre partidas") frm.set_value("category", "Compensación entre partidas");
     },
@@ -88,6 +109,10 @@ frappe.ui.form.on("CN Complementary Item", {
             return;
         }
         if (frm.doc.accounting_source_key && frm.doc.docstatus === 0) {
+            if (frm.doc.review_action === "Partida de depósito") {
+                frm.dashboard.set_headline_alert(__("Partida de depósito: revise concepto, referencia, período e importe y signo. Guarde y confirme para poder agregarla a los destinos de un depósito. No reduce ninguna aplicación."), "blue");
+                return;
+            }
             frm.dashboard.set_headline_alert(__("Vincular no afecta saldos. Para reducir una aplicación, revise el importe y use Confirmar ajuste. El movimiento original se conserva."), "orange");
             return;
         }

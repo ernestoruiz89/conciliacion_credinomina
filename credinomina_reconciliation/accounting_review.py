@@ -71,6 +71,30 @@ def create_review_items(records, source_file, file_hash):
     return result
 
 
+def prepare_deposit_treatment(doc, previous=None):
+    """Discard only provisional application-adjustment links, never posted effects."""
+    if doc.get("review_action") != "Partida de depósito":
+        return
+    special = {"Ajuste de aplicación", "Compensación entre partidas"}
+    if previous and previous.docstatus == 1 and previous.category in special:
+        frappe.throw(_("No se puede convertir un ajuste confirmado en partida de depósito. Cancele el ajuste por su procedimiento antes de cambiar el tratamiento."))
+    if doc.get("compensations"):
+        frappe.throw(_("Una partida con compensaciones confirmadas no puede convertirse en partida de depósito."))
+    # Submitted deposit complements created before this change retain their
+    # historical descriptive links. Only drafts / first submission are reset.
+    if doc.docstatus != 0 and not (previous and previous.docstatus == 0):
+        return
+    if doc.get("accounting_classification") in {APPLICATION, DEBIT_NOTE}:
+        frappe.throw(_("Una nota de débito o reversión de pago no debe compensarse como partida de depósito. Vincule la aplicación original y revise el ajuste en el core."))
+    doc.related_application = ""
+    doc.related_import = ""
+    doc.application_adjustment_usd = 0
+    doc.adjustment_periods = "[]"
+    doc.adjustment_collection_rows = "[]"
+    if doc.category in special:
+        doc.category = "Ajuste de conciliación"
+
+
 def validate_review_item(doc, previous=None):
     if previous and previous.get("accounting_source_key"):
         for field in EVIDENCE_FIELDS:
@@ -80,6 +104,7 @@ def validate_review_item(doc, previous=None):
                 return clean_text(value)
             if normalized(doc.get(field)) != normalized(previous.get(field)):
                 frappe.throw(_("No se puede modificar la evidencia contable original: {0}.").format(field))
+    prepare_deposit_treatment(doc, previous)
     if doc.category == "Compensación entre partidas":
         doc.review_action = "Compensación entre partidas"
         return  # Paired ledger validation and totals run in the controller.

@@ -112,6 +112,44 @@ class ReviewGuardTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 review.validate_review_item(self.doc(employer="A", related_application="ROW"))
 
+    def test_draft_deposit_treatment_clears_provisional_adjustment_not_source_evidence(self):
+        for category in ("Ajuste de aplicación", "Compensación entre partidas"):
+            with self.subTest(category=category):
+                original = self.doc(category=category, related_application="ROW", related_import="IMPORT",
+                                    source_debit=2334.43, source_file="original.xlsx", source_voucher="001016152")
+                doc = self.doc(**dict(original, review_action="Partida de depósito", employer="A",
+                    reference="DEP", amount_reviewed=1, review_notes="Reclasificación revisada",
+                    application_adjustment_usd=63.74, adjustment_periods='["OLD"]',
+                    adjustment_collection_rows='["ROW"]'))
+                db = Mock()
+                with patch.object(review.frappe, "get_doc") as load, patch.object(review.frappe, "db", db):
+                    review.validate_review_item(doc, original)
+                load.assert_not_called()
+                db.get_value.assert_not_called()
+                self.assertEqual(doc.category, "Ajuste de conciliación")
+                self.assertEqual(doc.review_status, "Lista para conciliar")
+                self.assertEqual((doc.related_application, doc.related_import, doc.application_adjustment_usd), ("", "", 0))
+                self.assertEqual((doc.adjustment_periods, doc.adjustment_collection_rows), ("[]", "[]"))
+                self.assertEqual((doc.source_debit, doc.source_file, doc.source_voucher),
+                                 (2334.43, "original.xlsx", "001016152"))
+
+    def test_confirmed_adjustment_or_compensations_cannot_be_converted(self):
+        for category in ("Ajuste de aplicación", "Compensación entre partidas"):
+            original = self.doc(docstatus=1, category=category, related_application="ROW")
+            changed = self.doc(docstatus=1, category="Ajuste de conciliación",
+                               review_action="Partida de depósito", related_application="ROW")
+            with self.assertRaises(ValueError):
+                review.validate_review_item(changed, original)
+            self.assertEqual(changed.related_application, "ROW")
+        with self.assertRaises(ValueError):
+            review.validate_review_item(self.doc(review_action="Partida de depósito", compensations=[{"amount_usd": 1}]))
+
+    def test_confirmed_deposit_complements_keep_their_existing_descriptive_links(self):
+        doc = self.doc(docstatus=1, category="Ajuste de conciliación", review_action="Partida de depósito",
+                       related_application="ROW", related_import="IMPORT")
+        review.prepare_deposit_treatment(doc, self.doc(**dict(doc)))
+        self.assertEqual((doc.related_application, doc.related_import), ("ROW", "IMPORT"))
+
 
 if __name__ == "__main__":
     unittest.main()
