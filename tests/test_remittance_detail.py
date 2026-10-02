@@ -148,6 +148,25 @@ class RemittanceDetailTests(unittest.TestCase):
         targets, _ = suggest_detail_targets(row, [first, second], 4, "Empresa A")
         self.assertEqual(targets, [])
 
+    def test_exact_sum_across_selected_periods_excludes_other_periods_and_companies(self):
+        first = claim(1, 50.25)
+        second = {**claim(1, 60.26), "id": "H:2", "period": "Mayo 2025"}
+        foreign_period = {**claim(1, 99), "id": "H:3", "period": "Junio 2025"}
+        foreign_employer = {**claim(1, 110.51), "id": "H:4", "group": "Empresa B"}
+        row = detail(1)
+        periods = ["Abril 2025", "Mayo 2025"]
+        targets, reason = suggest_detail_targets(row, [first, second, foreign_period, foreign_employer],
+                                                 110.51, "Empresa A", periods)
+        self.assertEqual(targets, [{"claim_id": "H:1", "amount_usd": 50.25},
+                                   {"claim_id": "H:2", "amount_usd": 60.26}])
+        self.assertIn("íntegramente", reason)
+        # No subset guessing, including when one more claim shares the identity.
+        targets, _ = suggest_detail_targets(row, [first, second, {**foreign_period, "period": "Mayo 2025"}],
+                                            110.51, "Empresa A", periods)
+        self.assertEqual(targets, [])
+        targets, _ = suggest_detail_targets(row, [first, second], 110.50, "Empresa A", periods)
+        self.assertEqual(targets, [])
+
     def test_operational_and_historical_overlap_needs_period(self):
         operational = claim(1, kind="C", row_key="F1")
         historical = claim(1, kind="H")

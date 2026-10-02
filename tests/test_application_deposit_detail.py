@@ -63,7 +63,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
         self.assertEqual(rows[0]["row_key"], "ROW")
 
     def document(self):
-        return SimpleNamespace(name="D", doctype="CN Remittance Allocation", employer="E", detail_period="P",
+        return SimpleNamespace(name="D", doctype="CN Remittance Allocation", employer="E", detail_periods=[{"period": "P"}],
             docstatus=1, check_permission=Mock(), _assert_open_related_periods=Mock(),
             modified="2026-09-30", amount_usd=100, detail_rows=[], detail_file=None, add_comment=Mock())
 
@@ -71,7 +71,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
         document = self.document()
         period = SimpleNamespace(name="P", employer="E", status="Abierto", check_permission=Mock())
         with patch.object(module.frappe, "get_doc", side_effect=[document, period]), patch.object(module, "allowed_employers", return_value={"E"}):
-            self.assertEqual(module._load("D"), (document, period))
+            self.assertEqual(module._load("D"), (document, [period]))
         document.check_permission.assert_called_with("write")
         period.check_permission.assert_called_with("read")
         for status, company, cancelled in [("Cerrado", "E", False), ("Abierto", "OTHER", False), ("Abierto", "E", True)]:
@@ -99,9 +99,21 @@ class ApplicationDepositDetailTests(unittest.TestCase):
         with patch.object(module.frappe, "get_list", return_value=["READABLE"]), \
              patch.object(module.frappe, "get_all", side_effect=get_all), \
              patch.object(module, "_", side_effect=lambda v: v):
-            result = module._preview(document, period)
+            result = module._preview(document, [period])
         self.assertEqual(result["total_usd"], 100)
         self.assertIn("no es un detalle recibido", result["rows"][0]["comments"])
+
+    def test_each_selected_period_requires_read_permission(self):
+        document = self.document()
+        document.detail_periods = [{"period": "P"}, {"period": "PRIVATE"}]
+        visible = SimpleNamespace(name="P", employer="E", status="Abierto", check_permission=Mock())
+        private = SimpleNamespace(name="PRIVATE", employer="E", status="Abierto",
+                                  check_permission=Mock(side_effect=PermissionError))
+        with patch.object(module.frappe, "get_doc", side_effect=[document, visible, private]), \
+             patch.object(module, "allowed_employers", return_value={"E"}):
+            with self.assertRaises(PermissionError):
+                module._load("D")
+        private.check_permission.assert_called_once_with("read")
 
     def test_operative_uses_applied_not_requested_or_deducted_amount(self):
         document = self.document()
@@ -109,7 +121,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
             collection_rows=[frappe._dict(name="C", row_key="R", client_name="Ana", applied_usd=30,
                                          expected_usd=100, deducted_usd=50)])
         with patch.object(module.frappe, "get_all", return_value=[]), patch.object(module, "_", side_effect=lambda v: v):
-            result = module._preview(document, period)
+            result = module._preview(document, [period])
         self.assertEqual(result["rows"][0]["deducted_usd"], 30)
         self.assertEqual(result["rows"][0]["row_key"], "R")
 
@@ -119,7 +131,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
                    {"claim_id": "H:B", "client_name": "Bea", "deducted_usd": 20}],
                    "replaces_detail": True, "total_usd": 30}
         with patch.object(module.frappe, "db", SimpleNamespace(sql=Mock())), \
-             patch.object(module, "_load", return_value=(document, SimpleNamespace(name="P"))), \
+             patch.object(module, "_load", return_value=(document, [SimpleNamespace(name="P")])), \
              patch.object(module, "_preview", return_value=preview), \
              patch.object(module, "_", side_effect=lambda v: v), \
              patch.object(module.frappe, "throw", side_effect=ValueError), \

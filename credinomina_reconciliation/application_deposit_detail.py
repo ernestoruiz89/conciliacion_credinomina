@@ -15,6 +15,7 @@ from credinomina_reconciliation.templates import build_template_xlsx, DEPOSIT_HE
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.paying_employers import allowed_employers, reconciliation_companies
+from credinomina_reconciliation.remittance_periods import selected_periods
 
 
 def pending_application_rows(candidates, deposits, movements, current_name):
@@ -48,18 +49,23 @@ def _load(remittance_name):
     if document.docstatus == 2:
         frappe.throw(_("El depósito está cancelado."))
     document._assert_open_related_periods()
-    if not document.detail_period:
-        frappe.throw(_("Seleccione y guarde el período del detalle."))
-    period = frappe.get_doc("CN Reconciliation Period", document.detail_period)
-    period.check_permission("read")
-    if period.status == "Cerrado":
-        frappe.throw(_("El período está cerrado."))
-    if not document.employer or period.employer not in allowed_employers(document.employer):
-        frappe.throw(_("El período debe pertenecer a la pagadora o a una empresa autorizada."))
-    return document, period
+    names = selected_periods(document)
+    if not names:
+        frappe.throw(_("Seleccione y guarde los períodos del detalle."))
+    allowed = allowed_employers(document.employer)
+    periods = []
+    for name in names:
+        period = frappe.get_doc("CN Reconciliation Period", name)
+        period.check_permission("read")
+        if period.status == "Cerrado":
+            frappe.throw(_("El período {0} está cerrado.").format(name))
+        if not document.employer or period.employer not in allowed:
+            frappe.throw(_("El período debe pertenecer a la pagadora o a una empresa autorizada."))
+        periods.append(period)
+    return document, periods
 
 
-def _preview(document, period):
+def _period_candidates(period):
     candidates = []
     identity = ("client_number", "employee_number", "client_name", "national_id", "loan_number", "installment_number")
     if period.reconciliation_mode == "Historica":
@@ -74,7 +80,7 @@ def _preview(document, period):
             order_by="event_date asc, name asc", limit_page_length=0) if parents else []
         for row in rows:
             candidates.append({**{field: row.get(field) for field in identity},
-                "claim_id": "H:" + row.name, "historical_application": row.name,
+                "claim_id": "H:" + row.name, "historical_application": row.name, "period": period.name,
                 "applied_usd": net_application_amount(row), "application_reference": row.reference,
                 "application_comment": f"{row.parent} / {row.name}", "row_key": ""})
     else:
@@ -88,21 +94,27 @@ def _preview(document, period):
                 "applied_usd": money_float(row.applied_usd),
                 "application_reference": row.application_reference,
                 "application_comment": f"{period.name} / {row.name}"})
+    for row in candidates:
+        row["employer"] = period.employer
+        if not (row.get("client_name") or "").strip():
+            frappe.throw(_("Complete el nombre del cliente en las aplicaciones del período antes de usarlas como detalle."))
+        row["comments"] = _("Generado desde aplicaciones pendientes del período {0}; no es un detalle recibido de la empresa.").format(period.name)
+    return candidates
+
+
+def _preview(document, periods):
+    candidates = [row for period in periods for row in _period_candidates(period)]
     # Settlement totals must include other deposits even if the operator cannot
     # open them; their details are not exposed in the preview.
     deposits = frappe.get_all("CN Remittance Allocation", filters={"docstatus": 1, "employer": ["in", reconciliation_companies(document.employer)]},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0)
     movements = frappe.get_all("CN Complementary Item", filters={
         "category": TOLERANCE_CATEGORY, "docstatus": 1,
-        "employer": period.employer, "period": period.name, "status": "Vigente",
+        "period": ["in", [period.name for period in periods]], "status": "Vigente",
     }, fields=["claim_id", "deposit_source_row", "signed_amount_usd", "status"], limit_page_length=0)
     rows = pending_application_rows(candidates, deposits, movements, document.name)
-    for row in rows:
-        row["employer"] = period.employer
-        if not (row.get("client_name") or "").strip():
-            frappe.throw(_("Complete el nombre del cliente en las aplicaciones del período antes de usarlas como detalle."))
-        row["comments"] = _("Generado desde aplicaciones pendientes del período {0}; no es un detalle recibido de la empresa.").format(period.name)
-    result = {"period": period.name, "applied_usd": money_float(period.applied_usd),
+    result = {"periods": [period.name for period in periods],
+              "applied_usd": money_float(sum_money(period.applied_usd for period in periods)),
               "rows": rows, "total_usd": money_float(sum_money(row["deducted_usd"] for row in rows)),
               "deposit_usd": money_float(document.amount_usd), "modified": str(document.modified),
               "replaces_detail": bool(document.detail_rows or document.detail_file)}
@@ -163,12 +175,12 @@ def use_application_detail(remittance_name, fingerprint, replace_detail=False, s
         _apply_remittance_detail,
     )
     frappe.db.sql("select name from `tabCN Remittance Allocation` where name=%s for update", (remittance_name,))
-    document, period = _load(remittance_name)
-    preview = _preview(document, period)
+    document, periods = _load(remittance_name)
+    preview = _preview(document, periods)
     if fingerprint != preview["fingerprint"]:
         frappe.throw(_("Los datos cambiaron. Abra nuevamente la vista previa antes de generar el detalle."))
     if not preview["rows"]:
-        frappe.throw(_("No hay aplicaciones pendientes para este período."))
+        frappe.throw(_("No hay aplicaciones pendientes para los períodos seleccionados."))
     if preview["replaces_detail"] and not cint(replace_detail):
         frappe.throw(_("Confirme el reemplazo del detalle existente."))
     rows = select_application_rows(preview["rows"], selected_claim_ids)
@@ -186,5 +198,5 @@ def use_application_detail(remittance_name, fingerprint, replace_detail=False, s
         "Se generó detalle desde aplicaciones pendientes de {0}: {1} filas seleccionadas de {3}, US$ {2}. "
         "No es evidencia enviada por la empresa. Se conservaron los destinos, "
         "pero se quitaron sus vínculos al detalle anterior. No se confirmó ni concilió el depósito."
-    ).format(period.name, len(rows), total_usd, len(preview["rows"])))
+    ).format(", ".join(period.name for period in periods), len(rows), total_usd, len(preview["rows"])))
     return {"rows": len(rows), "total_usd": total_usd, "file_url": attachment.file_url}

@@ -50,7 +50,7 @@ class PeriodPendingTests(unittest.TestCase):
             query.assert_not_called()
 
     def test_deposit_applied_includes_only_executed_credit_allocations_all_periods(self):
-        deposit = dict(name="D", detail_period="P", amount_usd=200, unclassified_usd=19.99,
+        deposit = dict(name="D", detail_periods=[{"period": "P"}], amount_usd=200, unclassified_usd=19.99,
                        result="Parcial", allocation_detail=json.dumps([
                            {"tipo": "Cobranza", "periodo": "P", "importe_usd": 100.10},
                            {"tipo": "Aplicacion historica", "periodo": "Q", "importe_usd": 49.90},
@@ -72,14 +72,14 @@ class PeriodPendingTests(unittest.TestCase):
         rows.append(frappe._dict(parent="PRIVATE", idx=62, client_name="Private"))
         with patch.object(pending.frappe, "get_doc", return_value=period), \
              patch.object(pending.frappe, "has_permission", return_value=True), \
-             patch.object(pending.frappe, "get_all", return_value=rows) as query, \
+             patch.object(pending.frappe, "get_all", side_effect=lambda doctype, **kwargs: rows if doctype == "CN Source Row" else []) as query, \
              patch.object(pending, "readable_imports", return_value={"VISIBLE"}), \
              patch.object(pending.frappe, "get_list", return_value=[]):
             result = pending.get_period_pending("P", search="marion", kind="Aplicación", start=50)
             self.assertEqual((result["total"], result["count"], len(result["rows"])), (61, 61, 11))
             self.assertEqual(result["rows"][0]["row"], 51)
             self.assertEqual(result["restricted"], ["CN Accounting Import"])
-            self.assertEqual(query.call_args.kwargs["filters"]["historical_period"], "P")
+            self.assertEqual(query.call_args_list[0].kwargs["filters"]["historical_period"], "P")
             self.assertEqual(pending.get_period_pending("P", kind="Depósito")["count"], 0)
         period.save.assert_not_called()
 

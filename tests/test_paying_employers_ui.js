@@ -20,7 +20,7 @@ async function run() {
     assert.equal(pending[0].args.args.employer, "INDENICSA");
     pending[0].resolve({message: ["INDENICSA", "CBC"]});
     await first;
-    assert.deepEqual(Array.from(queries.detail_period().filters.employer[1]), ["INDENICSA", "CBC"]);
+    assert.deepEqual(Array.from(queries["period.detail_periods"]().filters.employer[1]), ["INDENICSA", "CBC"]);
     assert.deepEqual(Array.from(queries["employer.detail_rows"]().filters.name[1]), ["INDENICSA", "CBC"]);
     const old = load(frm);
     frm.doc.employer = "OTRA";

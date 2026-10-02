@@ -41,16 +41,20 @@ def run():
                 """INSERT INTO `tabCN Remittance Allocation`
                 (name, owner, creation, modified, modified_by, docstatus, idx, employer,
                  deposit_reference, deposit_date, deposit_currency, deposit_amount, amount_usd,
-                 detail_period, detail_count, detail_status, detail_file, allocated_usd,
+                 detail_count, detail_status, detail_file, allocated_usd,
                  unallocated_usd, justified_surplus_usd, unclassified_usd, allocation_detail,
                  notes, result)
                 VALUES (%s, 'Administrator', %s, %s, 'Administrator', 1, 0, %s,
-                        %s, '2027-01-15', 'USD', 40, 40, %s, 1, 'Cargado',
+                        %s, '2027-01-15', 'USD', 40, 40, 1, 'Cargado',
                         '/private/files/smoke.xlsx', 0, 40, 0, 40, %s,
                         'Smoke transaccional', 'Parcial')""",
-                (name, now, now, period.employer, reference, detail_period,
+                (name, now, now, period.employer, reference,
                  allocation_detail),
             )
+            if detail_period:
+                frappe.get_doc({"doctype": "CN Remittance Period", "parent": name,
+                    "parenttype": "CN Remittance Allocation", "parentfield": "detail_periods",
+                    "period": detail_period, "idx": 1, "docstatus": 1}).db_insert()
         frappe.db.sql(
             """INSERT INTO `tabCN Accounting Import`
             (name, owner, creation, modified, modified_by, docstatus, idx,

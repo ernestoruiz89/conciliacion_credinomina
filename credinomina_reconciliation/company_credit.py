@@ -3,6 +3,7 @@ import json
 import frappe
 from frappe import _
 from credinomina_reconciliation.rounding import money
+from credinomina_reconciliation.remittance_periods import selected_periods
 
 CATEGORY = "Saldo a favor de la empresa"
 
@@ -17,8 +18,7 @@ def ensure_related_periods_open(doc):
         deposits.add(previous.registered_deposit)
     for name in deposits - {None, ""}:
         deposit = frappe.get_doc("CN Remittance Allocation", name)
-        if deposit.detail_period:
-            periods.add(deposit.detail_period)
+        periods.update(selected_periods(deposit))
         for target in deposit.targets or []:
             if target.period:
                 periods.add(target.period)

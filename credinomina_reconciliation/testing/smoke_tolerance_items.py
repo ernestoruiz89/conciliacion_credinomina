@@ -78,7 +78,7 @@ def run():
             source.reload()
             deposit = frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": employer.name,
                 "deposit_reference": company, "deposit_date": "2025-05-10", "deposit_currency": "USD",
-                "deposit_amount": paid, "detail_period": period.name,
+                "deposit_amount": paid, "detail_periods": [{"period": period.name}],
                 "detail_file": f"/private/files/{company}-detail.xlsx",
                 "detail_source_file": f"/private/files/{company}-detail.xlsx", "detail_hash": company})
             deposit.append("detail_rows", {"source_row": 2, "client_name": company,

@@ -25,7 +25,7 @@ class SingleDepositTests(unittest.TestCase):
 
     def test_affected_periods_include_removed_and_new_destinations(self):
         periods = [frappe._dict(name="P", collection_rows=[frappe._dict(name="C1", row_key="K")])]
-        deposit = frappe._dict(allocation_detail='[{"periodo":"OLD"}]', detail_period="DETAIL",
+        deposit = frappe._dict(allocation_detail='[{"periodo":"OLD"}]', detail_periods=[{"period": "DETAIL"}],
                               targets=[frappe._dict(period="MANUAL")])
         allocation = dict(allocations=[dict(claim_id="C:C1"), dict(claim_id="H:H1"), dict(claim_id="X:X1")],
                           rounding_movements=[dict(period="RND")])

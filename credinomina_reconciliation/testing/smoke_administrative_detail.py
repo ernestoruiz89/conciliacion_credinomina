@@ -44,7 +44,7 @@ def run():
             "doctype": "CN Remittance Allocation", "employer": employer.name,
             "deposit_reference": f"{marker}-DEP", "deposit_voucher": f"{marker}-DEP",
             "deposit_date": "2025-05-20", "deposit_currency": "NIO", "deposit_amount": 4394.92,
-            "fx_rate": 36.6243, "detail_period": period.name,
+            "fx_rate": 36.6243, "detail_periods": [{"period": period.name}],
             "detail_file": f"/private/files/{marker}-detail.xlsx",
             "detail_source_file": f"/private/files/{marker}-detail.xlsx", "detail_hash": marker,
         })

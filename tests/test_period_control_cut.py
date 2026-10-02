@@ -173,12 +173,12 @@ class PeriodControlCutTests(unittest.TestCase):
     def test_problematic_detail_follows_targets_and_allocation_not_just_detail_period(self):
         period = SimpleNamespace(name="PER-1", employer="EMP-1")
         remittances = [
-            frappe._dict(name="R-DIRECT", detail_period="PER-1", allocation_detail="[]"),
-            frappe._dict(name="R-TARGET", detail_period="", allocation_detail="[]"),
-            frappe._dict(name="R-AUTO", detail_period="PER-2", allocation_detail='[{"periodo":"PER-1"}]'),
-            frappe._dict(name="R-HISTORY", detail_period="", allocation_detail="[]"),
-            frappe._dict(name="R-COMP", detail_period="", allocation_detail='[{"partida":"COMP-1"}]'),
-            frappe._dict(name="R-OTHER", detail_period="PER-2", allocation_detail='[{"periodo":"PER-2"}]'),
+            frappe._dict(name="R-DIRECT", detail_periods=[{"period": "PER-1"}], allocation_detail="[]"),
+            frappe._dict(name="R-TARGET", detail_periods=[], allocation_detail="[]"),
+            frappe._dict(name="R-AUTO", detail_periods=[{"period": "PER-2"}], allocation_detail='[{"periodo":"PER-1"}]'),
+            frappe._dict(name="R-HISTORY", detail_periods=[], allocation_detail="[]"),
+            frappe._dict(name="R-COMP", detail_periods=[], allocation_detail='[{"partida":"COMP-1"}]'),
+            frappe._dict(name="R-OTHER", detail_periods=[{"period": "PER-2"}], allocation_detail='[{"periodo":"PER-2"}]'),
         ]
         targets = [
             frappe._dict(parent="R-TARGET", period="PER-1", historical_application="", complementary_item=""),

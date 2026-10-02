@@ -33,7 +33,7 @@ def run():
             imported.reload()
             deposit = frappe.get_doc({"doctype":"CN Remittance Allocation", "employer":employer.name,
                 "deposit_date":"2025-05-27", "deposit_reference":marker, "deposit_currency":"NIO",
-                "deposit_amount":58658.58, "fx_rate":36.6243, "detail_period":period.name,
+                "deposit_amount":58658.58, "fx_rate":36.6243, "detail_periods": [{"period": period.name}],
                 "detail_file":f"/private/files/{marker}-detail.xlsx", "detail_source_file":f"/private/files/{marker}-detail.xlsx",
                 "detail_hash":marker})
             for i, amount in enumerate((165.16, 1334.69)):

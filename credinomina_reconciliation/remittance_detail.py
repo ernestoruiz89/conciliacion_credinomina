@@ -13,6 +13,10 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 EPSILON = 0.005
 
 
+def _period_scope(period):
+    return {period} if isinstance(period, str) and period else set(period or ())
+
+
 def detail_amount_usd(row: Mapping[str, Any], nio_per_usd: float = 0) -> tuple[float, str]:
     """USD is authoritative when both deduction columns are populated.
 
@@ -94,13 +98,14 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
 def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None):
     """Validate explicit row links; reuse their instruction IDs without booking twice."""
     by_id = {claim["id"]: claim for claim in claims}
+    periods = _period_scope(period)
     targets = []
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
         if not claim or clean_text(claim.get("group")) not in set(allowed_groups or [employer]):
             return [], "Destino manual inexistente o de otra empresa"
-        if period and clean_text(claim.get("period")) != clean_text(period):
-            return [], "El destino manual no pertenece al período del detalle"
+        if periods and clean_text(claim.get("period")) not in periods:
+            return [], "El destino manual no pertenece a los períodos del detalle"
         if not _candidate_matches(row, claim):
             return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
         if (not money(instruction["amount_usd"]) or
@@ -115,15 +120,16 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
 
 def suggest_detail_targets(
     row: Mapping[str, Any], claims: Iterable[Mapping[str, Any]],
-    amount_usd: float, employer: str, period: str = "",
+    amount_usd: float, employer: str, period: str | Iterable[str] = "",
     tolerance_usd: float = 0,
     allowed_groups=None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Suggest only exact, uniquely attributable claims; never fuzzy-match names."""
+    periods = _period_scope(period)
     claims = [
         claim for claim in claims
         if clean_text(claim.get("group")) in set(allowed_groups or [employer])
-        and (not period or clean_text(claim.get("period")) == clean_text(period))
+        and (not periods or clean_text(claim.get("period")) in periods)
         and money(claim.get("amount_usd")) > 0
     ]
     name_only = not any(clean_text(row.get(field)) for field in (

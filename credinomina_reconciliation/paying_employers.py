@@ -1,6 +1,7 @@
 """Explicit payer -> beneficiary authorizations; never aliases or transitive rights."""
 from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.client_identity import choose_client
+from credinomina_reconciliation.remittance_periods import selected_periods
 
 
 def load_payer_map():
@@ -63,7 +64,7 @@ def validate_paying_for(document):
         # Do not silently invalidate confirmed allocations (including closed periods).
         for name in frappe.get_all("CN Remittance Allocation", filters={"employer": document.name, "docstatus": 1}, pluck="name"):
             deposit = frappe.get_doc("CN Remittance Allocation", name)
-            periods = {deposit.detail_period} - {None, ""}
+            periods = set(selected_periods(deposit))
             for target in deposit.targets:
                 if target.period:
                     periods.add(target.period)

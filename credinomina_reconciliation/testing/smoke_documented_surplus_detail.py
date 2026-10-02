@@ -148,7 +148,7 @@ def run():
             "doctype": "CN Remittance Allocation", "employer": employer.name,
             "deposit_reference": reference, "deposit_voucher": marker + "-DEP",
             "deposit_date": "2027-06-10", "deposit_currency": "USD",
-            "deposit_amount": 110, "detail_period": period.name,
+            "deposit_amount": 110, "detail_periods": [{"period": period.name}],
             "detail_file": f"/private/files/{marker}-detail.xlsx",
             "detail_source_file": f"/private/files/{marker}-detail.xlsx",
             "detail_hash": marker + "-detail", "detail_count": 1,

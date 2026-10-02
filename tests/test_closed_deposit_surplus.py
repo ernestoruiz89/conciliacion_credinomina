@@ -12,7 +12,7 @@ class ClosedDepositSurplusTests(unittest.TestCase):
     def _check(self, *, own_period=None, detail_period=None, target_period=None,
                allocated_period=None, status="Cerrado"):
         deposit = SimpleNamespace(
-            detail_period=detail_period,
+            detail_periods=[{"period": detail_period}] if detail_period else [],
             targets=[SimpleNamespace(
                 period=target_period, historical_application=None,
                 complementary_item=None,

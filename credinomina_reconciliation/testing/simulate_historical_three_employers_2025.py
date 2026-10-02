@@ -133,7 +133,7 @@ def _create_deposit_and_detail(employer, letter, period, month, paid_on, amounts
         "deposit_date": paid_on,
         "deposit_currency": "USD",
         "deposit_amount": allocated + extra,
-        "detail_period": period.name,
+        "detail_periods": [{"period": period.name}],
         "notes": (
             "SIMULACIÓN HISTÓRICA: depósito ficticio posterior a la aplicación. "
             "El detalle por cliente se registra dos días después."

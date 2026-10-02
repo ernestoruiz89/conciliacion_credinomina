@@ -39,10 +39,10 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.js"), "utf8"), context);
-const frm = {doc: {name: "D", detail_period: "P"}, is_new: () => false,
+const frm = {doc: {name: "D", detail_periods: [{period: "P"}]}, is_new: () => false,
     is_dirty: () => true, save: async () => order.push("save"), reload_doc: async () => order.push("reload")};
 (async () => {
-    preview = {period: "P", applied_usd: 100, total_usd: 60, deposit_usd: 50,
+    preview = {periods: ["P", "P2"], applied_usd: 100, total_usd: 60, deposit_usd: 50,
         rows: [{claim_id: "H:A", client_name: "<Ana>", deducted_usd: 50},
             {claim_id: "H:B", client_name: "Bea", deducted_usd: 10}], fingerprint: "F", replaces_detail: true};
     await events["CN Remittance Allocation"].use_applications_detail(frm);
@@ -80,7 +80,7 @@ const frm = {doc: {name: "D", detail_period: "P"}, is_new: () => false,
     await events["CN Remittance Allocation"].use_applications_detail(frm);
     assert.equal(dialog, undefined);
     assert.ok(messages.at(-1).includes("No hay aplicaciones pendientes"));
-    frm.doc.detail_period = "";
+    frm.doc.detail_periods = [];
     const before = calls.length;
     await events["CN Remittance Allocation"].use_applications_detail(frm);
     assert.equal(calls.length, before);

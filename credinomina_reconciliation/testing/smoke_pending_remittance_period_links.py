@@ -70,10 +70,10 @@ def run():
         )
         by_allocation = _remittance(employer, marker, "AUTO", 20)
         by_other_period = _remittance(
-            employer, marker, "OTHER", 15, detail_period=other_period.name,
+            employer, marker, "OTHER", 15, detail_periods=[{"period": other_period.name}],
         )
         by_other_employer = _remittance(
-            other_employer, marker, "FOREIGN", 30, detail_period=foreign_period.name,
+            other_employer, marker, "FOREIGN", 30, detail_periods=[{"period": foreign_period.name}],
         )
         frappe.db.set_value(
             "CN Remittance Allocation", by_allocation.name,

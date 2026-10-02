@@ -54,11 +54,11 @@ class ControlWorkQueueTests(unittest.TestCase):
         registered = [frappe._dict(
             name="REM-1", employer="EMP", deposit_reference="DEP-1",
             amount_usd=100, detail_count=0, detail_file=None,
-            detail_period=None, allocation_detail="[]",
+            detail_periods=[], allocation_detail="[]",
         ), frappe._dict(
             name="REM-2", employer="EMP", deposit_reference="DEP-2",
             amount_usd=50, detail_count=1, detail_file="/private/files/detail.xlsx",
-            detail_period="P-MAY", allocation_detail="[]",
+            detail_periods=[{"period": "P-MAY"}], allocation_detail="[]",
         )]
         deposits = [
             frappe._dict(parent="REM-1", source_doctype="CN Remittance Allocation",
@@ -109,7 +109,7 @@ class ControlWorkQueueTests(unittest.TestCase):
         remittance = frappe._dict(
             name="REM-JAN", employer="EMP", deposit_reference="DEP-JAN",
             amount_usd=100, detail_count=2, detail_file="/private/files/detail.xlsx",
-            detail_period=None, detail_status="Cargado", result="Parcial",
+            detail_periods=[], detail_status="Cargado", result="Parcial",
             allocation_detail='[{"periodo":"P-NOV"},{"periodo":"P-DEC"}]',
             unclassified_usd=20,
         )
@@ -129,7 +129,7 @@ class ControlWorkQueueTests(unittest.TestCase):
     def test_fully_manual_distribution_is_not_mislabeled_missing_detail(self):
         remittance = frappe._dict(
             name="REM-MANUAL", employer="EMP", deposit_reference="DEP-MANUAL",
-            amount_usd=100, detail_count=0, detail_file=None, detail_period=None,
+            amount_usd=100, detail_count=0, detail_file=None, detail_periods=[],
             detail_status="Distribución manual", result="Conciliado",
             allocation_detail="[]",
         )
@@ -159,7 +159,7 @@ class ControlWorkQueueTests(unittest.TestCase):
     def test_invalid_manual_destinations_take_priority_over_missing_file(self):
         remittance = frappe._dict(
             name="REM-BAD-TARGET", employer="EMP", deposit_reference="DEP-BAD",
-            amount_usd=100, detail_count=0, detail_file=None, detail_period=None,
+            amount_usd=100, detail_count=0, detail_file=None, detail_periods=[],
             detail_status="Detalle pendiente", result="Revisar destinos",
             allocated_usd=0, justified_surplus_usd=0, unclassified_usd=100,
             allocation_detail="[]",
@@ -179,7 +179,7 @@ class ControlWorkQueueTests(unittest.TestCase):
     def test_manual_payment_plus_documented_surplus_needs_no_file(self):
         remittance = frappe._dict(
             name="REM-CREDIT", employer="EMP", deposit_reference="DEP-CREDIT",
-            amount_usd=110, detail_count=0, detail_file=None, detail_period=None,
+            amount_usd=110, detail_count=0, detail_file=None, detail_periods=[],
             detail_status="Detalle pendiente", result="Parcial con saldo a favor",
             allocated_usd=100, justified_surplus_usd=10, unclassified_usd=0,
             allocation_detail="[]",
@@ -203,7 +203,7 @@ class ControlWorkQueueTests(unittest.TestCase):
         remittance = frappe._dict(
             name="REM-REVIEW", employer="EMP", deposit_reference="DEP-REVIEW",
             amount_usd=100, detail_count=2, detail_file="/private/files/detail.xlsx",
-            detail_period=None, detail_status="Revisar filas", result="Revisar detalle",
+            detail_periods=[], detail_status="Revisar filas", result="Revisar detalle",
             unclassified_usd=40, allocation_detail="[]",
         )
         deposit = frappe._dict(

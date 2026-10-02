@@ -15,7 +15,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
         frm.fields_dict.detail_rows.grid.df.cannot_delete_rows = true;
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
-        frm.set_query("detail_period", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
+        frm.set_query("period", "detail_periods", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
         frm.set_query("employer", "detail_rows", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
@@ -61,11 +61,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
     employer(frm) { loadPayingCompanies(frm); renderRemittanceOverview(frm); },
-    detail_period(frm) {
-        if (!frm.doc.detail_period) frm.set_value("applied_usd", 0);
-        toggleApplicationDetailAction(frm);
-        renderRemittanceOverview(frm);
-    },
     notes: renderRemittanceOverview,
     deposit_amount: updateUsdEquivalent,
     deposit_currency: updateUsdEquivalent,
@@ -143,23 +138,39 @@ async function reconcileRemittance(frm) {
 }
 
 function toggleApplicationDetailAction(frm) {
-    frm.toggle_display("use_applications_detail", !!frm.doc.detail_period &&
+    frm.toggle_display("use_applications_detail", (frm.doc.detail_periods || []).some(row => row.period) &&
         frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
 }
 
+frappe.ui.form.on("CN Remittance Period", {
+    period(frm) { toggleApplicationDetailAction(frm); },
+    applied_usd(frm) {
+        const cents = (frm.doc.detail_periods || []).reduce((total, row) =>
+            total + Math.round(Number(row.applied_usd || 0) * 100), 0);
+        frm.set_value("applied_usd", cents / 100);
+    },
+    detail_periods_add(frm) { toggleApplicationDetailAction(frm); },
+    detail_periods_remove(frm) {
+        const cents = (frm.doc.detail_periods || []).reduce((total, row) =>
+            total + Math.round(Number(row.applied_usd || 0) * 100), 0);
+        frm.set_value("applied_usd", cents / 100);
+        toggleApplicationDetailAction(frm);
+    },
+});
+
 async function useApplicationsAsDetail(frm) {
-    if (!frm.doc.detail_period) {
-        frappe.msgprint(__("Seleccione un período del detalle."));
+    if (!(frm.doc.detail_periods || []).some(row => row.period)) {
+        frappe.msgprint(__("Seleccione al menos un período del detalle."));
         return;
     }
     if (frm.is_new() || frm.is_dirty()) await frm.save();
     const method = "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.";
     const response = await frappe.call({method: method + "preview_application_detail",
         args: {remittance_name: frm.doc.name}, freeze: true,
-        freeze_message: __("Consultando aplicaciones pendientes del período…")});
+        freeze_message: __("Consultando aplicaciones pendientes de los períodos…")});
     const preview = response.message;
     if (!preview.rows.length) {
-        frappe.msgprint(__("No hay aplicaciones pendientes para este período."));
+        frappe.msgprint(__("No hay aplicaciones pendientes para los períodos seleccionados."));
         return;
     }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
@@ -168,8 +179,8 @@ async function useApplicationsAsDetail(frm) {
     const dialog = new frappe.ui.Dialog({
         title: __("Usar aplicaciones pendientes como detalle"), size: "extra-large",
         fields: [{fieldname: "selection_preview", fieldtype: "HTML", options: `
-            <p>${__("Se generará un archivo privado con las aplicaciones pendientes del período {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.period)])}</p>
-            <p><strong>${__("Aplicado al período")}: US$ ${remittanceMoney(preview.applied_usd)} ·
+            <p>${__("Se generará un archivo privado con las aplicaciones pendientes de los períodos {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.periods.join(", "))])}</p>
+            <p><strong>${__("Aplicado a los períodos")}: US$ ${remittanceMoney(preview.applied_usd)} ·
                 ${__("Seleccionado")}: US$ <span data-selected-total>${remittanceMoney(preview.total_usd)}</span> ·
                 ${__("Depósito")}: US$ ${remittanceMoney(preview.deposit_usd)}</strong></p>
             <p class="text-warning" data-selection-warning>${__("El total seleccionado no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>
@@ -177,9 +188,9 @@ async function useApplicationsAsDetail(frm) {
             <p>${__("Marque solo los movimientos de este depósito. Se copiará el importe pendiente completo de cada fila seleccionada.")}</p>
             <p data-selection-count aria-live="polite"></p>
             <div style="max-height:40vh;overflow:auto"><table class="table table-bordered"><thead>
-                <tr><th><label><input type="checkbox" data-select-all checked> ${__("Todos")}</label></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Referencia")}</th><th>${__("Pendiente US$")}</th></tr></thead>
+                <tr><th><label><input type="checkbox" data-select-all checked> ${__("Todos")}</label></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Período")}</th><th>${__("Referencia")}</th><th>${__("Pendiente US$")}</th></tr></thead>
                 <tbody>${preview.rows.map((row, index) => `<tr><td><input type="checkbox" data-application-index="${index}" checked aria-label="${esc(__("Seleccionar movimiento {0}", [index + 1]))}"></td><td>${esc(row.client_name)}<br>${esc(row.client_number)}</td>
-                    <td>${esc(row.loan_number)}</td><td>${esc(row.application_reference)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
+                    <td>${esc(row.loan_number)}</td><td>${esc(row.period)}</td><td>${esc(row.application_reference)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
             ${preview.replaces_detail ? `<p class="text-warning">${__("Se reemplazarán las filas del detalle actual y se quitarán sus vínculos a destinos. Los destinos y archivos anteriores se conservarán para revisión.")}</p>` : ""}
         `}, ...(preview.replaces_detail ? [{fieldname: "replace_detail", fieldtype: "Check", reqd: 1,
             label: __("Confirmo reemplazar el detalle actual")}] : [])],
@@ -388,7 +399,8 @@ frappe.ui.form.on("CN Remittance Target", {
 function downloadRemittanceTemplate(frm) {
     const params = new URLSearchParams({ template_type: "deposito" });
     if (!frm.is_new()) params.set("remittance_name", frm.doc.name);
-    if (frm.doc.detail_period) params.set("period_name", frm.doc.detail_period);
+    const periods = (frm.doc.detail_periods || []).map(row => row.period).filter(Boolean);
+    if (periods.length) params.set("period_names", JSON.stringify(periods));
     window.open(
         `/api/method/credinomina_reconciliation.template_download.download_import_template?${params}`,
         "_blank"

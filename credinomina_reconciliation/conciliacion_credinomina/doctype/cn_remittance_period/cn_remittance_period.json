@@ -1,0 +1,24 @@
+{
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "module": "Conciliacion Credinomina",
+  "name": "CN Remittance Period",
+  "istable": 1,
+  "editable_grid": 1,
+  "field_order": ["usd_currency", "period", "employer", "applied_usd"],
+  "fields": [
+    {"fieldname": "usd_currency", "fieldtype": "Data", "default": "USD", "hidden": 1, "read_only": 1, "label": "Moneda US$"},
+    {"fieldname": "period", "fieldtype": "Link", "label": "Período", "options": "CN Reconciliation Period", "reqd": 1, "in_list_view": 1, "columns": 5, "allow_on_submit": 1},
+    {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "fetch_from": "period.employer", "read_only": 1, "in_list_view": 1, "columns": 3, "allow_on_submit": 1},
+    {"fieldname": "applied_usd", "fieldtype": "Currency", "label": "Aplicado US$", "options": "usd_currency", "precision": "2", "fetch_from": "period.applied_usd", "read_only": 1, "in_list_view": 1, "columns": 2, "allow_on_submit": 1}
+  ],
+  "permissions": [],
+  "links": [],
+  "actions": [],
+  "creation": "2026-10-02 12:00:00.000000",
+  "modified": "2026-10-02 12:00:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator",
+  "sort_field": "idx",
+  "sort_order": "ASC"
+}

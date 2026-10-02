@@ -67,7 +67,7 @@ def run():
         "doctype": "CN Remittance Allocation", "employer": EMPLOYER,
         "deposit_reference": REFERENCE, "deposit_date": "2026-07-20",
         "deposit_currency": "USD", "deposit_amount": 83,
-        "detail_period": period.name,
+        "detail_periods": [{"period": period.name}],
         "notes": "Depósito histórico: el detalle por cliente llegará después.",
     }).insert()
     deposit.submit()

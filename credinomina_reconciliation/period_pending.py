@@ -7,6 +7,7 @@ from frappe.utils import cint
 
 from credinomina_reconciliation.control_summary import readable_imports
 from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation.remittance_periods import selected_periods, attach_periods, deposit_names_for_periods
 
 
 SETTLED = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
@@ -58,7 +59,7 @@ def deposit_issue(deposit, period_name):
         entries = []
     if not isinstance(entries, list):
         entries = []
-    linked = deposit.get("detail_period") == period_name or (
+    linked = period_name in selected_periods(deposit) or (
         isinstance(entries, list) and any(isinstance(entry, dict) and entry.get("periodo") == period_name
                                         for entry in entries)
     )
@@ -107,10 +108,10 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         # Narrow to this period, then verify the exact JSON link (LIKE is only a prefilter).
         needle = json.dumps(period.name, ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         deposits = frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1},
-            or_filters=[["detail_period", "=", period.name], ["allocation_detail", "like", f"%{needle}%"]],
-            fields=["name", "detail_period", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
+            or_filters=[["name", "in", deposit_names_for_periods([period.name]) or [""]], ["allocation_detail", "like", f"%{needle}%"]],
+            fields=["name", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
             order_by="deposit_date asc, name asc", limit_page_length=0)
-        issues.extend(issue for deposit in deposits if (issue := deposit_issue(deposit, period.name)))
+        issues.extend(issue for deposit in attach_periods(deposits) if (issue := deposit_issue(deposit, period.name)))
     else:
         restricted.append("CN Remittance Allocation")
     total = len(issues)

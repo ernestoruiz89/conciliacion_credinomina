@@ -94,7 +94,7 @@ def run():
                 assert not any(row["name"] == deposit.name for row in get_cash_deposits(int(month[:4]), beneficiary.name))
                 remainder = frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": beneficiary.name,
                     "deposit_reference": marker + mode + "-REST", "deposit_date": month[:7] + "-29", "deposit_currency": "USD",
-                    "deposit_amount": 200, "detail_period": periods[1].name}).insert()
+                    "deposit_amount": 200, "detail_periods": [{"period": periods[1].name}]}).insert()
                 preview = preview_application_detail(remainder.name)
                 assert preview["total_usd"] == 200, preview
                 targets = get_pending_targets(remainder.name)["rows"]

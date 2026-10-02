@@ -793,7 +793,7 @@ def _reconcile_sources(employer=None, progress=None):
             "deposit_currency", "deposit_amount", "fx_rate", "notes",
             "allocated_usd", "unallocated_usd",
             "allocation_detail",
-            "support_file", "detail_file", "detail_source_file", "detail_hash", "detail_period",
+            "support_file", "detail_file", "detail_source_file", "detail_hash",
             "detail_status", "detail_total_usd", "detail_count",
         ],
         order_by="creation asc",
@@ -1334,6 +1334,10 @@ def _prepare_remittance_details(
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
     from credinomina_reconciliation.remittance_detail import manual_detail_targets
+    from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
+    # The company engine uses lightweight parent records; the individual engine
+    # supplies a complete Document. Load selected periods in one batched query.
+    attach_periods(remittances)
     by_deposit = {deposit["id"]: deposit for deposit in deposits}
     names = [item.name for item in remittances]
     detail_rows = frappe.get_all(
@@ -1450,7 +1454,7 @@ def _prepare_remittance_details(
                 continue
             if manual:
                 plan["targets"], plan["reason"] = manual_detail_targets(
-                    plan["row"], claims, manual, amount, item.employer, item.detail_period or "",
+                    plan["row"], claims, manual, amount, item.employer, selected_periods(item),
                     allowed_groups=deposit.get("allowed_groups"),
                 )
                 if not plan["targets"]:
@@ -1459,7 +1463,7 @@ def _prepare_remittance_details(
                 continue
             targets, reason = suggest_detail_targets(
                 plan["row"], claims, amount, item.employer,
-                item.detail_period or "",
+                selected_periods(item),
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
                 allowed_groups=deposit.get("allowed_groups"),
             )

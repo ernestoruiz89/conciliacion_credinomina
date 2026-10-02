@@ -18,6 +18,7 @@ from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
 from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
+from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods, deposit_names_for_periods
 
 
 def _row_limit(dashboard_limit: int, full_export: bool) -> int:
@@ -557,7 +558,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             fields=[
                 "name", "employer", "bank_account", "deposit_reference", "deposit_voucher",
                 "deposit_date", "deposit_currency", "deposit_amount",
-                "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                "amount_usd", "detail_file", "detail_count", "detail_status",
                 "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                 "unclassified_usd", "allocation_detail", "result",
             ],
@@ -581,7 +582,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     fields=[
                         "name", "employer", "deposit_reference", "deposit_voucher",
                         "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                        "amount_usd", "detail_file", "detail_count", "detail_status",
                         "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                         "unclassified_usd", "allocation_detail", "result",
                     ],
@@ -595,7 +596,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             for offset in range(0, len(period_names), 500):
                 related_filters = {
                     "docstatus": 1,
-                    "detail_period": ["in", period_names[offset:offset + 500]],
+                    "name": ["in", deposit_names_for_periods(period_names[offset:offset + 500]) or [""]],
                 }
                 if employer:
                     related_filters["employer"] = employer
@@ -604,7 +605,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     fields=[
                         "name", "employer", "deposit_reference", "deposit_voucher",
                         "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                        "amount_usd", "detail_file", "detail_count", "detail_status",
                         "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                         "unclassified_usd", "allocation_detail", "result",
                     ], limit_page_length=0,
@@ -624,7 +625,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     fields=[
                         "name", "employer", "deposit_reference", "deposit_voucher",
                         "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
+                        "amount_usd", "detail_file", "detail_count", "detail_status",
                         "allocated_usd", "unallocated_usd", "justified_surplus_usd",
                         "unclassified_usd", "allocation_detail", "result",
                     ], limit_page_length=_row_limit(10000, full_export),
@@ -638,6 +639,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     if any(link.get("periodo") in period_names for link in links):
                         registered.append(item)
                         known.add(item.name)
+        attach_periods(registered)
         imported_keys = {
             (row.reference, row.voucher, row.currency, money_float(row.amount))
             for row in [*deposits, *related_deposits]
@@ -873,8 +875,7 @@ def _build_work_items(
     detail_pending_deposits = set()
     for remittance in registered:
         links = targets_by_deposit.get(remittance.name, set()).copy()
-        if remittance.detail_period in period_by_name:
-            links.add(remittance.detail_period)
+        links.update(name for name in selected_periods(remittance) if name in period_by_name)
         try:
             allocation_entries = json.loads(remittance.allocation_detail or "[]")
         except (TypeError, ValueError):

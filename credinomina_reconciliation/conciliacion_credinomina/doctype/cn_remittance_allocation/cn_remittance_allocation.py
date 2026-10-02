@@ -12,6 +12,7 @@ from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 from credinomina_reconciliation.reconciliation import remittance_fx_basis
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
+from credinomina_reconciliation.remittance_periods import selected_periods
 from credinomina_reconciliation.rounding import (
     MONEY_EPSILON, decimal_value, money, money_float,
 )
@@ -92,15 +93,22 @@ class CNRemittanceAllocation(Document):
                 if row.get("employer") and row.employer not in allowed:
                     frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
             complete_detail_clients(self.detail_rows, load_client_index(employers=allowed), self.employer, allowed)
-        if self.detail_period:
+        selected = [row.period for row in self.get("detail_periods") or []]
+        if len(selected) != len(set(selected)):
+            frappe.throw(_("No repita períodos en Períodos del detalle."))
+        self.applied_usd = money(0)
+        for row in self.get("detail_periods") or []:
             period = frappe.db.get_value(
-                "CN Reconciliation Period", self.detail_period,
-                ["employer", "status"], as_dict=True,
+                "CN Reconciliation Period", row.period,
+                ["employer", "status", "applied_usd"], as_dict=True,
             )
             if not period or period.employer not in allowed:
                 frappe.throw(_("El período del detalle debe pertenecer a la pagadora o a una empresa autorizada."))
             if period.status == "Cerrado":
                 frappe.throw(_("No se puede asignar un detalle a un período cerrado."))
+            row.employer = period.employer
+            row.applied_usd = money(period.applied_usd)
+            self.applied_usd += row.applied_usd
         if money(self.deposit_amount) <= 0:
             frappe.throw(_("El importe del depósito debe ser mayor que cero."))
         if self.deposit_currency == "NIO":
@@ -280,13 +288,15 @@ class CNRemittanceAllocation(Document):
     def _reconciliation_inputs_changed(self, previous):
         fields = (
             "employer", "deposit_reference", "deposit_voucher", "deposit_date",
-            "deposit_currency", "deposit_amount", "fx_rate", "detail_period",
+            "deposit_currency", "deposit_amount", "fx_rate",
             "detail_file", "detail_hash",
         )
         if any(
             str(self.get(fieldname) or "") != str(previous.get(fieldname) or "")
             for fieldname in fields
         ):
+            return True
+        if set(selected_periods(self)) != set(selected_periods(previous)):
             return True
         target_fields = (
             "period", "row_key", "historical_application", "complementary_item",

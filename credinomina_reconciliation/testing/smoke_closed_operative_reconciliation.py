@@ -48,7 +48,7 @@ def _new_remittance(marker, employer, period, client, client_number, loan_number
         "doctype": "CN Remittance Allocation", "employer": employer,
         "deposit_reference": reference, "deposit_voucher": voucher,
         "deposit_date": "2027-05-10", "deposit_currency": "USD",
-        "deposit_amount": 50, "detail_period": period.name,
+        "deposit_amount": 50, "detail_periods": [{"period": period.name}],
         "notes": "Depósito sintético para verificar el bloqueo del período cerrado.",
         "detail_file": f"/private/files/{marker}-{voucher}-detalle.xlsx",
         "detail_source_file": f"/private/files/{marker}-{voucher}-detalle.xlsx",

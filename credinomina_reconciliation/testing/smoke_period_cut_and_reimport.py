@@ -242,7 +242,7 @@ def run_remittance_before_files():
             "doctype": "CN Remittance Allocation", "employer": employer.name,
             "deposit_reference": f"DEP-{label}", "deposit_voucher": f"V-{label}",
             "deposit_date": "2026-10-15", "deposit_currency": "USD",
-            "deposit_amount": 30, "detail_period": period.name,
+            "deposit_amount": 30, "detail_periods": [{"period": period.name}],
             "detail_file": "late_detail.xlsx", "detail_source_file": "late_detail.xlsx",
             "detail_hash": f"smoke-{label}",
             "notes": "Depósito y detalle recibidos antes de cargar la cobranza",

@@ -25,10 +25,10 @@ const frm = {
 };
 
 (async () => {
-    context.downloadRemittanceTemplate({doc: {name: "CN-ALLOC-2026-00001", detail_period: "P-1"}, is_new: () => false});
+    context.downloadRemittanceTemplate({doc: {name: "CN-ALLOC-2026-00001", detail_periods: [{period: "P-1"}]}, is_new: () => false});
     const params = new URL(templateUrl, "https://example.test").searchParams;
     assert.equal(params.get("remittance_name"), "CN-ALLOC-2026-00001");
-    assert.equal(params.get("period_name"), "P-1");
+    assert.deepEqual(JSON.parse(params.get("period_names")), ["P-1"]);
     context.downloadRemittanceTemplate({doc: {name: "new-document"}, is_new: () => true});
     assert.equal(new URL(templateUrl, "https://example.test").searchParams.has("remittance_name"), false);
 

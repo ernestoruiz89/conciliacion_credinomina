@@ -501,25 +501,35 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la
    empresa envíe el detalle días después; la app conserva la fecha real del
    depósito y registra por separado cuándo se importó el detalle. Después de
-   guardarlo, un supervisor debe pulsar **Confirmar depósito y conciliar**:
+   guardarlo, un supervisor debe pulsar **Confirmar depósito** y luego **Conciliar**:
    mientras siga en borrador no participa en la conciliación. Puede confirmarse
    antes de recibir el detalle por cliente.
    Aunque la referencia identifique una sola aplicación, el depósito no se
    asigna automáticamente por cliente sin detalle o distribución manual
    documentada.
    En **Plantillas → Plantilla de detalle del depósito** descargue el mismo
-   formato con deducidos (precargado si eligió **Período del detalle**).
+   formato con deducidos (precargado si eligió **Períodos del detalle**).
    Adjunte el archivo completado y pulse **Cargar detalle del depósito**. Un
    depósito puede cubrir 200 aplicaciones; varias
    depósitos pueden cubrir una aplicación. El detalle se compara en US$ y no
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
    depósito. Un saldo restante queda sin distribuir o como saldo a favor
-   documentado. Un detalle solo en C$ requiere tasa y fuente documentadas;
-   escriba la fuente y fecha de la tasa en **Justificación**, aunque adjunte el
-   **Soporte del depósito**. El adjunto por sí solo no acredita la tasa usada.
+   documentado. Un detalle solo en C$ requiere tasa C$/US$ para convertirlo;
+   las observaciones y el **Soporte del depósito** son opcionales.
 
-En **Distribución de Depósito → Detalle por cliente**, seleccionar **Período del
-detalle** muestra **Aplicado US$ del período**. **Usar aplicaciones como detalle**
+En **Distribución de Depósito → Detalle por cliente**, agregue una o varias filas
+en **Períodos del detalle**. Cada fila muestra su empresa y aplicado US$; debajo
+se muestra el total aplicado de los períodos seleccionados. La conciliación del
+detalle busca solamente en esos períodos; sin selección busca en todos los
+períodos autorizados de la pagadora. La fecha del depósito sigue siendo independiente.
+Por ejemplo, dos aplicaciones del mismo cliente y crédito por US$50.25 y US$60.26
+se cubren automáticamente con una fila de detalle por US$110.51 cuando esa es
+la suma exacta de todos los destinos pendientes identificados. Si hay otras
+aplicaciones posibles, importes distintos o identidad ambigua, se pide revisión
+manual: no se adivina un subconjunto ni se paga dos veces una aplicación.
+El botón **Conciliar** procesa solo este depósito; no redistribuye los demás.
+
+**Usar aplicaciones como detalle**
 previsualiza únicamente los importes aplicados pendientes, descontando lo cubierto
 por otros depósitos confirmados y los ajustes vigentes por faltantes de centavos.
 Todas las filas están seleccionadas inicialmente. Use las casillas de cada

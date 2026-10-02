@@ -967,19 +967,20 @@ def _has_operative_application(period):
 
 def _pending_remittance_details_for_period(period):
     """Find problematic cash detail linked by period, target or actual allocation."""
+    from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
     remittances = frappe.get_all(
         "CN Remittance Allocation",
         filters={
             "docstatus": 1,
             "detail_status": ["in", list(PENDING_REMITTANCE_DETAILS)],
         },
-        fields=["name", "detail_period", "allocation_detail"],
+        fields=["name", "allocation_detail"],
         limit_page_length=100000,
     )
     if not remittances:
         return []
     related = {
-        item.name for item in remittances if item.detail_period == period.name
+        item.name for item in attach_periods(remittances) if period.name in selected_periods(item)
     }
     names = [item.name for item in remittances]
     targets = frappe.get_all(

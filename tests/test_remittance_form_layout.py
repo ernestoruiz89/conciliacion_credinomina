@@ -18,7 +18,7 @@ class RemittanceFormLayoutTests(unittest.TestCase):
             groups[name] = tab
         for name in ("employer", "deposit_amount", "fx_rate", "amount_usd", "support_file", "notes"):
             self.assertEqual(groups[name], "deposit_tab")
-        for name in ("detail_file", "detail_period", "load_deposit_detail", "detail_rows"):
+        for name in ("detail_file", "detail_periods", "load_deposit_detail", "detail_rows"):
             self.assertEqual(groups[name], "detail_tab")
         self.assertEqual(groups["targets"], "destinations_tab")
         self.assertEqual(groups["allocation_preview"], "results_tab")

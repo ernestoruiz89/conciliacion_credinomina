@@ -7,6 +7,7 @@ from frappe import _
 
 from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.reconciliation_scope import document_state
+from credinomina_reconciliation.remittance_periods import selected_periods
 
 
 def lock_cash_pool(companies):
@@ -71,7 +72,7 @@ def affected_periods(deposit, allocation, periods, source_rows, complementary_it
         names.add(target.period or applications.get("H:" + (target.historical_application or ""))
                   or complements.get("X:" + (target.complementary_item or "")))
     # An explicitly associated detail period may have no successfully matched row.
-    names.add(deposit.detail_period)
+    names.update(selected_periods(deposit))
     return {name for name in names if name}
 
 

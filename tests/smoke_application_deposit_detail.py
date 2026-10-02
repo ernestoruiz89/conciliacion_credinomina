@@ -13,6 +13,8 @@ def run():
     def insert(doctype, suffix, **values):
         doc = frappe.get_doc(dict(doctype=doctype, name=prefix + suffix, **values))
         doc.db_insert()
+        for child in doc.get_all_children():
+            child.db_insert()
         return doc
     try:
         employer = insert("CN Employer", "E", employer_name=prefix, employer_code=prefix, active=1)
@@ -34,7 +36,7 @@ def run():
         for status in (0, 1):
             deposit = insert("CN Remittance Allocation", "D" + str(status), docstatus=status,
                 naming_series="CN-ALLOC-.YYYY.-.#####", usd_currency="USD",
-                employer=employer.name, detail_period=period.name, deposit_reference=prefix + str(status),
+                employer=employer.name, detail_periods=[{"period": period.name}], deposit_reference=prefix + str(status),
                 deposit_date="2025-05-20", deposit_currency="USD", deposit_amount=60, amount_usd=60,
                 result="Pendiente")
             preview = preview_application_detail(deposit.name)
