@@ -52,9 +52,16 @@ for (const view of ["list", "form"]) {
                 toggle_reqd() {}, toggle_display() {}, set_query() {}, set_df_property() {},
                 set_intro() {}, add_custom_button: add});
         }
-        actions["Carga masiva"]();
-        assert.equal(shown, withScript ? 1 : 0);
-        assert.equal(messages, withScript ? 0 : 1);
+        if (view === "list") {
+            assert.equal(typeof actions["Carga masiva"], "function");
+            actions["Carga masiva"]();
+            assert.equal(shown, withScript ? 1 : 0);
+            assert.equal(messages, withScript ? 0 : 1);
+        } else {
+            assert.equal(actions["Carga masiva"], undefined);
+            assert.equal(shown, 0);
+            assert.equal(messages, 0);
+        }
         if (withScript && view === "list") {
             ctx.frappe.credinomina.openAccountingBulk = complete => complete();
             actions["Carga masiva"]();

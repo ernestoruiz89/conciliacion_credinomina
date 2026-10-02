@@ -8,15 +8,6 @@ function update_currency_fields(frm) {
 frappe.ui.form.on("CN Accounting Import", {
     refresh(frm) {
         update_currency_fields(frm);
-        if (frappe.model.can_create("CN Accounting Import")) {
-            frm.add_custom_button(__("Carga masiva"), () => {
-                if (typeof frappe.credinomina?.openAccountingBulk !== "function") {
-                    frappe.msgprint(__("No se cargó la herramienta de carga masiva. Recargue la página; si persiste, solicite limpiar la caché del sitio después de actualizar la app."));
-                    return;
-                }
-                frappe.credinomina.openAccountingBulk();
-            });
-        }
         frm.set_query("employer", () => ({filters: {active: 1}}));
         frm.set_query("historical_period", () => ({
             filters: { reconciliation_mode: "Historica", employer: frm.doc.employer },
