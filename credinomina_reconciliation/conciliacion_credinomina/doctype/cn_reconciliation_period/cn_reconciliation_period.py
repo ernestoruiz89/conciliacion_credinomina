@@ -922,125 +922,21 @@ def import_employer_response(period_name: str):
 
 
 def _pending_registered_targets(target_filters):
-    submitted = frappe.get_all(
-        "CN Remittance Allocation", filters={"docstatus": 1}, pluck="name",
-        limit_page_length=100000,
-    )
-    if not submitted:
-        return False
-    return bool(frappe.db.count(
-        "CN Remittance Target",
-        {**target_filters, "parent": ["in", submitted], "result": ["!=", "Aplicada"]},
-    ))
+    from credinomina_reconciliation.period_closure import pending_registered_targets
+    return pending_registered_targets(target_filters)
 
 
-def _has_operative_application(period):
-    if frappe.db.exists(
-        "CN Source Row",
-        {
-            "event_type": "Aplicacion", "effective": 1,
-            "collection_period": period.name,
-        },
-    ):
-        return True
-    # One core application can cover both quincenas; its primary period is the
-    # first one, while the audited split records the second period too.
-    row_names = {row.name for row in period.collection_rows}
-    if not row_names:
-        return False
-    for source in frappe.get_all(
-        "CN Source Row",
-        filters={"event_type": "Aplicacion", "effective": 1},
-        fields=["application_allocation_detail"], limit_page_length=100000,
-    ):
-        try:
-            detail = json.loads(source.application_allocation_detail or "[]")
-        except (TypeError, ValueError):
-            continue
-        if isinstance(detail, list) and any(
-            isinstance(item, dict) and item.get("collection_row_id") in row_names
-            for item in detail
-        ):
-            return True
-    return False
+def _has_operative_application(period, scope=None):
+    from credinomina_reconciliation.period_closure import ClosureScope
+    return (scope or ClosureScope(period)).has_operative_application()
 
 
-def _pending_remittance_details_for_period(period):
+def _pending_remittance_details_for_period(period, scope=None):
     """Find problematic cash detail linked by period, target or actual allocation."""
-    from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
-    remittances = frappe.get_all(
-        "CN Remittance Allocation",
-        filters={
-            "docstatus": 1,
-            "detail_status": ["in", list(PENDING_REMITTANCE_DETAILS)],
-        },
-        fields=["name", "allocation_detail"],
-        limit_page_length=100000,
-    )
-    if not remittances:
-        return []
-    related = {
-        item.name for item in attach_periods(remittances) if period.name in selected_periods(item)
-    }
-    names = [item.name for item in remittances]
-    targets = frappe.get_all(
-        "CN Remittance Target", filters={"parent": ["in", names]},
-        fields=["parent", "period", "historical_application", "complementary_item"],
-        limit_page_length=100000,
-    )
-    related.update(item.parent for item in targets if item.period == period.name)
-    historical_ids = {
-        item.historical_application for item in targets if item.historical_application
-    }
-    complementary_ids = {
-        item.complementary_item for item in targets if item.complementary_item
-    }
-    allocation_entries = {}
-    for item in remittances:
-        try:
-            entries = json.loads(item.allocation_detail or "[]")
-        except (TypeError, ValueError):
-            entries = []
-        if not isinstance(entries, list):
-            entries = []
-        allocation_entries[item.name] = entries
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("periodo") == period.name:
-                related.add(item.name)
-            if entry.get("partida"):
-                complementary_ids.add(entry["partida"])
-    matching_historical_ids = set()
-    if historical_ids:
-        matching_historical_ids = set(frappe.get_all(
-            "CN Source Row",
-            filters={
-                "name": ["in", list(historical_ids)],
-                "historical_period": period.name,
-            },
-            pluck="name", limit_page_length=100000,
-        ))
-    matching_complementary_ids = set()
-    if complementary_ids:
-        matching_complementary_ids = set(frappe.get_all(
-            "CN Complementary Item",
-            filters={"name": ["in", list(complementary_ids)], "period": period.name},
-            pluck="name", limit_page_length=100000,
-        ))
-    related.update(
-        item.parent for item in targets
-        if item.historical_application in matching_historical_ids
-        or item.complementary_item in matching_complementary_ids
-    )
-    related.update(
-        name for name, entries in allocation_entries.items()
-        if any(
-            isinstance(entry, dict) and entry.get("partida") in matching_complementary_ids
-            for entry in entries
-        )
-    )
-    return sorted(related)
+    from credinomina_reconciliation.period_closure import ClosureScope
+    scope = scope or ClosureScope(period)
+    return sorted(deposit.name for deposit in scope.related_deposits()
+                  if deposit.detail_status in PENDING_REMITTANCE_DETAILS)
 
 
 def _control_cut_summary(period, open_exceptions, pending_details):
@@ -1122,19 +1018,37 @@ def record_control_cut(period_name: str, note: str):
 
 
 @frappe.whitelist(methods=["POST"])
-def close_period(period_name: str):
+def close_period(period_name: str, progress_id: str = ""):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
     if period.status == "Cerrado":
         frappe.throw(_("Este período ya está cerrado."))
+    if not period.employer:
+        frappe.throw(_("Indique la empresa del período antes de cerrarlo."))
+
+    def report(percent, message):
+        if progress_id:
+            frappe.publish_realtime("cn_period_closure_progress", {
+                "period_name": period.name, "progress_id": progress_id,
+                "percent": percent, "message": message,
+            }, user=frappe.session.user)
     # Closure must evaluate the latest imports, not the totals left by the
     # last manual reconciliation. A late core edit can change both balances
     # and open exceptions.
-    if _reconcile_if_sources() is not None:
+    report(5, _("Revisando movimientos recientes de la empresa y sus vínculos financieros…"))
+    def reconcile_progress(percent, message):
+        report(5 + int(percent * 0.65), message)
+
+    if _reconcile_if_sources(period.employer, progress=reconcile_progress) is not None:
         period.reload()
+    if period.status == "Cerrado":
+        frappe.throw(_("Este período ya está cerrado."))
+    from credinomina_reconciliation.period_closure import ClosureScope
+    scope = ClosureScope(period)
+    report(75, _("Validando los depósitos y excepciones relacionados con este período…"))
     if period.reconciliation_mode != "Historica" and not period.collection_rows:
         frappe.throw(_("Cargue la cobranza antes de cerrar el período operativo."))
-    if _pending_remittance_details_for_period(period):
+    if _pending_remittance_details_for_period(period, scope=scope):
         frappe.throw(_("Hay detalles de depósito por cliente pendientes de revisión para este período."))
     if frappe.db.count(
         "CN Reconciliation Exception",
@@ -1142,14 +1056,7 @@ def close_period(period_name: str):
     ):
         frappe.throw(_("Resuelva las excepciones antes de cerrar el periodo."))
     if period.reconciliation_mode == "Historica":
-        application_ids = frappe.get_all(
-            "CN Source Row",
-            filters={
-                "historical_period": period.name,
-                "event_type": "Aplicacion", "effective": 1,
-            },
-            pluck="name", limit_page_length=100000,
-        )
+        application_ids = scope.application_ids()
         if not application_ids:
             frappe.throw(_(
                 "No se puede cerrar un período histórico sin aplicaciones efectivas asignadas."
@@ -1165,10 +1072,12 @@ def close_period(period_name: str):
             {"docstatus": 1, "category": "Saldo a favor de la empresa", "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
         ):
             frappe.throw(_("Hay excedentes históricos pendientes de validar."))
+        report(95, _("Guardando el resultado y bloqueando el período…"))
         _mark_period_closed(period)
+        report(100, _("Período cerrado."))
         return {"period": period.name, "status": period.status}
     period.recalculate_totals()
-    if not _has_operative_application(period):
+    if not _has_operative_application(period, scope=scope):
         frappe.throw(_(
             "No se puede cerrar el período sin aplicaciones efectivas del core enlazadas a la cobranza."
         ))
@@ -1206,32 +1115,12 @@ def close_period(period_name: str):
     references.discard("")
     references.discard(None)
     if references:
-        import_names = frappe.get_all(
-            "CN Accounting Import",
-            pluck="name",
-        )
-        if import_names and frappe.db.count(
-            "CN Source Row",
-            {
-                "parent": ["in", import_names],
-                "event_type": "Deposito",
-                "reference": ["in", list(references)],
-                "unclassified_usd": [">", CASH_EPSILON],
-            },
-        ):
+        if scope.has_unclassified_source_deposit(references):
             frappe.throw(
                 _("Hay depositos relacionados con este periodo sin distribuir ni justificar.")
             )
-    for deposit in frappe.get_all(
-        "CN Remittance Allocation",
-        filters={"docstatus": 1, "unclassified_usd": [">", CASH_EPSILON]},
-        fields=["name", "allocation_detail"],
-        limit_page_length=100000,
-    ):
-        if any(
-            entry.get("periodo") == period.name
-            for entry in json.loads(deposit.allocation_detail or "[]")
-        ):
+    for deposit in scope.related_deposits():
+        if flt(deposit.unclassified_usd) > CASH_EPSILON:
             frappe.throw(_("El depósito {0} tiene un saldo sin clasificar relacionado con este período.").format(deposit.name))
     if any(abs(flt(row.fx_variance_usd)) > 0.01 for row in period.collection_rows):
         frappe.throw(
@@ -1251,7 +1140,9 @@ def close_period(period_name: str):
             "El cierre definitivo requiere todas las filas aplicadas y remitidas. "
             "Si hay cuotas no deducidas o pagos pendientes, registre un corte de control y continúe el seguimiento."
         ))
+    report(95, _("Guardando el resultado y bloqueando el período…"))
     _mark_period_closed(period)
+    report(100, _("Período cerrado."))
     return {"period": period.name, "status": period.status}
 
 
@@ -1260,6 +1151,7 @@ def _mark_period_closed(period):
     period.closed_on = now_datetime()
     period.closed_by = frappe.session.user
     period.status = "Cerrado"
+    period.flags.skip_comment_reconciliation = True
     with period_write_action("close"):
         period.save()
 
@@ -1351,7 +1243,7 @@ def export_collection(period_name: str):
     return {"file_url": file_doc.file_url, "file_name": file_name}
 
 
-def _reconcile_if_sources():
+def _reconcile_if_sources(employer=None, progress=None):
     imported_core = frappe.db.exists(
         "CN Accounting Import",
         {"status": ["in", ["Importado", "Importado con excepciones"]]},
@@ -1364,6 +1256,9 @@ def _reconcile_if_sources():
     )
     if not (imported_core or confirmed_cash or confirmed_complement):
         return None
+    if employer:
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+        return _reconcile_sources(employer, progress=progress)
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
         reconcile_all_sources,
     )

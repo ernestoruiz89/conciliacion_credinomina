@@ -609,6 +609,12 @@ control** en el período. Guarda fecha, responsable, saldos y siguiente gestión
 sin bloquear archivos que lleguen después. **Cerrar período** es distinto:
 requiere las cuotas aplicadas y remitidas, sin saldos del empleado ni
 excepciones abiertas; después solo un supervisor puede reabrirlo con motivo.
+El cierre actualiza las conciliaciones de la empresa y su grupo financiero
+relacionado (pagadoras y partidas genéricas compartidas), no las de todas las
+empresas del sitio. Revisa datos recientes y depósitos vinculados aunque sean
+de otro mes, conserva las validaciones de pendientes y muestra el progreso
+durante la operación. Los índices de estas consultas se crean al instalar o
+ejecutar `bench --site <sitio> migrate` tras actualizar la app.
 
 Para el **histórico de abril de 2025 a agosto de 2026** se omiten los pasos
 de cobranza y deducción: se asignan las aplicaciones a períodos históricos y

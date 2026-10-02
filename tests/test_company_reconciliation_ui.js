@@ -29,11 +29,13 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
 
 (async () => {
     const actions = {};
+    const queries = {};
     const accountingForm = {
-        doc: {name: "IA", employer: "A", currency: "USD", rows: [], status: "Borrador"},
+        doc: {name: "IA", employer: "A", currency: "USD", rows: [], status: "Borrador", historical_period: "CLOSED-EXISTING"},
         doctype: "CN Accounting Import", is_new: () => false, is_dirty: () => true,
         save: async () => events.push("save"), reload_doc: async () => events.push("reload"),
-        toggle_reqd() {}, toggle_display() {}, set_df_property() {}, set_query() {}, set_intro() {},
+        toggle_reqd() {}, toggle_display() {}, set_df_property() {}, set_intro() {},
+        set_query(...args) { queries[args.slice(0, -1).join(".")] = args.at(-1); },
         get_perm: () => false, add_custom_button(label, action) { actions[label] = action; },
     };
     context.frappe.set_route = async (...route) => {
@@ -41,6 +43,16 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
         events.push("navigate");
     };
     formHandlers["CN Accounting Import"].refresh(accountingForm);
+    for (const field of ["historical_period", "historical_period.rows"]) {
+        const filters = queries[field]().filters;
+        assert.equal(filters.reconciliation_mode, "Historica");
+        assert.equal(filters.employer, "A");
+        assert.deepEqual(Array.from(filters.status), ["!=", "Cerrado"]);
+        accountingForm.doc.employer = "B";
+        assert.equal(queries[field]().filters.employer, "B", "Use current company when searching");
+        accountingForm.doc.employer = "A";
+    }
+    assert.equal(accountingForm.doc.historical_period, "CLOSED-EXISTING", "Keep existing closed links for audit");
     accountingForm.doc.bulk_source_hash = "bulk-file-hash";
     formHandlers["CN Accounting Import"].refresh(accountingForm);
     assert.ok(actions["3. Cargar movimientos contables"]);

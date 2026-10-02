@@ -8,6 +8,7 @@ app_license = "MIT"
 required_apps = []
 
 before_install = "credinomina_reconciliation.install.before_install"
+after_install = "credinomina_reconciliation.patches.v1_0.index_period_closure_links.execute"
 
 # Embed the shared dialog in DocType metadata, including list-only sessions.
 # No public asset request/build is needed when opening the bulk importer.

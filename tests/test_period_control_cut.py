@@ -10,12 +10,13 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import (
     cn_reconciliation_period as period_module,
 )
+from credinomina_reconciliation.period_closure import ClosureScope
 
 
 class PeriodControlCutTests(unittest.TestCase):
     def _period(self):
         return SimpleNamespace(
-            name="PER-1", status="Pendiente",
+            name="PER-1", employer="EMP-1", status="Pendiente",
             reconciliation_mode="Operativa", collection_rows=[frappe._dict(
                 deduction_status="Deduccion parcial", application_status="Depósito parcial",
                 expected_usd=50, deducted_usd=30, applied_usd=30, remitted_usd=20,
@@ -132,7 +133,7 @@ class PeriodControlCutTests(unittest.TestCase):
 
     def test_empty_operative_period_cannot_close(self):
         period = SimpleNamespace(
-            name="PER-EMPTY", status="Borrador", reconciliation_mode="Operativa",
+            name="PER-EMPTY", employer="EMP-1", status="Borrador", reconciliation_mode="Operativa",
             collection_rows=[], check_permission=Mock(),
         )
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
@@ -144,7 +145,7 @@ class PeriodControlCutTests(unittest.TestCase):
 
     def test_historical_status_alone_cannot_close_without_applications(self):
         period = SimpleNamespace(
-            name="HIST-EMPTY", status="Conciliado",
+            name="HIST-EMPTY", employer="EMP-1", status="Conciliado",
             reconciliation_mode="Historica", check_permission=Mock(),
         )
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
@@ -159,16 +160,24 @@ class PeriodControlCutTests(unittest.TestCase):
 
     def test_grouped_application_can_close_second_quincena(self):
         period = SimpleNamespace(
-            name="Q2", collection_rows=[SimpleNamespace(name="COL-Q2")],
+            name="Q2", employer="EMP-1", collection_rows=[SimpleNamespace(name="COL-Q2")],
         )
         db = SimpleNamespace(exists=lambda *_: None)
         sources = [frappe._dict(application_allocation_detail=(
             '[{"period":"Q1","collection_row_id":"COL-Q1","amount_usd":20},'
             '{"period":"Q2","collection_row_id":"COL-Q2","amount_usd":20}]'
         ))]
+        def get_all(doctype, *, filters, **kwargs):
+            if doctype == "CN Accounting Import":
+                self.assertEqual(filters["employer"], ["in", ["EMP-1"]])
+                return ["IMPORT-1"]
+            self.assertEqual(doctype, "CN Source Row")
+            self.assertEqual(filters["parent"], ["in", ["IMPORT-1"]])
+            return sources
+
         with patch.object(period_module.frappe, "db", db), \
-             patch.object(period_module.frappe, "get_all", return_value=sources):
-            self.assertTrue(period_module._has_operative_application(period))
+             patch.object(period_module.frappe, "get_all", side_effect=get_all):
+            self.assertTrue(period_module._has_operative_application(period, ClosureScope(period, ["EMP-1"])))
 
     def test_problematic_detail_follows_targets_and_allocation_not_just_detail_period(self):
         period = SimpleNamespace(name="PER-1", employer="EMP-1")
@@ -187,12 +196,19 @@ class PeriodControlCutTests(unittest.TestCase):
         ]
 
         def get_all(doctype, *, filters, **kwargs):
+            if doctype == "CN Remittance Period":
+                self.assertEqual(filters["period"], ["in", ["PER-1"]])
+                return ["R-DIRECT"]
             if doctype == "CN Remittance Allocation":
-                self.assertNotIn("employer", filters)  # Related cash may come from another payer.
-                self.assertIn("Parcial; saldo sin detalle", filters["detail_status"][1])
+                self.assertEqual(filters["employer"], ["in", ["EMP-1", "PAYER"]])
+                for deposit in remittances:
+                    deposit.detail_status = "Revisar filas"
                 return remittances
             if doctype == "CN Remittance Target":
-                return targets
+                if "period" in filters:
+                    return [row.parent for row in targets if row.period == filters["period"]]
+                field = "historical_application" if "historical_application" in filters else "complementary_item"
+                return [row.parent for row in targets if row.get(field) in filters[field][1]]
             if doctype == "CN Source Row":
                 self.assertEqual(filters["historical_period"], "PER-1")
                 return ["H-1"]
@@ -203,7 +219,7 @@ class PeriodControlCutTests(unittest.TestCase):
 
         with patch.object(period_module.frappe, "get_all", side_effect=get_all):
             self.assertEqual(
-                period_module._pending_remittance_details_for_period(period),
+                period_module._pending_remittance_details_for_period(period, ClosureScope(period, ["EMP-1", "PAYER"])),
                 ["R-AUTO", "R-COMP", "R-DIRECT", "R-HISTORY", "R-TARGET"],
             )
 

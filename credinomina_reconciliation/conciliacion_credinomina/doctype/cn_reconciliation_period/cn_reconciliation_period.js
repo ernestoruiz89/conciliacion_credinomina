@@ -237,13 +237,31 @@ function setPeriodEditing(frm) {
 }
 
 async function requestClose(frm) {
-    if (frm.is_dirty()) await frm.save();
-    await frappe.call({
-        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
-        args: { period_name: frm.doc.name },
-        freeze: true,
-    });
-    frm.reload_doc();
+    if (frm.closure_running) return;
+    frm.closure_running = true;
+    let name;
+    const progressId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const event = "cn_period_closure_progress";
+    const onProgress = data => {
+        if (data.period_name !== name || data.progress_id !== progressId) return;
+        $("#freeze .freeze-message").text(`${__("Cerrando período")}: ${data.percent}% — ${__(data.message)}`);
+    };
+    try {
+        if (frm.is_dirty()) await frm.save();
+        name = frm.doc.name; // Saving a changed company/month can rename the period.
+        frappe.realtime.on(event, onProgress);
+        await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.close_period",
+            args: { period_name: name, progress_id: progressId },
+            freeze: true,
+            freeze_message: __("Revisando la empresa y los registros relacionados con este período…"),
+        });
+        await frm.reload_doc();
+        frappe.show_alert({message: __("Período cerrado. El resultado de conciliación quedó conservado."), indicator: "green"});
+    } finally {
+        frappe.realtime.off(event, onProgress);
+        frm.closure_running = false;
+    }
 }
 
 function showControlCutDialog(frm) {

@@ -12,7 +12,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 class ExceptionCloseTests(unittest.TestCase):
     def test_close_reconciles_and_reloads_before_accepting_historical_status(self):
         period = SimpleNamespace(
-            name="HIST-2025-04-15", status="Conciliado",
+            name="HIST-2025-04-15", employer="EMP-1", status="Conciliado",
             reconciliation_mode="Historica", check_permission=Mock(),
         )
         period.reload = Mock(side_effect=lambda: setattr(
@@ -29,6 +29,8 @@ class ExceptionCloseTests(unittest.TestCase):
                 period_module.close_period(period.name)
 
         reconcile.assert_called_once()
+        self.assertEqual(reconcile.call_args.args, ("EMP-1",))
+        self.assertTrue(callable(reconcile.call_args.kwargs["progress"]))
         period.reload.assert_called_once()
         self.assertIn("cubierto por depósitos o compensado por ajustes", reject.call_args.args[0])
         mark_closed.assert_not_called()
