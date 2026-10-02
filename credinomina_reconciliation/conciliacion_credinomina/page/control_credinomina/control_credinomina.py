@@ -12,6 +12,7 @@ from frappe.utils import cint, flt, getdate, now_datetime
 from credinomina_reconciliation.aging import employee_receivable_usd
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.control_deposits import get_cash_deposits
+from credinomina_reconciliation.control_summary import collection_summaries, historical_difference_counts, readable_imports
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.date_display import display_date
@@ -98,7 +99,40 @@ def export_control_excel(year=None, employer=None):
 @frappe.whitelist()
 def get_control_data(year=None, employer=None):
     """Permission-scoped, real data for the monthly control matrix."""
-    return _build_control_data(year, employer)
+    return _build_control_data(year, employer, summary_only=True)
+
+
+@frappe.whitelist()
+def get_period_detail(period_name: str):
+    """Load one visible period; never load the rest of the dashboard for a modal."""
+    frappe.get_doc("CN Reconciliation Period", period_name).check_permission("read")
+    data = _build_control_data("Todos", detail_period=period_name)
+    if not data["periods"]:
+        frappe.throw(_("El período no está disponible."), frappe.PermissionError)
+    period = data["periods"][0]
+    return {"name": period_name, "detail_loaded": True, **{
+        field: period[field] for field in (
+            "rows", "historical_rows", "exceptions", "surpluses", "rounding_movements",
+        )
+    }}
+
+
+@frappe.whitelist()
+def get_deposit_detail(deposit_name: str):
+    frappe.get_doc("CN Remittance Allocation", deposit_name).check_permission("read")
+    deposits = get_cash_deposits(None, deposit_name=deposit_name)
+    if not deposits:
+        frappe.throw(_("El depósito no está disponible o ya no está confirmado."))
+    return {**deposits[0], "detail_loaded": True}
+
+
+@frappe.whitelist()
+def get_control_rows(section: str, year=None, employer=None, start=0):
+    if section not in {"open_deposits", "unassigned_historical_applications", "work_items"}:
+        frappe.throw(_("Sección de control inválida."))
+    start = max(cint(start), 0)
+    rows = _build_control_data(year, employer, summary_only=True, detail_section=section)[section]
+    return {"rows": rows[start:start + 100], "count": len(rows)}
 
 
 def _year_filter(field, year):
@@ -132,7 +166,7 @@ def _available_years(employer=None):
     return sorted(years, reverse=True)
 
 
-def _build_control_data(year=None, employer=None, *, full_export=False):
+def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False, detail_period=None, detail_section=None):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
         frappe.throw(_("No tiene permiso para consultar la conciliacion."))
@@ -140,16 +174,19 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     if year is not None and not 2000 <= year <= 2100:
         frappe.throw(_("Indique un año valido."))
     # All years must not silently omit older records because of screen limits.
-    full_export = full_export or year is None
+    full_export = full_export or year is None or summary_only or bool(detail_period)
     filters = _year_filter("payroll_month", year)
     if employer:
         filters["employer"] = employer
+    if detail_period:
+        filters["name"] = detail_period
     periods = frappe.get_list(
         "CN Reconciliation Period",
         filters=filters,
         fields=[
             "remark",
-            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note", "control_cut_summary",
+            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note",
+            *([] if summary_only else ["control_cut_summary"]),
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
         ],
@@ -170,8 +207,10 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
     exceptions_by_period = defaultdict(list)
     surplus_by_period = defaultdict(list)
     movements_by_period = defaultdict(list)
+    collection_totals = collection_summaries(period_names) if summary_only else {}
+    historical_differences = historical_difference_counts(period_names) if summary_only else {}
     if period_names:
-        rows = frappe.get_all(
+        rows = [] if summary_only else frappe.get_all(
             "CN Collection Row",
             filters={"parent": ["in", period_names]},
             fields=[
@@ -189,7 +228,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         for row in rows:
             row["employee_receivable_usd"] = employee_receivable_usd(row)
             rows_by_period[row.parent].append(row)
-        historical_rows = frappe.get_all(
+        historical_rows = [] if summary_only or not frappe.has_permission("CN Accounting Import", "read") else frappe.get_all(
             "CN Source Row",
             filters={
                 "historical_period": ["in", period_names],
@@ -205,6 +244,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             order_by="event_date asc, idx asc",
             limit_page_length=_row_limit(30000, full_export),
         )
+        if historical_rows:
+            allowed_imports = readable_imports({row.parent for row in historical_rows})
+            historical_rows = [row for row in historical_rows if row.parent in allowed_imports]
         annotate_application_exceptions(historical_rows)
         for row in historical_rows:
             historical_rows_by_period[row.historical_period].append(row)
@@ -219,32 +261,32 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 "loan_number", "amount_usd", "description", "status",
                 "cause_category", "assigned_to", "next_action", "commitment_date",
                 "evidence_file", "external_reference",
-            ],
+            ] if not summary_only else ["name", "period", "amount_usd", "next_action", "commitment_date"],
             limit_page_length=_row_limit(10000, full_export),
         ) if frappe.has_permission("CN Reconciliation Exception", "read") else []
         for item in exceptions:
             exceptions_by_period[item.period].append(item)
-        surpluses = frappe.get_all(
+        surpluses = frappe.get_list(
             "CN Complementary Item",
             filters={"period": ["in", period_names], "docstatus": 1, "category": "Saldo a favor de la empresa"},
             fields=[
                 "name", "period", "reference as deposit_reference", "amount_usd",
                 "reason_type", "description as explanation", "result",
-            ],
+            ] if not summary_only else ["name", "period", "amount_usd", "result"],
             limit_page_length=_row_limit(10000, full_export),
-        )
+        ) if frappe.has_permission("CN Complementary Item", "read") else []
         for item in surpluses:
             surplus_by_period[item.period].append(item)
-        movements = frappe.get_all(
+        movements = frappe.get_list(
             "CN Complementary Item",
             filters={"category": TOLERANCE_CATEGORY, "docstatus": 1, "period": ["in", period_names], "status": "Vigente"},
             fields=[
                 "name", "period", "deposit_reference", "application_source_row",
                 "signed_amount_usd", "tolerance_usd", "deposit_usd", "core_applied_usd",
-            ],
+            ] if not summary_only else ["name", "period", "signed_amount_usd"],
             order_by="creation desc",
             limit_page_length=_row_limit(20000, full_export),
-        )
+        ) if frappe.has_permission("CN Complementary Item", "read") else []
         for item in movements:
             movements_by_period[item.period].append(item)
 
@@ -268,6 +310,10 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             for row in period_rows
             if row.employee_receivable_usd is None
         ) if not is_historical else 0
+        aggregate = collection_totals.get(period.name, {})
+        if summary_only:
+            worker_gap = flt(aggregate.get("worker_gap_usd")) if not is_historical else 0
+            pending_detail = flt(aggregate.get("pending_detail_usd")) if not is_historical else 0
         adjustment = flt(period.rounding_adjustment_usd)
         # This is an assignment gap, not a confirmed company receivable: an
         # already received deposit may still lack its per-client detail.
@@ -291,6 +337,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             )
         elif (
             flt(period.exception_count) or worker_gap > CASH_EPSILON
+            or flt(aggregate.get("application_difference_count"))
             or any(row.application_status == "Diferencia aplicacion vs deposito" for row in period_rows)
         ):
             control_state = "diferencia"
@@ -325,6 +372,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 "documented_credit_usd": money_float(documented_credit),
                 "unclassified_deposit_usd": 0,
                 "control_state": control_state,
+                "rounding_movement_count": len(period_movements),
                 "rows": period_rows,
                 "historical_rows": historical_rows_by_period[period.name],
                 "exceptions": exceptions_by_period[period.name],
@@ -332,6 +380,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 "rounding_movements": period_movements,
             }
         )
+        if summary_only:
+            record["difference_count"] = cint(aggregate.get("difference_count")) + historical_differences[period.name]
         output.append(record)
         for field in (
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
@@ -343,6 +393,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
         ):
             totals[field] += flt(record.get(field))
 
+    if detail_period:
+        return {"periods": output}
+
     # A deposit can fund several periods. Flag every related cell without
     # adding the same open cash twice to the headline total.
     reference_periods = defaultdict(set)
@@ -352,6 +405,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             if row.application_reference:
                 reference_periods[row.application_reference].add(record["name"])
     if period_names:
+        if summary_only:
+            for row in frappe.get_all(
+                "CN Collection Row", filters={"parent": ["in", period_names], "application_reference": ["is", "set"]},
+                fields=["parent", "application_reference"], distinct=True, limit_page_length=0,
+            ):
+                if row.application_reference:
+                    reference_periods[row.application_reference].add(row.parent)
         for application in frappe.get_all(
             "CN Source Row",
             filters={
@@ -498,7 +558,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
             "CN Remittance Allocation",
             filters=manual_filters,
             fields=[
-                "name", "employer", "deposit_reference", "deposit_voucher",
+                "name", "employer", "bank_account", "deposit_reference", "deposit_voucher",
                 "deposit_date", "deposit_currency", "deposit_amount",
                 "amount_usd", "detail_file", "detail_period", "detail_count", "detail_status",
                 "allocated_usd", "unallocated_usd", "justified_surplus_usd",
@@ -667,22 +727,40 @@ def _build_control_data(year=None, employer=None, *, full_export=False):
                 fields=["name", "employer_name"],
             )
         })
+    work_items = _build_work_items(
+        output, deposits, registered, target_links,
+        unassigned_historical_applications, unassigned_operational_applications,
+        employer_names,
+    )
+    if detail_section:
+        return {detail_section: {
+            "open_deposits": deposits,
+            "unassigned_historical_applications": unassigned_historical_applications,
+            "work_items": work_items,
+        }[detail_section]}
+    if summary_only:
+        for period in output:
+            for field in ("rows", "historical_rows", "exceptions", "surpluses", "rounding_movements", "control_cut_summary"):
+                period.pop(field, None)
+            period["detail_loaded"] = False
     return {
         "year": year if year is not None else "Todos",
         "available_years": _available_years(employer),
         "can_create_exception": bool(frappe.has_permission("CN Reconciliation Exception", "create")),
         "periods": output,
-        "cash_deposits": get_cash_deposits(year, employer),
+        "cash_deposits": get_cash_deposits(year, employer, include_details=False, deposits=[
+            item for item in registered if year is None or getdate(item.deposit_date).year == year
+        ]) if summary_only else get_cash_deposits(year, employer),
         "totals": {key: money_float(value) for key, value in totals.items()},
-        "open_deposits": deposits,
-        "unassigned_historical_applications": unassigned_historical_applications,
-        "unassigned_operational_applications": unassigned_operational_applications,
+        "open_deposit_count": len(deposits),
+        "unassigned_historical_count": len(unassigned_historical_applications),
+        "work_item_count": len(work_items),
+        "overdue_count": sum(item["kind"] == "overdue_exception" for item in work_items),
+        "open_deposits": deposits[:100] if summary_only else deposits,
+        "unassigned_historical_applications": unassigned_historical_applications[:100] if summary_only else unassigned_historical_applications,
+        "unassigned_operational_applications": unassigned_operational_applications[:100] if summary_only else unassigned_operational_applications,
         "unassigned_surpluses": unassigned_surpluses,
-        "work_items": _build_work_items(
-            output, deposits, registered, target_links,
-            unassigned_historical_applications, unassigned_operational_applications,
-            employer_names,
-        ),
+        "work_items": work_items[:100] if summary_only else work_items,
     }
 
 
@@ -781,10 +859,11 @@ def _build_work_items(
                 "Diferencia de importe", "Falta tipo de cambio", "Ambiguo",
             }
         ]
-        if difference_rows or historical_differences:
+        difference_count = period.get("difference_count", len(difference_rows) + len(historical_differences))
+        if difference_count:
             add(1, "difference", "Diferencias de conciliación por revisar",
                 "Abrir el período y resolver las filas señaladas.",
-                count=len(difference_rows) + len(historical_differences), **target)
+                count=difference_count, **target)
         for exception in period.get("exceptions", []):
             due = exception.commitment_date
             if due and as_of is None:

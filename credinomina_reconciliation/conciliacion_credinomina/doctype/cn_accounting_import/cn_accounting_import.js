@@ -32,6 +32,10 @@ frappe.ui.form.on("CN Accounting Import", {
         updateImportExceptionNotice(frm);
         if (frm.is_new()) return;
 
+        if (frappe.model.can_create("CN Reconciliation Period")) {
+            frm.add_custom_button(__("Crear período"), () => createAccountingPeriod(frm));
+        }
+
         frm.add_custom_button(__("3. Cargar movimientos contables"), async () => {
             if (frm.is_dirty()) await frm.save();
             return frappe.call({
@@ -65,6 +69,77 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+async function createAccountingPeriod(frm) {
+    if (frm._creating_period) return;
+    frm._creating_period = true;
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.accounting_period.get_period_defaults",
+            args: {import_name: frm.doc.name}, freeze: true,
+            freeze_message: __("Preparando período..."),
+        });
+        const defaults = response.message;
+        let dialog;
+        const historical = () => {
+            const month = String(dialog.get_value("payroll_month") || "").slice(0, 7);
+            return month >= "2025-04" && month <= "2026-08";
+        };
+        const updateFields = () => {
+            if (!dialog) return;
+            const isHistorical = historical();
+            const scope = dialog.get_value("historical_scope");
+            dialog.set_df_property("historical_scope", "hidden", !isHistorical);
+            for (const field of ["historical_application_date", "historical_start_date", "historical_end_date"]) {
+                const visible = isHistorical && scope === (field === "historical_application_date" ? "Fecha exacta" : "Rango de fechas");
+                dialog.set_df_property(field, "hidden", !visible);
+                dialog.set_df_property(field, "reqd", visible);
+            }
+            dialog.set_df_property("collection_cycle", "hidden", isHistorical);
+            dialog.set_df_property("collection_cycle", "reqd", !isHistorical);
+        };
+        let saving = false;
+        dialog = new frappe.ui.Dialog({
+            title: __("Crear período en borrador"),
+            fields: [
+                {fieldtype: "HTML", options: `<p>${__("Confirme el mes de cobranza: puede ser distinto del mes de aplicación. Se creará un período vacío en Borrador, sin conciliar ni reasignar movimientos.")}</p>`},
+                {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa"), read_only: 1, default: defaults.employer},
+                {fieldname: "payroll_month", fieldtype: "Date", label: __("Mes de cobranza"), reqd: 1, default: defaults.payroll_month, onchange: updateFields},
+                {fieldname: "collection_cycle", fieldtype: "Select", label: __("Ciclo de cobranza"),
+                    options: defaults.payroll_frequency === "Quincenal" ? "\nPrimera quincena\nSegunda quincena" : "Mensual",
+                    default: defaults.payroll_frequency === "Quincenal" ? "" : "Mensual"},
+                {fieldname: "historical_scope", fieldtype: "Select", label: __("Tipo de período histórico"),
+                    options: "Mensual\nFecha exacta\nRango de fechas", default: defaults.historical_scope, onchange: updateFields},
+                {fieldname: "historical_application_date", fieldtype: "Date", label: __("Fecha exacta de aplicación"), default: defaults.historical_application_date},
+                {fieldname: "historical_start_date", fieldtype: "Date", label: __("Desde fecha de aplicación"), default: defaults.historical_start_date},
+                {fieldname: "historical_end_date", fieldtype: "Date", label: __("Hasta fecha de aplicación"), default: defaults.historical_end_date},
+                {fieldname: "remark", fieldtype: "Small Text", label: __("Observaciones")},
+            ],
+            primary_action_label: __("Crear borrador"),
+            async primary_action(values) {
+                if (saving) return;
+                saving = true;
+                try {
+                    const result = await frappe.call({
+                        method: "credinomina_reconciliation.accounting_period.create_draft_period",
+                        args: {import_name: frm.doc.name, values}, freeze: true,
+                        freeze_message: __("Creando período en borrador..."),
+                    });
+                    dialog.hide();
+                    frappe.show_alert({message: __("Período creado en Borrador"), indicator: "green"});
+                    frappe.set_route("Form", "CN Reconciliation Period", result.message.name);
+                } finally {
+                    saving = false;
+                }
+            },
+        });
+        updateFields();
+        dialog.show();
+    } finally {
+        frm._creating_period = false;
+    }
+}
 
 function importExceptionRows(rows) {
     // Match CNAccountingImport.recalculate_summary: a file exception is not

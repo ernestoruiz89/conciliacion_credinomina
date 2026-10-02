@@ -3,7 +3,7 @@ import json
 
 import frappe
 
-from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_control_data
+from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_control_data, get_deposit_detail
 
 
 def run():
@@ -70,6 +70,8 @@ def run():
         assert june["bank_account"] == bank.account_name
         assert june["total_usd"] == 1000 and june["credits_usd"] == 800
         assert june["other_usd"] == 100 and june["credit_balance_usd"] == 100
+        assert "destinations" not in june and june["detail_loaded"] is False
+        june = get_deposit_detail(june["name"])
         assert june["shared"] and len(june["destinations"]) == 3
         assert june["destinations"][0]["people"] == [dict(
             client_name="Ana Prueba", client_number="100", loan_number="1000-1", amount_usd=300)]

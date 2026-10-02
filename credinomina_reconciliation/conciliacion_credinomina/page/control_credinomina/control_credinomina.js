@@ -31,12 +31,18 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     let summaryMode = true;
     let calendarYear = currentYear;
     let allYearsSelected = false;
+    let refreshSequence = 0;
+    let navigationSequence = 0;
+    const detailRequests = new Map();
 
     function refresh() {
         // Frappe may trigger change while initial controls/options are built.
         if (!controlsReady || updatingYearOptions) return Promise.resolve();
         const requestedYear = yearField.get_value();
         const requestedEmployer = employerField.get_value() || null;
+        const sequence = ++refreshSequence;
+        navigationSequence++;
+        detailRequests.clear();
         return frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_data",
             args: {
@@ -46,7 +52,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             freeze: true,
             freeze_message: __("Actualizando control..."),
         }).then((response) => {
-            if (requestedYear !== yearField.get_value() || requestedEmployer !== (employerField.get_value() || null)) return;
+            if (sequence !== refreshSequence || requestedYear !== yearField.get_value() || requestedEmployer !== (employerField.get_value() || null)) return;
             currentData = response.message || { periods: [], totals: {}, open_deposits: [], work_items: [] };
             const allYears = currentData.year === "Todos";
             if (allYears && !allYearsSelected) calendarYear = currentYear;
@@ -62,6 +68,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             } finally { updatingYearOptions = false; }
             render(currentData);
         }).catch(() => {
+            if (sequence !== refreshSequence) return;
             $root.html(`${styles()}<div class="cn-empty">${esc(__("No se pudo cargar el control."))}</div>`);
         });
     }
@@ -70,6 +77,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const periods = data.periods || [];
         const totals = data.totals || {};
         const workItems = data.work_items || [];
+        const workCount = data.work_item_count ?? workItems.length;
         const allYears = data.year === "Todos";
         const year = allYears ? calendarYear : Number(data.year || currentYear);
         const calendarPeriods = periods.filter(period => String(period.month).slice(0, 4) === String(year));
@@ -124,7 +132,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </div>
         `).join("");
         const visibleWork = workItems.slice(0, workLimit);
-        const overdueCount = workItems.filter((item) => item.kind === "overdue_exception").length;
+        const overdueCount = data.overdue_count ?? workItems.filter((item) => item.kind === "overdue_exception").length;
         const workTable = visibleWork.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table cn-work-table"><thead><tr>
                 <th>${esc(__("Prioridad"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Período"))}</th>
@@ -139,8 +147,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__("Abrir"))}</button></td>
             </tr>`).join("")}</tbody></table></div>
         ` : `<div class="cn-empty">${esc(__("No hay gestiones pendientes detectadas con la evidencia cargada."))}</div>`;
-        const workFooter = workItems.length > visibleWork.length ? `
-            <div class="cn-work-more"><span>${visibleWork.length} ${esc(__("de"))} ${workItems.length} ${esc(__("gestiones"))}</span>
+        const workFooter = workCount > visibleWork.length ? `
+            <div class="cn-work-more"><span>${visibleWork.length} ${esc(__("de"))} ${workCount} ${esc(__("gestiones"))}</span>
             <button type="button" class="btn btn-default btn-sm" data-more-work>${esc(__("Mostrar más"))}</button></div>` : "";
         const matrixRows = companies.map((company) => `
             <tr>
@@ -170,7 +178,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             <span class="cn-cell-amount">${money(period.remitted_usd)} / ${money(period.reconciliation_mode === "Historica" ? period.applied_usd : period.deducted_usd)}</span>
                             <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Asignado / aplicado") : __("Asignado / deducido"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
-                            ${(period.rounding_movements || []).length ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
+                            ${(period.rounding_movement_count ?? (period.rounding_movements || []).length) ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
                             ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("CxC empleados"))}: ${money(period.worker_gap_usd)}</span>` : ""}
                             ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito asignado"))}: ${money(period.employer_gap_usd)}</span>` : ""}
@@ -191,6 +199,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         ` : `<div class="cn-empty">${esc(__("No hay períodos ni depósitos en el año seleccionado."))}</div>`;
         const deposits = data.open_deposits || [];
         const unassigned = data.unassigned_historical_applications || [];
+        const unassignedCount = data.unassigned_historical_count ?? unassigned.length;
+        const depositCount = data.open_deposit_count ?? deposits.length;
+        const moreRows = (section, shown, count) => count > shown ? `<div class="cn-work-more">${shown} ${esc(__("de"))} ${count}
+            <button type="button" class="btn btn-default btn-sm" data-more-section="${section}">${esc(__("Mostrar más"))}</button></div>` : "";
         const unassignedTable = unassigned.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Motivo"))}</th>
@@ -226,18 +238,47 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <span class="cn-year">${esc(allYears ? __("Todos los años") : String(year))}</span>
                 </div>
             </div>
-            <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workItems.length} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
+            <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
             <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
             <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
-            ${unassigned.length ? `<details class="cn-panel cn-collapsible"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassigned.length}</summary>${unassignedTable}</details>` : ""}
-            ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${deposits.length}</summary>${depositTable}</details>`}
+            ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
+            ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible" data-section="open_deposits"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${depositCount}</summary>${depositTable}${moreRows("open_deposits", deposits.length, depositCount)}</details>`}
             <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin depósito asignado y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
         `);
     }
 
-    function showPeriod(name, parentDialog = null) {
+    function loadDetail(kind, name) {
+        const key = `${kind}:${name}`;
+        if (!detailRequests.has(key)) {
+            const request = frappe.call({
+                method: `credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_${kind}_detail`,
+                args: {[`${kind}_name`]: name},
+                freeze: true,
+                freeze_message: __("Cargando detalle…"),
+            }).then(response => response.message).catch(error => {
+                if (detailRequests.get(key) === request) detailRequests.delete(key);
+                throw error;
+            });
+            detailRequests.set(key, request);
+        }
+        return detailRequests.get(key);
+    }
+
+    async function showPeriod(name, parentDialog = null) {
         const period = (currentData?.periods || []).find((item) => item.name === name);
         if (!period) return;
+        const dataAtRequest = currentData;
+        const navigation = ++navigationSequence;
+        if (period.detail_loaded === false) {
+            try {
+                const detail = await loadDetail("period", name);
+                if (currentData !== dataAtRequest || navigation !== navigationSequence) return;
+                Object.assign(period, detail);
+            } catch (error) {
+                if (navigation === navigationSequence && parentDialog) parentDialog.show();
+                return;
+            }
+        }
         const historical = period.reconciliation_mode === "Historica";
         const historicalTable = (period.historical_rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
@@ -386,9 +427,18 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <h4>${esc(__("Períodos de cobranza del mes"))}</h4>
             <p>${esc(periods.length ? __("El resumen suma todos estos períodos; seleccione uno para ver su detalle.") : __("No hay períodos de cobranza en este mes. Los depósitos recibidos pueden cubrir meses anteriores."))}</p>
             <div class="cn-period-cards">${periods.map(renderPeriodCard).join("")}</div>`);
-        dialog.get_field("periods").$wrapper.on("click", "[data-cash-deposit]", function () {
+        dialog.get_field("periods").$wrapper.on("click", "[data-cash-deposit]", async function () {
             const deposit = receipts.find(item => item.name === $(this).attr("data-cash-deposit"));
             if (!deposit) return;
+            const dataAtRequest = currentData;
+            const navigation = ++navigationSequence;
+            if (deposit.detail_loaded === false) {
+                try {
+                    const detail = await loadDetail("deposit", deposit.name);
+                    if (currentData !== dataAtRequest || navigation !== navigationSequence) return;
+                    Object.assign(deposit, detail);
+                } catch (error) { return; }
+            }
             dialog.hide();
             showCashDeposit(deposit, dialog);
         });
@@ -405,10 +455,38 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             frappe.set_route("Form", item.target_doctype, item.target_name);
         }
     });
-    $root.on("click", "[data-more-work]", function () {
+    $root.on("click", "[data-more-work]", async function () {
+        if ((currentData?.work_item_count || 0) > (currentData?.work_items || []).length) {
+            await loadMoreRows("work_items");
+            return;
+        }
         workLimit += 100;
         if (currentData) render(currentData);
     });
+    const sectionRequests = new Set();
+    async function loadMoreRows(section) {
+        if (!currentData || sectionRequests.has(section)) return;
+        sectionRequests.add(section);
+        const dataAtRequest = currentData;
+        const sequence = refreshSequence;
+        try {
+            const response = await frappe.call({
+                method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_rows",
+                args: {section, year: yearField.get_value(), employer: employerField.get_value() || null,
+                    start: (currentData[section] || []).length},
+                freeze: true, freeze_message: __("Cargando más registros…"),
+            });
+            if (dataAtRequest !== currentData || sequence !== refreshSequence) return;
+            currentData[section] = [...(currentData[section] || []), ...(response.message?.rows || [])];
+            const countField = {work_items: "work_item_count", open_deposits: "open_deposit_count",
+                unassigned_historical_applications: "unassigned_historical_count"}[section];
+            currentData[countField] = response.message.count;
+            if (section === "work_items") workLimit += 100;
+            render(currentData);
+            if (section !== "work_items") $root.find(`[data-section="${section}"]`).prop("open", true);
+        } finally { sectionRequests.delete(section); }
+    }
+    $root.on("click", "[data-more-section]", function () { loadMoreRows($(this).attr("data-more-section")); });
     $root.on("click", "[data-import]", function () {
         frappe.set_route("Form", "CN Accounting Import", $(this).attr("data-import"));
     });
@@ -611,7 +689,7 @@ function renderCashCard(deposit) {
 
 function showCashDeposit(deposit, parentDialog) {
     const dialog = new frappe.ui.Dialog({
-        title: __("Distribución del depósito"), size: "large",
+        title: __("Distribución del depósito"), size: "extra-large",
         fields: [{fieldname: "distribution", fieldtype: "HTML"}],
         primary_action_label: __("Abrir depósito"),
         primary_action() { dialog.hide(); frappe.set_route("Form", "CN Remittance Allocation", deposit.name); },

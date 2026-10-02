@@ -125,6 +125,7 @@ const original = JSON.stringify(data);
     month.events["[data-cash-deposit]"].call({"data-cash-deposit": "D1"});
     assert.equal(month.shown, false);
     assert.equal(dialog.options.title, "Distribución del depósito");
+    assert.equal(dialog.options.size, "extra-large", "Deposit distribution uses the wider responsive dialog");
     assert.ok(dialog.shown && dialog.html.includes("P-ABRIL"));
     const distribution = dialog;
     distribution.options.secondary_action();

@@ -14,7 +14,7 @@ def _entries(value):
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
-def get_cash_deposits(year, employer=None):
+def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name=None, deposits=None):
     """Do not filter by assignment date or require a period in the receipt month."""
     if not frappe.has_permission("CN Remittance Allocation", "read"):
         return None  # Unavailable is not zero.
@@ -23,7 +23,9 @@ def get_cash_deposits(year, employer=None):
         filters["deposit_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
     if employer:
         filters["employer"] = employer
-    deposits = frappe.get_list(
+    if deposit_name:
+        filters["name"] = deposit_name
+    deposits = deposits if deposits is not None else frappe.get_list(
         "CN Remittance Allocation", filters=filters,
         fields=["name", "employer", "bank_account", "deposit_reference", "deposit_date",
                 "deposit_currency", "deposit_amount", "amount_usd", "allocated_usd",
@@ -52,6 +54,8 @@ def get_cash_deposits(year, employer=None):
                 fields=["name", "payroll_month", "employer"], limit_page_length=0,
             ):
                 periods[period["name"]] = period
+    if not include_details:
+        return build_cash_deposits(deposits, items, periods, include_details=False)
     people = _load_credit_people(deposits, periods)
     return build_cash_deposits(deposits, items, periods, people)
 
@@ -96,7 +100,7 @@ def _load_credit_people(deposits, periods):
     return result
 
 
-def build_cash_deposits(deposits, items=None, periods=None, people=None):
+def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True):
     """Actual allocations classify cash; planned/manual targets do not settle it."""
     items, periods, people = items or {}, periods or {}, people or {}
     output = []
@@ -128,7 +132,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None):
             elif entry.get("tipo") == "Movimiento de conciliación":
                 adjustments += amount  # Cash consumed, not the signed adjustment.
                 kind = "Ajuste de conciliación"
-            if kind and amount:
+            if include_details and kind and amount:
                 key = (kind, label, month)
                 destination_employers[key] = visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
                 destinations[key] = destinations.get(key, money(0)) + amount
@@ -176,4 +180,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None):
                                          for person in credit_details.get((kind, label, month), {}).values()]}
                              for (kind, label, month), amount in destinations.items()],
         })
+        if not include_details:
+            output[-1].pop("destinations")
+            output[-1]["detail_loaded"] = False
     return output

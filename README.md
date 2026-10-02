@@ -537,6 +537,13 @@ antes de interpretar una celda como conciliada. Una aplicación vinculada a una
 cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba
 que hubo descuento salarial.
 
+El tablero carga primero resúmenes, sin traer todas las filas por cliente.
+Los detalles de cada período y la distribución por persona de cada depósito se
+consultan al abrir su tarjeta y se reutilizan mientras no se pulse **Actualizar**
+ni se cambien los filtros. Las listas largas muestran 100 registros inicialmente
+y permiten **Mostrar más**; sus contadores y los KPI incluyen la población completa.
+El Excel sigue incluyendo todos los detalles del filtro, no solo las filas visibles.
+
 En **Empresas por mes de conciliación**, **Resumen** está seleccionado por defecto:
 cada celda reúne todos los períodos de la empresa en ese mes (quincenas, fechas
 exactas y rangos históricos). Pulse la celda para ver los períodos como tarjetas

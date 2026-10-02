@@ -46,12 +46,17 @@ class EmployeeReceivableViewsTest(unittest.TestCase):
     def test_dashboard_separates_employee_receivable_from_missing_detail(self):
         with patch.object(control_credinomina.frappe, "has_permission", side_effect=lambda doctype, *_: doctype == "CN Reconciliation Period"), \
              patch.object(control_credinomina.frappe, "get_list", return_value=[self.period]), \
-             patch.object(control_credinomina.frappe, "get_all", side_effect=self.get_all):
+             patch.object(control_credinomina.frappe, "get_all", side_effect=self.get_all), \
+             patch.object(control_credinomina, "collection_summaries", return_value={"PER-001": {
+                 "worker_gap_usd": 30, "pending_detail_usd": 100,
+             }}):
             data = control_credinomina.get_control_data(year=2026)
+            detail = control_credinomina._build_control_data("Todos", detail_period="PER-001")["periods"][0]
         self.assertEqual(data["totals"]["worker_gap_usd"], 30)
         self.assertEqual(data["totals"]["pending_detail_usd"], 100)
-        self.assertEqual(data["periods"][0]["rows"][0]["employee_receivable_usd"], 30)
-        self.assertIsNone(data["periods"][0]["rows"][1]["employee_receivable_usd"])
+        self.assertNotIn("rows", data["periods"][0])
+        self.assertEqual(detail["rows"][0]["employee_receivable_usd"], 30)
+        self.assertIsNone(detail["rows"][1]["employee_receivable_usd"])
 
     def test_reports_do_not_infer_worker_debt_from_missing_detail(self):
         with patch.object(resumen_de_conciliacion.frappe, "get_all", side_effect=lambda doctype, **kwargs: [self.period] if doctype == "CN Reconciliation Period" else self.get_all(doctype, **kwargs)):

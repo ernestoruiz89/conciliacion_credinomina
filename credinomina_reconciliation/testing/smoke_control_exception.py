@@ -1,7 +1,7 @@
 """Dashboard exception creation using real Frappe, with rolled-back fixtures."""
 import frappe
 from credinomina_reconciliation.control_exceptions import create_application_exception, annotate_application_exceptions
-from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_control_data
+from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_control_data, get_period_detail
 
 
 def run():
@@ -30,6 +30,8 @@ def run():
         assert doc.client_number == "12" and doc.source_row == 2 and doc.period == period.name
         control = get_control_data(year=2025, employer=employer.name)
         card = next(p for p in control["periods"] if p["name"] == period.name)
+        assert "historical_rows" not in card
+        card = get_period_detail(period.name)
         assert card["historical_rows"][0].exception_name == doc.name
         assert card["exceptions"][0].name == doc.name
         again = create_application_exception(period.name, row.name, 30, "Reintento", "Otro")

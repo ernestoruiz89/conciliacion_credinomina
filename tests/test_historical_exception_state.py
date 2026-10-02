@@ -40,11 +40,14 @@ class HistoricalExceptionStateTests(unittest.TestCase):
                               "CN Reconciliation Period", "CN Reconciliation Exception",
                           }), \
              patch.object(control_credinomina.frappe, "get_list", side_effect=get_list), \
-             patch.object(control_credinomina.frappe, "get_all", side_effect=get_all):
+             patch.object(control_credinomina.frappe, "get_all", side_effect=get_all), \
+             patch.object(control_credinomina, "collection_summaries", return_value={}):
             data = control_credinomina.get_control_data(year=2025)
+            detail = control_credinomina._build_control_data("Todos", detail_period=period.name)["periods"][0]
 
         self.assertEqual(data["periods"][0]["control_state"], "historico_excepcion")
-        self.assertEqual(len(data["periods"][0]["exceptions"]), 1)
+        self.assertNotIn("exceptions", data["periods"][0])
+        self.assertEqual(len(detail["exceptions"]), 1)
 
 
 if __name__ == "__main__":
