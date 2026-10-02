@@ -49,6 +49,21 @@ class PeriodPendingTests(unittest.TestCase):
                 pending.get_period_pending("PRIVATE")
             query.assert_not_called()
 
+    def test_deposit_applied_includes_only_executed_credit_allocations_all_periods(self):
+        deposit = dict(name="D", detail_period="P", amount_usd=200, unclassified_usd=19.99,
+                       result="Parcial", allocation_detail=json.dumps([
+                           {"tipo": "Cobranza", "periodo": "P", "importe_usd": 100.10},
+                           {"tipo": "Aplicacion historica", "periodo": "Q", "importe_usd": 49.90},
+                           {"tipo": "Partida complementaria", "importe_usd": 30},
+                           {"tipo": "Movimiento de conciliación", "importe_usd": 0.01},
+                       ]), targets=[{"amount_usd": 999}])
+        result = pending.deposit_issue(deposit, "P")
+        self.assertEqual(result["applied"], 150)
+        self.assertEqual((result["paid"], result["pending"]), (200, 19.99))
+        self.assertIn("todos sus períodos", result["reason"])
+        for detail in ("[]", "null", "{}", "invalid", "[1]"):
+            self.assertEqual(pending.deposit_issue({**deposit, "allocation_detail": detail}, "P")["applied"], 0)
+
     def test_permission_scoped_rows_filter_and_paginate_without_writes(self):
         period = Mock(name="unused", reconciliation_mode="Historica")
         period.name = "P"

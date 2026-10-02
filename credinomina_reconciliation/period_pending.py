@@ -56,19 +56,27 @@ def deposit_issue(deposit, period_name):
         entries = json.loads(deposit.get("allocation_detail") or "[]")
     except (ValueError, TypeError):
         entries = []
+    if not isinstance(entries, list):
+        entries = []
     linked = deposit.get("detail_period") == period_name or (
         isinstance(entries, list) and any(isinstance(entry, dict) and entry.get("periodo") == period_name
                                         for entry in entries)
     )
     if not linked or (money(deposit.get("unclassified_usd")) <= 0 and deposit.get("result") == "Conciliado"):
         return None
+    # Only executed credit allocations, across all periods of this deposit.
+    # Planned targets, complementary items and tolerance cash are not core payments.
+    credit_allocated = sum((money(entry.get("importe_usd")) for entry in entries
+                            if isinstance(entry, dict)
+                            and entry.get("tipo") in {"Cobranza", "Aplicacion historica"}), money(0))
     return {
         "kind": "Depósito", "source": deposit.get("name"), "doctype": "CN Remittance Allocation",
         "row": None, "client_name": None, "client_number": None, "loan_number": None,
-        "applied": None, "paid": money_float(deposit.get("amount_usd")),
+        "applied": money_float(credit_allocated), "paid": money_float(deposit.get("amount_usd")),
         "pending": money_float(deposit.get("unclassified_usd")),
         "status": deposit.get("result") or "Pendiente",
-        "reason": _("Saldo sin distribuir del depósito completo; puede corresponder a otros períodos. No se suma al pendiente de las aplicaciones.")
+        "reason": _("Aplicado neto: importe del depósito asignado a créditos de todos sus períodos, sin partidas complementarias ni ajustes de conciliación. No es el total original de las aplicaciones vinculadas.")
+            + " " + _("Saldo sin distribuir del depósito completo; puede corresponder a otros períodos. No se suma al pendiente de las aplicaciones.")
             + " " + (deposit.get("detail_status") or ""),
     }
 

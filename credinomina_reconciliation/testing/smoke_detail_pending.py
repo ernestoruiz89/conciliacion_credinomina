@@ -63,6 +63,7 @@ def run():
             deposit_issue, = [row for row in pending["rows"] if row["kind"] == "Depósito"]
             assert application_issue["pending"] == 142.32, application_issue
             assert deposit_issue["pending"] == 118.99, deposit_issue
+            assert deposit_issue["applied"] == 1482.64, deposit_issue
             assert get_period_pending(period.name, kind="Aplicación")["count"] == 1
             deposit.reload()
             assert deposit.allocation_detail == before

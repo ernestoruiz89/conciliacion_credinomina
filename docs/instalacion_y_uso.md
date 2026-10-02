@@ -79,7 +79,10 @@ consulta datos; no crea excepciones ni recalcula la conciliación.
 
 En los depósitos, el pendiente corresponde al saldo sin distribuir del depósito
 completo y puede pertenecer a otros períodos: no debe sumarse al pendiente de las
-aplicaciones. Las **Excepciones registradas** se muestran aparte, debajo, para
+aplicaciones. **Aplicado neto US$** en esa fila muestra lo efectivamente asignado
+desde el depósito a créditos de todos sus períodos, excluyendo partidas
+complementarias y ajustes de conciliación; no el importe total original de las
+aplicaciones vinculadas. Las **Excepciones registradas** se muestran aparte, debajo, para
 dar seguimiento a casos documentados. Ambas secciones respetan los permisos del
 usuario y pueden mostrar cantidades diferentes.
 
