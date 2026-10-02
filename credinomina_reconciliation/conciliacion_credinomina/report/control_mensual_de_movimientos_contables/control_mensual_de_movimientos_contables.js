@@ -9,7 +9,7 @@ frappe.query_reports["Control Mensual de Movimientos Contables"] = {
             options: "\nAplicación de pago\nND de Aplicación de pago\nMovimiento interno\nDepósito\nPor revisar\nAplicacion\nAjuste"},
         {fieldname: "state", label: __("Estado"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto mostrado en el reporte."),
-            options: ["Pendiente", "Conciliado", "Parcialmente conciliado", "Por revisar",
+            options: ["Pendiente", "Conciliado", "Conciliada: depósito + ajuste", "Parcialmente conciliado", "Por revisar",
                 "Pendiente de identificar", "Pendiente de revisión", "No conciliatoria", "Reversión identificada",
                 "Lista para conciliar", "Ignorado para conciliación", "Compensada totalmente", "Compensada parcialmente",
                 "Sin compensar", "Aplicación compensada totalmente", "Aplicación ajustada parcialmente",

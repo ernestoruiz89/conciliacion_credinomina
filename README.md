@@ -293,10 +293,17 @@ totalmente». Los períodos, la antigüedad de saldos, los selectores de aplicac
 el informe de control utilizan el neto. El ajuste no es efectivo recibido y no
 puede asignarse además como destino de un depósito. No modifica el core externo.
 
-Se bloquea la confirmación si hay destinos de depósitos vinculados (incluidos
-borradores), depósitos ya asignados o períodos cerrados. Revise y retire las
-asignaciones o reabra el período antes de ajustar. Cancelar la partida revierte
-su reducción y recalcula los saldos, con las mismas protecciones. En modalidad
+Se permite cubrir una aplicación con **depósito + ajuste**: por ejemplo,
+US$137.33 originales, US$111.32 depositados y US$26.01 ajustados dejan cero
+pendiente. El selector muestra **Depósitos / reservas US$** y **Disponible para
+ajuste US$**. Los destinos manuales de depósitos en borrador también reservan
+capacidad y no se cuentan dos veces si ya están aplicados. En cobranza compartida
+por varias aplicaciones solo se permite reducir el saldo descubierto del conjunto.
+Confirmar no puede consumir efectivo asignado o reservado, y se comprueba que
+el recálculo conserve las distribuciones existentes. El resultado de la aplicación
+se muestra como **Conciliada: depósito + ajuste**, sin llamar depósito al ajuste.
+Los períodos cerrados siguen bloqueados. Cancelar la partida revierte
+su reducción y recalcula los saldos conservando los depósitos. En modalidad
 operativa no cambia lo cobrado ni lo deducido por la empresa: esas diferencias
 deben resolverse por su propio proceso.
 

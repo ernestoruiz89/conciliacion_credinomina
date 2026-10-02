@@ -93,7 +93,7 @@ class _RegisteredDeposit(dict):
 PROVISIONAL_APPLICATION = "Enlace provisional"
 from credinomina_reconciliation.application_adjustments import net_amount, refresh_rows, guard_source_changes, CATEGORY as APPLICATION_ADJUSTMENT
 
-SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada"}
+SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
 LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
 _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
 
@@ -829,6 +829,8 @@ def _reconcile_sources(employer=None, progress=None):
         closed_operative_state, closed_operative_links, complementary_items,
     )
     _rebuild_historical_balances(periods, all_rows, allocation)
+    from credinomina_reconciliation.application_adjustments import mark_mixed_settlements
+    mark_mixed_settlements(all_rows, collection_rows)
     for row in all_rows:
         if row.event_type == "Aplicacion" and row.effective and row.application_adjustment_usd and net_amount(row) == 0:
             row.match_status = "Conciliado"

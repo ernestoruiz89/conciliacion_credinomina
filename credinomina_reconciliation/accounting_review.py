@@ -127,6 +127,7 @@ def validate_review_item(doc, previous=None):
 
 @frappe.whitelist()
 def application_candidates(item_name, accounting_import):
+    from credinomina_reconciliation.application_adjustments import cash_coverage
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("write")
     parent = frappe.get_doc("CN Accounting Import", accounting_import)
@@ -135,5 +136,6 @@ def application_candidates(item_name, accounting_import):
         frappe.throw(_("Seleccione una importación de la misma empresa."))
     return [{"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
              "event_date": row.event_date, "amount_usd": row.amount_usd, "voucher": row.voucher,
-             "application_adjustment_usd": row.application_adjustment_usd, "net_applied_usd": row.net_applied_usd}
+             "application_adjustment_usd": row.application_adjustment_usd, "net_applied_usd": row.net_applied_usd,
+             **{key: value for key, value in cash_coverage(row).items() if key != "snapshots"}}
             for row in parent.rows if row.event_type == "Aplicacion" and row.effective]

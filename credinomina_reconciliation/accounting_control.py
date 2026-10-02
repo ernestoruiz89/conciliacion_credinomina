@@ -25,6 +25,8 @@ def _status(row, item=None):
     if row.get("match_status") == "Ignorado":
         return "Ignorado para conciliación"
     deposit = row.get("deposit_match_status")
+    if deposit == "Conciliada: depósito + ajuste":
+        return deposit
     if deposit == "Depósito conciliado":
         return "Conciliado"
     if deposit == "Depósito parcial":

@@ -92,9 +92,13 @@ class CNComplementaryItem(Document):
         guard_tolerance_item(self)
         if self.category == APPLICATION_ADJUSTMENT:
             frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)
-            assert_adjustable(frappe.get_doc("CN Source Row", self.related_application), self.name,
+            row = frappe.get_doc("CN Source Row", self.related_application)
+            assert_adjustable(row, self.name,
                               frappe.parse_json(self.get("adjustment_periods") or "[]"),
                               frappe.parse_json(self.get("adjustment_collection_rows") or "[]"))
+            from credinomina_reconciliation.application_adjustments import cash_coverage
+            self.flags.adjustment_cash_snapshot = cash_coverage(row,
+                frappe.parse_json(self.get("adjustment_collection_rows") or "[]"), lock=True)["snapshots"]
         if self.category == CATEGORY:
             ensure_related_periods_open(self)
 
@@ -129,5 +133,7 @@ class CNComplementaryItem(Document):
 
     def _reconcile_application(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+        from credinomina_reconciliation.application_adjustments import assert_cash_preserved
 
         _reconcile_sources(self.employer)
+        assert_cash_preserved(self.flags.get("adjustment_cash_snapshot") or {})
