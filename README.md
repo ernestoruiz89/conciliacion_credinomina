@@ -37,6 +37,11 @@ importes permiten un cruce único.
   resultado reutiliza las asignaciones existentes y deja constancia del vínculo
   manual. Al volver a importar el archivo se eliminan los vínculos del detalle;
   los destinos se conservan para revisarlos y vincularlos de nuevo.
+  El detalle muestra **Equivalente US$**, **Vinculado US$** e **Importe pendiente US$**.
+  El pendiente es el importe de la fila menos sus destinos manuales vinculados
+  (o los destinos automáticos identificados), sin contarlos dos veces. Un valor
+  negativo indica exceso de vinculación; cero no sustituye la validación del
+  estado. Los destinos sin vínculo a una fila no se descuentan de ella.
 - **Movimientos contables** como única fuente de aplicaciones. El depósito se registra directamente con
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
@@ -571,9 +576,13 @@ Los períodos históricos y operativos comparten los estados **Borrador** (gris)
 **Conciliado** (verde) y **Cerrado** (morado). La modalidad se identifica en su
 propio campo. Cargar cobranza o confirmar la deducción no marca el período como
 conciliado: deben completarse las validaciones de su modalidad y los pagos.
-Un excedente sin clasificar relacionado con las aplicaciones tiene prioridad
-sobre el estado conciliado. La migración traduce los estados existentes y el
-estado previo al cierre, sin cambiar importes ni reabrir períodos.
+El dinero sin asignar de un depósito no convierte el período en **Con excedente**.
+Se muestra aparte en **Depósitos vinculados: saldo sin asignar US$** y debe
+revisarse en el depósito; puede pertenecer a otros períodos o conceptos.
+El estado del período refleja su conciliación y conserva **Parcial** cuando
+solo está cubierto en parte. La migración corrige los antiguos estados
+**Con excedente** de períodos abiertos y completa los importes informativos,
+sin cambiar asignaciones, importes financieros ni reabrir períodos cerrados.
 
 En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
 si se seleccionó, la empresa filtrada. El libro separa el resumen de períodos,

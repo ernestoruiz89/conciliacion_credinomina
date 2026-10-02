@@ -382,6 +382,7 @@ frappe.ui.form.on("CN Remittance Target", {
     row_key: renderRemittanceOverview,
     historical_application: renderRemittanceOverview,
     complementary_item: renderRemittanceOverview,
+    detail_row: renderRemittanceOverview,
 });
 
 function downloadRemittanceTemplate(frm) {
@@ -519,7 +520,34 @@ function remittanceMoney(value) {
     return Number.isFinite(amount) ? amount.toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 }
 
+function updateDetailPendingAmounts(frm) {
+    const manual = new Map();
+    for (const target of frm.doc.targets || []) {
+        if (!target.detail_row) continue;
+        if (!manual.has(target.detail_row)) manual.set(target.detail_row, []);
+        manual.get(target.detail_row).push(target);
+    }
+    // Values have already been rounded to cents by the server. Use integer
+    // cents for the immediate preview, without marking the form dirty.
+    const cents = value => Math.round((Number(value || 0) + Number.EPSILON) * 100);
+    let changed = false;
+    for (const row of frm.doc.detail_rows || []) {
+        let matched = [];
+        try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
+        const entries = manual.get(row.name) || (Array.isArray(matched) ? matched.filter(entry => entry && !entry.instruction_id) : []);
+        const linked = entries.reduce((sum, entry) => sum + cents(entry.amount_usd), 0);
+        const pending = cents(row.amount_usd) - linked;
+        if (row.linked_usd !== linked / 100 || row.pending_usd !== pending / 100) {
+            row.linked_usd = linked / 100;
+            row.pending_usd = pending / 100;
+            changed = true;
+        }
+    }
+    if (changed && frm.refresh_field) frm.refresh_field("detail_rows");
+}
+
 function renderRemittanceOverview(frm) {
+    updateDetailPendingAmounts(frm);
     if (!frm.dashboard || !frm.$wrapper) return;
     const escape = value => frappe.utils.escape_html(String(value || ""));
     const state = remittancePresentation(frm.doc, frm.is_dirty());

@@ -1424,6 +1424,7 @@ def _prepare_remittance_details(
             manual = [entry for entry in prior_instructions
                       if entry["deposit_id"] == deposit_id
                       and entry.get("detail_row") == plan["row"].name]
+            plan["manual_targets"] = manual
             identity_reason = clean_text(plan["row"].identity_reason)
             if identity_reason.startswith("Conflicto") or (
                 identity_reason.startswith("Nombre ambiguo") and not clean_text(plan["row"].loan_number)
@@ -1494,6 +1495,7 @@ def _prepare_remittance_details(
 
 def _sync_remittance_details(context, allocation, claims=()):
     from credinomina_reconciliation.remittance_target_summary import describe_targets, load_target_descriptions
+    from credinomina_reconciliation.detail_balances import linked_balance
 
     descriptions = load_target_descriptions([
         target for state in context["contexts"].values()
@@ -1540,6 +1542,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     "matched_targets": json.dumps(targets, ensure_ascii=False),
                     "matched_targets_summary": describe_targets(targets, descriptions),
                 }
+                updates.update(linked_balance(plan["amount_usd"], plan.get("manual_targets", []), targets))
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
                 companies = {claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
@@ -2294,8 +2297,7 @@ def _operative_period_fully_reconciled(period):
 
 
 def _operative_period_status(period, has_unclassified_surplus=False):
-    if has_unclassified_surplus:
-        return "Con excedente"
+    # Unassigned cash belongs to the deposit, not to this period's balance.
     if _operative_period_fully_reconciled(period):
         return "Conciliado"
     if any(flt(row.remitted_usd) > CASH_EPSILON for row in period.collection_rows or []):
@@ -2514,18 +2516,19 @@ def _rebuild_period_balances(
         )
         source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
 
-    excess_periods = set()
+    pending_deposits = defaultdict(dict)
     for entry in allocation["allocations"]:
         if not entry["claim_id"].startswith("C:"):
             continue
         target = rows_by_name.get(entry["claim_id"][2:])
         account = allocation["deposit_meta"][entry["deposit_id"]]["account"]
         if target and flt(account.unclassified_usd) > CASH_EPSILON:
-            excess_periods.add(target.parent)
+            pending_deposits[target.parent][entry["deposit_id"]] = account.unclassified_usd
     for period in periods:
         period.recalculate_totals()
+        period.unassigned_deposit_usd = money_float(sum_money(pending_deposits[period.name].values()))
         if period.status != "Cerrado":
-            period.status = _operative_period_status(period, period.name in excess_periods)
+            period.status = _operative_period_status(period)
     if closed_state:
         registered_rows = [
             allocation["deposit_meta"][deposit_id]["account"]
@@ -2767,15 +2770,17 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         period.remitted_nio = 0
         period.fx_variance_usd = 0
         period.rounding_adjustment_usd = adjustment
+        period.unassigned_deposit_usd = money_float(sum_money(
+            allocation["deposit_meta"][deposit_id]["account"].unclassified_usd
+            for deposit_id in unclassified_deposits_by_period[period.name]
+        ))
         period.historical_fingerprint = fingerprint
         period.exception_count = sum(
             row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in related
         ) + len(unclassified_deposits_by_period[period.name])
         if period.status != "Cerrado":
             period.status = (
-                "Con excedente"
-                if unclassified_deposits_by_period[period.name]
-                else "Conciliado" if related and applied == 0 and all(row.get("application_adjustment_usd") for row in related)
+                "Conciliado" if related and applied == 0 and all(row.get("application_adjustment_usd") for row in related)
                 else historical_status(applied + adjustment, remitted)
             )
         if period.status == "Cerrado":

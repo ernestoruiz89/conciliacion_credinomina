@@ -1,0 +1,28 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs"), vm = require("node:vm"), path = require("node:path");
+const handlers = {};
+const context = vm.createContext({frappe: {ui: {form: {on: (dt, events) => {handlers[dt] = events;}}}}});
+vm.runInContext(fs.readFileSync(path.join(__dirname,
+    "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.js"), "utf8"), context);
+const row = {name: "R", amount_usd: 165.16, matched_targets: "[]", match_status: "Revisar"};
+const target = {detail_row: "R", amount_usd: 147.95};
+let refreshed = 0;
+const frm = {doc: {detail_rows: [row], targets: [target]}, refresh_field: () => refreshed++};
+context.updateDetailPendingAmounts(frm);
+assert.equal(row.linked_usd, 147.95);
+assert.equal(row.pending_usd, 17.21);
+assert.equal(row.match_status, "Revisar");
+row.matched_targets = '[{"amount_usd":147.95,"instruction_id":"T"}]';
+context.updateDetailPendingAmounts(frm);
+assert.equal(row.linked_usd, 147.95, "Do not count manual JSON twice");
+target.amount_usd = 170;
+handlers["CN Remittance Target"].amount_usd(frm);
+assert.equal(row.pending_usd, -4.84);
+target.detail_row = "OTHER";
+handlers["CN Remittance Target"].detail_row(frm);
+assert.equal(row.pending_usd, 165.16, "Removed manual link must disappear");
+row.matched_targets = '[{"amount_usd":165.16}]';
+context.updateDetailPendingAmounts(frm);
+assert.equal(row.pending_usd, 0, "Automatic destinations are included");
+assert.ok(refreshed > 0);
+console.log("OK: partial manual coverage, no double count, removed links, signed pending and automatic destinations.");

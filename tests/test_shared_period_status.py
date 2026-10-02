@@ -19,7 +19,8 @@ class SharedPeriodStatusTests(unittest.TestCase):
         for paid, complete, status in [(0, False, "Pendiente"), (40, False, "Parcial"), (100, True, "Conciliado")]:
             self.assertEqual(_operative_period_status(self.period(paid, complete)), status)
             self.assertEqual(historical_status(100, paid), status)
-        self.assertEqual(_operative_period_status(self.period(100, True), True), "Con excedente")
+        self.assertEqual(_operative_period_status(self.period(100, True), True), "Conciliado")
+        self.assertEqual(_operative_period_status(self.period(40, False), True), "Parcial")
         period = self.period(100, True)
         period.exception_count = 1
         self.assertEqual(_operative_period_status(period), "Parcial")

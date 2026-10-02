@@ -50,6 +50,8 @@ class CNRemittanceAllocation(Document):
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
         self._invalidate_changed_detail_credits()
+        from credinomina_reconciliation.detail_balances import update_detail_balances
+        update_detail_balances(self)
 
     def _invalidate_changed_detail_credits(self):
         previous = self.get_doc_before_save()

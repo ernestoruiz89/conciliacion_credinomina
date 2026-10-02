@@ -329,7 +329,6 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         if is_historical:
             control_state = (
                 "historico_excepcion" if exceptions_by_period[period.name]
-                else "historico_excedente" if period.status == "Con excedente"
                 else "historico_conciliado" if applied > CASH_EPSILON
                 and historical_pending <= CASH_EPSILON
                 else "historico_parcial" if remitted > CASH_EPSILON
@@ -525,8 +524,6 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 if len(related_periods) == 1:
                     record = periods_by_name[next(iter(related_periods))]
                     record["unclassified_deposit_usd"] += flt(deposit.unclassified_usd)
-                    if record["control_state"] == "conciliado":
-                        record["control_state"] = "excedente"
             if not employer:
                 deposits = frappe.get_all(
                     "CN Source Row",
@@ -682,8 +679,6 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 if len(related_periods) == 1:
                     record = period_records[next(iter(related_periods))]
                     record["unclassified_deposit_usd"] += unclassified
-                    if unclassified > CASH_EPSILON and record["control_state"] == "conciliado":
-                        record["control_state"] = "excedente"
         if registered:
             no_period_credit = frappe.get_list(
                 "CN Complementary Item",
