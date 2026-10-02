@@ -14,6 +14,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 from credinomina_reconciliation.templates import build_template_xlsx, DEPOSIT_HEADERS
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.paying_employers import allowed_employers, reconciliation_companies
 
 
 def pending_application_rows(candidates, deposits, movements, current_name):
@@ -53,8 +54,8 @@ def _load(remittance_name):
     period.check_permission("read")
     if period.status == "Cerrado":
         frappe.throw(_("El período está cerrado."))
-    if not document.employer or period.employer != document.employer:
-        frappe.throw(_("El período debe pertenecer a la empresa del depósito."))
+    if not document.employer or period.employer not in allowed_employers(document.employer):
+        frappe.throw(_("El período debe pertenecer a la pagadora o a una empresa autorizada."))
     return document, period
 
 
@@ -89,14 +90,15 @@ def _preview(document, period):
                 "application_comment": f"{period.name} / {row.name}"})
     # Settlement totals must include other deposits even if the operator cannot
     # open them; their details are not exposed in the preview.
-    deposits = frappe.get_all("CN Remittance Allocation", filters={"employer": document.employer, "docstatus": 1},
+    deposits = frappe.get_all("CN Remittance Allocation", filters={"docstatus": 1, "employer": ["in", reconciliation_companies(document.employer)]},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0)
     movements = frappe.get_all("CN Complementary Item", filters={
         "category": TOLERANCE_CATEGORY, "docstatus": 1,
-        "employer": document.employer, "period": period.name, "status": "Vigente",
+        "employer": period.employer, "period": period.name, "status": "Vigente",
     }, fields=["claim_id", "deposit_source_row", "signed_amount_usd", "status"], limit_page_length=0)
     rows = pending_application_rows(candidates, deposits, movements, document.name)
     for row in rows:
+        row["employer"] = period.employer
         if not (row.get("client_name") or "").strip():
             frappe.throw(_("Complete el nombre del cliente en las aplicaciones del período antes de usarlas como detalle."))
         row["comments"] = _("Generado desde aplicaciones pendientes del período {0}; no es un detalle recibido de la empresa.").format(period.name)

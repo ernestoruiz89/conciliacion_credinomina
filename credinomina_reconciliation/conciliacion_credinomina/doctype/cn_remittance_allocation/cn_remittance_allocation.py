@@ -9,7 +9,7 @@ from credinomina_reconciliation.parsers import (
     SourceFileError, clean_text, file_sha256, parse_collection_file,
 )
 from credinomina_reconciliation.client_registry import load_client_index
-from credinomina_reconciliation.client_identity import choose_client
+from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 from credinomina_reconciliation.reconciliation import remittance_fx_basis
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.rounding import (
@@ -59,7 +59,8 @@ class CNRemittanceAllocation(Document):
         for row in self.get("detail_rows") or []:
             old = old_rows.get(row.get("name"))
             row.loan_number = clean_text(row.get("loan_number"))
-            if not old or row.loan_number == clean_text(old.get("loan_number")):
+            if not old or (row.loan_number == clean_text(old.get("loan_number"))
+                           and row.get("employer") == old.get("employer")):
                 continue
             if self.flags.get("portfolio_selected_detail") != row.name:
                 row.loan_selection_snapshot = None
@@ -75,6 +76,7 @@ class CNRemittanceAllocation(Document):
             self.result = "Pendiente"
 
     def _validate_deposit(self):
+        allowed = allowed_employers(self.employer)
         self.deposit_amount = money(self.deposit_amount)
         if not self.deposit_date:
             frappe.throw(_("Indique la fecha real del depósito."))
@@ -84,14 +86,17 @@ class CNRemittanceAllocation(Document):
             frappe.throw(_("Indique la empresa del depósito."))
         if self.get("detail_rows"):
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
-            complete_detail_clients(self.detail_rows, load_client_index(), self.employer)
+            for row in self.detail_rows:
+                if row.get("employer") and row.employer not in allowed:
+                    frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
+            complete_detail_clients(self.detail_rows, load_client_index(), self.employer, allowed)
         if self.detail_period:
             period = frappe.db.get_value(
                 "CN Reconciliation Period", self.detail_period,
                 ["employer", "status"], as_dict=True,
             )
-            if not period or period.employer != self.employer:
-                frappe.throw(_("El período del detalle debe pertenecer a la empresa del depósito."))
+            if not period or period.employer not in allowed:
+                frappe.throw(_("El período del detalle debe pertenecer a la pagadora o a una empresa autorizada."))
             if period.status == "Cerrado":
                 frappe.throw(_("No se puede asignar un detalle a un período cerrado."))
         if money(self.deposit_amount) <= 0:
@@ -151,8 +156,8 @@ class CNRemittanceAllocation(Document):
                 target_employer = frappe.db.get_value(
                     "CN Complementary Item", target.complementary_item, "employer"
                 ) or target_employer
-            if target_employer and target_employer != self.employer:
-                frappe.throw(_("Un destino pertenece a una empresa diferente del depósito."))
+            if target_employer and target_employer not in allowed:
+                frappe.throw(_("Un destino pertenece a una empresa no autorizada por la pagadora."))
             assigned += money(target.amount_usd)
         if assigned > money(equivalent) + MONEY_EPSILON:
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
@@ -295,7 +300,7 @@ class CNRemittanceAllocation(Document):
         ]
         if current_targets != previous_targets:
             return True
-        detail_fields = ("name", "client", "client_number", "loan_number")
+        detail_fields = ("name", "employer", "client", "client_number", "loan_number")
         def detail_identity(document):
             return [tuple(row.get(field) or "" for field in detail_fields)
                     for row in (document.get("detail_rows") or [])]
@@ -408,8 +413,9 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
         target.detail_row = ""
         target.detail_row_label = ""
     clients = load_client_index()
+    allowed = allowed_employers(document.employer)
     for record in records:
-        client, identity_reason = choose_client(record, clients, document.employer)
+        client, identity_reason = choose_detail_client(record, clients, document.employer, allowed)
         document.append("detail_rows", {
             key: record.get(key) for key in (
                 "source_row", "row_key", "client_number", "employee_number", "client_name",
@@ -419,6 +425,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             )
         } | {
             "client": client["name"] if client else "",
+            "employer": client.get("employer") if client else record.get("employer") or "",
             "identity_reason": identity_reason,
             "client_number": record.get("client_number") or (client.get("client_number") if client else ""),
         })
@@ -435,6 +442,13 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
 def preview_application_detail(remittance_name: str):
     from credinomina_reconciliation.application_deposit_detail import preview_application_detail as preview
     return preview(remittance_name)
+
+
+@frappe.whitelist()
+def get_paying_companies(employer):
+    frappe.get_doc("CN Employer", employer).check_permission("read")
+    return frappe.get_list("CN Employer", filters={"name": ["in", sorted(allowed_employers(employer))]},
+                           pluck="name", limit_page_length=0)
 
 
 @frappe.whitelist(methods=["POST"])

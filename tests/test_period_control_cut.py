@@ -188,7 +188,7 @@ class PeriodControlCutTests(unittest.TestCase):
 
         def get_all(doctype, *, filters, **kwargs):
             if doctype == "CN Remittance Allocation":
-                self.assertEqual(filters["employer"], "EMP-1")
+                self.assertNotIn("employer", filters)  # Related cash may come from another payer.
                 self.assertIn("Parcial; saldo sin detalle", filters["detail_status"][1])
                 return remittances
             if doctype == "CN Remittance Target":

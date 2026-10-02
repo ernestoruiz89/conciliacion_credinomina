@@ -1,12 +1,25 @@
+async function loadPayingCompanies(frm) {
+    const payer = frm.doc.employer;
+    frm.paying_companies = payer ? [payer] : [];
+    if (!payer) return;
+    const response = await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.get_paying_companies",
+        args: { employer: payer },
+    });
+    if (frm.doc.employer === payer) frm.paying_companies = response.message || [payer];
+}
+
 frappe.ui.form.on("CN Remittance Allocation", {
     setup(frm) {
-        // Imported rows remain intact; only the credit column is editable.
+        // Imported rows remain intact; company and credit can disambiguate identity.
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
         frm.fields_dict.detail_rows.grid.df.cannot_delete_rows = true;
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
-        frm.set_query("detail_period", () => ({ filters: { employer: frm.doc.employer, status: ["!=", "Cerrado"] } }));
+        frm.set_query("detail_period", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
+        frm.set_query("employer", "detail_rows", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
+        loadPayingCompanies(frm);
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
         toggleRemittanceDetailActions(frm);
@@ -56,7 +69,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
-    employer: renderRemittanceOverview,
+    employer(frm) { loadPayingCompanies(frm); renderRemittanceOverview(frm); },
     detail_period(frm) {
         if (!frm.doc.detail_period) frm.set_value("applied_usd", 0);
         toggleApplicationDetailAction(frm);
@@ -550,19 +563,21 @@ class RemittanceTargetPicker {
                 { fieldtype: "Column Break" },
                 { fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period",
                     label: __("Período (opcional)"), onchange: () => this.filter(),
-                    get_query: () => ({ filters: { employer: data.employer, status: ["!=", "Cerrado"] } }) },
+                    get_query: () => ({ filters: { employer: ["in", data.allowed_employers || [data.employer]], status: ["!=", "Cerrado"] } }) },
                 { fieldtype: "Column Break" },
                 { fieldname: "kind", fieldtype: "Select", label: __("Tipo de partida"),
                     options: ["Todos", "Cobranza", "Aplicación histórica", "Partida complementaria"],
                     onchange: () => this.filter() },
                 { fieldtype: "Section Break" },
+                { fieldname: "beneficiary", fieldtype: "Select", label: __("Empresa beneficiaria"),
+                    options: ["", ...(data.allowed_employers || [data.employer])], onchange: () => this.filter() },
                 { fieldname: "summary", fieldtype: "HTML" },
                 { fieldname: "items", fieldtype: "HTML" },
             ],
             primary_action_label: __("Agregar destinos"),
             primary_action: () => this.apply(),
         });
-        this.dialog.fields_dict.intro.$wrapper.html(`<p><strong>${this.escape(data.employer)}</strong> · US$</p>
+        this.dialog.fields_dict.intro.$wrapper.html(`<p>Empresa pagadora: <strong>${this.escape(data.employer)}</strong> · US$</p>
             <p class="text-muted">Seleccione partidas y ajuste los importes si el pago es parcial.
             Puede combinar períodos; no se limita por la fecha del depósito.
             Los saldos corresponden a la última conciliación; se excluyen períodos cerrados y destinos ya agregados.</p>`);
@@ -634,10 +649,11 @@ class RemittanceTargetPicker {
         const query = normalize(this.dialog.fields_dict.search.$input.val()).trim().split(/\s+/).filter(Boolean);
         const period = this.dialog.get_value("period");
         const kind = this.dialog.get_value("kind");
+        const beneficiary = this.dialog.get_value("beneficiary");
         const filtered = this.data.rows.filter(row => {
             const text = normalize([row.client_name, row.client_number, row.national_id, row.employee_number,
                 row.loan_number, row.reference, row.period_label].join(" "));
-            return (!period || row.filter_period === period) && (!kind || kind === "Todos" || row.kind === kind)
+            return (!beneficiary || row.employer === beneficiary) && (!period || row.filter_period === period) && (!kind || kind === "Todos" || row.kind === kind)
                 && query.every(word => text.includes(word));
         });
         const pages = Math.max(1, Math.ceil(filtered.length / this.pageSize));
@@ -656,6 +672,7 @@ class RemittanceTargetPicker {
                 <td><strong>${this.escape(row.client_name || "Sin nombre informado")}</strong>
                     <div class="small text-muted">${this.escape(identity)}</div>
                     <div>${row.loan_number ? `Crédito: ${this.escape(row.loan_number)}` : ""}</div></td>
+                <td>${this.escape(row.employer)}</td>
                 <td>${this.escape(row.kind)}<div class="small text-muted">${this.escape(row.period_label)}</div>
                     <div class="small">${this.escape(row.reference)}</div></td>
                 <td class="text-right text-nowrap">${row.applied_cents == null ? '<span title="No corresponde a una aplicación en el core">—</span>' : this.currency(row.applied_cents)}</td>
@@ -674,11 +691,11 @@ class RemittanceTargetPicker {
         </div>
         <div class="table-responsive" style="max-height:380px;overflow:auto">
             <table class="table table-bordered table-hover"><thead style="position:sticky;top:0;background:var(--card-bg,white);z-index:1"><tr>
-                <th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente / crédito</th><th>Origen / referencia</th>
+                <th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente / crédito</th><th>Empresa</th><th>Origen / referencia</th>
                 <th class="text-right text-nowrap" title="Importe aplicado en el core">Aplicado US$</th>
                 <th class="text-right text-nowrap" title="Importe ya distribuido desde depósitos confirmados">Asignado US$</th>
                 <th class="text-right text-nowrap" title="Saldo disponible para asignar; considera deducciones, partidas complementarias y ajustes de conciliación">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
-            </tr></thead><tbody>${rows || '<tr><td colspan="7" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones históricas o las deducciones de la empresa y ejecute Conciliar para actualizar los saldos.</td></tr>'}</tbody></table>
+            </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones históricas o las deducciones de la empresa y ejecute Conciliar para actualizar los saldos.</td></tr>'}</tbody></table>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
             <button type="button" class="btn btn-default btn-sm" data-action="previous" ${this.page === 0 ? "disabled" : ""}>Anterior</button>
@@ -704,7 +721,7 @@ class RemittanceTargetPicker {
                     period: row.period || "", row_key: row.row_key || "",
                     historical_application: row.historical_application || "",
                     complementary_item: row.complementary_item || "", amount_usd: cents / 100,
-                    notes: [row.client_name, row.loan_number && `Crédito ${row.loan_number}`, row.period_label, row.reference].filter(Boolean).join(" · "),
+                    notes: [row.employer, row.client_name, row.loan_number && `Crédito ${row.loan_number}`, row.period_label, row.reference].filter(Boolean).join(" · "),
                 });
             }
             this.frm.refresh_field("targets");

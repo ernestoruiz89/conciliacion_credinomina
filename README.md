@@ -627,6 +627,36 @@ ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
 complementaria anterior, la carga se detiene con un mensaje para revisar el
 registro previo. No se convierte evidencia anterior automáticamente.
 
+## Una empresa paga por otras empresas
+
+En **Empresa de convenio**, abra la empresa pagadora y agregue las otras
+empresas en **Empresas por las que puede pagar**. Por ejemplo, en INDENICSA
+agregue CBC. La autorización es directa: no fusiona empresas ni autoriza
+automáticamente el pago inverso o por otras empresas relacionadas.
+
+Registre un solo depósito con **Empresa pagadora = INDENICSA**. En
+**Seleccionar partidas pendientes** podrá filtrar y seleccionar destinos de
+INDENICSA y CBC, combinando períodos e importes parciales. El detalle por cliente
+también puede contener personas de ambas empresas; si el nombre es ambiguo,
+indique **Empresa beneficiaria** en la fila o en esa columna opcional de la
+plantilla. Después guarde, confirme el depósito y use **Conciliar**.
+
+Un depósito de US$1,000 puede asignar US$700 a INDENICSA y US$300 a CBC.
+Cada empresa conserva su propia deuda y antigüedad; el efectivo recibido se
+cuenta una sola vez bajo la pagadora. El modal de distribución muestra la
+empresa de cada destino. Un excedente sin asignación permanece en el depósito
+de la pagadora y no se compensa automáticamente contra otras empresas.
+
+Al conciliar una empresa con pagos compartidos se recalculan juntas las empresas
+vinculadas, respetando los permisos de las importaciones. La relación no se
+puede retirar mientras esté utilizada por un depósito confirmado. Los períodos
+cerrados conservan sus bloqueos. Los registros existentes siguen funcionando
+igual si no se configura ninguna autorización.
+
+Para actualizar una instalación existente, ejecute `bench --site <sitio> migrate`
+después de actualizar el código, compile los recursos y reinicie los procesos.
+No se vinculan empresas existentes automáticamente.
+
 ## Desarrollo y documentación
 
 La evidencia de la simulación y los comandos de auditoría están en

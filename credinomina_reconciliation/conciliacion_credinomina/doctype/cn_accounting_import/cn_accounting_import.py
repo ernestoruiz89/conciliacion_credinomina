@@ -616,7 +616,10 @@ def _company_imports(imports, employer):
         related = {period_employers.get(document.historical_period)}
         for row in document.rows:
             related.add(row.get("portfolio_employer") or employer_resolver.resolve(row)[0])
-            related.update(period_employers.get(name) for name in _source_linked_periods(row))
+            # Deposit allocations can pay authorized beneficiaries. They do not
+            # change the company that owns this accounting movement.
+            if row.event_type != "Deposito":
+                related.update(period_employers.get(name) for name in _source_linked_periods(row))
         related.discard(None)
         related.discard("")
         if (belongs and related - {employer}) or (not belongs and employer in related):
@@ -691,8 +694,10 @@ def _reconcile_sources(employer=None):
         pluck="name",
     )
     imports = [frappe.get_doc("CN Accounting Import", name) for name in import_names]
+    from credinomina_reconciliation.paying_employers import reconciliation_companies
+    companies = reconciliation_companies(employer) if employer else []
     if employer:
-        imports = _company_imports(imports, employer)
+        imports = [document for company in companies for document in _company_imports(imports, company)]
     original_source_rows = [
         row.as_dict() for document in imports for row in document.rows
     ]
@@ -742,8 +747,9 @@ def _reconcile_sources(employer=None):
 
     _deduplicate_applications(all_rows)
     refresh_rows(all_rows)
-    periods = _load_open_periods(employer) if employer else _load_open_periods()
-    company_filters = {"employer": employer} if employer else {}
+    scope_filter = ["in", companies] if len(companies) > 1 else employer
+    periods = _load_open_periods(scope_filter) if employer else _load_open_periods()
+    company_filters = {"employer": scope_filter} if employer else {}
     closed_operative_state = {
         period.name: _operative_period_state(period)
         for period in periods
@@ -797,7 +803,7 @@ def _reconcile_sources(employer=None):
         periods, all_rows, deposit_pairs, complementary_items,
         complementary_by_target, manual_allocations, registered_ids,
     )
-    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=employer)
+    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=scope_filter)
     _classify_surplus(allocation, surplus_items)
     _rebuild_period_balances(
         [period for period in periods if period.reconciliation_mode != "Historica"],
@@ -829,6 +835,7 @@ def _reconcile_sources(employer=None):
         "imports": len(imports),
         "rows": len(all_rows),
         "employer": employer,
+        "reconciled_employers": companies,
         "matched": sum(
             row.match_status == "Conciliado"
             and (
@@ -1298,7 +1305,7 @@ def _registered_deposit_pairs(rows, allocations):
 
 def _prepare_remittance_details(
     remittances, registered_ids, deposits, claims, prior_instructions,
-    tolerance_by_employer,
+    tolerance_by_employer, client_catalog=None,
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
     from credinomina_reconciliation.remittance_detail import manual_detail_targets
@@ -1308,7 +1315,7 @@ def _prepare_remittance_details(
         "CN Remittance Detail",
         filters={"parent": ["in", names]},
         fields=[
-            "name", "parent", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number", "employee_number",
+            "name", "parent", "employer", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number", "employee_number",
             "national_id", "loan_number", "installment_number",
             "application_reference", "deducted_usd", "deducted_nio",
             "amount_usd", "match_status", "match_reason", "matched_targets",
@@ -1332,6 +1339,10 @@ def _prepare_remittance_details(
             continue
         deposit = by_deposit[deposit_id]
         rows = rows_by_parent[item.name]
+        if client_catalog is not None:
+            from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
+            complete_detail_clients(rows, client_catalog, item.employer,
+                                    deposit.get("allowed_groups") or [item.employer])
         attached_detail = bool(item.detail_file or item.detail_hash)
         # A registered deposit is evidence of cash received, not of its
         # per-client split. Explicit targets (including a documented
@@ -1392,7 +1403,10 @@ def _prepare_remittance_details(
             manual = [entry for entry in prior_instructions
                       if entry["deposit_id"] == deposit_id
                       and entry.get("detail_row") == plan["row"].name]
-            if clean_text(plan["row"].identity_reason).startswith(("Conflicto", "Nombre ambiguo")):
+            identity_reason = clean_text(plan["row"].identity_reason)
+            if identity_reason.startswith("Conflicto") or (
+                identity_reason.startswith("Nombre ambiguo") and not clean_text(plan["row"].loan_number)
+            ):
                 plan["status"] = "Revisar"
                 plan["reason"] = plan["row"].identity_reason
                 continue
@@ -1411,6 +1425,7 @@ def _prepare_remittance_details(
             if manual:
                 plan["targets"], plan["reason"] = manual_detail_targets(
                     plan["row"], claims, manual, amount, item.employer, item.detail_period or "",
+                    allowed_groups=deposit.get("allowed_groups"),
                 )
                 if not plan["targets"]:
                     plan["status"] = "Revisar"
@@ -1419,7 +1434,8 @@ def _prepare_remittance_details(
             targets, reason = suggest_detail_targets(
                 plan["row"], claims, amount, item.employer,
                 item.detail_period or "",
-                tolerance_by_employer.get(item.employer, 0) if one_to_one_candidate else 0,
+                tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
+                allowed_groups=deposit.get("allowed_groups"),
             )
             if not targets:
                 plan["status"] = "Revisar"
@@ -1463,6 +1479,7 @@ def _sync_remittance_details(context, allocation, claims=()):
         for plan in state["rows"] for target in plan["targets"]
     ], claims)
     statuses = {}
+    claim_companies = {claim["id"]: claim.get("group") for claim in claims}
     for parent, state in context["contexts"].items():
         if state["rows"]:
             for plan in state["rows"]:
@@ -1492,6 +1509,10 @@ def _sync_remittance_details(context, allocation, claims=()):
                     for target in targets
                 )
                 updates = {
+                    "employer": plan["row"].get("employer") or "",
+                    "client": plan["row"].get("client") or "",
+                    "client_number": plan["row"].get("client_number") or "",
+                    "identity_reason": plan["row"].get("identity_reason") or "",
                     "amount_usd": plan["amount_usd"],
                     "match_status": plan["status"],
                     "match_reason": plan["reason"],
@@ -1500,6 +1521,9 @@ def _sync_remittance_details(context, allocation, claims=()):
                 }
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
+                companies = {claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
+                if len(companies) == 1:
+                    updates["employer"] = next(iter(companies))
                 frappe.db.set_value(
                     "CN Remittance Detail", plan["row"].name,
                     updates,
@@ -1578,6 +1602,8 @@ def _distribute_deposits(
             complementary_totals[target_name] += flt(item.amount_usd)
 
     deposits = []
+    from credinomina_reconciliation.paying_employers import load_payer_map, allowed_employers, permits_claim
+    payer_map = load_payer_map()
     deposit_meta = {}
     ambiguous_deposit_ids = set()
     unresolved_employer_ids = set()
@@ -1620,7 +1646,7 @@ def _distribute_deposits(
              "amount_usd": amount_usd,
              "currency": account.currency, "bank_currency": bank.currency,
              "bank_amount_usd": flt(bank.amount) if bank.currency == "USD" else 0,
-             "group": employer}
+             "group": employer, "allowed_groups": sorted(allowed_employers(employer, payer_map))}
         )
         deposit_meta[account.name] = {
             "account": account, "bank": bank,
@@ -1780,9 +1806,7 @@ def _distribute_deposits(
             else "H:" + item.historical_application if item.historical_application
             else "C:" + row_by_key.get((item.period, clean_text(item.row_key)), "")
         )
-        claim_group = clean_text(claims_by_id.get(claim_id, {}).get("group"))
-        deposit_group = clean_text(candidates[0].get("group"))
-        if claim_group and deposit_group and claim_group != deposit_group:
+        if not permits_claim(candidates[0], claims_by_id.get(claim_id, {})):
             manual_results[item.name] = "Empresa no coincide"
             manually_ambiguous_deposits.add(candidates[0]["id"])
             continue
@@ -1794,7 +1818,7 @@ def _distribute_deposits(
 
     detail_context = _prepare_remittance_details(
         manual_allocations, registered_ids, deposits, claims, instructions,
-        tolerance_by_employer,
+        tolerance_by_employer, client_catalog=client_catalog,
     )
     instructions.extend(detail_context["instructions"])
     previously_blocked = set(manually_ambiguous_deposits)
@@ -1887,7 +1911,7 @@ def _distribute_deposits(
                 "tipo": "Partida complementaria", "partida": claim_id[2:]
             }
         detail_by_deposit[entry["deposit_id"]].append(
-            {**destination, "importe_usd": entry["amount_usd"],
+            {**destination, "empresa": claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
              "origen": entry["origin"]}
         )
     for movement in movements:

@@ -36,6 +36,7 @@ def _remittance(employer, marker, suffix, amount, **fields):
         **fields,
     }).insert(ignore_permissions=True)
     document.submit()
+    document._reconcile()  # Confirmation and reconciliation are separate actions.
     document.reload()
     assert document.detail_status == "Detalle pendiente", document.detail_status
     return document

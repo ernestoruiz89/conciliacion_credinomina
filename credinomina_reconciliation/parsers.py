@@ -212,6 +212,7 @@ def read_table(
 
 
 COLLECTION_ALIASES = {
+    "employer": {"empresa", "empresa_beneficiaria", "empresa_de_convenio"},
     "row_key": ("fila_id", "row_id", "id_fila"),
     "client_number": ("nro_cliente", "numero_cliente", "no_cliente", "customer_id"),
     "employee_number": ("nro_empleado", "numero_empleado", "no_empleado", "codigo_empleado", "cod_empleado", "nro_de_empleado"),
@@ -311,6 +312,7 @@ def parse_collection_file(
             {
                 "source_row": row_number,
                 "row_key": clean_text(_value(row, mapping, "row_key")),
+                "employer": clean_text(_value(row, mapping, "employer")),
                 "client_number": client_number,
                 "employee_number": employee_number,
                 "client_name": client_name,

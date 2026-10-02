@@ -970,7 +970,7 @@ def _pending_remittance_details_for_period(period):
     remittances = frappe.get_all(
         "CN Remittance Allocation",
         filters={
-            "docstatus": 1, "employer": period.employer,
+            "docstatus": 1,
             "detail_status": ["in", list(PENDING_REMITTANCE_DETAILS)],
         },
         fields=["name", "detail_period", "allocation_detail"],

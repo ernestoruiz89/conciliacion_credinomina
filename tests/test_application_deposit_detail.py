@@ -70,7 +70,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
     def test_load_checks_permission_company_closed_period_and_cancellation(self):
         document = self.document()
         period = SimpleNamespace(name="P", employer="E", status="Abierto", check_permission=Mock())
-        with patch.object(module.frappe, "get_doc", side_effect=[document, period]):
+        with patch.object(module.frappe, "get_doc", side_effect=[document, period]), patch.object(module, "allowed_employers", return_value={"E"}):
             self.assertEqual(module._load("D"), (document, period))
         document.check_permission.assert_called_with("write")
         period.check_permission.assert_called_with("read")
@@ -78,6 +78,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
             period.status, period.employer = status, company
             document.docstatus = 2 if cancelled else 1
             with patch.object(module.frappe, "get_doc", side_effect=[document, period]), \
+                 patch.object(module, "allowed_employers", return_value={"E"}), \
                  patch.object(module, "_", side_effect=lambda v: v), \
                  patch.object(module.frappe, "throw", side_effect=ValueError):
                 with self.assertRaises(ValueError):
@@ -85,7 +86,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
 
     def test_preview_historical_uses_readable_imports_and_excludes_duplicates(self):
         document = self.document()
-        period = SimpleNamespace(name="P", reconciliation_mode="Historica", applied_usd=100)
+        period = SimpleNamespace(name="P", employer="E", reconciliation_mode="Historica", applied_usd=100)
         def get_all(doctype, **kwargs):
             if doctype == "CN Source Row":
                 filters = kwargs["filters"]
@@ -104,7 +105,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
 
     def test_operative_uses_applied_not_requested_or_deducted_amount(self):
         document = self.document()
-        period = SimpleNamespace(name="P", reconciliation_mode="Operativa", applied_usd=30,
+        period = SimpleNamespace(name="P", employer="E", reconciliation_mode="Operativa", applied_usd=30,
             collection_rows=[frappe._dict(name="C", row_key="R", client_name="Ana", applied_usd=30,
                                          expected_usd=100, deducted_usd=50)])
         with patch.object(module.frappe, "get_all", return_value=[]), patch.object(module, "_", side_effect=lambda v: v):

@@ -109,7 +109,7 @@ def rounding_movements(
         if len(application_ids) != 1:
             continue
         employer = claim.get("group")
-        if deposit.get("group") and deposit["group"] != employer:
+        if deposit.get("group") and employer not in (deposit.get("allowed_groups") or [deposit["group"]]):
             continue
         tolerance = money(tolerance_by_employer.get(employer))
         if tolerance <= MONEY_EPSILON:

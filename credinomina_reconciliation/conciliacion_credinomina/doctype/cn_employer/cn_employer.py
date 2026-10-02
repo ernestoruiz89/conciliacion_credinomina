@@ -21,6 +21,8 @@ class CNEmployer(Document):
         if tolerance < 0 or tolerance > 0.10:
             frappe.throw(_("La tolerancia automática debe estar entre US$ 0.00 y US$ 0.10."))
         seen_aliases = set()
+        from credinomina_reconciliation.paying_employers import validate_paying_for
+        validate_paying_for(self)
         for alias in self.aliases or []:
             alias.alias_name = (alias.alias_name or "").strip()
             key = employer_label_key(alias.alias_name)

@@ -50,7 +50,7 @@ class DepositDetailColumnTests(unittest.TestCase):
             "row_key": "FILA-1",
         }])), read_only=True).active
         self.assertEqual("ANA PÉREZ", sheet["C2"].value)
-        self.assertEqual(sheet.max_column, 9)
+        self.assertEqual(sheet.max_column, 10)
         self.assertEqual(sheet["F2"].value, "Observación del depósito")
         self.assertIsNone(sheet["G2"].value)
         self.assertIsNone(sheet["H2"].value)
@@ -58,7 +58,7 @@ class DepositDetailColumnTests(unittest.TestCase):
 
     def test_deposit_template_keeps_widths_formats_and_filter_aligned(self):
         sheet = load_workbook(io.BytesIO(build_template_xlsx("deposito"))).active
-        self.assertEqual(sheet.auto_filter.ref, "A1:I2")
+        self.assertEqual(sheet.auto_filter.ref, "A1:J2")
         self.assertEqual(sheet.freeze_panes, "A2")
         self.assertEqual(sheet.column_dimensions["F"].width, 32)
         self.assertEqual(sheet.column_dimensions["I"].number_format, "@")

@@ -136,6 +136,7 @@ class TemplateTests(unittest.TestCase):
 
         response = SimpleNamespace()
         period = SimpleNamespace(
+            employer="CBC",
             collection_rows=[SimpleNamespace(as_dict=lambda: {
                 "client_name": "ANA PÉREZ", "loan_number": "0900", "row_key": "FILA-1",
             })],
@@ -154,6 +155,7 @@ class TemplateTests(unittest.TestCase):
         sheet = load_workbook(io.BytesIO(response.filecontent)).active
         headers = [cell.value for cell in sheet[1]]
         self.assertEqual(sheet.cell(2, headers.index("Fila ID") + 1).value, "FILA-1")
+        self.assertEqual(sheet.cell(2, headers.index("Empresa beneficiaria") + 1).value, "CBC")
 
 
 if __name__ == "__main__":

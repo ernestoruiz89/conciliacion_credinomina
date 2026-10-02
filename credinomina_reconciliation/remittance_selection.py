@@ -7,6 +7,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.paying_employers import allowed_employers, reconciliation_companies
 
 
 def target_key(row):
@@ -93,15 +94,16 @@ def get_pending_targets(remittance_name, targets=None):
         frappe.throw(_("La lista de destinos no es válida."))
 
     # get_list applies user permissions; child tables are read through their parents.
+    allowed = sorted(allowed_employers(doc.employer))
     periods = [frappe.get_doc("CN Reconciliation Period", row.name) for row in frappe.get_list(
-        "CN Reconciliation Period", filters={"employer": doc.employer},
+        "CN Reconciliation Period", filters={"employer": ["in", allowed]},
         fields=["name"], order_by="payroll_month asc, name asc", limit_page_length=0,
     )]
     periods = [period for period in periods if period.has_permission("read")]
     open_periods = {p.name: p for p in periods if p.status != "Cerrado"}
     # Internal accounting totals must include allocations hidden by user permissions.
     deposits = frappe.get_all(
-        "CN Remittance Allocation", filters={"docstatus": 1, "employer": doc.employer},
+        "CN Remittance Allocation", filters={"docstatus": 1, "employer": ["in", reconciliation_companies(doc.employer)]},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
@@ -133,7 +135,7 @@ def get_pending_targets(remittance_name, targets=None):
         for row in period.collection_rows:
             if not row.row_key:
                 continue
-            candidates.append({**identity(row), "kind": "Cobranza", "period": period.name,
+            candidates.append({**identity(row), "employer": period.employer, "kind": "Cobranza", "period": period.name,
                 "period_label": period_label(period), "filter_period": period.name,
                 "row_key": row.row_key, "reference": row.application_reference or "",
                 "applied_usd": float(money(row.applied_usd)),
@@ -153,7 +155,7 @@ def get_pending_targets(remittance_name, targets=None):
                         or row.event_type != "Aplicacion" or not row.effective
                         or row.currency != "USD" or row.match_status != "Conciliado"):
                     continue
-                candidates.append({**identity(row), "kind": "Aplicación histórica",
+                candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica",
                     "historical_application": row.name, "filter_period": period.name,
                     "period_label": period_label(period),
                     "applied_usd": net_application_amount(row),
@@ -163,16 +165,17 @@ def get_pending_targets(remittance_name, targets=None):
         period = open_periods.get(item.period)
         if item.period and not period:
             continue
-        if (item.employer or (period.employer if period else None)) != doc.employer:
+        if (item.employer or (period.employer if period else None)) not in allowed:
             continue
         if not frappe.has_permission("CN Complementary Item", "read", doc=item.name):
             continue
-        candidates.append({**identity(item), "kind": "Partida complementaria",
+        candidates.append({**identity(item), "employer": item.employer or period.employer, "kind": "Partida complementaria",
             "client_name": item.description, "complementary_item": item.name,
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
             "due_usd": float(money(item.amount_usd))})
     result = pending_selection(candidates, deposits, doc.name, doc.amount_usd, targets)
     result["employer"] = doc.employer
+    result["allowed_employers"] = allowed
     result["modified"] = str(doc.modified)
     return result

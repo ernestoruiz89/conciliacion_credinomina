@@ -639,7 +639,7 @@ function renderCashDistribution(deposit) {
             <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(deposit.result || __("Pendiente"))}</div></div>
         </div>
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
-            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
+            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
         ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}

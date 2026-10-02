@@ -1,15 +1,19 @@
 """Client enrichment and permission-checked portfolio choices for deposit detail."""
 
-from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 
 
-def complete_detail_clients(rows, clients, employer):
+def complete_detail_clients(rows, clients, employer, allowed=None):
+    allowed = {employer} if allowed is None else allowed
     for row in rows:
-        client, reason = choose_client(row, clients, employer)
+        client, reason = choose_detail_client(row, clients, employer, allowed)
+        row.identity_reason = reason
         if not client:
+            row.client = ""
             continue
         row.client = client["name"]
+        row.employer = client.get("employer") or ""
         row.identity_reason = reason
         if not row.get("client_number"):
             row.client_number = client.get("client_number") or ""
@@ -62,8 +66,8 @@ def load_detail_context(remittance_name, detail_row_name):
     if not row:
         frappe.throw(_("La fila no pertenece al detalle de este depósito."))
     clients = load_client_index()
-    complete_detail_clients([row], clients, doc.employer)
-    client, reason = choose_client(row, clients, doc.employer)
+    complete_detail_clients([row], clients, doc.employer, allowed_employers(doc.employer))
+    client, reason = choose_detail_client(row, clients, doc.employer)
     if not client:
         frappe.throw(_("Identifique primero al cliente de la fila: {0}.").format(reason))
     frappe.get_doc("CN Client", client["name"]).check_permission("read")
@@ -73,11 +77,11 @@ def load_detail_context(remittance_name, detail_row_name):
     by_name = {item.name: item for item in snapshots}
     rows = frappe.get_all("CN Credit Portfolio Row",
         filters={"parent": ["in", list(by_name)], "parenttype": "CN Credit Portfolio Snapshot",
-                 "employer": doc.employer},
+                 "employer": client["employer"]},
         fields=["name", "parent", "credit_number", "matched_client", "client_number_core",
                 "national_id", "employer", "credit_lifecycle", "credit_status"],
         limit_page_length=0) if by_name else []
-    choices = portfolio_credit_choices(rows, by_name, client, doc.employer)
+    choices = portfolio_credit_choices(rows, by_name, client, client["employer"])
     return doc, row, client, choices
 
 

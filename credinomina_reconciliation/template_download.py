@@ -33,7 +33,7 @@ def download_import_template(
     if template_type != "cobranza" and period_name:
         period = frappe.get_doc("CN Reconciliation Period", period_name)
         period.check_permission("read")
-        collection_rows = [row.as_dict() for row in period.collection_rows]
+        collection_rows = [{**row.as_dict(), "employer": period.employer} for row in period.collection_rows]
 
     content = build_template_xlsx(template_type, collection_rows)
     frappe.local.response.filename = filename

@@ -187,7 +187,8 @@ function showCompanyReconciliation(result) {
                 color: var(--text-color, #1f272e);
             }</style>
             <div class="cn-company-reconciliation">
-            <p>${__("Se procesaron {0} importaciones de esta empresa con los datos guardados.", [esc(result.imports)])}</p>
+            <p>${__("Se procesaron {0} importaciones con los datos guardados.", [esc(result.imports)])}</p>
+            ${(result.reconciled_employers || []).length > 1 ? `<p>${__("Se recalcularon juntas las empresas vinculadas por pagos compartidos para conservar sus saldos:")} ${result.reconciled_employers.map(esc).join(", ")}</p>` : ""}
             <div class="row">${counts.map(([label, value]) => `<div class="col-sm-3"><div class="text-muted">${label}</div><h3>${esc(value)}</h3></div>`).join("")}</div>
             <p class="text-muted">${__("Las filas ignoradas, como duplicados y ajustes, no se cuentan como pendientes.")}</p>
             ${result.pending ? `<h5>${__("Motivos para revisar")}</h5>

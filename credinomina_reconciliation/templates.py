@@ -40,7 +40,7 @@ _DEPOSIT_OMITTED_HEADERS = {
 }
 DEPOSIT_HEADERS = tuple(
     header for header in DETAIL_HEADERS if header not in _DEPOSIT_OMITTED_HEADERS
-)
+) + ("Empresa beneficiaria",)
 
 TEMPLATE_TYPES = {
     "cobranza": ("Cobranza", COLLECTION_HEADERS, "plantilla_cobranza.xlsx"),
@@ -55,6 +55,7 @@ _ROW_FIELDS = (
 )
 
 _HEADER_NOTES = {
+    "Empresa beneficiaria": "Opcional. Nombre exacto de la empresa a la que pertenece el cliente, autorizada por la pagadora. Permite distinguir nombres iguales entre empresas.",
     "Nro. Cliente": "Identificador del cliente en el core. Conserve los ceros a la izquierda.",
     "Nro. Empleado": "Número interno de la empresa; distinto del número de cliente.",
     "Nombre y Apellidos del Cliente": "Obligatorio en todas las filas. Debe identificar al cliente o uno de sus alias.",
@@ -81,7 +82,7 @@ _DEPOSIT_ROW_FIELDS = tuple(
         "total_installments", "expected_usd", "expected_nio",
     }
 )
-_DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 32, 19, 19, 19)
+_DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 32, 19, 19, 19, 30)
 _DEPOSIT_TEXT_COLUMNS = (1, 2, 4, 5, 9)
 
 
@@ -116,7 +117,7 @@ def build_template_xlsx(
     if template_type != "cobranza":
         for row in collection_rows:
             values = [row.get(field) for field in row_fields]
-            sheet.append([*values, None, None, row.get("row_key")])
+            sheet.append([*values, None, None, row.get("row_key"), *([row.get("employer")] if template_type == "deposito" else [])])
 
     for column in (*text_columns, len(headers)):
         sheet.column_dimensions[get_column_letter(column)].number_format = "@"

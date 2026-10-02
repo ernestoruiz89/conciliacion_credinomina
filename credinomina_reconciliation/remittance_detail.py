@@ -38,6 +38,8 @@ def _same_id(left: Any, right: Any) -> bool:
 
 
 def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
+    if row.get("employer") and clean_text(row["employer"]) != clean_text(claim.get("group")):
+        return False
     if row.get("client") and claim.get("client") and row["client"] != claim["client"]:
         return False
     loan = clean_text(row.get("loan_number"))
@@ -89,13 +91,13 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     return True
 
 
-def manual_detail_targets(row, claims, instructions, amount_usd, employer, period=""):
+def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None):
     """Validate explicit row links; reuse their instruction IDs without booking twice."""
     by_id = {claim["id"]: claim for claim in claims}
     targets = []
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
-        if not claim or clean_text(claim.get("group")) != clean_text(employer):
+        if not claim or clean_text(claim.get("group")) not in set(allowed_groups or [employer]):
             return [], "Destino manual inexistente o de otra empresa"
         if period and clean_text(claim.get("period")) != clean_text(period):
             return [], "El destino manual no pertenece al período del detalle"
@@ -115,11 +117,12 @@ def suggest_detail_targets(
     row: Mapping[str, Any], claims: Iterable[Mapping[str, Any]],
     amount_usd: float, employer: str, period: str = "",
     tolerance_usd: float = 0,
+    allowed_groups=None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Suggest only exact, uniquely attributable claims; never fuzzy-match names."""
     claims = [
         claim for claim in claims
-        if clean_text(claim.get("group")) == clean_text(employer)
+        if clean_text(claim.get("group")) in set(allowed_groups or [employer])
         and (not period or clean_text(claim.get("period")) == clean_text(period))
         and money(claim.get("amount_usd")) > 0
     ]
@@ -144,6 +147,8 @@ def suggest_detail_targets(
             "Sin coincidencia exacta por nombre/alias"
             if name_only else "Sin aplicación o cobranza identificable"
         )
+    if len({clean_text(claim.get("group")) for claim in matches}) > 1:
+        return [], "Nombre o identificador ambiguo entre empresas; seleccione la empresa de la fila"
     if len(matches) == 1:
         claim = matches[0]
         identity_note = (

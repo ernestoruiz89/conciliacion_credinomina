@@ -39,7 +39,7 @@ def get_cash_deposits(year, employer=None):
         for offset in range(0, len(item_ids), 500):
             for item in frappe.get_list(
                 "CN Complementary Item", filters={"name": ["in", item_ids[offset:offset + 500]], "docstatus": 1},
-                fields=["name", "period", "category"], limit_page_length=0,
+                fields=["name", "period", "category", "employer"], limit_page_length=0,
             ):
                 items[item["name"]] = item
     period_ids = sorted({e.get("periodo") or items.get(e.get("partida"), {}).get("period")
@@ -49,7 +49,7 @@ def get_cash_deposits(year, employer=None):
         for offset in range(0, len(period_ids), 500):
             for period in frappe.get_list(
                 "CN Reconciliation Period", filters={"name": ["in", period_ids[offset:offset + 500]]},
-                fields=["name", "payroll_month"], limit_page_length=0,
+                fields=["name", "payroll_month", "employer"], limit_page_length=0,
             ):
                 periods[period["name"]] = period
     people = _load_credit_people(deposits, periods)
@@ -104,6 +104,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None):
         credits, other, adjustments = money(0), money(0), money(0)
         related, months = set(), set()
         destinations = {}
+        destination_employers = {}
         credit_details = {}
         for entry in _entries(deposit.get("allocation_detail")):
             period = entry.get("periodo") or items.get(entry.get("partida"), {}).get("period")
@@ -129,6 +130,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None):
                 kind = "Ajuste de conciliación"
             if kind and amount:
                 key = (kind, label, month)
+                destination_employers[key] = visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
                 destinations[key] = destinations.get(key, money(0)) + amount
                 if kind == "Créditos":
                     person = people.get(_credit_key(entry), {})
@@ -169,6 +171,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None):
             "settled": not needs_review and credit_balance == 0 and result == "Conciliado",
             "shared": len(related) > 1, "payroll_months": sorted(months),
             "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount),
+                              "employer": destination_employers.get((kind, label, month), ""),
                               "people": [{**person, "amount_usd": float(person["amount_usd"])}
                                          for person in credit_details.get((kind, label, month), {}).values()]}
                              for (kind, label, month), amount in destinations.items()],

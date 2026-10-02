@@ -10,6 +10,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.paying_employers import permits_claim
 from credinomina_reconciliation.rounding import MONEY_EPSILON, money, money_float
 
 CAPACITY_EPSILON = MONEY_EPSILON
@@ -71,7 +72,7 @@ def allocate_cash(
                     or amount * money(claim["amount_usd"]) <= 0):
                 error = "Signo o importe complementario invalido"
                 break
-            if claim.get("group") and deposits[deposit_id].get("group") and claim["group"] != deposits[deposit_id]["group"]:
+            if not permits_claim(deposits[deposit_id], claim):
                 error = "Empresa no coincide"
                 break
             totals[claim_id] = totals.get(claim_id, money(0)) + amount
@@ -99,6 +100,10 @@ def allocate_cash(
             instruction_results[name] = "Falta deposito o cobranza"
             if deposit_id in deposits:
                 blocked_deposits.add(deposit_id)
+            continue
+        if not permits_claim(deposits[deposit_id], claims[claim_id]):
+            instruction_results[name] = "Empresa no autorizada"
+            blocked_deposits.add(deposit_id)
             continue
         if amount <= CAPACITY_EPSILON:
             instruction_results[name] = "Importe invalido"

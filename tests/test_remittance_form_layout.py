@@ -34,5 +34,5 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         child_fields = json.loads(child_path.read_text(encoding="utf-8"))["fields"]
         editable = [field["fieldname"] for field in child_fields
                     if not field.get("read_only") and field["fieldtype"] != "Section Break"]
-        self.assertEqual(editable, ["loan_number"])
+        self.assertEqual(editable, ["employer", "loan_number"])
         self.assertTrue(next(field for field in child_fields if field["fieldname"] == "loan_number")["allow_on_submit"])

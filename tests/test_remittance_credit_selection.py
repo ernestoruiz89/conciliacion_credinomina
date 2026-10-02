@@ -36,7 +36,9 @@ class RemittanceCreditSelectionTests(unittest.TestCase):
         ]:
             original = dict(row)
             selection.complete_detail_clients([row], clients, "EMP")
-            self.assertEqual(dict(row), original)
+            self.assertEqual({key: row[key] for key in original}, original)
+            self.assertFalse(row.client)
+            self.assertTrue(row.identity_reason)
 
     def test_canceled_credits_and_historical_cut_are_available(self):
         choices = self.choices([self.credit, self.credit | {"name": "LATER", "parent": "MAY", "credit_lifecycle": "Cancelado"}])
