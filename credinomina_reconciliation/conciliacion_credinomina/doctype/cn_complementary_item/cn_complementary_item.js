@@ -4,6 +4,7 @@ frappe.ui.form.on("CN Complementary Item", {
             ...(frm.doc.employer ? {employer: frm.doc.employer} : {})}}));
         frm.set_query("period", () => ({filters: {status: ["!=", "Cerrado"],
             ...(frm.doc.employer ? {employer: frm.doc.employer} : {})}}));
+        frm.set_query("employer", "distribution_companies", () => ({filters: {name: ["!=", frm.doc.employer || ""]}}));
     },
     category(frm) {
         if (frm.doc.docstatus === 0 && frm.doc.review_action === "Partida de depósito" &&
@@ -20,8 +21,12 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         const credit = frm.doc.category === "Saldo a favor de la empresa";
         // Keep invalid prefilled identities visible so the user can clear them.
-        ["client_number", "loan_number", "installment_number"].forEach(f => frm.toggle_display(f, !credit || !!frm.doc[f]));
+        ["client_number", "loan_number", "installment_number"].forEach(f => frm.toggle_display(f, (!credit && !frm.doc.generic_distribution) || !!frm.doc[f]));
         frm.set_df_property("reference", "read_only", credit);
+    },
+    generic_distribution(frm) {
+        frm.trigger("category");
+        if (frm.doc.generic_distribution) frappe.show_alert({message: __("Distribuya manualmente el importe entre los destinos. La partida comparte un solo saldo entre todas las empresas y clientes autorizados."), indicator: "blue"});
     },
     async review_action(frm) {
         if (frm.doc.review_action === "Partida de depósito" && frm.doc.docstatus === 0 &&

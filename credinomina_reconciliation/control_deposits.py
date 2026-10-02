@@ -129,15 +129,18 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                 kind = "Partida complementaria"
                 item = items.get(entry.get("partida"), {})
                 label = " · ".join(filter(None, [item.get("name"), item.get("category")])) or "Partida complementaria (detalle no disponible)"
+                if entry.get("fila_detalle") and entry.get("empresa"):
+                    label += " · " + entry["empresa"]
             elif entry.get("tipo") == "Movimiento de conciliación":
                 adjustments += amount  # Cash consumed, not the signed adjustment.
                 kind = "Ajuste de conciliación"
             if include_details and kind and amount:
                 key = (kind, label, month)
-                destination_employers[key] = visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
+                destination_employers[key] = entry.get("empresa") or visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
                 destinations[key] = destinations.get(key, money(0)) + amount
-                if kind == "Créditos":
-                    person = people.get(_credit_key(entry), {})
+                if kind == "Créditos" or (kind == "Partida complementaria" and entry.get("fila_detalle")):
+                    person = (people.get(_credit_key(entry), {}) if kind == "Créditos" else
+                              {"client_name": entry.get("cliente"), "client_number": entry.get("nro_cliente"), "loan_number": entry.get("credito")})
                     # Never merge different unknown clients or different credits.
                     identity = (person.get("client_number") or person.get("client_name")
                                 or _credit_key(entry), person.get("loan_number") or "")

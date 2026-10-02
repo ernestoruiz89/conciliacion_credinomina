@@ -42,6 +42,9 @@ importes permiten un cruce único.
   (o los destinos automáticos identificados), sin contarlos dos veces. Un valor
   negativo indica exceso de vinculación; cero no sustituye la validación del
   estado. Los destinos sin vínculo a una fila no se descuentan de ella.
+  Una complementaria **sin período** puede cubrir una fila cuando se vincula
+  manualmente y coinciden empresa, cliente y crédito. Si tiene un período,
+  este debe estar entre los seleccionados; no se ignoran períodos incompatibles.
 - **Movimientos contables** como única fuente de aplicaciones. El depósito se registra directamente con
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
@@ -68,6 +71,24 @@ importes permiten un cruce único.
   cobertura cuando la partida está confirmada y el destino queda **Aplicada**;
   el total del detalle sigue siendo US$103.16. El período podrá cerrarse cuando
   también estén cubiertas sus demás aplicaciones y no existan bloqueos pendientes.
+- Para un ajuste contable global, marque **Partida genérica de distribución manual**
+  en la complementaria. Registre el importe total una sola vez, deje cliente y
+  crédito vacíos y explique su origen. La empresa indicada está incluida; agregue
+  otras en **Otras empresas autorizadas para distribuir** solo si el asiento
+  realmente las afecta. Esta autorización no cambia qué empresas puede pagar una pagadora.
+  Después de confirmar, agregue la partida a **Destinos** de cada depósito.
+  En **Vincular detalle y destinos**, indique el **Importe a vincular US$** para
+  cada cliente: si vincula US$200 de un destino de US$500, quedan US$300 como
+  otro destino sin vincular, conservando la misma partida y el total asignado.
+  Puede repetir para otros clientes o usar el saldo disponible en otros depósitos.
+  Para una distribución sin fila indique la empresa de destino en el destino genérico.
+  Las asignaciones de todas las empresas y depósitos consumen **un único saldo**:
+  nunca US$500 por cada empresa. No se hace un reparto automático ni se modifica
+  el importe aplicado en el core. El detalle del depósito conserva la empresa,
+  cliente y crédito de cada porción; una fila sigue en revisión si sus destinos
+  no suman su importe o si alguna asignación supera el saldo disponible.
+  No marque como genéricas las partidas ya identificadas a un cliente ni los
+  ajustes que reducen aplicaciones: para estos últimos use **Vincular a aplicación**.
 - **Partidas complementarias** también permiten documentar un **Saldo a favor
   de la empresa**, desde el mismo modal del depósito. Este concepto se vincula
   directamente al depósito confirmado, sin agregarse a los destinos ni al

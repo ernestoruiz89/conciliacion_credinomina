@@ -166,6 +166,18 @@ class CNRemittanceAllocation(Document):
                 target_employer = frappe.db.get_value(
                     "CN Complementary Item", target.complementary_item, "employer"
                 ) or target_employer
+                if frappe.db.get_value("CN Complementary Item", target.complementary_item, "generic_distribution"):
+                    from credinomina_reconciliation.complementary_distribution import company_scope
+                    complementary = frappe.get_doc("CN Complementary Item", target.complementary_item)
+                    complementary.check_permission("read")
+                    scope = company_scope(complementary) & allowed
+                    company = (detail_row.get("employer") if detail_row else None) or target.get("employer")
+                    if not company and len(scope) == 1:
+                        company = next(iter(scope))
+                    if not company or company not in scope:
+                        frappe.throw(_("Indique una empresa de destino autorizada para la partida genérica."))
+                    target.employer = company
+                    target_employer = company
             if target_employer and target_employer not in allowed:
                 frappe.throw(_("Un destino pertenece a una empresa no autorizada por la pagadora."))
             assigned += money(target.amount_usd)
@@ -300,7 +312,7 @@ class CNRemittanceAllocation(Document):
             return True
         target_fields = (
             "period", "row_key", "historical_application", "complementary_item",
-            "amount_usd", "detail_row",
+            "amount_usd", "detail_row", "employer",
         )
         current_targets = [
             tuple(str(target.get(fieldname) or "") for fieldname in target_fields)

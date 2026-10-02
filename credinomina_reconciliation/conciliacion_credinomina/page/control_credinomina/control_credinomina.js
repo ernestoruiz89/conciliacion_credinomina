@@ -729,7 +729,7 @@ function cashTableTotal(rows) {
 }
 
 function renderCreditPeople(destination) {
-    if (destination.type !== "Créditos") return "";
+    if (destination.type !== "Créditos" && !(destination.people || []).length) return "";
     const people = destination.people || [];
     if (!people.length) return `<p class="text-muted">${esc(destination.label)} · ${esc(__("Detalle por persona no disponible"))}</p>`;
     return `<div class="cn-list-scroll"><table class="cn-detail-table cn-credit-people">

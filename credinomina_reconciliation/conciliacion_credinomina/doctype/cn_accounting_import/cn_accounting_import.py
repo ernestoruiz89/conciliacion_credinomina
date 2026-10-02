@@ -779,6 +779,7 @@ def _reconcile_sources(employer=None, progress=None):
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
+            "generic_distribution",
         ],
     )
     complementary_by_target = _allocate_complementary_items(
@@ -1006,7 +1007,7 @@ def _allocate_complementary_items(items, periods):
     """An optional customer allocation must identify exactly one collection row."""
     allocations = defaultdict(list)
     for item in items:
-        if not item.loan_number:
+        if item.get("generic_distribution") or not item.loan_number:
             continue
         candidates = [
             row
@@ -1553,7 +1554,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 updates.update(linked_balance(plan["amount_usd"], plan.get("manual_targets", []), targets))
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
-                companies = {claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
+                companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
                 frappe.db.set_value(
@@ -1602,6 +1603,8 @@ def _distribute_deposits(
         row.name: row for period in periods for row in period.collection_rows
     }
     employer_by_period = {period.name: period.employer for period in periods}
+    from credinomina_reconciliation.complementary_distribution import attach_company_scopes, company_scope
+    attach_company_scopes(complementary_items)
     historical_applications = {
         row.name: row for row in source_rows
         if row.event_type == "Aplicacion" and row.effective
@@ -1736,7 +1739,9 @@ def _distribute_deposits(
              "installment_number": item.installment_number,
              "references": [clean_text(item.reference)], "hints": {},
             "group": item.employer or employer_by_period.get(item.period),
-             "period": item.period}
+             "period": item.period,
+             "manual_only": bool(item.get("generic_distribution")),
+             "groups": sorted(company_scope(item))}
         )
     for application in historical_applications.values():
         claims.append(
@@ -1827,7 +1832,7 @@ def _distribute_deposits(
         filters={"parent": ["in", registered_names]},
         fields=[
             "name", "parent", "period", "row_key", "historical_application",
-            "complementary_item", "amount_usd", "result", "detail_row",
+            "complementary_item", "amount_usd", "result", "detail_row", "employer",
         ],
         order_by="parent asc, idx asc",
         limit_page_length=100000,
@@ -1857,14 +1862,15 @@ def _distribute_deposits(
             else "H:" + item.historical_application if item.historical_application
             else "C:" + row_by_key.get((item.period, clean_text(item.row_key)), "")
         )
-        if not permits_claim(candidates[0], claims_by_id.get(claim_id, {})):
+        if not permits_claim(candidates[0], claims_by_id.get(claim_id, {}), item.get("employer")):
             manual_results[item.name] = "Empresa no coincide"
             manually_ambiguous_deposits.add(candidates[0]["id"])
             continue
         instructions.append(
             {"id": item.name, "deposit_id": candidates[0]["id"],
              "claim_id": claim_id, "amount_usd": flt(item.amount_usd),
-             "detail_row": item.get("detail_row")}
+             "detail_row": item.get("detail_row"),
+             **({"group": item.get("employer")} if claims_by_id.get(claim_id, {}).get("manual_only") and item.get("employer") else {})}
         )
 
     detail_context = _prepare_remittance_details(
@@ -1878,6 +1884,7 @@ def _distribute_deposits(
         deposits, claims, instructions, manually_ambiguous_deposits
     )
     detail_statuses = _sync_remittance_details(detail_context, result, claims)
+    detail_identities = {plan["row"].name: plan["row"] for state in detail_context["contexts"].values() for plan in state["rows"]}
     movements = rounding_movements(
         deposits, claims, result["allocations"], result["deposit_remaining"],
         result["claim_remaining"], tolerance_by_employer,
@@ -1961,8 +1968,12 @@ def _distribute_deposits(
             destination = {
                 "tipo": "Partida complementaria", "partida": claim_id[2:]
             }
+            if entry.get("detail_row"):
+                person = detail_identities.get(entry["detail_row"], {})
+                destination.update({"fila_detalle": entry["detail_row"], "cliente": person.get("client_name") or "",
+                                    "nro_cliente": person.get("client_number") or "", "credito": person.get("loan_number") or ""})
         detail_by_deposit[entry["deposit_id"]].append(
-            {**destination, "empresa": claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
+            {**destination, "empresa": entry.get("group") or claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
              "origen": entry["origin"]}
         )
     for movement in movements:

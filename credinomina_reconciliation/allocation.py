@@ -38,7 +38,7 @@ def allocate_cash(
     blocked_deposits = {str(value) for value in blocked_deposit_ids}
     instructions = list(instructions)
 
-    def book(deposit_id: str, claim_id: str, amount: float, origin: str):
+    def book(deposit_id: str, claim_id: str, amount: float, origin: str, group=None, detail_row=None):
         amount = money(amount)
         if abs(amount) <= CAPACITY_EPSILON:
             return
@@ -50,6 +50,8 @@ def allocate_cash(
                 "claim_id": claim_id,
                 "amount_usd": money_float(amount),
                 "origin": origin,
+                **({"group": group} if group else {}),
+                **({"detail_row": detail_row} if detail_row else {}),
             }
         )
 
@@ -72,7 +74,7 @@ def allocate_cash(
                     or amount * money(claim["amount_usd"]) <= 0):
                 error = "Signo o importe complementario invalido"
                 break
-            if not permits_claim(deposits[deposit_id], claim):
+            if not permits_claim(deposits[deposit_id], claim, row.get("group")):
                 error = "Empresa no coincide"
                 break
             totals[claim_id] = totals.get(claim_id, money(0)) + amount
@@ -87,7 +89,8 @@ def allocate_cash(
         for row in group:
             instruction_results[str(row["id"])] = error or "Aplicada"
             if not error:
-                book(deposit_id, str(row["claim_id"]), row["amount_usd"], "Manual")
+                book(deposit_id, str(row["claim_id"]), row["amount_usd"], "Manual", row.get("group"),
+                     row.get("detail_row") if claims[str(row["claim_id"])].get("manual_only") else None)
 
     for instruction in instructions:
         name = str(instruction["id"])
@@ -101,7 +104,7 @@ def allocate_cash(
             if deposit_id in deposits:
                 blocked_deposits.add(deposit_id)
             continue
-        if not permits_claim(deposits[deposit_id], claims[claim_id]):
+        if not permits_claim(deposits[deposit_id], claims[claim_id], instruction.get("group")):
             instruction_results[name] = "Empresa no autorizada"
             blocked_deposits.add(deposit_id)
             continue
@@ -117,7 +120,8 @@ def allocate_cash(
             instruction_results[name] = "Excede cobranza"
             blocked_deposits.add(deposit_id)
             continue
-        book(deposit_id, claim_id, amount, "Manual")
+        book(deposit_id, claim_id, amount, "Manual", instruction.get("group"),
+             instruction.get("detail_row") if claims[claim_id].get("manual_only") else None)
         instruction_results[name] = "Aplicada"
 
     # Repeat because one deposit can settle several claims and several deposits
@@ -135,7 +139,8 @@ def allocate_cash(
             reference_groups = {
                 clean_text(claim.get("group"))
                 for claim in claims.values()
-                if reference in {clean_text(value) for value in claim.get("references", ())}
+                if not claim.get("manual_only")
+                and reference in {clean_text(value) for value in claim.get("references", ())}
                 and clean_text(claim.get("group"))
             }
             if len(reference_groups) > 1:
@@ -146,6 +151,7 @@ def allocate_cash(
                 claim_id
                 for claim_id, claim in claims.items()
                 if claim_left[claim_id] > CAPACITY_EPSILON
+                and not claim.get("manual_only")
                 and reference in {clean_text(value) for value in claim.get("references", ())}
             ]
             if len(candidates) == 1:

@@ -19,8 +19,14 @@ def allowed_employers(payer, mapping=None):
     return {payer, *mapping.get(payer, ())} - {None, ""}
 
 
-def reconciliation_companies(employer, mapping=None):
+def reconciliation_companies(employer, mapping=None, shared_pools=None):
     """Recompute the connected cash pool together, without extending payment rights."""
+    if shared_pools is None:
+        if mapping is None:
+            from credinomina_reconciliation.complementary_distribution import shared_company_pools
+            shared_pools = shared_company_pools()
+        else:
+            shared_pools = []
     mapping = load_payer_map() if mapping is None else mapping
     scope = {employer}
     while True:
@@ -29,12 +35,19 @@ def reconciliation_companies(employer, mapping=None):
             group = {payer, *beneficiaries}
             if scope & group:
                 expanded.update(group)
+        for group in shared_pools:
+            if scope & set(group):
+                expanded.update(group)
         if expanded == scope:
             return sorted(scope)
         scope = expanded
 
 
-def permits_claim(deposit, claim):
+def permits_claim(deposit, claim, destination_group=None):
+    if claim.get("manual_only"):
+        groups = set(claim.get("groups") or [claim.get("group")]) - {None, ""}
+        allowed = set(deposit.get("allowed_groups") or [deposit.get("group")]) - {None, ""}
+        return (destination_group in groups & allowed if destination_group else len(groups & allowed) == 1)
     group = clean_text(claim.get("group"))
     payer = clean_text(deposit.get("group"))
     return not group or not payer or group in set(deposit.get("allowed_groups") or [payer])

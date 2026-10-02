@@ -17,6 +17,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
         frm.set_query("period", "detail_periods", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
         frm.set_query("employer", "detail_rows", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
+        frm.set_query("employer", "targets", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
         loadPayingCompanies(frm);
@@ -343,6 +344,7 @@ async function linkRemittanceDetailTargets(frm) {
             {fieldname: "detail", fieldtype: "Select", label: __("Fila del detalle"),
                 options: [...labels.keys()], onchange: loadTargets},
             {fieldname: "help", fieldtype: "HTML", options: `<p class="text-muted">Marque los destinos que cubren esta fila. Puede vincular varias aplicaciones a una fila; sus importes deben sumar el equivalente US$ de la fila.
+                Para repartir una partida complementaria entre clientes, edite Importe a vincular: el restante queda como otro destino sin vincular, conservando el mismo total.
                 Los destinos vinculados a otra fila no se muestran. Para liberar un destino, seleccione su fila, desmárquelo y guarde.
                 Al cambiar de fila se descartan las marcas sin guardar. Volver a importar el archivo elimina estos vínculos.</p>`},
             {fieldname: "destinations", fieldtype: "Table", label: __("Destinos del depósito"),
@@ -350,7 +352,7 @@ async function linkRemittanceDetailTargets(frm) {
                 fields: [
                     {fieldname: "linked", fieldtype: "Check", label: __("Vincular"), in_list_view: 1, columns: 1},
                     {fieldname: "destination", fieldtype: "Small Text", label: __("Destino"), read_only: 1, in_list_view: 1, columns: 7},
-                    {fieldname: "amount_usd", fieldtype: "Currency", label: __("Asignado US$"), read_only: 1, in_list_view: 1, columns: 2},
+                    {fieldname: "amount_usd", fieldtype: "Currency", label: __("Importe a vincular US$"), in_list_view: 1, columns: 2, precision: 2},
                     {fieldname: "target_id", fieldtype: "Data", hidden: 1},
                 ], data: []},
         ],
@@ -359,13 +361,11 @@ async function linkRemittanceDetailTargets(frm) {
             if (busy) return;
             const rowName = labels.get(dialog.get_value("detail"));
             if (!rowName) return;
-            const chosen = new Set((dialog.get_value("destinations") || []).filter(row => row.linked).map(row => row.target_id));
             const detail = rows.find(row => row.name === rowName);
-            for (const target of targets) {
-                if (target.detail_row === rowName || chosen.has(target.name)) {
-                    target.detail_row = chosen.has(target.name) ? rowName : "";
-                    target.detail_row_label = target.detail_row ? `Fila ${detail.source_row || detail.idx} · ${detail.client_name}` : "";
-                }
+            const error = splitRemittanceTargetsForDetail(frm, detail, dialog.get_value("destinations") || []);
+            if (error) {
+                frappe.msgprint(error);
+                return;
             }
             frm.dirty();
             frm.refresh_field("targets");
@@ -385,10 +385,46 @@ async function linkRemittanceDetailTargets(frm) {
     loadTargets();
 }
 
+function splitRemittanceTargetsForDetail(frm, detail, selections) {
+    const targets = frm.doc.targets || [];
+    const chosen = new Map(selections.filter(row => row.linked).map(row => [row.target_id, row]));
+    const plans = [];
+    for (const [name, selection] of chosen) {
+        const target = targets.find(row => row.name === name);
+        if (!target || (target.detail_row && target.detail_row !== detail.name)) return __("Un destino cambió de fila. Abra nuevamente el selector.");
+        const amount = toScaledInteger(selection.amount_usd, 2);
+        const original = toScaledInteger(target.amount_usd, 2);
+        if (!amount || amount * original <= 0n || (amount < 0n ? -amount : amount) > (original < 0n ? -original : original)) {
+            return __("El importe a vincular debe conservar el signo y no superar el importe del destino.");
+        }
+        if (amount !== original && !target.complementary_item) return __("Solo las partidas complementarias pueden dividirse desde este selector.");
+        plans.push({target, amount, remainder: original - amount});
+    }
+    // Validate every edit before changing the form. The shared claim is never duplicated.
+    for (const target of [...targets]) {
+        if (target.detail_row === detail.name && !chosen.has(target.name)) {
+            target.detail_row = "";
+            target.detail_row_label = "";
+        }
+    }
+    for (const {target, amount, remainder} of plans) {
+        if (remainder) {
+            const remaining = Object.fromEntries(["period", "row_key", "historical_application", "complementary_item", "employer", "notes"].map(key => [key, target[key] || ""]));
+            frm.add_child("targets", {...remaining, amount_usd: Number(remainder) / 100, detail_row: "", detail_row_label: ""});
+        }
+        target.amount_usd = Number(amount) / 100;
+        target.detail_row = detail.name;
+        target.detail_row_label = `Fila ${detail.source_row || detail.idx} · ${detail.client_name}`;
+        if (target.complementary_item && detail.employer) target.employer = detail.employer;
+    }
+    return "";
+}
+
 frappe.ui.form.on("CN Remittance Target", {
     targets_add: renderRemittanceOverview,
     targets_remove: renderRemittanceOverview,
     amount_usd: renderRemittanceOverview,
+    employer: renderRemittanceOverview,
     period: renderRemittanceOverview,
     row_key: renderRemittanceOverview,
     historical_application: renderRemittanceOverview,
@@ -793,6 +829,7 @@ class RemittanceTargetPicker {
                     period: row.period || "", row_key: row.row_key || "",
                     historical_application: row.historical_application || "",
                     complementary_item: row.complementary_item || "", amount_usd: cents / 100,
+                    employer: row.generic_distribution ? row.employer : "",
                     notes: [row.employer, row.client_name, row.loan_number && `Crédito ${row.loan_number}`, row.period_label, row.reference].filter(Boolean).join(" · "),
                 });
             }

@@ -22,6 +22,8 @@ class CNComplementaryItem(Document):
         from credinomina_reconciliation.accounting_review import validate_review_item
 
         validate_review_item(self, previous)
+        from credinomina_reconciliation.complementary_distribution import validate_distribution
+        validate_distribution(self)
         self.amount = money(self.amount)
         self.reference = (self.reference or "").strip()
         if not self.reference and not self.get("accounting_source_key") and self.category not in {APPLICATION_ADJUSTMENT, compensation.CATEGORY}:
@@ -89,6 +91,8 @@ class CNComplementaryItem(Document):
 
     def before_cancel(self):
         compensation.guard_delete(self)
+        from credinomina_reconciliation.complementary_distribution import guard_closed_distributions
+        guard_closed_distributions(self)
         guard_tolerance_item(self)
         if self.category == APPLICATION_ADJUSTMENT:
             frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)

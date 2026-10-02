@@ -94,6 +94,36 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(targets, [])
         self.assertIn("período", reason)
 
+    def test_periodless_identified_complement_is_valid_only_when_explicitly_linked(self):
+        claims = [dict(id="H:A", kind="H", group="EMP", period="APRIL", client_number="3538", amount_usd=63.73),
+                  dict(id="X:ITEM", kind="X", group="EMP", period="", client_number="3538", amount_usd=63.74)]
+        manual = [dict(id="CORE", claim_id="H:A", amount_usd=63.73),
+                  dict(id="COMP", claim_id="X:ITEM", amount_usd=63.74)]
+        targets, _ = manual_detail_targets(self.row, claims, manual, 127.47, "EMP", ["APRIL", "MAY"])
+        self.assertEqual(len(targets), 2)
+        for invalid in ({"period": "OTHER"}, {"client_number": "OTHER"}, {"group": "OTHER"}):
+            bad = [claims[0], claims[1] | invalid]
+            self.assertFalse(manual_detail_targets(self.row, bad, manual, 127.47, "EMP", ["APRIL"])[0])
+
+    def test_shared_generic_complement_covers_multiple_clients_without_double_booking(self):
+        rows = [frappe._dict(name="R1", parent="DEP", employer="EMP", client_name="ANA", client_number="1", loan_number="1-1", deducted_usd=200),
+                frappe._dict(name="R2", parent="DEP", employer="EMP", client_name="LUIS", client_number="2", loan_number="2-1", deducted_usd=300)]
+        claim = dict(id="X:GENERIC", kind="X", manual_only=True, group="EMP", groups=["EMP"], amount_usd=500)
+        manual = [dict(id="M1", deposit_id="DEP", claim_id=claim["id"], amount_usd=200, detail_row="R1"),
+                  dict(id="M2", deposit_id="DEP", claim_id=claim["id"], amount_usd=300, detail_row="R2")]
+        remittance = frappe._dict(name="DEP", employer="EMP", detail_file="detail.xlsx", detail_hash="hash", detail_source_file="detail.xlsx",
+                                 detail_periods=[frappe._dict(period="APRIL")])
+        deposits = [dict(id="DEP", group="EMP", amount_usd=500)]
+        with patch.object(source.frappe, "get_all", return_value=rows):
+            context = source._prepare_remittance_details([remittance], {"DEP": "DEP"}, deposits, [claim], manual, {})
+        self.assertEqual(context["instructions"], [])
+        allocation = allocate_cash(deposits, [claim], manual, context["blocked_deposits"])
+        with patch.object(source.frappe, "db", Mock()), patch("credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={}):
+            self.assertEqual(source._sync_remittance_details(context, allocation, [claim]), {"DEP": "Conciliado"})
+        self.assertEqual(allocation["claim_remaining"][claim["id"]], 0)
+        self.assertEqual(sum(entry["amount_usd"] for entry in allocation["allocations"]), 500)
+        self.assertEqual([entry["detail_row"] for entry in allocation["allocations"]], ["R1", "R2"])
+
     def test_separate_negative_complement_explains_detail_above_cash_received(self):
         self.row.deducted_nio = 0
         self.row.deducted_usd = 100

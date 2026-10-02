@@ -110,7 +110,7 @@ def reconcile_deposit(document, progress=None):
     complements = frappe.get_all("CN Complementary Item", filters={
         "docstatus": 1, "employer": scope,
         "category": ["not in", [engine.COMPANY_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas"]],
-    }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number"], limit_page_length=0)
+    }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution"], limit_page_length=0)
     complementary_by_target = engine._allocate_complementary_items(complements, periods)
     others = frappe.get_all("CN Remittance Allocation", filters={
         "docstatus": 1, "employer": scope, "name": ["!=", document.name],
@@ -207,7 +207,7 @@ def reconcile_deposit(document, progress=None):
         finally:
             engine._source_reconcile_verified.reset(token)
     document.reload()
-    matched = sum(row.match_status == "Conciliado" for row in document.detail_rows)
+    matched = sum(row.match_status in {"Conciliada", "No deducido"} for row in document.detail_rows)
     report(100, _("Conciliación del depósito finalizada."))
     return {"deposit": document.name, "result": document.result, "periods": sorted(affected),
             "detail_rows": len(document.detail_rows), "detail_matched": matched,

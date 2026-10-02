@@ -108,9 +108,11 @@ def get_pending_targets(remittance_name, targets=None):
     )
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
-                "client_number", "loan_number", "installment_number", "description", "voucher"],
+                "client_number", "loan_number", "installment_number", "description", "voucher", "generic_distribution"],
         limit_page_length=0)
     linked_items = _allocate_complementary_items(items, periods)
+    from credinomina_reconciliation.complementary_distribution import attach_company_scopes, company_scope
+    attach_company_scopes(items)
     complementary = defaultdict(lambda: money(0))
     for (row_name, _reference), linked in linked_items.items():
         complementary[row_name] += sum((money(item.amount_usd) for item in linked), money(0))
@@ -165,12 +167,14 @@ def get_pending_targets(remittance_name, targets=None):
         period = open_periods.get(item.period)
         if item.period and not period:
             continue
-        if (item.employer or (period.employer if period else None)) not in allowed:
+        scope = company_scope(item) if item.get("generic_distribution") else {item.employer or (period.employer if period else None)}
+        if not scope & set(allowed):
             continue
         if not frappe.has_permission("CN Complementary Item", "read", doc=item.name):
             continue
-        candidates.append({**identity(item), "employer": item.employer or period.employer, "kind": "Partida complementaria",
+        candidates.append({**identity(item), "employer": item.employer if item.employer in allowed else sorted(scope & set(allowed))[0], "kind": "Partida complementaria",
             "client_name": item.description, "complementary_item": item.name,
+            "generic_distribution": bool(item.get("generic_distribution")),
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
             "due_usd": float(money(item.amount_usd))})

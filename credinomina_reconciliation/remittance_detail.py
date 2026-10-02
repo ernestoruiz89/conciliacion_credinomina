@@ -102,17 +102,29 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     targets = []
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
-        if not claim or clean_text(claim.get("group")) not in set(allowed_groups or [employer]):
+        allowed = set(allowed_groups or [employer])
+        generic = bool(claim and claim.get("kind") == "X" and claim.get("manual_only"))
+        groups = set(claim.get("groups") or [claim.get("group")]) if claim else set()
+        if not claim or not (groups & allowed if generic else clean_text(claim.get("group")) in allowed):
             return [], "Destino manual inexistente o de otra empresa"
-        if periods and clean_text(claim.get("period")) not in periods:
+        claim_period = clean_text(claim.get("period"))
+        if periods and claim_period not in periods and not (claim.get("kind") == "X" and not claim_period):
             return [], "El destino manual no pertenece a los períodos del detalle"
-        if not _candidate_matches(row, claim):
+        if generic:
+            company = clean_text(row.get("employer")) or (next(iter(groups & allowed)) if len(groups & allowed) == 1 else "")
+            if not company or company not in groups & allowed:
+                return [], "Indique una empresa autorizada en la fila para distribuir la partida genérica"
+            if instruction.get("group") and instruction["group"] != company:
+                return [], "La empresa del destino genérico no coincide con la fila del detalle"
+            instruction["group"] = company
+        elif not _candidate_matches(row, claim):
             return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
         if (not money(instruction["amount_usd"]) or
                 (money(instruction["amount_usd"]) < 0 and claim.get("kind") != "X")):
             return [], "Solo las partidas complementarias admiten importes negativos"
         targets.append({"claim_id": claim["id"], "amount_usd": money_float(instruction["amount_usd"]),
-                        "instruction_id": instruction["id"]})
+                        "instruction_id": instruction["id"],
+                        **({"group": instruction["group"]} if generic else {})})
     if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
         return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
     return targets, "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
@@ -128,7 +140,8 @@ def suggest_detail_targets(
     periods = _period_scope(period)
     claims = [
         claim for claim in claims
-        if clean_text(claim.get("group")) in set(allowed_groups or [employer])
+        if not claim.get("manual_only")
+        and clean_text(claim.get("group")) in set(allowed_groups or [employer])
         and (not periods or clean_text(claim.get("period")) in periods)
         and money(claim.get("amount_usd")) > 0
     ]
