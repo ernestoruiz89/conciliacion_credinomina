@@ -55,7 +55,7 @@ const context = vm.createContext({
             this.label = opts.primary_action_label;
             this.values = {...options};
             this.props = {};
-            this.fields_dict = {result: {$wrapper: {html: value => {html = value;}, empty: () => {html = "";},
+            this.fields_dict = {result: {$wrapper: {html: value => {html = value;}, append: value => {html += value;}, empty: () => {html = "";},
                 on: (event, selector, callback) => {handlers[selector] = callback;}}}};
             this.get_values = () => this.values;
             this.set_values = async values => { this.values = {...values}; };
@@ -89,7 +89,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     const main = dialog;
     handlers[".cn-change-employer"].call({getAttribute: () => "8"});
     assert.equal(dialog.opts.fields[1].options, "CN Employer");
-    dialog.primary({employer: "Empresa elegida"});
+    await dialog.primary({employer: "Empresa elegida"});
     dialog = main;
     assert.equal(dialog.disabled, true, "Changing the company invalidates confirmation until reanalysis");
     assert.ok(html.includes("selecciones de empresa sin analizar"));
@@ -155,5 +155,25 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     await dialog.primary();
     assert.equal(dialog.disabled, true, "An old cached preview must be refreshed before confirmation");
     assert.ok(html.includes("Pulse Nuevo análisis"));
+    legacy = false;
+    state.status = "Error";
+    state.phase = "create";
+    state.resumable = true;
+    state.error = "Worker interrumpido";
+    state.progress = "Bloques guardados: 1 de 3";
+    state.options.employer_assignments = {8: "Empresa conservada"};
+    state.options.assignments_file_hash = "FILE-HASH";
+    storage.delete("cn-accounting-bulk:tester:employers");
+    storage.delete("cn-accounting-bulk:tester");
+    context.frappe.credinomina.openAccountingBulk();
+    await dialog.opts.fields.find(field => field.fieldname === "recover_batch").click();
+    assert.equal(dialog.label, "Reanudar carga");
+    assert.ok(html.includes("Bloques guardados: 1 de 3"));
+    assert.equal(JSON.parse(storage.get("cn-accounting-bulk:tester:employers")).choices[8], "Empresa conservada");
+    await dialog.primary();
+    assert.ok(calls.some(call => call.method.endsWith("resume_bulk_import")));
+    dialog.secondary();
+    await dialog.primary();
+    assert.equal(JSON.parse(calls.filter(call => call.method.endsWith("preview_bulk_import")).at(-1).args.employer_assignments)[8], "Empresa conservada");
     console.log("Carga masiva UI: preview, confirmation, escaping, dates, option locking and issues OK");
 })().catch(error => {console.error(error); process.exitCode = 1;});

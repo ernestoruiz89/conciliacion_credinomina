@@ -1,0 +1,53 @@
+{
+  "doctype": "DocType",
+  "name": "CN Accounting Batch",
+  "module": "Conciliacion Credinomina",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "field_order": [
+    "source_file",
+    "state_json",
+    "configuration_json"
+  ],
+  "fields": [
+    {"fieldname": "configuration_json", "fieldtype": "Long Text", "label": "Opciones y empresas seleccionadas", "read_only": 1},
+    {
+      "fieldname": "source_file",
+      "fieldtype": "Attach",
+      "label": "Archivo original",
+      "read_only": 1
+    },
+    {
+      "fieldname": "state_json",
+      "fieldtype": "Long Text",
+      "label": "Estado interno",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "if_owner": 1
+    },
+    {
+      "role": "Supervisor Credinomina",
+      "read": 1,
+      "write": 1,
+      "if_owner": 1
+    },
+    {
+      "role": "Operador Credinomina",
+      "read": 1,
+      "write": 1,
+      "if_owner": 1
+    }
+  ],
+  "modified": "2026-10-01 17:00:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator",
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "index_web_pages_for_search": 0
+}

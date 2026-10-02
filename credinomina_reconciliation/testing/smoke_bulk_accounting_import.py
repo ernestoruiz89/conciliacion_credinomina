@@ -19,6 +19,8 @@ def run():
     frappe.set_user("Administrator")
     marker = "bulk-" + frappe.generate_hash(length=8)
     token = None
+    commit_patch = patch.object(frappe.db, "commit")
+    commit_patch.start()
     try:
         employers = [frappe.get_doc({"doctype": "CN Employer", "employer_name": f"{marker}-{n}",
                      "employer_code": f"{marker}-{n}", "payroll_frequency": "Mensual"}).insert().name
@@ -56,7 +58,11 @@ def run():
             bulk.confirm_bulk_import(token)
         # Exercise creation and status delivery but keep all data rollback-only.
         with patch.object(bulk.frappe.db, "commit"):
-            bulk.run_bulk_job(token, "Administrator")
+            with patch.object(bulk.frappe, "enqueue"):
+                for _attempt in range(10):
+                    bulk.run_bulk_job(token, "Administrator")
+                    if bulk._state(token)["status"] == "Completado":
+                        break
         state = bulk.get_bulk_import_status(token)
         assert state["status"] == "Completado", state
         created = state["created"]
@@ -134,3 +140,4 @@ def run():
         if token:
             frappe.cache.delete_value(bulk._key(token))
         frappe.db.rollback()
+        commit_patch.stop()

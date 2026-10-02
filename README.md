@@ -184,9 +184,39 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
 
 El procesamiento requiere un worker de la cola `long`. Puede cerrar el modal
-y volver a **Carga masiva** desde el mismo navegador/usuario para consultar el
-resultado durante 24 horas. La creación es transaccional: un error revierte
-todo el lote. Use el mismo botón **3. Cargar movimientos contables** para recargar
+y volver a **Carga masiva** para consultar el avance. El plan, las empresas
+seleccionadas y los resultados se guardan en la base de datos, sin caducar a las
+24 horas. Desde otro navegador, con el mismo usuario, pulse **Recuperar última
+carga guardada**. Las selecciones previas al nuevo análisis también se guardan
+como borrador; es necesario analizarlas antes de confirmar.
+
+La creación se divide en bloques de hasta **25 documentos o 1,000 filas**,
+ejecutados como trabajos independientes. Un grupo empresa/fecha no se divide:
+si supera 1,000 filas, ocupa un bloque propio. Cada bloque guarda sus documentos,
+CSV y avance en la misma transacción. Si falla, solo se revierte el bloque en
+curso; los anteriores permanecen guardados. Pulse **Reanudar carga** una vez
+resuelta la causa, sin volver a seleccionar empresas ni recrear los bloques
+completados. Si los datos cambiaron antes de confirmar el plan, use **Nuevo
+análisis**: conserva las selecciones ligadas al mismo archivo y excluye sus filas
+ya importadas. No se permite reanudar mientras el trabajo siga activo/en cola.
+
+El original se comparte mediante referencias de archivo, sin cargar/copiar su
+contenido por cada documento. Los CSV individuales se preparan una vez y se
+guardan con cada bloque. El historial técnico (`CN Accounting Batch` y
+`CN Accounting Batch Block`) no añade pasos al flujo ni permite edición manual.
+La ventana muestra hasta 100 grupos de la vista previa y 200 documentos finales;
+los contadores incluyen todos y los documentos completos están en sus listas.
+
+Al desplegar esta actualización, ejecute `bench --site credinomina migrate` y
+reinicie los procesos web/workers con `bench restart` antes de reanudar cargas.
+Los nuevos trabajos usan bloqueos transaccionales de base de datos, liberados
+al morir la conexión; no es necesario borrar bloqueos de Redis a mano. No deben
+convivir workers con la implementación antigua y la nueva durante una carga.
+Las cargas antiguas no tienen bloques persistidos: vuelva a analizarlas con las
+selecciones conservadas en su navegador/vista previa mientras estén disponibles.
+No se pueden recuperar documentos que la transacción antigua no llegó a guardar.
+
+Use el mismo botón **3. Cargar movimientos contables** para recargar
 el CSV individual de un documento sin
 mezclarlo con los otros grupos. El CSV conserva las columnas e importes originales
 (antes de convertir NIO a USD), incluyendo una columna `CN_FILA_ORIGEN` para rastrear

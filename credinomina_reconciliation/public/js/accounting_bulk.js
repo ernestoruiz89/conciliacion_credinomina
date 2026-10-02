@@ -11,7 +11,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (saved) ({choices, choiceFile, choiceHash, choicesDirty} = saved);
     } catch (_) { localStorage.removeItem(choicesKey); }
     let token = localStorage.getItem(storageKey);
-    let timer, closed = false, running = false;
+    let timer, closed = false, running = false, currentPhase = "preview";
     const dialog = new frappe.ui.Dialog({
         title: __("Carga masiva de movimientos contables"), size: "extra-large",
         fields: [
@@ -30,6 +30,16 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             {fieldtype: "Check", fieldname: "historical_backfill", label: __("Forzar tratamiento histórico"),
                 description: __("Las fechas anteriores a septiembre de 2026 ya se tratan como históricas. No se crean ni se cierran períodos en esta carga.")},
             {fieldtype: "Section Break"},
+            {fieldtype: "Button", fieldname: "recover_batch", label: __("Recuperar última carga guardada"), click: async () => {
+                if (running) return;
+                try {
+                    const response = await frappe.call({method: api + "latest_bulk_import"});
+                    if (!response.message?.token) { frappe.msgprint(__("No tiene cargas guardadas.")); return; }
+                    token = response.message.token;
+                    localStorage.setItem(storageKey, token);
+                    await poll();
+                } catch (_) { showError(__("No se pudo recuperar la carga. Revise la conexión e intente nuevamente.")); }
+            }},
             {fieldtype: "HTML", fieldname: "result"},
         ],
         primary_action_label: __("Analizar archivo"),
@@ -39,6 +49,16 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     const result = dialog.fields_dict.result.$wrapper;
     function saveChoices() {
         localStorage.setItem(choicesKey, JSON.stringify({choices, choiceFile, choiceHash, choicesDirty}));
+    }
+    async function saveDraftChoices() {
+        if (!token || !choiceHash) return;
+        try {
+            await frappe.call({method: api + "save_bulk_employer_choices", args: {
+                token, employer_assignments: JSON.stringify(choices), file_hash: choiceHash,
+            }});
+        } catch (_) {
+            frappe.msgprint(__("Las selecciones se conservaron en este navegador, pero no se pudieron guardar en el servidor. Vuelva a analizar para guardarlas con la carga."));
+        }
     }
     const attr = value => esc(value).replaceAll('"', "&quot;").replaceAll("'", "&#39;");
     function companyChoice(row) {
@@ -60,7 +80,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                     description: __("Deje vacío para mantener NO IDENTIFICADA. La selección se aplicará al volver a analizar este archivo.")},
             ],
             primary_action_label: __("Guardar selección"),
-            primary_action(values) {
+            async primary_action(values) {
                 if (values.employer) choices[number] = values.employer;
                 else delete choices[number];
                 choicesDirty = true;
@@ -68,13 +88,14 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                 picker.hide();
                 renderSummary(lastSummary);
                 dialog.get_primary_btn().prop("disabled", true);
+                await saveDraftChoices();
             },
         });
         picker.show();
     });
     let lastSummary;
-    result.on("click", ".cn-clear-employers", function () {
-        if (running) return;
+    result.on("click", ".cn-clear-employers", async function () {
+        if (running || currentPhase === "create") return;
         choices = {}; choicesDirty = true;
         saveChoices();
         if (lastSummary) {
@@ -85,6 +106,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             dialog.set_primary_action(__("Analizar archivo"), preview);
             dialog.get_primary_btn().prop("disabled", false);
         }
+        await saveDraftChoices();
     });
     function lockOptions(locked) {
         for (const field of ["source_file", "currency", "manual_fx_rate", "employer", "portfolio_snapshot", "historical_backfill"]) {
@@ -93,7 +115,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     }
     function showError(error) {
         running = false;
-        result.html(`<div class="alert alert-danger">${esc(error)}</div>` + (Object.keys(choices).length
+        result.html(`<div class="alert alert-danger">${esc(error)}</div>` + (currentPhase !== "create" && Object.keys(choices).length
             ? `<button type="button" class="btn btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button>` : ""));
         dialog.set_primary_action(__("Analizar archivo"), preview);
         dialog.get_primary_btn().prop("disabled", false);
@@ -104,7 +126,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     function renderSummary(summary) {
         lastSummary = summary;
         previewRows = new Map();
-        let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
+        let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.group_count ?? summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
         if (choicesDirty) html += `<p class="alert alert-warning">${__("Hay selecciones de empresa sin analizar. Pulse Nuevo análisis y luego Analizar archivo para reagrupar antes de importar.")}</p>`;
         if (Object.keys(choices).length) html += `<p>${__("Empresas seleccionadas manualmente")}: ${Object.keys(choices).length} <button type="button" class="btn btn-xs btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button></p>`;
         if (!summary.sections) {
@@ -131,7 +153,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         let html = `<section data-identification="${unidentified ? "unidentified" : "identified"}" class="mb-4"><h4>${title} · ${esc(count)} ${__("movimientos")}</h4>`;
         if (!count) return html + `<p class="text-muted">${__("No hay movimientos en este grupo.")}</p></section>`;
         if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
-        html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
+        html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.group_count ?? section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
         if (section.rows && unidentified) {
             html += table([__("Fila"), __("Empresa asignada"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [
                 esc(row.row), companyChoice(row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : "—"),
@@ -143,6 +165,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             html += table([__("Empresa"), __("Fecha de aplicación"), __("Filas"), __("Total US$")], section.groups.map(group => [
                 esc(group.employer), esc(frappe.datetime.str_to_user(group.event_date)), esc(group.count), esc(format_currency(group.total_usd, "USD")),
             ]));
+            if (section.group_count > section.groups.length) html += `<p>${__("Se muestran las primeras 100 importaciones; los totales incluyen todas.")}</p>`;
         }
         if (section.complementary_count) {
             html += `<h5>${__("Partidas complementarias en borrador")}</h5><p>${__("No afectan saldos ni depósitos hasta confirmar su tratamiento.")}</p>`;
@@ -190,13 +213,33 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             await poll();
         } catch (error) { showError(__("No se pudo confirmar la carga. Revise el mensaje del servidor.")); }
     }
+    async function resume() {
+        if (running) return;
+        running = true;
+        dialog.get_primary_btn().prop("disabled", true);
+        try {
+            await frappe.call({method: api + "resume_bulk_import", args: {token}});
+            await poll();
+        } catch (_) {
+            showError(__("No se pudo reanudar. Si el trabajo sigue activo, espere; consulte su estado antes de volver a intentar."));
+            dialog.set_primary_action(__("Consultar estado"), poll);
+        }
+    }
     async function poll() {
         if (closed) return;
         try {
             const response = await frappe.call({method: api + "get_bulk_import_status", args: {token}});
             const state = response.message;
             if (closed) return;
+            currentPhase = state.phase || "preview";
             if (state.options) await dialog.set_values(state.options);
+            if (state.options && (!choicesDirty || (choiceFile && choiceFile !== state.options.source_file))) {
+                choices = state.draft_assignments ?? state.options.employer_assignments ?? {};
+                choiceFile = state.options.source_file;
+                choiceHash = state.options.assignments_file_hash || state.summary?.file_hash || "";
+                choicesDirty = JSON.stringify(choices) !== JSON.stringify(state.options.employer_assignments || {});
+                saveChoices();
+            }
             if (["En cola", "Procesando"].includes(state.status)) {
                 running = true;
                 lockOptions(true);
@@ -218,6 +261,8 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             } else if (state.status === "Completado") {
                 running = false;
                 let completed = `<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>`;
+                if (state.progress) completed += `<p>${esc(state.progress)}</p>`;
+                if (state.created_count > state.created.length) completed += `<p>${__("Se muestran los primeros 200 documentos. El resto está disponible en sus listas de importaciones, partidas y depósitos.")}</p>`;
                 for (const unidentified of [false, true]) {
                     const records = state.created.filter(doc => (!doc.employer || doc.employer === "NO IDENTIFICADA") === unidentified);
                     if (!records.length) continue;
@@ -232,12 +277,23 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                 dialog.set_primary_action(__("Cerrar"), () => dialog.hide());
                 dialog.get_primary_btn().prop("disabled", false);
                 if (onComplete) onComplete();
-            } else { showError(state.error || __("No se pudo completar la carga.")); }
-        } catch (error) { showError(__("No se pudo consultar la carga. Cierre y vuelva a abrir Carga masiva para reintentar. Si expiró, analice el archivo otra vez.")); }
+            } else {
+                showError(state.error || __("No se pudo completar la carga."));
+                if (state.progress) result.append(`<p>${esc(state.progress)}</p>`);
+                if (state.resumable) {
+                    lockOptions(true);
+                    dialog.set_primary_action(__("Reanudar carga"), resume);
+                }
+            }
+        } catch (error) {
+            showError(__("No se pudo consultar la carga. El avance y las empresas analizadas permanecen guardados. Reintente la consulta."));
+            dialog.set_primary_action(__("Consultar estado"), poll);
+        }
     }
     dialog.set_secondary_action(() => {
         if (running) { frappe.msgprint(__("Espere a que termine la carga en curso.")); return; }
         token = null;
+        currentPhase = "preview";
         localStorage.removeItem(storageKey);
         result.empty();
         lockOptions(false);

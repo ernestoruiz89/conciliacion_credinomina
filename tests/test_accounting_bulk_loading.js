@@ -26,7 +26,7 @@ for (const view of ["list", "form"]) {
                 ui: {
                     form: {on(_doctype, value) { handlers = value; }},
                     Dialog: function () {
-                        this.fields_dict = {result: {$wrapper: {}}};
+                        this.fields_dict = {result: {$wrapper: {on() {}}}};
                         this.set_secondary_action = () => {};
                         this.set_secondary_action_label = () => {};
                         this.show = () => { shown++; };

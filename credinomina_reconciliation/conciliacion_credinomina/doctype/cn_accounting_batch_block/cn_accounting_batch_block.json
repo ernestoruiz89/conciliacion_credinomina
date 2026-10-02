@@ -1,0 +1,54 @@
+{
+  "doctype": "DocType",
+  "name": "CN Accounting Batch Block",
+  "module": "Conciliacion Credinomina",
+  "autoname": "hash",
+  "engine": "InnoDB",
+  "field_order": [
+    "batch",
+    "block_index",
+    "payload",
+    "result_json",
+    "completed"
+  ],
+  "fields": [
+    {
+      "fieldname": "batch",
+      "fieldtype": "Link",
+      "label": "Carga",
+      "read_only": 1,
+      "options": "CN Accounting Batch"
+    },
+    {
+      "fieldname": "block_index",
+      "fieldtype": "Int",
+      "label": "Número de bloque",
+      "read_only": 1
+    },
+    {
+      "fieldname": "payload",
+      "fieldtype": "Long Text",
+      "label": "Plan confirmado",
+      "read_only": 1
+    },
+    {
+      "fieldname": "result_json",
+      "fieldtype": "Long Text",
+      "label": "Documentos guardados",
+      "read_only": 1
+    },
+    {
+      "fieldname": "completed",
+      "fieldtype": "Check",
+      "label": "Completado",
+      "read_only": 1
+    }
+  ],
+  "permissions": [],
+  "modified": "2026-10-01 17:00:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator",
+  "sort_field": "creation",
+  "sort_order": "DESC",
+  "index_web_pages_for_search": 0
+}

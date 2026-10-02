@@ -39,7 +39,7 @@ def create_review_items(records, source_file, file_hash):
     result = []
     for row in records:
         key = row["accounting_source_key"]
-        existing = frappe.db.get_value("CN Complementary Item", {"accounting_source_key": key}, "name")
+        existing = frappe.db.get_value("CN Complementary Item", {"accounting_source_key": key}, "name", for_update=True)
         if existing:
             frappe.get_doc("CN Complementary Item", existing).check_permission("read")
             row["complementary_item"] = existing
@@ -64,11 +64,8 @@ def create_review_items(records, source_file, file_hash):
             "source_date": row["event_date"], "source_fx_rate": row.get("manual_fx_rate") or row.get("fx_rate") or 0,
             "review_action": "Pendiente de revisión",
         }).insert()
-        original_file = frappe.get_doc("File", {"file_url": source_file})
-        original_file.check_permission("read")
-        frappe.get_doc({"doctype": "File", "file_name": original_file.file_name, "file_url": source_file,
-                        "is_private": original_file.is_private, "attached_to_doctype": document.doctype,
-                        "attached_to_name": document.name, "attached_to_field": "source_file"}).insert()
+        from credinomina_reconciliation.file_references import attach_existing_file
+        attach_existing_file(source_file, document.doctype, document.name, "source_file")
         row["complementary_item"] = document.name
         result.append(document)
     return result

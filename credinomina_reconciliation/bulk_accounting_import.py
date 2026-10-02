@@ -1,4 +1,4 @@
-"""Preview and transactional background creation of company/day imports."""
+"""Preview and resumable, bounded background creation of company/day imports."""
 
 import json
 
@@ -16,13 +16,13 @@ from credinomina_reconciliation.client_registry import enrich_source_import_clie
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.employer_naming import attach_employer_aliases, UNIDENTIFIED_EMPLOYER, ensure_unidentified_employer
 from credinomina_reconciliation.rounding import money_float, sum_money
+from credinomina_reconciliation.file_references import attach_existing_file, readable_file
 from credinomina_reconciliation.parsers import (
     SourceFileError, apply_accounting_currency_override, clean_text, file_sha256,
     parse_accounting_movements, source_key, read_table, _records_from_header,
 )
 
 DOCTYPE = "CN Accounting Import"
-TTL = 24 * 60 * 60
 MAX_MOVEMENTS = 100_000
 
 
@@ -31,7 +31,8 @@ def _key(token):
 
 
 def _store(token, state):
-    frappe.cache.set_value(_key(token), state, expires_in_sec=TTL)
+    from credinomina_reconciliation.accounting_batch_store import save_state
+    save_state(token, state)
 
 
 def _permissions():
@@ -39,9 +40,12 @@ def _permissions():
         frappe.throw(_("No tiene permisos para crear importaciones contables."), frappe.PermissionError)
 
 
-def _state(token):
+def _state(token, for_update=False):
     _permissions()
-    state = frappe.cache.get_value(_key(token))
+    from credinomina_reconciliation.accounting_batch_store import load_state
+    # Read-only recovery of previews made before durable batches were deployed.
+    # Their options include employer choices; the next new analysis retains them.
+    state = load_state(token, for_update=for_update) or frappe.cache.get_value(_key(token))
     if not state or state["user"] != frappe.session.user:
         frappe.throw(_("La carga no existe, expiró o pertenece a otro usuario."), frappe.PermissionError)
     return state
@@ -159,7 +163,7 @@ def _summary(plan):
         "file_hash": plan.get("file_hash"),
         "sections": {key: _identification_summary(plan, unidentified)
                      for key, unidentified in (("identified", False), ("unidentified", True))},
-        "groups": groups, "rows": sum(group["count"] for group in groups),
+        "groups": groups[:100], "group_count": len(groups), "rows": sum(group["count"] for group in groups),
         "complementary_count": len(plan.get("complementary", [])),
         "deposit_count": len(plan.get("deposits", [])),
         "unidentified_count": sum(group["count"] for group in groups if group["employer"] == UNIDENTIFIED_EMPLOYER)
@@ -185,7 +189,8 @@ def _identification_summary(plan, unidentified):
     deposits = [row for row in plan.get("deposits", []) if belongs(row.get("resolved_employer"))]
     applications = [row for group in groups for row in group["rows"]]
     return {
-        "groups": [{key: value for key, value in group.items() if key != "rows"} for group in groups],
+        "groups": [{key: value for key, value in group.items() if key != "rows"} for group in groups[:100]],
+        "group_count": len(groups),
         "rows": len(applications), "application_total_usd": money_float(sum_money(row.get("amount_usd") for row in applications)),
         "applications": [{"row": row["source_row"], "event_date": row.get("event_date"),
                           "client_name": row.get("client_name"), "loan_number": row.get("loan_number"),
@@ -217,6 +222,8 @@ def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", po
                         employer_assignments=None, assignments_file_hash=""):
     _permissions()
     _file(source_file)
+    from credinomina_reconciliation.accounting_batch_store import ensure_mutex
+    ensure_mutex()
     assignments = frappe.parse_json(employer_assignments) if isinstance(employer_assignments, str) else employer_assignments or {}
     if not isinstance(assignments, dict) or len(assignments) > MAX_MOVEMENTS:
         frappe.throw(_("Las asignaciones de empresa no tienen un formato válido."))
@@ -234,11 +241,12 @@ def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", po
 
 def _enqueue(token, state):
     try:
-        state["job_id"] = f"cn-accounting-batch-{token}-{state['phase']}"
+        state["job_id"] = f"cn-accounting-batch-{token}-{frappe.generate_hash(length=12)}"
         _store(token, state)
         frappe.enqueue(
             "credinomina_reconciliation.bulk_accounting_import.run_bulk_job",
             queue="long", timeout=3600, token=token, user=state["user"],
+            attempt=state["job_id"],
             enqueue_after_commit=True, job_id=state["job_id"],
         )
     except Exception:
@@ -249,38 +257,100 @@ def _enqueue(token, state):
 
 @frappe.whitelist(methods=["POST"])
 def confirm_bulk_import(token):
-    with frappe.cache.lock(_key(token) + ":confirmation", timeout=30):
-        state = _state(token)
-        if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
-            frappe.throw(_("Primero genere una vista previa sin errores."))
-        if not state["summary"]["rows"] and not state["summary"].get("complementary_count") and not state["summary"].get("deposit_count"):
-            frappe.throw(_("No hay movimientos nuevos para importar."))
-        state.update(status="En cola", phase="create")
-        _store(token, state)
-        _enqueue(token, state)
+    from credinomina_reconciliation.accounting_batch_store import ensure_mutex
+    _state(token)
+    ensure_mutex()
+    state = _state(token, for_update=True)
+    if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
+        frappe.throw(_("Primero genere una vista previa sin errores."))
+    if state.get("draft_assignments", state["options"].get("employer_assignments", {})) != state["options"].get("employer_assignments", {}):
+        frappe.throw(_("Hay empresas seleccionadas sin analizar. Genere un nuevo análisis antes de importar."))
+    if not state["summary"]["rows"] and not state["summary"].get("complementary_count") and not state["summary"].get("deposit_count"):
+        frappe.throw(_("No hay movimientos nuevos para importar."))
+    state.update(status="En cola", phase="create")
+    _enqueue(token, state)
     return {"token": token}
 
 
 @frappe.whitelist()
 def get_bulk_import_status(token):
     state = _state(token)
+    interrupted = False
+    job_status = None
     if state["status"] in {"En cola", "Procesando"} and state.get("job_id"):
         from frappe.utils.background_jobs import get_job
 
         job = get_job(state["job_id"])
-        if job and job.get_status() in {"failed", "stopped", "canceled"}:
-            state.update(status="Error", error=_(
-                "El worker interrumpió la carga. Genere una nueva vista previa para comprobar qué movimientos faltan; los ya importados no se duplicarán."
-            ))
-            _store(token, state)
-    return {key: state.get(key) for key in ("status", "phase", "summary", "created", "error", "progress", "options")}
+        job_status = job.get_status() if job else None
+        interrupted = not job or job_status in {"failed", "stopped", "canceled", "finished"}
+    output = {key: state.get(key) for key in ("status", "phase", "summary", "created", "error", "progress", "options",
+                                             "completed_blocks", "total_blocks", "created_count", "draft_assignments")}
+    output["resumable"] = interrupted or state["status"] == "Error"
+    if job_status == "started":
+        output["status"] = "Procesando"
+    if interrupted:
+        output.update(status="Error", error=_("El worker no está activo. Puede reanudar: los bloques guardados y las empresas seleccionadas se conservan."))
+    if state.get("total_blocks"):
+        from credinomina_reconciliation.accounting_batch_store import results
+        output["created"] = results(token)
+    return output
+
+
+@frappe.whitelist()
+def latest_bulk_import():
+    _permissions()
+    from credinomina_reconciliation.accounting_batch_store import BATCH, MUTEX
+    names = frappe.get_all(BATCH, filters={"owner": frappe.session.user, "name": ["!=", MUTEX]},
+                           order_by="creation desc", pluck="name", limit_page_length=1)
+    return {"token": names[0] if names else None}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_bulk_employer_choices(token, employer_assignments, file_hash):
+    """Save pre-analysis edits as a draft, never change a confirmed block plan."""
+    _state(token)
+    state = _state(token, for_update=True)
+    if state["phase"] != "preview" or state["status"] not in {"Vista previa", "Error"}:
+        frappe.throw(_("La carga ya está en proceso. No se pueden cambiar sus empresas seleccionadas."))
+    if file_hash != state.get("summary", {}).get("file_hash"):
+        frappe.throw(_("Las selecciones no corresponden al archivo analizado."))
+    assignments = frappe.parse_json(employer_assignments)
+    if not isinstance(assignments, dict) or len(assignments) > MAX_MOVEMENTS:
+        frappe.throw(_("Las asignaciones de empresa no tienen un formato válido."))
+    for company in set(assignments.values()):
+        frappe.get_doc("CN Employer", company).check_permission("read")
+    state["draft_assignments"] = assignments
+    _store(token, state)
+    return {"saved": True}
+
+
+@frappe.whitelist(methods=["POST"])
+def resume_bulk_import(token):
+    from credinomina_reconciliation.accounting_batch_store import ensure_mutex
+    _state(token)  # Permission/ownership check before locking anything.
+    ensure_mutex()
+    state = _state(token, for_update=True)
+    if state["status"] not in {"Error", "En cola", "Procesando"}:
+        frappe.throw(_("Esta carga no necesita reanudarse."))
+    if state.get("job_id"):
+        from frappe.utils.background_jobs import get_job
+        job = get_job(state["job_id"])
+        # A Redis/RQ inspection error propagates: never infer that a worker died.
+        if job and job.get_status() not in {"failed", "stopped", "canceled", "finished"}:
+            frappe.throw(_("El trabajo sigue activo o en cola. Espere antes de reanudar."))
+    state.update(status="En cola", error="")
+    _enqueue(token, state)
+    return {"token": token}
 
 
 def _create_imports(plan, options, progress=None):
     """One transaction, no reconciliation or period changes. Caller owns commit."""
     created = []
-    source, content = _file(options["source_file"])
-    source_records = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+    source = readable_file(options["source_file"])
+    source_records = None
+    if any("csv_content" not in group for group in plan["groups"]):
+        source, content = _file(options["source_file"])
+        source_records = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
     if any(group["employer"] == UNIDENTIFIED_EMPLOYER for group in plan["groups"]):
         ensure_unidentified_employer()
     records = []
@@ -301,7 +371,8 @@ def _create_imports(plan, options, progress=None):
         employer = group["employer"]
         frappe.get_doc("CN Employer", employer).check_permission("read")
         records = group["rows"]
-        csv_content = accounting_group_csv(source_records, records)
+        csv_content = (group["csv_content"].encode("utf-8") if "csv_content" in group
+                       else accounting_group_csv(source_records, records))
         group_snapshot = snapshot
         if snapshot_companies is not None and employer not in snapshot_companies and employer != UNIDENTIFIED_EMPLOYER:
             group_snapshot = ""
@@ -335,11 +406,7 @@ def _create_imports(plan, options, progress=None):
         document.file_hash = file_sha256(stored_content)
         document.save()
         # Keep the original report separately as provenance, never as reimport input.
-        frappe.get_doc({
-            "doctype": "File", "file_name": source.file_name, "file_url": source.file_url,
-            "is_private": source.is_private, "attached_to_doctype": DOCTYPE,
-            "attached_to_name": document.name, "attached_to_field": "bulk_source_file",
-        }).insert()
+        attach_existing_file(source, DOCTYPE, document.name, "bulk_source_file")
         created.append({"name": document.name, "employer": employer, "event_date": group["event_date"],
                         "rows": len(records), "total_usd": document.total_usd,
                         "description": records[0].get("source_description") or records[0].get("description") or "" if employer == UNIDENTIFIED_EMPLOYER else ""})
@@ -358,34 +425,105 @@ def _create_imports(plan, options, progress=None):
     return created
 
 
-def run_bulk_job(token, user):
+def _exclude_completed_applications(plan):
+    """Another batch may have committed overlapping physical rows since preview.
+
+    Caller holds the DB creation lock. Business-identical lines at different
+    source positions are deliberately NOT excluded.
+    """
+    rows = [row["source_row"] for group in plan["groups"] for row in group["rows"]]
+    if not rows:
+        return
+    existing = frappe.db.sql("""
+        select r.source_row from `tabCN Source Row` r
+        inner join `tabCN Accounting Import` p on p.name=r.parent
+        where r.parenttype='CN Accounting Import' and p.status!='Fallido'
+        and (p.bulk_source_hash=%s or p.file_hash=%s)
+        and r.source_row in %s for update
+    """, (plan["file_hash"], plan["file_hash"], tuple(rows)))
+    imported = {row[0] for row in existing}
+    kept = []
+    for group in plan["groups"]:
+        remaining = [row for row in group["rows"] if row["source_row"] not in imported]
+        if not remaining:
+            continue
+        if len(remaining) != len(group["rows"]):
+            # Use the frozen raw cells, never re-read the large original file.
+            raw = dict(_records_from_header(read_table("group.csv", group["csv_content"].encode("utf-8")), "cuenta_contable"))
+            raw = {int(values.get("cn_fila_origen") or number): values for number, values in raw.items()}
+            group["csv_content"] = accounting_group_csv(raw, remaining).decode("utf-8")
+            group.update(rows=remaining, count=len(remaining), total_usd=money_float(sum_money(row["amount_usd"] for row in remaining)))
+        kept.append(group)
+    plan["groups"] = kept
+
+
+def run_bulk_job(token, user, attempt=None):
+    from credinomina_reconciliation import accounting_batch_store as checkpoint
+
     frappe.set_user(user)
     state = _state(token)
     try:
-        state.update(status="Procesando", progress="")
-        _store(token, state)
-        # Serialize bulk confirmations, including files with overlapping rows.
-        with frappe.cache.lock(f"{frappe.local.site}:cn-accounting-batch-create", timeout=3700, blocking_timeout=5):
+        checkpoint.ensure_mutex()
+        state = _state(token, for_update=True)
+        if (attempt and state.get("job_id") != attempt) or state["status"] not in {"En cola", "Procesando"}:
+            return  # Obsolete/repeated delivery; never create the block twice.
+        if state["phase"] == "preview":
             plan = _plan(state["options"])
-            if state["phase"] == "preview":
-                state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan))
-            else:
-                if plan["issues"] or _signature(plan) != state["signature"]:
-                    frappe.throw(_("Los datos o las aplicaciones existentes cambiaron. Genere otra vista previa antes de importar."))
+            state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan), error="")
+            _store(token, state)
+            frappe.db.commit()
+            return
 
-                def progress(done, total):
-                    state["progress"] = _("Creando documento {0} de {1}").format(done, total)
-                    _store(token, state)
-
-                created = _create_imports(plan, state["options"], progress)
-                frappe.db.commit()
-                state.update(status="Completado", created=created)
-        _store(token, state)
+        # DB locks release automatically on a killed worker; no hour-long orphan
+        # Redis lease. Hold it through checkpoint + financial-record commit.
+        checkpoint.lock_creation()
+        if "total_blocks" not in state:
+            plan = _plan(state["options"])
+            if plan["issues"] or _signature(plan) != state["signature"]:
+                frappe.throw(_("Los datos o las aplicaciones existentes cambiaron. Genere otra vista previa antes de importar; se conservarán las empresas seleccionadas."))
+            source, content = _file(state["options"]["source_file"])
+            if file_sha256(content) != plan["file_hash"]:
+                frappe.throw(_("El archivo original cambió durante el análisis. Genere otra vista previa."))
+            raw = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+            total = checkpoint.prepare_blocks(token, plan, raw)
+            state.update(total_blocks=total, completed_blocks=0, created_count=0,
+                         original_content_hash=source.content_hash,
+                         progress=_("Plan guardado. {0} bloques pendientes; empresas seleccionadas conservadas.").format(total))
+        else:
+            index = state.get("completed_blocks", 0) + 1
+            if index <= state["total_blocks"]:
+                plan, completed = checkpoint.read_block(token, index)
+                if completed:
+                    frappe.throw(_("El avance del bloque no coincide con la carga. Revise el historial antes de continuar."))
+                source = readable_file(state["options"]["source_file"])
+                if source.content_hash != state.get("original_content_hash"):
+                    frappe.throw(_("El archivo original fue modificado. Los bloques guardados se conservan; revise antes de continuar."))
+                _exclude_completed_applications(plan)
+                created = _create_imports(plan, state["options"])
+                checkpoint.finish_block(token, index, created)
+                state.update(completed_blocks=index, created_count=state.get("created_count", 0) + len(created),
+                             progress=_("Bloques guardados: {0} de {1}. Documentos registrados/vinculados: {2}.").format(
+                                 index, state["total_blocks"], state.get("created_count", 0) + len(created)))
+        if state.get("completed_blocks", 0) == state["total_blocks"]:
+            state.update(status="Completado", error="")
+            _store(token, state)
+        else:
+            state.update(status="En cola", error="")
+            _enqueue(token, state)
+        # The checkpoint, document rows, evidence links and individual CSVs are
+        # atomic. If queue delivery after this commit fails, Resume queues only
+        # the next block using this durable cursor and the original choices.
+        frappe.db.commit()
     except Exception as exc:
         frappe.db.rollback()
         frappe.log_error(title="Carga masiva contable", message=frappe.get_traceback())
         message = str(exc) if isinstance(exc, (frappe.ValidationError, SourceFileError)) else _(
-            "No se pudo completar o informar la carga. Revise el registro de errores y los workers; una nueva vista previa excluirá los movimientos ya importados."
+            "Se interrumpió la carga. Los bloques guardados y las empresas seleccionadas se conservan. Revise el registro de errores y pulse Reanudar carga."
         )
-        state.update(status="Error", error=message)
-        _store(token, state)
+        saved = _state(token, for_update=True)
+        # A queue callback can fail AFTER commit. Read the durable cursor instead
+        # of saving a stale in-memory copy or undoing another worker's progress.
+        if saved["status"] != "Completado" and (not attempt or saved.get("job_id") in {attempt, state.get("job_id")}):
+            saved.update(status="Error", error=message)
+            _store(token, saved)
+        frappe.db.commit()

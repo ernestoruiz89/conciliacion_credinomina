@@ -82,9 +82,10 @@ def create_deposits(records, source_file, file_hash):
         ensure_unidentified_employer()
     result = []
     # Also serializes creation of previously unknown bank accounts.
-    with frappe.cache.lock(f"{frappe.local.site}:cn-accounting-deposits", timeout=3600, blocking_timeout=5):
+    from credinomina_reconciliation.accounting_batch_store import creation_guard
+    with creation_guard():
         for row in records:
-            existing = frappe.db.get_value(DOCTYPE, {"accounting_source_key": row["accounting_source_key"]}, "name")
+            existing = frappe.db.get_value(DOCTYPE, {"accounting_source_key": row["accounting_source_key"]}, "name", for_update=True)
             if existing:
                 document = frappe.get_doc(DOCTYPE, existing)
                 document.check_permission("read")
@@ -94,6 +95,8 @@ def create_deposits(records, source_file, file_hash):
                 continue
             if frappe.db.exists("CN Complementary Item", {"accounting_source_key": row["accounting_source_key"]}):
                 frappe.throw(_("Fila {0}: este movimiento ya se registró como partida complementaria. Revise ese registro antes de importarlo como depósito para no duplicar su efecto.").format(row["source_row"]))
+            if row.get("resolved_employer"):
+                frappe.get_doc("CN Employer", row["resolved_employer"]).check_permission("read")
             duplicates = frappe.get_all(DOCTYPE, filters={"docstatus": ["!=", 2],
                 "deposit_reference": row["bank_deposit_reference"], "deposit_date": row["deposit_date"],
                 "deposit_currency": row["deposit_currency"], "deposit_amount": row["deposit_amount"]}, pluck="name")
@@ -117,11 +120,8 @@ def create_deposits(records, source_file, file_hash):
                 "source_client_name": row.get("client_name") or "", "source_loan_number": row.get("loan_number") or "",
                 "source_file": source_file, "source_file_hash": file_hash,
             }).insert()
-            original = frappe.get_doc("File", {"file_url": source_file})
-            original.check_permission("read")
-            frappe.get_doc({"doctype": "File", "file_name": original.file_name, "file_url": source_file,
-                "is_private": original.is_private, "attached_to_doctype": DOCTYPE,
-                "attached_to_name": document.name, "attached_to_field": "source_file"}).insert()
+            from credinomina_reconciliation.file_references import attach_existing_file
+            attach_existing_file(source_file, DOCTYPE, document.name, "source_file")
             row["remittance_allocation"] = document.name
             result.append(document)
     return result
