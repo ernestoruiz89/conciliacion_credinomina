@@ -8,6 +8,7 @@ from credinomina_reconciliation.rounding import money
 class CNEmployer(Document):
     def validate(self):
         self.employer_name = (self.employer_name or "").strip()
+        self.short_name = (self.get("short_name") or "").strip()
         if not self.employer_name:
             frappe.throw(_("Indique el nombre de la empresa."))
         previous = self.get_doc_before_save()

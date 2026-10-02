@@ -1,11 +1,11 @@
-"""Period names use the employer code and the collection month, not today's date."""
+"""Period names use the short name (or code) and the collection month."""
 
 import frappe
 from frappe import _
 from frappe.model.naming import getseries, validate_name
 from frappe.utils import getdate
 
-from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.employer_naming import employer_document_prefix
 
 
 DOCTYPE = "CN Reconciliation Period"
@@ -14,13 +14,13 @@ DOCTYPE = "CN Reconciliation Period"
 def period_name_prefix(employer, payroll_month):
     if not employer or not payroll_month:
         frappe.throw(_("Indique la empresa y el mes de cobranza para nombrar el período."))
-    code = clean_text(frappe.db.get_value("CN Employer", employer, "employer_code"))
+    code = employer_document_prefix(employer)
     if not code:
-        frappe.throw(_("La empresa {0} debe tener un código antes de crear el período.").format(employer))
+        frappe.throw(_("La empresa {0} debe tener nombre corto o código antes de crear el período.").format(employer))
     month = getdate(payroll_month)
     prefix = f"{code}-{month.month}-{month.year}-"
     if len(prefix) + 2 > 140:
-        frappe.throw(_("El código de empresa es demasiado largo para nombrar el período."))
+        frappe.throw(_("El nombre corto o código de empresa es demasiado largo para nombrar el período."))
     validate_name(DOCTYPE, prefix + "01")
     return prefix
 
@@ -28,7 +28,7 @@ def period_name_prefix(employer, payroll_month):
 def new_period_name(employer, payroll_month):
     prefix = period_name_prefix(employer, payroll_month)
     # getseries locks the counter inside the current transaction. Pass the
-    # literal prefix so dots or naming tokens in an employer code stay literal.
+    # literal prefix so dots or naming tokens in the short name/code stay literal.
     while True:
         name = prefix + getseries(prefix, 2)
         if not frappe.db.exists(DOCTYPE, name):
@@ -62,4 +62,3 @@ def rename_period_for_context_change(document):
     document.localname = old_name  # Update the open form's route after saving.
     for child in document.get_all_children():
         child.parent = renamed
-

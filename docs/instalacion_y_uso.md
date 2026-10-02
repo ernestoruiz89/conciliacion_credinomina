@@ -37,9 +37,10 @@ importaciones, distribuciones, excepciones, movimientos internos y reportes.
 
 ## Orden de uso
 
-Los períodos nuevos se nombran con `código de empresa-mes-año-consecutivo`, por
+Los períodos nuevos se nombran con `nombre corto de empresa-mes-año-consecutivo`, por
 ejemplo `HAL-4-2025-01`. El mes no lleva cero inicial y el año corresponde al mes
-de cobranza. El consecutivo comienza en `01` por empresa, mes y año. Al guardar
+de cobranza. Si **Nombre corto** está vacío se usa el código de empresa.
+El consecutivo comienza en `01` por prefijo, mes y año. Al guardar
 un cambio permitido de empresa o mes, el período toma el siguiente consecutivo
 de su nuevo grupo y sus vínculos se actualizan. Los nombres anteriores se
 conservan mientras no cambien esos campos; no se renombra el histórico en masa.

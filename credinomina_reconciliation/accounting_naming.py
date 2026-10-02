@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.naming import getseries, make_autoname, validate_name
 from frappe.utils import getdate
+from credinomina_reconciliation.employer_naming import employer_document_prefix
 
 
 DOCTYPE = "CN Accounting Import"
@@ -20,12 +21,12 @@ def accounting_month(rows):
 def accounting_prefix(employer, month):
     if not employer or not month:
         return None
-    code = str(frappe.db.get_value("CN Employer", employer, "employer_code") or "").strip()
+    code = employer_document_prefix(employer)
     if not code:
-        frappe.throw(_("La empresa {0} debe tener código para nombrar la importación contable.").format(employer))
+        frappe.throw(_("La empresa {0} debe tener nombre corto o código para nombrar la importación contable.").format(employer))
     prefix = f"CONTA-{code}-{month.month}-{month.year}-"
     if len(prefix) + 3 > 140:
-        frappe.throw(_("El código de empresa es demasiado largo para nombrar la importación contable."))
+        frappe.throw(_("El nombre corto o código de empresa es demasiado largo para nombrar la importación contable."))
     validate_name(DOCTYPE, prefix + "001")
     return prefix
 

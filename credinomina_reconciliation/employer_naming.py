@@ -8,6 +8,14 @@ from uuid import uuid4
 UNIDENTIFIED_EMPLOYER = "NO IDENTIFICADA"
 
 
+def employer_document_prefix(employer):
+    """Readable document prefix; keep company codes and identities unchanged."""
+    import frappe
+
+    short_name = str(frappe.db.get_value("CN Employer", employer, "short_name") or "").strip()
+    return short_name or str(frappe.db.get_value("CN Employer", employer, "employer_code") or "").strip()
+
+
 def ensure_unidentified_employer():
     """Provision only the fixed holding company inside an authorized import.
 

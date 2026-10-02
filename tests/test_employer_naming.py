@@ -28,7 +28,7 @@ class EmployerNamingTest(unittest.TestCase):
         self.assertEqual(1, fields["employer_code"]["unique"])
         self.assertEqual("Table", fields["aliases"]["fieldtype"])
         self.assertEqual("CN Employer Alias", fields["aliases"]["options"])
-        self.assertEqual("employer_code", doctype["search_fields"])
+        self.assertEqual("employer_code,short_name", doctype["search_fields"])
         patches = configparser.ConfigParser(allow_no_value=True, delimiters="\n")
         patches.optionxform = str
         patches.read(root / "credinomina_reconciliation" / "patches.txt")

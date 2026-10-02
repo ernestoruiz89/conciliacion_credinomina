@@ -179,7 +179,7 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    con sus filas, importes en US$, trazabilidad y un **CSV individual** en el campo
    Archivo, nombrado como el documento. El archivo masivo se conserva por separado
    como soporte en Historial. Se conserva
-   el nombre `CONTA-CódigoEmpresa-Mes-Año-###`. No modifica cargas anteriores.
+   el nombre `CONTA-NombreCorto-Mes-Año-###` (usa el código si no hay nombre corto). No modifica cargas anteriores.
 5. Abra los documentos y use **Conciliar esta empresa** cuando corresponda.
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
 
@@ -394,10 +394,15 @@ los enlaces y bloques adicionales del sitio, sin modificar roles ni saldos.
 ## Primer uso
 
 Las aplicaciones se cargan en `CN Accounting Import` (Importación de Movimientos
-Contables). El identificador usa el código de empresa y el mes de la fecha
-`event_date` más antigua de sus filas: `CONTA-5111-9-2026-001`. El consecutivo
-es independiente por código de empresa y mes. Antes de completar empresa y
+Contables). El identificador usa el **Nombre corto** de la empresa, o su código
+si está vacío, y el mes de la fecha `event_date` más antigua de sus filas:
+`CONTA-INDENICSA-9-2026-001` o `CONTA-5111-9-2026-001`. El consecutivo
+es independiente por prefijo de empresa y mes. Antes de completar empresa y
 filas con fecha se utiliza un nombre provisional `CONTA-BORRADOR-...`.
+Los períodos usan el mismo prefijo: `INDENICSA-9-2026-01`, con el mes y año
+de cobranza. No se renombra en masa al completar el nombre corto: los períodos
+existentes conservan su nombre salvo cambio de empresa o mes; las importaciones
+ajustan su nombre al guardarse, como parte de su renombrado automático habitual.
 La migración renombra el DocType anterior y sus documentos conservando filas,
 adjuntos, permisos y referencias; no vuelve a conciliar los movimientos.
 
