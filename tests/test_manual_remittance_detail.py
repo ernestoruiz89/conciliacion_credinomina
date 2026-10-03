@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import frappe
 
 from credinomina_reconciliation.allocation import allocate_cash
+from credinomina_reconciliation.allocation_origin import DETAIL, MANUAL
 from credinomina_reconciliation.remittance_detail import manual_detail_targets
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as source
 
@@ -45,6 +46,7 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(context["instructions"], [])
         self.assertEqual(len(result["allocations"]), 1)
         self.assertEqual(result["allocations"][0]["amount_usd"], 22.52)
+        self.assertEqual(result["allocations"][0]["origin"], MANUAL)
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
         self.assertEqual(statuses["DEP"], "Conciliado")
         self.assertEqual(row["match_status"], "Conciliada")
@@ -53,6 +55,23 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(row["loan_number"], "108331-1")
         # Re-running reconstructs the same allocation rather than doubling it.
         self.assertEqual(self.reconcile()[1]["allocations"], result["allocations"])
+
+    def test_automatic_detail_is_not_reported_as_manual(self):
+        self.claims = self.claims[:1]
+        context, result, statuses, _ = self.reconcile([])
+        self.assertEqual(context['instructions'][0]['origin'], DETAIL)
+        self.assertEqual(result['allocations'][0]['origin'], DETAIL)
+        self.assertEqual(statuses['DEP'], 'Conciliado')
+        self.assertEqual(self.reconcile([])[1]['allocations'], result['allocations'])
+
+    def test_grouped_applications_keep_automatic_detail_origin(self):
+        for claim, amount in zip(self.claims, [10, 12.52]):
+            claim.update(amount_usd=amount, loan_number='108331-1')
+        self.row.loan_number = '108331-1'
+        context, result, statuses, _ = self.reconcile([])
+        self.assertEqual(len(context['instructions']), 2)
+        self.assertEqual([r['origin'] for r in result['allocations']], [DETAIL, DETAIL])
+        self.assertEqual(statuses['DEP'], 'Conciliado')
 
     def test_invalid_link_never_closes_detail(self):
         for field, value in (("client_number", "OTHER"), ("group", "OTHER")):

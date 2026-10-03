@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation.allocation_origin import UNRECORDED
 from credinomina_reconciliation.reconciliation_scope import document_state
 from credinomina_reconciliation.remittance_periods import selected_periods
 
@@ -44,7 +45,7 @@ def frozen_cash(deposits, periods, movements):
                 frappe.throw(_("El depósito {0} tiene un destino que ya no existe. Revise su distribución antes de conciliar.").format(deposit.name))
             amount = money(entry.get("importe_usd"))
             allocations.append({"deposit_id": deposit.name, "claim_id": claim,
-                                "amount_usd": money_float(amount), "origin": entry.get("origen") or "Manual"})
+                                "amount_usd": money_float(amount), "origin": entry.get("origen") or UNRECORDED})
             coverage[claim] += amount
     for movement in movements:
         coverage[movement["claim_id"]] += money(movement["consumed_residual_usd"]) - money(movement["signed_amount_usd"])

@@ -11,6 +11,7 @@ from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
+from credinomina_reconciliation.allocation_origin import DETAIL, MANUAL, TOLERANCE
 from credinomina_reconciliation.accounting_naming import (
     accounting_month, accounting_prefix, new_accounting_name, rename_accounting_import,
 )
@@ -1528,6 +1529,7 @@ def _prepare_remittance_details(
                     "id": instruction_id, "deposit_id": deposit_id,
                     "claim_id": target["claim_id"],
                     "amount_usd": target["amount_usd"],
+                    "origin": DETAIL,
                 })
                 reserved.add((deposit_id, target["claim_id"]))
         contexts[item.name] = {
@@ -1865,6 +1867,7 @@ def _distribute_deposits(
                     "deposit_id": deposit_id,
                     "claim_id": claim_id,
                     "amount_usd": claims_by_id[claim_id]["amount_usd"],
+                    "origin": MANUAL,
                 })
         for item in complementary_items:
             if complementary_target.get(item.name) in period_rows:
@@ -1873,6 +1876,7 @@ def _distribute_deposits(
                     "deposit_id": deposit_id,
                     "claim_id": "X:" + item.name,
                     "amount_usd": flt(item.amount_usd),
+                    "origin": MANUAL,
                 })
     manual_results = {}
     manually_ambiguous_deposits = (
@@ -1921,6 +1925,7 @@ def _distribute_deposits(
         instructions.append(
             {"id": item.name, "deposit_id": candidates[0]["id"],
              "claim_id": claim_id, "amount_usd": flt(item.amount_usd),
+             "origin": MANUAL,
              "detail_row": item.get("detail_row"),
              **({"group": item.get("employer")} if claims_by_id.get(claim_id, {}).get("manual_only") and item.get("employer") else {})}
         )
@@ -2044,7 +2049,7 @@ def _distribute_deposits(
             "movimiento": movement["name"],
             "diferencia_usd": movement["signed_amount_usd"],
             "importe_usd": movement["consumed_residual_usd"],
-            "origen": "Tolerancia automática",
+            "origen": TOLERANCE,
         })
     for deposit_id, meta in deposit_meta.items():
         assigned = money_float(assigned_by_deposit[deposit_id])
@@ -2522,7 +2527,7 @@ def _rebuild_period_balances(
             "diferencia_usd": delta,
             "movimiento": movement["name"],
             "destino": "Movimiento de conciliación",
-            "origen": "Tolerancia automática",
+            "origen": TOLERANCE,
         })
 
     for target in rows_by_name.values():
@@ -2825,7 +2830,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
             "importe_usd": flt(movement["consumed_residual_usd"]),
             "diferencia_usd": flt(movement["signed_amount_usd"]),
             "movimiento": movement["name"],
-            "origen": "Tolerancia automática",
+            "origen": TOLERANCE,
         })
 
     apps_by_period = defaultdict(list)
