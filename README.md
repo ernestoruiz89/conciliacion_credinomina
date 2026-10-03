@@ -641,9 +641,14 @@ períodos individuales. Conserva los mismos filtros, permisos, rangos y resumen;
 suma los saldos actuales de cada empresa en US$, sin recalcular su vencimiento.
 Identifica las aplicaciones sin conversión para no presentar sus saldos como cero.
 
-La página **Control de Credinómina** abre con **Qué falta hacer**: evidencia de
-empresa, aplicaciones sin período, detalles de depósito por revisar y saldos
-sin clasificar. Los importes del tablero son un resumen; abra cada pendiente
+La página **Control de Credinómina** abre en la pestaña **Calendario**, con la
+matriz de empresas por mes. **Trabajo de conciliación** reúne **Qué falta hacer**:
+evidencia de empresa, aplicaciones sin período, detalles de depósito por revisar
+y saldos sin clasificar. Su contador permite ver las gestiones pendientes desde
+el calendario. La pestaña elegida se conserva al actualizar o cambiar los filtros;
+alternar entre pestañas conserva las filas cargadas y la posición del calendario.
+Los filtros de año y empresa, las cifras de control y la exportación son comunes.
+Los importes del tablero son un resumen; abra cada pendiente
 antes de interpretar una celda como conciliada. Una aplicación vinculada a una
 cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba
 que hubo descuento salarial.

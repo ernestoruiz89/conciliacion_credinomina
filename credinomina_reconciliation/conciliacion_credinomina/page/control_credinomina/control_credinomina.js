@@ -27,6 +27,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     const $root = $('<div class="cn-control"></div>').appendTo(page.main);
     $root.html(`${styles()}<div class="cn-loading">${esc(__("Cargando control..."))}</div>`);
     let currentData = null;
+    let activeView = "calendar";
     let workLimit = 100;
     let summaryMode = true;
     let calendarYear = currentYear;
@@ -232,17 +233,25 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         ` : `<div class="cn-empty">${esc(__("No hay depósitos con saldo a favor o sin asignar en este año."))}</div>`;
         $root.html(`${styles()}
             <div class="cn-intro">
-                <div><h2>${esc(__("Trabajo de conciliación"))}</h2><p>${esc(__("Priorice la evidencia faltante y abra el documento correspondiente. La matriz mensual queda abajo para consulta."))}</p></div>
+                <div><h2>${esc(__("Control de Credinómina"))}</h2><p>${esc(__("Consulte los meses en Calendario o gestione los pendientes en Trabajo de conciliación."))}</p></div>
                 <div class="cn-intro-actions">
                     <button type="button" class="btn btn-default btn-sm" data-export>${esc(__("Exportar Excel"))}</button>
                     <span class="cn-year">${esc(allYears ? __("Todos los años") : String(year))}</span>
                 </div>
             </div>
-            <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
             <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
-            <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
-            ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
-            ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible" data-section="open_deposits"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${depositCount}</summary>${depositTable}${moreRows("open_deposits", deposits.length, depositCount)}</details>`}
+            <div class="cn-view-tabs" role="tablist" aria-label="${esc(__("Vistas del control"))}">
+                <button type="button" class="cn-view-tab" role="tab" id="cn-control-calendar-tab" aria-controls="cn-control-calendar-panel" data-control-view="calendar" aria-selected="${activeView === "calendar"}" tabindex="${activeView === "calendar" ? "0" : "-1"}">${esc(__("Calendario"))}</button>
+                <button type="button" class="cn-view-tab" role="tab" id="cn-control-work-tab" aria-controls="cn-control-work-panel" data-control-view="work" aria-selected="${activeView === "work"}" tabindex="${activeView === "work" ? "0" : "-1"}">${esc(__("Trabajo de conciliación"))}<span class="cn-tab-count">${workCount}</span>${overdueCount ? `<span class="cn-tab-overdue">${overdueCount} ${esc(__("vencidas"))}</span>` : ""}</button>
+            </div>
+            <div class="cn-tab-panel" role="tabpanel" id="cn-control-calendar-panel" aria-labelledby="cn-control-calendar-tab" data-control-panel="calendar" tabindex="0" ${activeView === "calendar" ? "" : "hidden"}>
+                <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
+            </div>
+            <div class="cn-tab-panel" role="tabpanel" id="cn-control-work-panel" aria-labelledby="cn-control-work-tab" data-control-panel="work" tabindex="0" ${activeView === "work" ? "" : "hidden"}>
+                <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
+                ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
+                ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible" data-section="open_deposits"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${depositCount}</summary>${depositTable}${moreRows("open_deposits", deposits.length, depositCount)}</details>`}
+            </div>
             <p class="cn-footnote">${esc(__("CxC a empleados es la parte de la cuota no deducida según el detalle de la empresa; excluye cuotas sin detalle y requiere cotejo con el saldo del core. El deducido sin depósito asignado y los depósitos sin asignar pueden representar el mismo cobro: no los sume ni trate el primero como CxC confirmada. Ningún depósito se aplica automáticamente a un crédito sin identificar su destino. Cifras en US$."))}</p>
         `);
     }
@@ -402,6 +411,27 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
     }
 
+    function selectView(view, focus = false) {
+        if (!["calendar", "work"].includes(view)) return;
+        activeView = view;
+        // Toggle existing panels so scrolling, expanded sections and loaded rows survive.
+        for (const name of ["calendar", "work"]) {
+            const selected = name === view;
+            $root.find(`[data-control-view="${name}"]`).attr({"aria-selected": String(selected), tabindex: selected ? "0" : "-1"});
+            $root.find(`[data-control-panel="${name}"]`).prop("hidden", !selected);
+        }
+        if (focus) $root.find(`[data-control-view="${view}"]`).trigger("focus");
+    }
+    $root.on("click", "[data-control-view]", function () {
+        selectView($(this).attr("data-control-view"));
+    });
+    $root.on("keydown", "[data-control-view]", function (event) {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const view = event.key === "Home" ? "calendar" : event.key === "End" ? "work"
+            : $(this).attr("data-control-view") === "calendar" ? "work" : "calendar";
+        selectView(view, true);
+    });
     $root.on("change", "[data-summary]", function () {
         summaryMode = this.checked;
         if (currentData) render(currentData);
@@ -833,6 +863,14 @@ function styles() {
         .cn-intro-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
         .cn-intro h2 { font-size: 21px; font-weight: 700; margin: 0 0 4px; color: #1e293b; }
         .cn-intro p, .cn-footnote { font-size: 12px; color: #64748b; margin: 0; }
+        .cn-view-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border-color, #e2e8f0); margin-bottom: 16px; }
+        .cn-view-tab { display: inline-flex; align-items: center; gap: 8px; border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--text-muted, #64748b); cursor: pointer; }
+        .cn-view-tab:hover { background: var(--control-bg, #f1f5f9); }
+        .cn-view-tab[aria-selected="true"] { color: var(--primary, #2563eb); border-bottom-color: currentColor; }
+        .cn-view-tab:focus-visible, .cn-tab-panel:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
+        .cn-tab-count { background: var(--control-bg, #f1f5f9); color: var(--text-color, #334155); border-radius: 12px; padding: 2px 8px; font-size: 13px; }
+        .cn-tab-overdue { color: #b91c1c; font-size: 13px; }
+        .cn-control .cn-tab-panel[hidden] { display: none !important; }
         .cn-year { background: #dbeafe; border-radius: 8px; padding: 6px 12px; color: #1d4ed8; font-weight: 700; }
         .cn-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
         .cn-kpi { min-width: 0; padding: 13px; border: 1px solid #e2e8f0; border-radius: 10px; background: white; box-shadow: 0 2px 6px #0f172a0b; }
@@ -873,6 +911,8 @@ function styles() {
         .cn-period-card-amounts strong { display: block; font-size: 15px; margin-top: 3px; }
         .cn-period-card-open { display: block; margin-top: auto; padding-top: 14px; font-size: 12px; font-weight: 600; color: #2563eb; }
         .cn-work-panel { border-color: #bfdbfe; }
+        .cn-work-panel .cn-list-scroll { max-height: 60vh; overflow: auto; }
+        .cn-work-table thead th { position: sticky; top: 0; z-index: 1; }
         .cn-work-table td { vertical-align: top; }
         .cn-work-table td:nth-child(3), .cn-work-table td:nth-child(4), .cn-work-table td:nth-child(6) { white-space: normal; min-width: 160px; }
         .cn-work-table td:nth-child(6) { min-width: 220px; }
