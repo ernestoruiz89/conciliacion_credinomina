@@ -289,22 +289,40 @@ class CNRemittanceAllocation(Document):
         self._reconcile()
 
     def before_update_after_submit(self):
+        previous = self.get_doc_before_save()
+        if previous:
+            # These are server-recorded results, not editable reconciliation
+            # inputs. A late detail (or a form sending empty/zero defaults)
+            # must not clear cash already distributed or classified. Only the
+            # explicit reconciliation writes new results directly to the DB.
+            self.update({fieldname: previous.get(fieldname) for fieldname in (
+                "allocated_usd", "unallocated_usd", "justified_surplus_usd",
+                "unclassified_usd", "allocation_detail", "inherited_exception_comment",
+                "result",
+            )})
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
         self._invalidate_changed_detail_credits()
-        previous = self.get_doc_before_save()
         if previous and self._reconciliation_inputs_changed(previous):
             self.result = "Pendiente"
 
     def _reconciliation_inputs_changed(self, previous):
+        def input_value(document, fieldname):
+            value = document.get(fieldname)
+            if fieldname == "deposit_amount":
+                return money(value)
+            if fieldname == "fx_rate":
+                return decimal_value(value)
+            return str(value or "")
+
         fields = (
             "employer", "deposit_reference", "deposit_voucher", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate",
             "detail_file", "detail_hash",
         )
         if any(
-            str(self.get(fieldname) or "") != str(previous.get(fieldname) or "")
+            input_value(self, fieldname) != input_value(previous, fieldname)
             for fieldname in fields
         ):
             return True
@@ -315,11 +333,13 @@ class CNRemittanceAllocation(Document):
             "amount_usd", "detail_row", "employer",
         )
         current_targets = [
-            tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
+            tuple(money(target.get(fieldname)) if fieldname == "amount_usd"
+                  else str(target.get(fieldname) or "") for fieldname in target_fields)
             for target in self.targets or []
         ]
         previous_targets = [
-            tuple(str(target.get(fieldname) or "") for fieldname in target_fields)
+            tuple(money(target.get(fieldname)) if fieldname == "amount_usd"
+                  else str(target.get(fieldname) or "") for fieldname in target_fields)
             for target in previous.targets or []
         ]
         if current_targets != previous_targets:

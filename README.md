@@ -544,6 +544,11 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    guardarlo, un supervisor debe pulsar **Confirmar depósito** y luego **Conciliar**:
    mientras siga en borrador no participa en la conciliación. Puede confirmarse
    antes de recibir el detalle por cliente.
+   Agregar o importar el detalle después de confirmar conserva los importes y
+   distribuciones de la última conciliación. Si cambia el detalle o los destinos,
+   el resultado queda **Pendiente** hasta pulsar **Conciliar**; guardar no borra
+   los saldos ni ejecuta una conciliación. Agregar solo observaciones no cambia
+   el resultado registrado.
    Aunque la referencia identifique una sola aplicación, el depósito no se
    asigna automáticamente por cliente sin detalle o distribución manual
    documentada.
@@ -568,6 +573,11 @@ la suma exacta de todos los destinos pendientes identificados. Si hay otras
 aplicaciones posibles, importes distintos o identidad ambigua, se pide revisión
 manual: no se adivina un subconjunto ni se paga dos veces una aplicación.
 El botón **Conciliar** procesa solo este depósito; no redistribuye los demás.
+En **Seleccionar partidas pendientes**, el check **Usar períodos del detalle**
+está marcado por defecto cuando esa tabla tiene períodos y limita los resultados
+a todos ellos. Puede combinarlo con los filtros de cliente, empresa, tipo y un
+período específico. Desmárquelo para buscar en otros períodos o ver partidas
+complementarias sin período. Si la tabla está vacía, el check queda deshabilitado.
 
 **Usar aplicaciones como detalle**
 previsualiza únicamente los importes aplicados pendientes, descontando lo cubierto

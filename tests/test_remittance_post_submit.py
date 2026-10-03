@@ -11,6 +11,7 @@ import frappe
 from frappe.model.base_document import BaseDocument
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import CNRemittanceAllocation
+from credinomina_reconciliation.rounding import money
 
 
 class Snapshot(dict):
@@ -103,6 +104,66 @@ class RemittancePostSubmitTests(unittest.TestCase):
 
     def test_notes_only_preserve_the_existing_result(self):
         doc = self.current(notes="Soporte recibido")
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Revisar detalle")
+        self.check_frappe_guard(doc)
+
+    def test_target_decimal_rounding_does_not_invalidate_an_unchanged_result(self):
+        self.previous["result"] = "Conciliado"
+        self.previous["targets"][0]["amount_usd"] = 1000.0
+        doc = self.current(notes="Soporte recibido")
+        doc._validate_deposit.side_effect = lambda: doc.targets[0].update(amount_usd=money(1000.0))
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Conciliado")
+        self.check_frappe_guard(doc)
+
+    def test_amount_and_rate_representations_do_not_mark_pending(self):
+        self.previous["result"] = "Conciliado"
+        doc = self.current(deposit_amount=money(100), fx_rate="36.5000")
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Conciliado")
+
+    def test_late_detail_preserves_server_recorded_balances_when_form_sends_zeroes(self):
+        self.previous.update(
+            allocated_usd=0, unallocated_usd=1445.11, justified_surplus_usd=0,
+            unclassified_usd=1445.11, allocation_detail="[]",
+            inherited_exception_comment="Excepción documentada",
+        )
+        doc = self.current(
+            detail_file="/private/files/detalle.csv",
+            allocated_usd=0, unallocated_usd=0, justified_surplus_usd=0,
+            unclassified_usd=0, allocation_detail="", inherited_exception_comment="",
+        )
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Pendiente")
+        self.check_frappe_guard(doc)
+        for field in (
+            "allocated_usd", "unallocated_usd", "justified_surplus_usd",
+            "unclassified_usd", "allocation_detail", "inherited_exception_comment",
+        ):
+            self.assertEqual(doc.get(field), self.previous.get(field), field)
+
+    def test_new_detail_rows_keep_partial_distribution_until_explicit_reconciliation(self):
+        self.previous.update(
+            allocated_usd=1000, unallocated_usd=445.11, justified_surplus_usd=100,
+            unclassified_usd=345.11,
+            allocation_detail='[{"aplicacion_id":"APP-1","importe_usd":1000}]',
+        )
+        doc = self.current(
+            detail_rows=[{"name": "ROW-NEW", "client_name": "Cliente", "deducted_usd": 1445.11}],
+            allocated_usd=1445.11, unallocated_usd=0, justified_surplus_usd=0,
+            unclassified_usd=0, allocation_detail="[]",
+        )
+        CNRemittanceAllocation.before_update_after_submit(doc)
+        self.assertEqual(doc.result, "Pendiente")
+        self.check_frappe_guard(doc)
+        self.assertEqual(doc.allocated_usd, 1000)
+        self.assertEqual(doc.unallocated_usd, 445.11)
+        self.assertEqual(doc.allocation_detail, self.previous.allocation_detail)
+        self.assertEqual(doc.targets, self.previous.targets)
+
+    def test_plain_save_cannot_mark_a_deposit_reconciled(self):
+        doc = self.current(result="Conciliado", notes="Observación")
         CNRemittanceAllocation.before_update_after_submit(doc)
         self.assertEqual(doc.result, "Revisar detalle")
         self.check_frappe_guard(doc)

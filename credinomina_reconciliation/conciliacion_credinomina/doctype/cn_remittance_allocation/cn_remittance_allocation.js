@@ -662,16 +662,30 @@ class RemittanceTargetPicker {
         this.selected = new Map();
         this.page = 0;
         this.pageSize = 50;
+        this.detailPeriods = new Set((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
         this.dialog = new frappe.ui.Dialog({
             title: __("Seleccionar partidas pendientes"), size: "extra-large",
             fields: [
                 { fieldname: "intro", fieldtype: "HTML" },
+                { fieldname: "use_detail_periods", fieldtype: "Check", label: __("Usar períodos del detalle"),
+                    default: this.detailPeriods.size ? 1 : 0, read_only: this.detailPeriods.size ? 0 : 1,
+                    description: this.detailPeriods.size
+                        ? __("Muestra solo partidas de la tabla Períodos del detalle. Desmarque para buscar en otros períodos; las partidas sin período no se muestran mientras esté marcado.")
+                        : __("Agregue períodos en la tabla Períodos del detalle del depósito para habilitar este filtro."),
+                    onchange: () => this.filterDetailPeriods() },
+                { fieldtype: "Section Break" },
                 { fieldname: "search", fieldtype: "Data", label: __("Buscar cliente, crédito o referencia"),
                     onchange: () => this.filter() },
                 { fieldtype: "Column Break" },
                 { fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period",
                     label: __("Período (opcional)"), onchange: () => this.filter(),
-                    get_query: () => ({ filters: { employer: ["in", data.allowed_employers || [data.employer]], status: ["!=", "Cerrado"] } }) },
+                    get_query: () => {
+                        const filters = { employer: ["in", data.allowed_employers || [data.employer]], status: ["!=", "Cerrado"] };
+                        if (Number(this.dialog?.get_value("use_detail_periods"))) {
+                            filters.name = ["in", [...this.detailPeriods]];
+                        }
+                        return { filters };
+                    } },
                 { fieldtype: "Column Break" },
                 { fieldname: "kind", fieldtype: "Select", label: __("Tipo de partida"),
                     options: ["Todos", "Cobranza", "Aplicación histórica", "Partida complementaria"],
@@ -735,6 +749,14 @@ class RemittanceTargetPicker {
         if (amount > 0) this.selected.set(row.id, amount);
     }
     filter() { this.page = 0; if (this.dialog && this.dialog.$wrapper.is(":visible")) this.render(); }
+    filterDetailPeriods() {
+        if (Number(this.dialog.get_value("use_detail_periods")) && this.dialog.get_value("period") &&
+            !this.detailPeriods.has(this.dialog.get_value("period"))) {
+            // An old single-period filter must not conflict with the table's scope.
+            this.dialog.set_value("period", "");
+        }
+        this.filter();
+    }
     summary() {
         const remaining = this.data.available_cents - this.total();
         const invalid = this.selected.size && !this.valid();
@@ -758,10 +780,12 @@ class RemittanceTargetPicker {
         const period = this.dialog.get_value("period");
         const kind = this.dialog.get_value("kind");
         const beneficiary = this.dialog.get_value("beneficiary");
+        const useDetailPeriods = Number(this.dialog.get_value("use_detail_periods"));
         const filtered = this.data.rows.filter(row => {
             const text = normalize([row.client_name, row.client_number, row.national_id, row.employee_number,
                 row.loan_number, row.reference, row.period_label].join(" "));
-            return (!beneficiary || row.employer === beneficiary) && (!period || row.filter_period === period) && (!kind || kind === "Todos" || row.kind === kind)
+            return (!useDetailPeriods || this.detailPeriods.has(row.filter_period)) &&
+                (!beneficiary || row.employer === beneficiary) && (!period || row.filter_period === period) && (!kind || kind === "Todos" || row.kind === kind)
                 && query.every(word => text.includes(word));
         });
         const pages = Math.max(1, Math.ceil(filtered.length / this.pageSize));
