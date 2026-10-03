@@ -28,7 +28,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
     deposits = deposits if deposits is not None else frappe.get_list(
         "CN Remittance Allocation", filters=filters,
         fields=["name", "employer", "bank_account", "deposit_reference", "deposit_date",
-                "deposit_currency", "deposit_amount", "amount_usd", "allocated_usd",
+                "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "allocated_usd",
                 "justified_surplus_usd", "allocation_detail", "result"],
         order_by="deposit_date asc, name asc", limit_page_length=0,
     )
@@ -181,6 +181,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "date": str(deposit.get("deposit_date") or "")[:10],
             "month": str(deposit.get("deposit_date") or "")[:7],
             "currency": deposit.get("deposit_currency"),
+            "fx_rate": deposit.get("fx_rate"),
             "original_amount": money_float(deposit.get("deposit_amount")),
             "total_usd": float(total), "credits_usd": float(credits), "other_usd": float(other),
             "adjustments_usd": float(adjustments), "credit_balance_usd": float(credit_balance),

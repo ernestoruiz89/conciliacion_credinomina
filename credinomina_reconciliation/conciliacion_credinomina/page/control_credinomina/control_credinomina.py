@@ -51,19 +51,34 @@ def export_control_excel(year=None, employer=None):
     data = _build_control_data(year, employer, full_export=True)
     period_names = [period["name"] for period in data["periods"]]
     exceptions = []
+    exception_fields = [
+        "name", "period", "employer", "exception_type", "client_number", "creation",
+        "loan_number", "amount_usd", "description", "resolution", "status",
+        "cause_category", "assigned_to", "next_action", "commitment_date",
+        "evidence_file", "external_reference",
+    ]
     for offset in range(0, len(period_names), 500):
         exceptions.extend(frappe.get_list(
             "CN Reconciliation Exception",
             filters={"period": ["in", period_names[offset:offset + 500]]},
-            fields=[
-                "name", "period", "employer", "exception_type", "client_number",
-                "loan_number", "amount_usd", "description", "resolution", "status",
-                "cause_category", "assigned_to", "next_action", "commitment_date",
-                "evidence_file", "external_reference",
-            ],
+            fields=exception_fields,
             order_by="period asc, creation asc",
             limit_page_length=0,
         ))
+    unlinked_exception_filters = [["period", "is", "not set"]]
+    exception_year = cint(data["year"])  # Dashboard returns the label "Todos" for all years.
+    if exception_year:
+        unlinked_exception_filters.extend([
+            ["creation", ">=", f"{exception_year}-01-01"],
+            ["creation", "<", f"{exception_year + 1}-01-01"],
+        ])
+    if employer:
+        unlinked_exception_filters.append(["employer", "=", employer])
+    exceptions.extend(frappe.get_list(
+        "CN Reconciliation Exception",
+        filters=unlinked_exception_filters,
+        fields=exception_fields, order_by="creation asc", limit_page_length=0,
+    ))
     actions = []
     exception_names = [item.name for item in exceptions]
     for offset in range(0, len(exception_names), 500):
@@ -89,7 +104,7 @@ def export_control_excel(year=None, employer=None):
         "ascii", "ignore"
     ).decode("ascii")
     suffix = re.sub(r"[^A-Za-z0-9_-]+", "-", ascii_name).strip("-")[:60]
-    frappe.local.response.filename = f"control_credinomina_{data['year']}_{suffix or 'todas'}.xlsx"
+    frappe.local.response.filename = f"control_credinomina_{data['year'] or 'todos'}_{suffix or 'todas'}.xlsx"
     frappe.local.response.filecontent = content
     frappe.local.response.type = "download"
     frappe.local.response.content_type = (
@@ -471,12 +486,12 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             filters={
                 "status": ["in", ["Importado", "Importado con excepciones"]],
             },
-            fields=["name", "historical_backfill", "historical_period"],
+            fields=["name", "employer", "historical_backfill", "historical_period"],
             limit_page_length=_row_limit(3000, full_export),
         )
         import_names = [item.name for item in source_imports]
         if import_names:
-            if not employer:
+            if not employer or full_export:
                 unassigned_applications = frappe.get_all(
                     "CN Source Row",
                     filters={
@@ -487,7 +502,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                         **_year_filter("event_date", year),
                     },
                     fields=[
-                        "parent", "event_date", "reference", "client_name", "loan_number",
+                        "name", "parent", "source_row", "event_date", "reference", "client_name", "loan_number",
+                        "client_number", "accounting_entry", "receipt",
                         "amount", "amount_usd", "currency", "match_reason", "application_adjustment_usd", "net_applied_usd",
                         "processing_route",
                     ],
@@ -496,6 +512,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 )
                 imports_by_name = {item.name: item for item in source_imports}
                 for row in unassigned_applications:
+                    row["employer"] = imports_by_name[row.parent].employer
+                    if employer and row.employer != employer:
+                        continue
                     if net_application_amount(row) <= 0:
                         continue
                     target = (

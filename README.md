@@ -667,7 +667,9 @@ saldos actuales, no saldos reconstruidos a una fecha pasada. Los saldos de
 clientes usan su pendiente de gestión; los de empresa muestran el documentado
 vigente, pues aún no tienen seguimiento de devoluciones parciales. Las cifras
 de cobranza, deducción y tolerancia se conservan en **Detalle del proceso**.
-La exportación conserva su estructura actual; estas tarjetas no cambian sus hojas.
+La exportación tiene sus propias hojas de seguimiento y un resumen por empresa y mes.
+Sus bases de fecha se explican en la hoja **Guía**; no se debe restar el efectivo
+recibido en un mes de las aplicaciones de ese mes si paga otras cobranzas.
 Los importes del tablero son un resumen; abra cada pendiente
 antes de interpretar una celda como conciliada. Una aplicación vinculada a una
 cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba
@@ -722,9 +724,30 @@ solo está cubierto en parte. La migración corrige los antiguos estados
 sin cambiar asignaciones, importes financieros ni reabrir períodos cerrados.
 
 En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
-si se seleccionó, la empresa filtrada. El libro separa el resumen de períodos,
-el detalle de clientes y aplicaciones, los cruces con depósitos y las partidas
-pendientes. Conserve ese archivo como evidencia del corte exportado; para ver
+si se seleccionó, la empresa filtrada. Incluye estas hojas:
+
+- **Resumen mensual:** una fila por empresa y mes, agrupando todos sus períodos.
+  Separa aplicado, asignado a créditos y pendiente por mes de cobranza de los
+  depósitos completos por fecha de recepción. Incluye meses con depósitos aunque
+  no tengan períodos. Aplicaciones sin período se muestran aparte por fecha de aplicación.
+- **Períodos:** resultados, importes, observaciones y cierre. Estar cerrado no
+  significa estar conciliado. Cobranza y deducción no se inventan en histórico.
+- **Detalle cliente** y **Cruces:** saldos por cliente/crédito y vínculos reales
+  con los depósitos, con referencia de importación y fila para aplicaciones históricas.
+- **Depósitos:** efectivo confirmado, moneda e importe original, tasa, cuenta
+  bancaria, distribución y resultado. Cada depósito aparece una sola vez.
+- **Distribución depósitos:** destinos por empresa, período, cliente o partida,
+  incluyendo saldos a favor y efectivo sin clasificar. No repite un total de
+  destino además de sus clientes. Permite revisar pagos de varios períodos o empresas.
+- **Aplicaciones sin período:** ambas modalidades, incluso al filtrar una empresa.
+- **Partidas y excepciones:** alertas detectadas y excepciones documentadas. Sus
+  importes no son sumables: una excepción puede explicar una alerta ya mostrada.
+  Las excepciones sin período se incluyen por año de creación.
+- **Gestiones** y **Guía:** seguimiento y definiciones de fechas, importes y alcance.
+
+Los totales filtrados usan `SUBTOTAL` en Excel. Los datos de conciliación son una
+fotografía, no fórmulas que vuelvan a conciliar ni un cierre contable reconstruido.
+Conserve ese archivo como evidencia del corte exportado; para ver
 el estado actualizado vuelva a descargarlo. En histórico, cobranza y deducción
 no se infieren: se muestra la aplicación frente al depósito.
 El Excel usa los mismos nombres de estados y columnas para ambas modalidades;
