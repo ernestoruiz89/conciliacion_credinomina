@@ -115,6 +115,22 @@ importes permiten un cruce único.
   concilia automáticamente otro movimiento contable y no reutiliza el depósito
   original como un nuevo pago. La verificación de asientos importados se
   mantiene en el flujo de excepciones contables.
+- En el depósito, la pestaña **Destinos → Distribución completa del depósito**
+  reúne pagos a créditos, partidas complementarias y saldos a favor del cliente
+  o de la empresa, con registro relacionado, importe y estado de gestión.
+  Puede filtrar por concepto o buscar cliente, empresa, crédito y registro.
+  Los totales incluyen todos los registros, aunque se aplique un filtro.
+  Es una vista de solo lectura: no agrega saldos a favor a `targets`, no genera
+  pagos y no duplica importes. Las asignaciones manuales de abajo se reflejan
+  en ella solamente después de usar **Conciliar**. **Actualizar distribución**
+  vuelve a consultar los datos guardados sin ejecutar una conciliación.
+- Al abrir una fila de **Detalle por cliente**, **Crear saldo a favor del
+  cliente** abre el mismo modal con cliente, crédito y fila vinculados, e
+  importe pendiente sugerido en US$. Está disponible en depósitos confirmados
+  con pendiente positivo y permisos para crear y confirmar partidas. Revise el
+  importe: una aplicación sin identificar no es automáticamente un saldo a
+  favor. Complete justificación, responsable y fecha compromiso; después
+  confirme la partida. Se reflejará en la distribución completa del depósito.
   Los registros existentes no se reclasifican automáticamente; las partidas
   con gestiones registradas no pueden cancelarse ni fusionarse.
 - Excepciones detectadas antes del depósito, con traslado de comentarios al

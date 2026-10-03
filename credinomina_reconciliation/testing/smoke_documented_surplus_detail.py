@@ -10,6 +10,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_i
 )
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import create_complementary_item
+from credinomina_reconciliation.deposit_distribution import get_distribution
 
 
 def run():
@@ -184,6 +185,13 @@ def run():
         assert round(remittance.justified_surplus_usd, 4) == 10
         assert round(remittance.unclassified_usd, 4) == 0
 
+        complete = get_distribution(remittance.name)
+        assert complete["consistent"] and complete["detailed_usd"] == 110 and complete["pending_usd"] == 0
+        assert sum(row["amount_usd"] for row in complete["rows"]) == 110
+        company_credit = next(row for row in complete["rows"] if row["category"] == "Saldo a favor de la empresa")
+        assert company_credit["record_name"] == surplus.name and company_credit["amount_usd"] == 10
+        assert company_credit["employer"] == employer.name and not company_credit["client_name"]
+
         frappe.db.savepoint("surplus_detail_before_close")
         assert close_period(period.name)["status"] == "Cerrado"
         frappe.db.rollback(save_point="surplus_detail_before_close")
@@ -192,6 +200,9 @@ def run():
         remittance.reload()
         assert remittance.detail_status == "Parcial; saldo sin detalle"
         assert remittance.result == "Parcial"
+        complete = get_distribution(remittance.name)
+        assert complete["distributed_usd"] == 100 and complete["pending_usd"] == 10
+        assert all(row["record_name"] != surplus.name for row in complete["rows"])
         try:
             close_period(period.name)
         except frappe.ValidationError:
@@ -206,6 +217,7 @@ def run():
             "closed_period_surplus_protected": True,
             "cancel_reopens_detail_gap": True,
             "close_blocked_after_cancel": True,
+            "complete_distribution_company_credit": True,
         }
     finally:
         frappe.db.rollback()

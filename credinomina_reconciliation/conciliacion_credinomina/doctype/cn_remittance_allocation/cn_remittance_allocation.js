@@ -23,6 +23,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         loadPayingCompanies(frm);
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
+        renderRemittanceDistribution(frm);
         toggleRemittanceDetailActions(frm);
         toggleApplicationDetailAction(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
@@ -57,6 +58,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
     select_detail_credit: selectRemittanceDetailCredit,
     link_detail_targets: linkRemittanceDetailTargets,
     create_complementary: createRemittanceComplementary,
+    refresh_distribution: renderRemittanceDistribution,
     use_applications_detail: useApplicationsAsDetail,
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
@@ -247,6 +249,12 @@ async function useApplicationsAsDetail(frm) {
 }
 
 frappe.ui.form.on("CN Remittance Detail", {
+    create_client_credit: createClientCreditFromDetail,
+    form_render(frm, cdt, cdn) {
+        const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+        const control = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_credit;
+        control?.$wrapper.toggle(canCreateDetailClientCredit(frm, row));
+    },
     loan_number(frm) {
         frm.set_value("result", "Pendiente");
         frm.set_value("detail_status", "Cargado; pendiente de conciliación");
@@ -254,28 +262,63 @@ frappe.ui.form.on("CN Remittance Detail", {
     },
 });
 
-async function createRemittanceComplementary(frm) {
+function canCreateDetailClientCredit(frm, row) {
+    const pending = Number(row?.pending_usd);
+    return !frm.is_new() && frm.doc.docstatus === 1 && !!frm.get_perm(0, "write") &&
+        !!frappe.model.can_create("CN Complementary Item") && !!frappe.model.can_submit("CN Complementary Item") &&
+        !!row && Number.isFinite(pending) && pending > 0;
+}
+
+async function createClientCreditFromDetail(frm, cdt, cdn) {
+    if (frm.detail_credit_workflow) return;
+    const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+    if (!canCreateDetailClientCredit(frm, row)) {
+        frappe.msgprint(__("Seleccione una fila con pendiente positivo de un depósito confirmado. Necesita permisos para crear y confirmar partidas complementarias."));
+        return;
+    }
+    frm.detail_credit_workflow = true;
+    try {
+        await createRemittanceComplementary(frm, {detailRowName: row.name});
+    } catch (error) {
+        frm.detail_credit_workflow = false;
+        throw error;
+    }
+}
+
+async function createRemittanceComplementary(frm, options = {}) {
     if (frm.is_new() || frm.is_dirty()) await frm.save();
+    // Resolve the saved child again; saving may update its pending amount/identity.
+    const sourceRow = options.detailRowName ? (frm.doc.detail_rows || []).find(row => row.name === options.detailRowName) : null;
+    if (options.detailRowName && !canCreateDetailClientCredit(frm, sourceRow)) {
+        frm.detail_credit_workflow = false;
+        frappe.msgprint(__("La fila cambió o ya no tiene importe pendiente. Revise el detalle antes de registrar un saldo a favor."));
+        return;
+    }
+    const escape = value => frappe.utils.escape_html(String(value ?? ""));
     let busy = false;
     const dialog = new frappe.ui.Dialog({
-        title: __("Crear partida complementaria"), size: "large",
+        title: __(sourceRow ? "Crear saldo a favor del cliente" : "Crear partida complementaria"), size: "large",
+        onhide() { if (sourceRow) frm.detail_credit_workflow = false; },
         fields: [
-            {fieldtype: "HTML", options: `<p>Use un importe positivo para un depósito mayor que la aplicación y negativo cuando falta depósito.
+            {fieldtype: "HTML", options: sourceRow ? `<p><strong>${escape(sourceRow.client_name || sourceRow.client_number || "Cliente sin identificar")}</strong> · ${escape(sourceRow.loan_number || "Sin crédito")} · ${escape(__("Fila"))} ${escape(sourceRow.source_row || sourceRow.idx)}</p>
+                <p>${__("Se vinculará el saldo a favor a esta fila y al depósito. El importe pendiente se sugiere en US$; revíselo y confirme que sea un excedente del cliente, no una aplicación que falte identificar. No aumenta lo aplicado al crédito.")}</p>
+                <p>${__("Si el saldo ya fue importado de contabilidad, reclasifique esa partida existente para no duplicar su registro.")}</p>` : `<p>Use un importe positivo para un depósito mayor que la aplicación y negativo cuando falta depósito.
                 Por ejemplo: aplicado US$90, depósito US$100 → +US$10; aplicado US$100, depósito US$90 → −US$10.
                   Si usa un importe negativo, agréguelo antes de seleccionar las aplicaciones restantes.
                   Para dinero sin aplicación ni ingreso identificado, elija <b>Saldo a favor de la empresa</b>:
                   debe ser positivo y no se agrega al detalle por cliente ni a Destinos.
                   Si el excedente pertenece a una persona, use <b>Saldo a favor del cliente</b>, identifique la fila y registre responsable y fecha compromiso. No aumenta lo aplicado al crédito.</p>`},
-            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: "Ajuste de conciliación", reqd: 1},
+            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow, reqd: 1},
             {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"), options: "Error de la empresa\nPago adicional no informado\nOtro por aclarar", default: "Error de la empresa", depends_on: "eval:doc.category === 'Saldo a favor de la empresa'", mandatory_depends_on: "eval:doc.category === 'Saldo a favor de la empresa'", description: __("Requiere depósito confirmado. Se vincula directamente y no se aplica a créditos ni se agrega a Destinos.")},
             {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
             {fieldtype: "Column Break"},
-            {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", reqd: 1},
+            {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", read_only: !!sourceRow, reqd: 1},
             {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __("Importe (+ / −)"), precision: 2, reqd: 1},
             {fieldname: "fx_rate", fieldtype: "Float", label: __("Tipo de cambio C$/US$"), precision: 8, default: frm.doc.fx_rate,
                 depends_on: "eval:doc.currency === 'NIO'", mandatory_depends_on: "eval:doc.currency === 'NIO'"},
             {fieldtype: "Section Break", label: __("Saldo a favor del cliente"), depends_on: "eval:doc.category === 'Saldo a favor del cliente'"},
             {fieldname: "credit_detail_row", fieldtype: "Select", label: __("Fila que incluye el excedente (opcional)"),
+                read_only: !!sourceRow,
                 description: __("Si detalle US$110 incluye US$10 de exceso, vincule su fila. Si el detalle muestra solo los US$100 aplicados, deje el vínculo vacío."),
                 options: [{value: "", label: "Excedente fuera del detalle por cliente"}, ...(frm.doc.detail_rows || []).map(row => ({value: row.name, label: `${row.client_name || row.client_number || "Cliente sin identificar"} · ${row.loan_number || "Sin crédito"}`}))],
                 async onchange() {
@@ -283,6 +326,7 @@ async function createRemittanceComplementary(frm) {
                     if (row) await dialog.set_values({credit_client: row.client || "", client_number: row.client_number || "", loan_number: row.loan_number || ""});
                 }},
             {fieldname: "credit_client", fieldtype: "Link", options: "CN Client", label: __("Cliente beneficiario"),
+                read_only: !!sourceRow?.client,
                 mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]]}})},
             {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"), options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión"},
@@ -298,14 +342,22 @@ async function createRemittanceComplementary(frm) {
             {fieldtype: "Section Break", label: __("Vínculo con cliente (opcional)"), collapsible: 1},
             {fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period", label: __("Período"),
                 get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"]}})},
-            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.client_number"},
+            {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), read_only: !!sourceRow, depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.client_number"},
             {fieldtype: "Column Break"},
-            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.loan_number"},
+            {fieldname: "loan_number", fieldtype: "Data", label: __("Nro. Crédito"), read_only: !!sourceRow, depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.loan_number"},
             {fieldname: "installment_number", fieldtype: "Data", label: __("Nro. Cuota"), depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.installment_number"},
         ],
-        primary_action_label: __("Crear y confirmar partida"),
+        primary_action_label: __(sourceRow ? "Crear y confirmar saldo a favor" : "Crear y confirmar partida"),
         primary_action: async values => {
             if (busy) return;
+            if (sourceRow && (!Number.isFinite(Number(values.amount)) || Number(values.amount) <= 0 || Number(values.amount) > Number(sourceRow.pending_usd))) {
+                frappe.msgprint(__("Indique un importe positivo que no supere el pendiente de la fila en US$."));
+                return;
+            }
+            // The shortcut is explicitly bound to this saved child and customer.
+            if (sourceRow) values = {...values, category: "Saldo a favor del cliente", currency: "USD",
+                credit_detail_row: sourceRow.name, credit_client: sourceRow.client || values.credit_client,
+                client_number: sourceRow.client_number || "", loan_number: sourceRow.loan_number || ""};
             busy = true;
             dialog.get_primary_btn().prop("disabled", true);
             try {
@@ -326,7 +378,11 @@ async function createRemittanceComplementary(frm) {
             }
         },
     });
+    if (sourceRow) await dialog.set_values({category: "Saldo a favor del cliente", currency: "USD",
+        amount: Math.round(Number(sourceRow.pending_usd) * 100) / 100, credit_detail_row: sourceRow.name,
+        credit_client: sourceRow.client || "", client_number: sourceRow.client_number || "", loan_number: sourceRow.loan_number || ""});
     dialog.show();
+    return dialog;
 }
 
 async function linkRemittanceDetailTargets(frm) {
@@ -660,6 +716,97 @@ function remittanceAllocationHtml(raw) {
 function renderRemittanceAllocations(frm) {
     const field = frm.fields_dict.allocation_preview;
     if (field) field.$wrapper.html(remittanceAllocationHtml(frm.doc.allocation_detail));
+}
+
+function remittanceDistributionHtml(data, visibleRows = data.rows || [], page = 0) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const size = 100, pages = Math.max(1, Math.ceil(visibleRows.length / size));
+    const safePage = Math.min(Math.max(page, 0), pages - 1);
+    const allowed = new Set(["CN Reconciliation Period", "CN Complementary Item"]);
+    const recordLink = row => allowed.has(row.record_doctype) && row.record_name
+        ? `<a href="/app/${row.record_doctype.toLowerCase().replace(/ /g, "-")}/${encodeURIComponent(row.record_name)}">${esc(row.record_name)}</a>` : "—";
+    return `<div style="font-size:var(--text-base,14px)">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px">
+            ${[["Depósito US$", data.total_usd], ["Distribuido y documentado US$", data.distributed_usd], ["Pendiente de distribuir US$", data.pending_usd]].map(([label, value]) => `
+                <div style="padding:12px;border:1px solid var(--border-color);border-radius:8px"><div>${esc(__(label))}</div>
+                <strong style="font-size:18px">${esc(remittanceMoney(value))}</strong></div>`).join("")}
+        </div>
+        <p>${esc(__("Incluye saldos a favor documentados, aunque su devolución o aplicación futura siga pendiente. No aumenta lo aplicado al crédito."))}</p>
+        ${!data.consistent ? `<p class="text-warning" role="alert">${esc(__("El detalle no coincide con la última distribución registrada. Revise los registros y use Conciliar; esta vista no modifica importes."))}</p>` : ""}
+        <div class="table-responsive" style="max-height:480px;overflow:auto"><table class="table table-bordered" style="font-size:inherit">
+            <thead><tr><th>${__("Concepto")}</th><th>${__("Cliente / empresa")}</th><th>${__("Nro. Crédito")}</th><th>${__("Período / partida")}</th><th class="text-right">${__("Importe US$")}</th><th>${__("Estado / gestión")}</th></tr></thead>
+            <tbody>${visibleRows.slice(safePage * size, (safePage + 1) * size).map(row => `<tr>
+                <td title="${esc(row.description)}">${esc(row.category)}${row.difference_usd != null ? `<div>${esc(__("Diferencia registrada"))}: US$ ${esc(remittanceMoney(row.difference_usd))}</div>` : ""}</td>
+                <td>${row.client_name ? `<strong>${esc(row.client_name)}</strong>` : esc(row.employer || "—")}
+                    ${row.client_number ? `<div>${esc(__("Nro. Cliente"))}: ${esc(row.client_number)}</div>` : ""}
+                    ${row.client_name && row.employer ? `<div>${esc(row.employer)}</div>` : ""}</td>
+                <td>${esc(row.loan_number || "—")}</td><td>${recordLink(row)}${row.period && row.record_doctype === "CN Complementary Item" ? `<div>${esc(row.period)}</div>` : ""}</td>
+                <td class="text-right text-nowrap"><strong>${esc(remittanceMoney(row.amount_usd))}</strong></td>
+                <td>${esc(row.state || "Distribuido")}${row.management_status ? `<div>${esc(__("Gestión"))}: ${esc(row.management_status)}</div>` : ""}${row.management_pending_usd != null ? `<div>${esc(__("Pendiente de gestión"))}: US$ ${esc(remittanceMoney(row.management_pending_usd))}</div>` : ""}</td>
+            </tr>`).join("") || `<tr><td colspan="6">${esc(__("No hay distribuciones registradas que coincidan con el filtro."))}</td></tr>`}</tbody>
+            <tfoot><tr><th colspan="4">${esc(__("Total detallado del depósito (todos los registros)"))}</th><th class="text-right text-nowrap">${esc(remittanceMoney(data.detailed_usd))}</th><th></th></tr></tfoot>
+        </table></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+            <span>${esc(__("{0} de {1} registros", [visibleRows.length, (data.rows || []).length]))} · ${esc(__("Página {0} de {1}", [safePage + 1, pages]))}</span>
+            <div><button type="button" class="btn btn-default btn-sm" data-distribution-page="-1" ${safePage === 0 ? "disabled" : ""}>${__("Anterior")}</button>
+            <button type="button" class="btn btn-default btn-sm" data-distribution-page="1" ${safePage >= pages - 1 ? "disabled" : ""}>${__("Siguiente")}</button></div>
+        </div>
+    </div>`;
+}
+
+async function renderRemittanceDistribution(frm) {
+    const field = frm.fields_dict.complete_distribution;
+    if (!field) return;
+    const wrapper = field.$wrapper, document = frm.doc;
+    const token = (frm.distribution_request || 0) + 1;
+    frm.distribution_request = token;
+    // Remove old closures when another deposit is shown or the view is refreshed.
+    wrapper.off(".cnDistribution");
+    if (frm.is_new() || document.docstatus !== 1) {
+        const message = document.docstatus === 2 ? "El depósito está cancelado; no tiene distribución activa." : "Confirme el depósito y use Conciliar para registrar su distribución. Los destinos seleccionados todavía no son pagos realizados.";
+        wrapper.html(`<p>${__(message)}</p>`);
+        return;
+    }
+    wrapper.html(`<p role="status">${__("Consultando la distribución de este depósito…")}</p>`);
+    const current = () => frm.doc === document && frm.doc.name === document.name && frm.distribution_request === token;
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.deposit_distribution.get_distribution",
+            args: {remittance_name: document.name},
+        });
+        if (!current()) return;
+        const data = response.message;
+        if (!data || !Array.isArray(data.rows)) throw new Error("Invalid distribution response");
+        if (data.docstatus !== 1) {
+            wrapper.html(`<p>${__("El depósito no está confirmado o fue cancelado. Recargue el formulario; no tiene distribución activa.")}</p>`);
+            return;
+        }
+        const esc = value => frappe.utils.escape_html(String(value ?? ""));
+        wrapper.html(`<p class="text-warning" data-distribution-dirty ${frm.is_dirty() ? "" : "hidden"}>${__("Hay cambios sin guardar. Se muestra la distribución guardada; guarde y concilie para actualizarla.")}</p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+                <label style="flex:1;min-width:220px">${__("Buscar cliente, empresa, crédito o registro")}<input type="search" class="form-control" data-distribution-search></label>
+                <label style="min-width:220px">${__("Concepto")}<select class="form-control" data-distribution-kind><option value="">${__("Todos")}</option>
+                    ${[...new Set(data.rows.map(row => row.category))].map(kind => `<option value="${esc(kind)}">${esc(kind)}</option>`).join("")}</select></label>
+            </div><div data-distribution-table></div>`);
+        let page = 0;
+        const fold = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        function render() {
+            if (!current()) return;
+            const text = fold(wrapper.find("[data-distribution-search]").val());
+            const kind = wrapper.find("[data-distribution-kind]").val();
+            const rows = data.rows.filter(row => (!kind || row.category === kind) &&
+                fold([row.category, row.client_name, row.client_number, row.loan_number, row.employer, row.record_name, row.period, row.state, row.management_status, row.description].join(" ")).includes(text));
+            page = Math.min(Math.max(page, 0), Math.max(0, Math.ceil(rows.length / 100) - 1));
+            wrapper.find("[data-distribution-table]").html(remittanceDistributionHtml(data, rows, page));
+            wrapper.find("[data-distribution-dirty]").prop("hidden", !frm.is_dirty());
+        }
+        wrapper.on("input.cnDistribution change.cnDistribution", "[data-distribution-search], [data-distribution-kind]", () => { page = 0; render(); });
+        wrapper.on("click.cnDistribution", "[data-distribution-page]", event => { page += Number(event.currentTarget.dataset.distributionPage); render(); });
+        render();
+    } catch (_error) {
+        if (!current()) return;
+        wrapper.html(`<p class="text-warning" role="alert">${__("No se pudo consultar la distribución. Use Actualizar distribución para reintentar; no se han cambiado los registros.")}</p>`);
+    }
 }
 
 async function loadPendingRemittanceTargets(frm) {

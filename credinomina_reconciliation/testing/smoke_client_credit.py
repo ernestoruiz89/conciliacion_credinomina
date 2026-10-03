@@ -7,6 +7,7 @@ import frappe
 from credinomina_reconciliation import client_credit as credit
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.control_deposits import get_cash_deposits
+from credinomina_reconciliation.deposit_distribution import get_distribution
 from credinomina_reconciliation.accounting_control import build_rows, summarize
 from credinomina_reconciliation.remittance_selection import get_pending_targets
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
@@ -96,6 +97,15 @@ def run():
                 assert overview["settled"] and not overview["needs_review"]
                 assert overview["credits_usd"] == 100 and overview["client_credit_usd"] == 10
                 assert sum(part["amount_usd"] for part in overview["destinations"]) == 110
+                table = get_distribution(deposit.name)
+                assert table["consistent"] and table["pending_usd"] == 0 and table["distributed_usd"] == 110
+                assert sum(r["amount_usd"] for r in table["rows"]) == 110
+                cash_row = next(r for r in table["rows"] if r["category"] == "Pago a crédito")
+                credit_row = next(r for r in table["rows"] if r["category"] == credit.CATEGORY)
+                assert cash_row["amount_usd"] == 100 and cash_row["client_number"] == marker
+                assert credit_row["amount_usd"] == 10 and credit_row["record_name"] == item.name
+                assert credit_row["employer"] == employer.name and credit_row["management_pending_usd"] == 10
+                assert not deposit.targets  # A view is not a cash allocation instruction.
                 ledger, _ = build_rows([], {}, [item.as_dict()])
                 totals = summarize(ledger)
                 assert len(ledger) == 1 and totals[0]["credit_nio"] == 366.24 and totals[0]["credit_usd"] == 10
@@ -109,14 +119,18 @@ def run():
                 frappe.db.savepoint("unmanaged_credit_cancel")
                 item.cancel(); deposit.reload()
                 assert not deposit.result.startswith("Conciliado") and deposit.justified_surplus_usd == 0
-                if not included:
-                    created = create_complementary_item(deposit.name, str(deposit.modified), {
-                        "category": credit.CATEGORY, "currency": "USD", "amount": 10, "posting_date": deposit_date,
-                        "credit_client": client.name, "credit_assigned_to": "Administrator", "credit_commitment_date": "2026-10-05",
-                        "credit_treatment": "Devolución", "description": "Excedente fuera del detalle por cliente"})
-                    replacement = frappe.get_doc("CN Complementary Item", created["name"])
-                    assert replacement.employer == employer.name and not replacement.credit_detail_row
-                    assert created["client_credit"] and created["result"] == credit.RESULT
+                created = create_complementary_item(deposit.name, str(deposit.modified), {
+                    "category": credit.CATEGORY, "currency": "USD", "amount": 10, "posting_date": deposit_date,
+                    "credit_client": client.name, "credit_assigned_to": "Administrator", "credit_commitment_date": "2026-10-05",
+                    "credit_detail_row": deposit.detail_rows[0].name if included else "",
+                    "credit_treatment": "Devolución", "description": "Excedente documentado desde el depósito"})
+                replacement = frappe.get_doc("CN Complementary Item", created["name"])
+                assert replacement.employer == employer.name
+                assert replacement.credit_detail_row == (deposit.detail_rows[0].name if included else "")
+                assert created["client_credit"] and created["result"] == credit.RESULT
+                deposit.reload()
+                assert deposit.result == "Conciliado con saldo a favor del cliente" and not deposit.targets
+                assert get_distribution(deposit.name)["detailed_usd"] == 110
                 frappe.db.rollback(save_point="unmanaged_credit_cancel")
                 item.reload(); deposit.reload()
                 distribution = deposit.allocation_detail
@@ -134,6 +148,10 @@ def run():
                 result = credit.record_management(item.name, str(item.modified), "Aplicación futura", 6, deposit_date, marker + "-CORE2", support.file_url)
                 item.reload(); deposit.reload(); source.reload(); period.reload()
                 assert result["status"] == "Resuelto" and item.credit_pending_usd == 0 and len(json.loads(item.credit_history)) == 2
+                table = get_distribution(deposit.name)
+                credit_row = next(r for r in table["rows"] if r["category"] == credit.CATEGORY)
+                assert credit_row["state"] == "Documentado" and credit_row["management_status"] == "Resuelto" and credit_row["management_pending_usd"] == 0
+                assert table["distributed_usd"] == table["detailed_usd"] == 110
                 assert deposit.allocation_detail == distribution and period.applied_usd == 100 and source.rows[0].amount == 100
                 item.credit_resolved_usd = 0; item.credit_history = "[]"
                 item.save(); item.reload()
@@ -141,6 +159,6 @@ def run():
                 must_fail(lambda: item.cancel())
             return {"both_modes": True, "authorized_other_payer": True, "excess_inside_and_outside_detail": True, "NIO_deposit_USD_reconciliation": True, "application": 100, "client_credit": 10,
                     "original_GL_preserved": True, "closed_period_management": True, "partial_and_full_management": True,
-                    "no_double_use": True, "rolled_back": True}
+                    "no_double_use": True, "complete_deposit_distribution": True, "create_credit_from_detail": True, "rolled_back": True}
     finally:
         frappe.db.rollback()
