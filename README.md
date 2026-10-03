@@ -648,6 +648,26 @@ y saldos sin clasificar. Su contador permite ver las gestiones pendientes desde
 el calendario. La pestaña elegida se conserva al actualizar o cambiar los filtros;
 alternar entre pestañas conserva las filas cargadas y la posición del calendario.
 Los filtros de año y empresa, las cifras de control y la exportación son comunes.
+El calendario tiene un botón **Pantalla completa**. Conserva el modo Resumen y
+permite abrir los modales del mes, depósito y período por encima del calendario.
+Se sale con **Salir de pantalla completa** o Escape; con un modal abierto, Escape
+se deja al modal. Si el navegador no admite pantalla completa, se amplía dentro
+de la ventana. Al navegar a otro documento se restaura automáticamente la página.
+**Ver cifras de control** carga sus indicadores solo al abrirse: aplicado neto,
+depósitos recibidos completos, aplicado pendiente (con su parte vencida), dinero
+sin asignar, saldos a favor por gestionar y excepciones vencidas. El aplicado y
+su pendiente usan el cálculo por aplicación de Antigüedad de Saldos, incluyendo
+las aplicaciones sin período y descontando ajustes confirmados, sin compensar
+saldos de clientes distintos. Los importes sin conversión y las restricciones de
+permisos se indican explícitamente, no se presentan como ceros completos.
+El año corresponde al mes de cobranza para aplicaciones vinculadas (fecha de
+aplicación para las no vinculadas), fecha de depósito para efectivo, fecha de
+partida para saldos a favor y fecha compromiso para excepciones. Se muestran
+saldos actuales, no saldos reconstruidos a una fecha pasada. Los saldos de
+clientes usan su pendiente de gestión; los de empresa muestran el documentado
+vigente, pues aún no tienen seguimiento de devoluciones parciales. Las cifras
+de cobranza, deducción y tolerancia se conservan en **Detalle del proceso**.
+La exportación conserva su estructura actual; estas tarjetas no cambian sus hojas.
 Los importes del tablero son un resumen; abra cada pendiente
 antes de interpretar una celda como conciliada. Una aplicación vinculada a una
 cuota antes de recibir el detalle de la empresa queda **provisional**: no prueba

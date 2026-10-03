@@ -28,6 +28,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     $root.html(`${styles()}<div class="cn-loading">${esc(__("Cargando control..."))}</div>`);
     let currentData = null;
     let activeView = "calendar";
+    let calendarFullscreen = false, fullscreenController = null;
+    let kpisOpen = false, controlKpis = null, kpiRequest = null, kpiError = false;
     let workLimit = 100;
     let summaryMode = true;
     let calendarYear = currentYear;
@@ -42,6 +44,9 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const requestedYear = yearField.get_value();
         const requestedEmployer = employerField.get_value() || null;
         const sequence = ++refreshSequence;
+        controlKpis = null;
+        kpiRequest = null;
+        kpiError = false;
         navigationSequence++;
         detailRequests.clear();
         return frappe.call({
@@ -68,8 +73,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 yearField.set_input(requestedYear);
             } finally { updatingYearOptions = false; }
             render(currentData);
+            if (kpisOpen) loadControlKpis();
         }).catch(() => {
             if (sequence !== refreshSequence) return;
+            fullscreenController?.exit();
             $root.html(`${styles()}<div class="cn-empty">${esc(__("No se pudo cargar el control."))}</div>`);
         });
     }
@@ -113,25 +120,16 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 label: new Intl.DateTimeFormat("es-NI", { month: "short" }).format(new Date(year, index, 1)),
             };
         });
-        const cards = [
-            [__("Cobranza enviada"), totals.expected_usd, "sent"],
-            [__("Deducción registrada"), totals.deducted_usd, "deducted"],
-            [__("Deducción inferida por depósito"), totals.inferred_deduction_usd, "pending"],
-            [__("Aplicado al crédito"), totals.applied_usd, "applied"],
-            [__("Depósitos asignados"), totals.remitted_usd, "remitted"],
-            [__("Movimientos de conciliación"), totals.rounding_movement_abs_usd, "pending"],
-            [__("CxC a empleados (no deducido)"), totals.worker_gap_usd, "gap"],
-            [__("Deducido sin depósito asignado"), totals.employer_gap_usd, "gap"],
-            [__("Detalle pendiente"), totals.pending_detail_usd, "pending"],
-            [__("Histórico sin depósito"), totals.historical_pending_usd, "pending"],
-            [__("Saldo a favor documentado"), totals.documented_credit_usd, "surplus"],
-            [__("Depósitos sin asignar"), totals.unclassified_deposit_usd, "unclassified"],
-        ].map(([label, value, kind]) => `
-            <div class="cn-kpi cn-kpi-${kind}">
-                <div class="cn-kpi-label">${esc(label)}</div>
-                <div class="cn-kpi-value">${money(value)}</div>
-            </div>
-        `).join("");
+        const processFigures = [
+            [__("Cobranza enviada"), totals.expected_usd],
+            [__("Deducción registrada"), totals.deducted_usd],
+            [__("Deducción inferida por depósito"), totals.inferred_deduction_usd],
+            [__("Depósitos asignados"), totals.remitted_usd],
+            [__("Ajustes de tolerancia (valor absoluto)"), totals.rounding_movement_abs_usd],
+            [__("CxC a empleados (no deducido)"), totals.worker_gap_usd],
+            [__("Deducido sin depósito asignado"), totals.employer_gap_usd],
+            [__("Detalle pendiente"), totals.pending_detail_usd],
+        ].map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${money(value)}</dd></div>`).join("");
         const visibleWork = workItems.slice(0, workLimit);
         const overdueCount = data.overdue_count ?? workItems.filter((item) => item.kind === "overdue_exception").length;
         const workTable = visibleWork.length ? `
@@ -239,13 +237,20 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <span class="cn-year">${esc(allYears ? __("Todos los años") : String(year))}</span>
                 </div>
             </div>
-            <details class="cn-panel cn-collapsible"><summary>${esc(__("Ver cifras de control"))}</summary><div class="cn-kpis cn-secondary-kpis">${cards}</div></details>
+            <details class="cn-panel cn-collapsible" data-control-figures ${kpisOpen ? "open" : ""}>
+                <summary data-kpis-toggle>${esc(__("Ver cifras de control"))}</summary>
+                <div data-kpi-content>${renderControlKpis(controlKpis, kpiError)}</div>
+                <details class="cn-process-figures"><summary>${esc(__("Detalle del proceso"))}</summary>
+                    <p>${esc(__("Cifras de los períodos de cobranza seleccionados. Son etapas distintas: no deben sumarse. La deducción inferida está incluida en la registrada."))}</p>
+                    <dl>${processFigures}</dl>
+                </details>
+            </details>
             <div class="cn-view-tabs" role="tablist" aria-label="${esc(__("Vistas del control"))}">
                 <button type="button" class="cn-view-tab" role="tab" id="cn-control-calendar-tab" aria-controls="cn-control-calendar-panel" data-control-view="calendar" aria-selected="${activeView === "calendar"}" tabindex="${activeView === "calendar" ? "0" : "-1"}">${esc(__("Calendario"))}</button>
                 <button type="button" class="cn-view-tab" role="tab" id="cn-control-work-tab" aria-controls="cn-control-work-panel" data-control-view="work" aria-selected="${activeView === "work"}" tabindex="${activeView === "work" ? "0" : "-1"}">${esc(__("Trabajo de conciliación"))}<span class="cn-tab-count">${workCount}</span>${overdueCount ? `<span class="cn-tab-overdue">${overdueCount} ${esc(__("vencidas"))}</span>` : ""}</button>
             </div>
             <div class="cn-tab-panel" role="tabpanel" id="cn-control-calendar-panel" aria-labelledby="cn-control-calendar-tab" data-control-panel="calendar" tabindex="0" ${activeView === "calendar" ? "" : "hidden"}>
-                <section class="cn-panel"><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
+                <section class="cn-panel" data-calendar-section><div class="cn-panel-head"><h3>${esc(__("Empresas por mes de conciliación"))}</h3>${calendarFilter}<label class="cn-summary-toggle"><input type="checkbox" data-summary ${summaryMode ? "checked" : ""}> ${esc(__("Resumen"))}</label><span>${year} · ${calendarPeriods.length} ${esc(__("períodos"))}</span><button type="button" class="btn btn-default btn-sm cn-fullscreen-button" data-calendar-fullscreen aria-pressed="${calendarFullscreen}" aria-controls="cn-control-calendar-panel" title="${esc(__("Ampliar calendario / salir con Escape"))}">${esc(__(calendarFullscreen ? "Salir de pantalla completa" : "Pantalla completa"))}</button></div>${allYears ? `<p class="text-muted">${esc(__("Este selector cambia solo el calendario. Los totales, gestiones y Excel incluyen todos los años."))}</p>` : ""}${matrix}</section>
             </div>
             <div class="cn-tab-panel" role="tabpanel" id="cn-control-work-panel" aria-labelledby="cn-control-work-tab" data-control-panel="work" tabindex="0" ${activeView === "work" ? "" : "hidden"}>
                 <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>${workTable}${workFooter}</section>
@@ -411,8 +416,60 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
     }
 
+    function loadControlKpis() {
+        if (controlKpis) return Promise.resolve();
+        if (kpiRequest) return kpiRequest;
+        const sequence = refreshSequence;
+        kpiError = false;
+        $root.find("[data-kpi-content]").html(renderControlKpis(null));
+        const pending = Promise.resolve(frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_kpis",
+            args: {year: yearField.get_value(), employer: employerField.get_value() || null},
+        })).then(response => {
+            if (sequence !== refreshSequence) return;
+            controlKpis = response.message;
+            if (!controlKpis) throw new Error("Missing control figures");
+            $root.find("[data-kpi-content]").html(renderControlKpis(controlKpis));
+        }).catch(() => {
+            if (sequence !== refreshSequence) return;
+            kpiError = true;
+            $root.find("[data-kpi-content]").html(renderControlKpis(null, true));
+        }).finally(() => { if (kpiRequest === pending) kpiRequest = null; });
+        kpiRequest = pending;
+        return pending;
+    }
+    $root.on("click", "[data-kpis-toggle]", function () {
+        kpisOpen = !kpisOpen;
+        if (kpisOpen) return loadControlKpis();
+    });
+    $root.on("click", "[data-kpis-retry]", loadControlKpis);
+    $root.on("click", "[data-kpi-action]", function () {
+        if (!controlKpis) return;
+        const action = $(this).attr("data-kpi-action");
+        if (action === "exceptions" && controlKpis.exceptions?.filters) {
+            frappe.route_options = controlKpis.exceptions.filters;
+            frappe.set_route("List", "CN Reconciliation Exception");
+        } else if (action === "aging" && controlKpis.applications) {
+            const year = yearField.get_value();
+            frappe.route_options = {as_of_date: controlKpis.as_of_date, employer: employerField.get_value() || "",
+                balance_type: "Aplicado pendiente de depósito", reconciliation_mode: "",
+                from_month: year === "Todos" ? "" : `${year}-01-01`, to_month: year === "Todos" ? "" : `${year}-12-01`,
+                client_number: "", national_id: "", loan_number: ""};
+            frappe.set_route("query-report", "Antiguedad de Saldos");
+        }
+    });
+
+    $root.on("click", "[data-calendar-fullscreen]", function () {
+        if (!fullscreenController) fullscreenController = createCalendarFullscreen($root[0], wrapper, active => {
+            calendarFullscreen = active;
+            $root.find("[data-calendar-fullscreen]").attr("aria-pressed", String(active))
+                .text(__(active ? "Salir de pantalla completa" : "Pantalla completa"));
+        });
+        return fullscreenController.toggle();
+    });
     function selectView(view, focus = false) {
         if (!["calendar", "work"].includes(view)) return;
+        if (view !== "calendar") fullscreenController?.exit();
         activeView = view;
         // Toggle existing panels so scrolling, expanded sections and loaded rows survive.
         for (const name of ["calendar", "work"]) {
@@ -856,6 +913,117 @@ function allocationLines(raw) {
     }).join("<br>");
 }
 
+function createCalendarFullscreen(root, wrapper, onChange) {
+    let active = false, placeholder = null, nativeOwned = false, generation = 0;
+    let savedFocus = null;
+    const hasModal = () => Array.from(document.querySelectorAll(".modal.show, .modal.in, .modal-backdrop"))
+        .some(element => element.getClientRects().length > 0);
+    const focusButton = () => root.querySelector("[data-calendar-fullscreen]")?.focus({preventScroll: true});
+    const onHide = () => exit(true, false);
+    function onFullscreenChange() {
+        if (active && nativeOwned && !document.fullscreenElement) exit(false);
+    }
+    function onKeydown(event) {
+        // Let Frappe own Escape and focus while ANY modal is open.
+        if (!active || hasModal()) return;
+        if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            exit();
+        } else if (event.key === "Tab") {
+            const controls = Array.from(root.querySelectorAll('button, input, select, a[href], [tabindex="0"]'))
+                .filter(element => !element.disabled && element.getClientRects().length > 0);
+            const first = controls[0], last = controls[controls.length - 1];
+            if (!first) return;
+            if (!root.contains(document.activeElement) || (!event.shiftKey && document.activeElement === last)
+                || (event.shiftKey && document.activeElement === first)) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        }
+    }
+    async function enter() {
+        if (active) return;
+        const attempt = ++generation;
+        active = true;
+        savedFocus = document.activeElement;
+        placeholder = document.createComment("calendar-fullscreen-home");
+        root.before(placeholder);
+        // Portal the same root, preserving delegated events and table scroll.
+        // This avoids ancestor stacking contexts while keeping Frappe modals above it.
+        document.body.appendChild(root);
+        root.classList.add("cn-calendar-expanded");
+        document.body.classList.add("cn-calendar-expanded-body");
+        document.addEventListener("keydown", onKeydown, true);
+        document.addEventListener("fullscreenchange", onFullscreenChange);
+        $(wrapper).on("hide.cnCalendarFullscreen", onHide);
+        onChange(true);
+        focusButton();
+        // Fullscreen the DOCUMENT, not the calendar: dialogs/backdrops are body
+        // siblings and would otherwise be excluded from the browser's top layer.
+        if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+            try {
+                await document.documentElement.requestFullscreen();
+                if (attempt === generation && active) nativeOwned = true;
+                else if (!active && document.fullscreenElement === document.documentElement) {
+                    await document.exitFullscreen();
+                } else if (active) nativeOwned = true;
+            } catch (_error) { /* Keep the viewport-sized fallback usable. */ }
+        }
+    }
+    async function exit(exitNative = true, restoreFocus = true) {
+        if (!active) return;
+        generation++;
+        active = false;
+        root.classList.remove("cn-calendar-expanded");
+        document.body.classList.remove("cn-calendar-expanded-body");
+        placeholder?.replaceWith(root);
+        placeholder = null;
+        document.removeEventListener("keydown", onKeydown, true);
+        document.removeEventListener("fullscreenchange", onFullscreenChange);
+        $(wrapper).off("hide.cnCalendarFullscreen", onHide);
+        onChange(false);
+        if (restoreFocus) {
+            if (savedFocus?.isConnected) savedFocus.focus({preventScroll: true});
+            else focusButton();
+        }
+        const leaveNative = nativeOwned && document.fullscreenElement === document.documentElement;
+        nativeOwned = false;
+        if (exitNative && leaveNative) {
+            try { await document.exitFullscreen(); } catch (_error) { /* Browser Escape remains available. */ }
+        }
+    }
+    return {enter, exit, toggle: () => active ? exit() : enter(), get active() {return active;}};
+}
+
+function renderControlKpis(data, failed = false) {
+    if (!data) return `<div class="cn-kpi-message" role="status">${esc(__(failed
+        ? "No se pudieron cargar las cifras. No se muestran importes en cero para sustituir el error."
+        : "Calculando cifras de control..."))}${failed ? ` <button type="button" class="btn btn-default btn-sm" data-kpis-retry>${esc(__("Reintentar"))}</button>` : ""}</div>`;
+    const a = data.applications, d = data.deposits, c = data.credits, e = data.exceptions;
+    const card = (label, value, note, kind, available, action = "", actionLabel = "") => `
+        <div class="cn-kpi cn-kpi-${kind}"><div class="cn-kpi-label">${esc(__(label))}</div>
+            <div class="cn-kpi-value">${available ? esc(value) : "—"}</div>
+            <div class="cn-kpi-note">${available ? esc(note) : esc(__("No disponible con sus permisos."))}</div>
+            ${available && action ? `<button type="button" class="cn-text-link" data-kpi-action="${action}">${esc(__(actionLabel))}</button>` : ""}
+        </div>`;
+    const notes = [];
+    if (a?.missing_fx_count) notes.push(`${a.missing_fx_count} ${__("aplicaciones sin conversión US$: aplicado y pendiente son parciales. Complete el tipo de cambio.")}`);
+    if (a?.without_date_usd > MONEY_EPSILON) notes.push(`${__("Pendiente sin vencimiento determinado")}: ${money(a.without_date_usd)}. ${__("No se incluye en el vencido.")}`);
+    if (d?.overallocated_count) notes.push(`${d.overallocated_count} ${__("depósitos con distribución superior al importe recibido; revisar. No compensan los saldos sin asignar de otros depósitos.")}`);
+    return `<div class="cn-kpis cn-control-kpis">
+        ${card("Aplicado neto US$", money(a?.net_applied_usd), `${__("Sin período")}: ${money(a?.unlinked_usd)}. ${__("Incluye ajustes confirmados de aplicación.")}`, "applied", a)}
+        ${card("Depósitos recibidos US$", money(d?.received_usd), `${d?.deposit_count || 0} ${__("depósitos confirmados, por su importe completo.")}`, "remitted", d)}
+        ${card("Aplicado pendiente de conciliar US$", money(a?.pending_usd), `${__("Vencido")}: ${money(a?.overdue_usd)}. ${__("Solo descuenta distribuciones vinculadas.")}`, "gap", a, "aging", "Ver antigüedad")}
+        ${card("Depósitos sin asignar US$", money(d?.unassigned_usd), `${d?.unassigned_count || 0} ${__("depósitos con dinero sin destino identificado.")}`, "gap", d)}
+        ${card("Saldos a favor por gestionar US$", money(c?.credit_pending_usd), `${__("Clientes pendientes")}: ${money(c?.client_pending_usd)} · ${__("Empresa documentado vigente")}: ${money(c?.company_documented_usd)}. ${__("Empresa no tiene seguimiento de devoluciones parciales.")}`, "surplus", c)}
+        ${card("Excepciones vencidas", String(e?.count || 0), __("Abiertas o en revisión, con fecha compromiso vencida. Incluye casos sin período."), "gap", e,
+            e?.count && e.filters ? "exceptions" : "", "Ver excepciones")}
+    </div>
+    ${notes.length ? `<div class="cn-kpi-warning" role="status">${notes.map(note => `<p>${esc(note)}</p>`).join("")}</div>` : ""}
+    <p class="cn-kpi-scope">${esc(__("Saldo actual, no reconstrucción histórica. Año: aplicaciones por mes de cobranza (sin período, fecha de aplicación); depósitos por fecha de depósito; saldos a favor por fecha de partida; excepciones por fecha compromiso. El año del calendario no cambia estas cifras. No reste los depósitos recibidos del aplicado para calcular el pendiente."))}</p>`;
+}
+
 function styles() {
     return `<style>
         .cn-control { padding: 12px 4px 32px; color: #334155; }
@@ -871,6 +1039,15 @@ function styles() {
         .cn-tab-count { background: var(--control-bg, #f1f5f9); color: var(--text-color, #334155); border-radius: 12px; padding: 2px 8px; font-size: 13px; }
         .cn-tab-overdue { color: #b91c1c; font-size: 13px; }
         .cn-control .cn-tab-panel[hidden] { display: none !important; }
+        body.cn-calendar-expanded-body { overflow: hidden !important; }
+        .cn-control.cn-calendar-expanded { position: fixed; inset: 0; z-index: 1035; background: var(--bg-color, #f8fafc); margin: 0; padding: 12px; width: 100%; height: 100vh; height: 100dvh; box-sizing: border-box; overflow: hidden; }
+        .cn-calendar-expanded > :not(style):not([data-control-panel="calendar"]) { display: none !important; }
+        .cn-calendar-expanded [data-control-panel="calendar"] { height: 100%; }
+        .cn-calendar-expanded [data-calendar-section] { height: 100%; display: flex; flex-direction: column; margin: 0; min-height: 0; }
+        .cn-calendar-expanded .cn-panel-head { flex-shrink: 0; }
+        .cn-calendar-expanded .cn-matrix-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+        .cn-calendar-expanded [data-calendar-section] > p { padding: 8px 16px; margin: 0; }
+        .cn-fullscreen-button { flex-shrink: 0; }
         .cn-year { background: #dbeafe; border-radius: 8px; padding: 6px 12px; color: #1d4ed8; font-weight: 700; }
         .cn-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
         .cn-kpi { min-width: 0; padding: 13px; border: 1px solid #e2e8f0; border-radius: 10px; background: white; box-shadow: 0 2px 6px #0f172a0b; }
@@ -878,6 +1055,23 @@ function styles() {
         .cn-kpi-value { font-size: 19px; font-weight: 700; color: #1e293b; margin-top: 5px; white-space: nowrap; }
         .cn-kpi-remitted .cn-kpi-value { color: #047857; } .cn-kpi-gap .cn-kpi-value { color: #b45309; }
         .cn-kpi-surplus .cn-kpi-value { color: #7c3aed; }
+        .cn-control-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        [data-kpi-content] { padding: 14px; }
+        .cn-control-kpis .cn-kpi-label { font-size: 13px; text-transform: none; letter-spacing: normal; }
+        .cn-control-kpis .cn-kpi-value { font-size: 23px; white-space: normal; overflow-wrap: anywhere; }
+        .cn-control-kpis .cn-text-link { margin-top: 10px; }
+        .cn-kpi-note, .cn-kpi-scope, .cn-kpi-message, .cn-process-figures { font-size: 13px; line-height: 1.5; }
+        .cn-kpi-note { color: #64748b; margin-top: 8px; }
+        .cn-kpi-scope { color: #64748b; }
+        .cn-kpi-message { padding: 12px 0; }
+        .cn-kpi-warning { background: #fffbeb; border-left: 3px solid #d97706; padding: 8px 12px; margin-bottom: 12px; }
+        .cn-kpi-warning p { margin: 4px 0; }
+        .cn-process-figures { border-top: 1px solid #e2e8f0; padding: 10px 14px 14px; }
+        .cn-process-figures dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
+        .cn-process-figures dl > div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e2e8f0; padding: 6px 0; }
+        .cn-process-figures dt { font-weight: 400; } .cn-process-figures dd { margin: 0; white-space: nowrap; font-weight: 600; }
+        @media(max-width: 900px) { .cn-control-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media(max-width: 650px) { .cn-control-kpis, .cn-process-figures dl { grid-template-columns: 1fr; } }
         .cn-inherited-note { color: #92400e; font-size: 11px; }
         .cn-panel { background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 18px; box-shadow: 0 2px 8px #0f172a0a; }
         .cn-panel-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; padding: 13px 16px; border-bottom: 1px solid #e2e8f0; }
@@ -926,7 +1120,6 @@ function styles() {
         .cn-work-more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 12px; color: #64748b; font-size: 11px; }
         .cn-collapsible summary { cursor: pointer; padding: 13px 16px; color: #1e293b; font-size: 14px; font-weight: 700; }
         .cn-collapsible[open] summary { border-bottom: 1px solid #e2e8f0; }
-        .cn-secondary-kpis { padding: 14px; margin-bottom: 0; }
         .cn-matrix-scroll, .cn-list-scroll { overflow-x: auto; }
         .cn-matrix { width: 100%; min-width: 1500px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
         .cn-matrix th { background: #1e293b; color: white; padding: 10px 6px; font-size: 11px; text-transform: uppercase; text-align: center; }

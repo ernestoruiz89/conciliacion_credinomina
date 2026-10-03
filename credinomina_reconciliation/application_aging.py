@@ -30,7 +30,7 @@ def _details(value):
     return entries if isinstance(entries, list) else []
 
 
-def application_balances(sources, imports, periods, collections, employers, as_of):
+def application_balances(sources, imports, periods, collections, employers, as_of, *, include_settled=False):
     """Build balances without modifying allocations or offsetting unrelated credits.
 
     Operative cash belongs to a collection claim, not to each application. Group
@@ -59,7 +59,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
 
     def emit(item, applied, paid=0, adjustment=0, fx=0):
         balance = max(money(applied) + money(adjustment) - money(paid), 0)
-        if balance <= 0:
+        if balance <= 0 and not include_settled:
             return
         output.append({
             **item, "applied_usd": money_float(applied),
@@ -132,7 +132,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         )
         adjustment = money(collection.get("rounding_adjustment_usd"))
         applied = sum_money(part["applied_usd"] for part in parts)
-        if max(applied + adjustment - paid, 0) <= 0:
+        if max(applied + adjustment - paid, 0) <= 0 and not include_settled:
             continue
         dates = {part["due_date"] for part in parts}
         if len(dates) > 1 and (paid or adjustment):

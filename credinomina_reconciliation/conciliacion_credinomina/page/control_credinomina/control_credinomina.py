@@ -104,6 +104,18 @@ def get_control_data(year=None, employer=None):
 
 
 @frappe.whitelist()
+def get_control_kpis(year=None, employer=None):
+    """Separate from calendar loading; does not execute reconciliation."""
+    if not frappe.has_permission("CN Reconciliation Period", "read"):
+        frappe.throw(_("No tiene permiso para consultar la conciliacion."))
+    year = None if str(year).strip().casefold() in ("todos", "todo", "all") else cint(year or now_datetime().year)
+    if year is not None and not 2000 <= year <= 2100:
+        frappe.throw(_("Indique un año valido."))
+    from credinomina_reconciliation.control_kpis import get_figures
+    return get_figures(year, employer, now_datetime().date())
+
+
+@frappe.whitelist()
 def get_period_detail(period_name: str):
     """Load one visible period; never load the rest of the dashboard for a modal."""
     frappe.get_doc("CN Reconciliation Period", period_name).check_permission("read")
