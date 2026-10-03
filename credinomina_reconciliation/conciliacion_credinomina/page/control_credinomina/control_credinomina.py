@@ -475,7 +475,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                         **_year_filter("event_date", year),
                     },
                     fields=[
-                        "parent", "event_date", "reference", "loan_number",
+                        "parent", "event_date", "reference", "client_name", "loan_number",
                         "amount", "amount_usd", "currency", "match_reason", "application_adjustment_usd", "net_applied_usd",
                         "processing_route",
                     ],

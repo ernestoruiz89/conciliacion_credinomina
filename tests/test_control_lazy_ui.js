@@ -10,6 +10,10 @@ const root = {appendTo() {return this;}, html(value) {html = value; renders++; r
             trigger(event) {if (event === "focus") focused = selector;}};
     }};
 const data = () => ({year: 2026, totals: {}, work_items: [],
+    unassigned_historical_applications: [
+        {parent: "IMP-1", reference: "REF-1", client_name: "Ana <Pérez>", loan_number: "123-1", amount: 25},
+        {parent: "IMP-2", reference: "REF-2", loan_number: "456-1", amount: 10},
+    ],
     periods: [{name: "P", employer: "A", month: "2026-09", reconciliation_mode: "Historica",
         applied_usd: 100, remitted_usd: 100, control_state: "historico_conciliado", detail_loaded: false}],
     cash_deposits: [{name: "D", employer: "A", month: "2026-09", total_usd: 100, credits_usd: 100,
@@ -43,6 +47,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
     context.frappe.pages["control-credinomina"].on_page_load({}); await tick();
     assert.equal(requests.length, 0, "Initial load should not request details");
+    const unassigned = html.match(/<details[^>]*data-section="unassigned_historical_applications"[\s\S]*?<\/details>/)[0];
+    assert.match(unassigned, /<th>Nombre del cliente<\/th>/);
+    assert.match(unassigned, /<td>Ana &lt;Pérez&gt;<\/td>/);
+    assert.match(unassigned, /<td>—<\/td>/, "Missing client names remain readable");
+    assert.equal((unassigned.match(/<th>/g) || []).length, 6);
+    assert.equal((unassigned.match(/<td(?:\s|>)/g) || []).length, 12);
     const panel = view => html.match(new RegExp(`<div[^>]*data-control-panel="${view}"[^>]*>`))[0];
     assert.doesNotMatch(panel("calendar"), /hidden/, "Open on the calendar");
     assert.match(panel("work"), /hidden/);

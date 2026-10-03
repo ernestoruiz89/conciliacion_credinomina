@@ -17,7 +17,11 @@ const deposit = {name: "D1", employer: "E", month: "2025-05", date: "2025-05-20"
     ]};
 const data = {year: 2025, periods: [{name: "P-ABRIL", employer: "E", month: "2025-04",
     reconciliation_mode: "Historica", control_state: "historico_conciliado", applied_usd: 500, remitted_usd: 500}],
-    cash_deposits: [deposit, {...deposit, name: "D2", employer: "SOLO-DEPOSITOS", month: "2025-06", date: "2025-06-01"}], totals: {}};
+    cash_deposits: [deposit, {...deposit, name: "D2", employer: "SOLO-DEPOSITOS", month: "2025-06", date: "2025-06-01"}],
+    open_deposits: [{source_doctype: "CN Remittance Allocation", parent: "D1", event_date: "2025-05-20",
+        employer_text: "E", reference: "REF-ABIERTA", voucher: "V1", amount: 1000, currency: "USD",
+        allocated_usd: 800, unallocated_usd: 200, justified_surplus_usd: 100, unclassified_usd: 100,
+        allocation_detail: JSON.stringify([{referencia: "DESGLOSE-NO-VISIBLE", importe_usd: 800}])}], totals: {}};
 const context = vm.createContext({__: text => text, $: value => typeof value === "string" ? root : {attr: name => value[name]},
     frappe: {pages: {"control-credinomina": {}}, datetime: {str_to_user: value => value.split("-").reverse().join("/")},
         set_route: (...args) => {route = args;}, call: async () => ({message: data}), ui: {
@@ -116,6 +120,13 @@ const original = JSON.stringify(data);
     assert.ok(html.includes('data-month="2025-05"'));
     assert.ok(html.includes('data-month="2025-06"'));
     assert.ok(html.includes("SOLO-DEPOSITOS"));
+    const openDeposits = html.match(/<details[^>]*data-section="open_deposits"[\s\S]*?<\/details>/)[0];
+    assert.doesNotMatch(openDeposits, /<th>Distribución<\/th>|DESGLOSE-NO-VISIBLE/);
+    assert.equal((openDeposits.match(/<th>/g) || []).length, 9);
+    assert.equal((openDeposits.match(/<td(?:\s|>)/g) || []).length, 9, "Header and row cells remain aligned");
+    assert.match(openDeposits, /data-remittance="D1">REF-ABIERTA/);
+    assert.match(openDeposits, /Distribuido US\$/);
+    assert.match(openDeposits, /800\.00/);
     handlers["[data-month]"].call({"data-employer": "E", "data-month": "2025-05"});
     const month = dialog;
     assert.ok(month.shown && month.html.includes('data-cash-deposit="D1"'));

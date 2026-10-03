@@ -279,7 +279,7 @@ class ControlWorkQueueTests(unittest.TestCase):
         ]
         rows = [
             frappe._dict(parent="IMP-FLAG", event_date="2026-09-15", reference="FLAG",
-                         processing_route="", amount=10, amount_usd=10, currency="USD"),
+                         client_name="Ana Pérez", processing_route="", amount=10, amount_usd=10, currency="USD"),
             frappe._dict(parent="IMP-ROW", event_date="2026-09-15", reference="ROW",
                          processing_route="Historica", amount=10, amount_usd=10, currency="USD"),
             frappe._dict(parent="IMP-DATE", event_date="2026-08-15", reference="DATE",
@@ -302,6 +302,8 @@ class ControlWorkQueueTests(unittest.TestCase):
 
         def get_all(doctype, **kwargs):
             if doctype == "CN Source Row" and kwargs["filters"].get("event_type") == "Aplicacion":
+                if "historical_period" in kwargs["filters"]:
+                    self.assertIn("client_name", kwargs["fields"])
                 return rows
             return []
 
@@ -314,6 +316,7 @@ class ControlWorkQueueTests(unittest.TestCase):
             data = get_control_data(year=2026)
 
         historical = {row.reference for row in data["unassigned_historical_applications"]}
+        self.assertEqual(data["unassigned_historical_applications"][0].client_name, "Ana Pérez")
         operative = {row.reference for row in data["unassigned_operational_applications"]}
         self.assertEqual(historical, {"FLAG", "ROW", "DATE", "DEFAULT"})
         self.assertEqual(operative, {"OVERRIDE", "PLAIN"})

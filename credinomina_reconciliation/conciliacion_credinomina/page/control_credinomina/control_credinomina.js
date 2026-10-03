@@ -206,17 +206,18 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <button type="button" class="btn btn-default btn-sm" data-more-section="${section}">${esc(__("Mostrar más"))}</button></div>` : "";
         const unassignedTable = unassigned.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Motivo"))}</th>
+                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Nombre del cliente"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Motivo"))}</th>
             </tr></thead><tbody>${unassigned.map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
                 <td><button class="cn-text-link" type="button" data-import="${esc(row.parent)}">${esc(row.reference)}</button></td>
+                <td>${esc(row.client_name || "—")}</td>
                 <td>${esc(row.loan_number)}</td>
                 <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
                 <td>${esc(row.match_reason)}</td>
             </tr>`).join("")}</tbody></table></div>` : "";
         const depositTable = deposits.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table">
-                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin asignar US$"))}</th><th>${esc(__("Distribución"))}</th></tr></thead>
+                <thead><tr><th>${esc(__("Fecha"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Comprobante"))}</th><th>${esc(__("Depósito original"))}</th><th>${esc(__("Distribuido US$"))}</th><th>${esc(__("Sin distribuir US$"))}</th><th>${esc(__("Saldo a favor documentado US$"))}</th><th>${esc(__("Sin asignar US$"))}</th></tr></thead>
                 <tbody>${deposits.map((deposit) => `<tr>
                     <td>${esc(displayDate(deposit.event_date))}</td>
                     <td>${esc(deposit.employer_text)}</td>
@@ -227,7 +228,6 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <td class="cn-number">${money(deposit.unallocated_usd)}</td>
                     <td class="cn-number">${money(deposit.justified_surplus_usd)}</td>
                     <td class="cn-number">${money(deposit.unclassified_usd)}</td>
-                    <td>${allocationLines(deposit.allocation_detail)}</td>
                 </tr>`).join("")}</tbody>
             </table></div>
         ` : `<div class="cn-empty">${esc(__("No hay depósitos con saldo a favor o sin asignar en este año."))}</div>`;
