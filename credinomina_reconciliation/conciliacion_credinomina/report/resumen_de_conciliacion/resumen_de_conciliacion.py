@@ -52,7 +52,7 @@ def execute(filters=None):
         for item in frappe.get_all(
             "CN Complementary Item",
             filters={
-                "category": "Saldo a favor de la empresa",
+                "category": ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]],
                 "period": ["in", [row.name for row in data]],
                 "docstatus": 1,
                 "result": "Saldo a favor documentado",

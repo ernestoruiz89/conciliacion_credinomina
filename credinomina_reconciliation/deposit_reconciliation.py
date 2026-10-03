@@ -109,7 +109,7 @@ def reconcile_deposit(document, progress=None):
     originals = [row.as_dict() for row in source_rows]
     complements = frappe.get_all("CN Complementary Item", filters={
         "docstatus": 1, "employer": scope,
-        "category": ["not in", [engine.COMPANY_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas"]],
+        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas"]],
     }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution"], limit_page_length=0)
     complementary_by_target = engine._allocate_complementary_items(complements, periods)
     others = frappe.get_all("CN Remittance Allocation", filters={
@@ -155,10 +155,10 @@ def reconcile_deposit(document, progress=None):
     # Stale tolerance movements of this deposit can be reversed, others stay intact.
     engine._sync_rounding_movements(allocation["rounding_movements"], allocation, source_rows,
                                     deposit_name=document.name)
-    surplus = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": engine.COMPANY_CREDIT,
+    surplus = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],
                              "registered_deposit": document.name},
                              fields=["name", "period", "registered_deposit", "reference as deposit_reference",
-                                     "deposit_voucher", "amount_usd", "result", "employer"], limit_page_length=0)
+                                     "deposit_voucher", "amount_usd", "result", "employer", "category", "credit_detail_row", "credit_client", "client_number", "client_name"], limit_page_length=0)
     engine._classify_surplus(allocation, surplus)
     # All existing cash is included in affected balances, but only this deposit
     # has been reallocated and only its detail/targets can be synchronized.

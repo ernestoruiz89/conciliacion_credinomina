@@ -51,6 +51,7 @@ def run():
 
         imported = frappe.get_doc({
             "doctype": "CN Accounting Import",
+            "employer": employer.name,
             "source_file": f"/private/files/{marker}-core.xlsx", "status": "Importado",
         })
         imported.append("rows", {

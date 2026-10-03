@@ -74,7 +74,7 @@ def guard_delete(doc):
 
 
 def _eligible(doc):
-    if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Saldo a favor de la empresa", "Diferencia por tolerancia"}:
+    if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Diferencia por tolerancia"}:
         frappe.throw(_("Seleccione borradores o partidas en compensación, sin ajustes de aplicación, saldos a favor ni tolerancias."))
     if doc.related_application or doc.registered_deposit or doc.review_action in {"Ajuste de aplicación", "Partida de depósito", "Reversión identificada"}:
         frappe.throw(_("La partida está destinada a una aplicación o depósito; revise ese vínculo antes de compensarla."))

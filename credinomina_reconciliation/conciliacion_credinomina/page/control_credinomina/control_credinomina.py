@@ -269,7 +269,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             exceptions_by_period[item.period].append(item)
         surpluses = frappe.get_list(
             "CN Complementary Item",
-            filters={"period": ["in", period_names], "docstatus": 1, "category": "Saldo a favor de la empresa"},
+            filters={"period": ["in", period_names], "docstatus": 1, "category": ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]]},
             fields=[
                 "name", "period", "reference as deposit_reference", "amount_usd",
                 "reason_type", "description as explanation", "result",
@@ -685,7 +685,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             no_period_credit = frappe.get_list(
                 "CN Complementary Item",
                 filters={
-                    "category": "Saldo a favor de la empresa",
+                    "category": ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]],
                     "docstatus": 1, "result": "Saldo a favor documentado",
                     "period": ["is", "not set"],
                     "registered_deposit": ["in", [item.name for item in registered]],

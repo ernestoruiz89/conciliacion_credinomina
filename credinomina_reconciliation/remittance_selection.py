@@ -106,7 +106,7 @@ def get_pending_targets(remittance_name, targets=None):
         "CN Remittance Allocation", filters={"docstatus": 1, "employer": ["in", reconciliation_companies(doc.employer)]},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
-    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
+    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", "Saldo a favor del cliente", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
                 "client_number", "loan_number", "installment_number", "description", "voucher", "generic_distribution"],
         limit_page_length=0)
@@ -178,7 +178,10 @@ def get_pending_targets(remittance_name, targets=None):
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
             "due_usd": float(money(item.amount_usd))})
-    result = pending_selection(candidates, deposits, doc.name, doc.amount_usd, targets)
+    from credinomina_reconciliation.client_credit import load_credits
+    reserved_credit = sum((money(item.amount_usd) for item in load_credits([doc.name])), money(0))
+    result = pending_selection(candidates, deposits, doc.name, money(doc.amount_usd) - reserved_credit, targets)
+    result["reserved_cents"] += int(reserved_credit * 100)
     result["employer"] = doc.employer
     result["allowed_employers"] = allowed
     result["modified"] = str(doc.modified)

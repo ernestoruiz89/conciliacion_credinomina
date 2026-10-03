@@ -22,9 +22,16 @@ def linked_balance(amount, manual, matched):
 
 
 def update_detail_balances(document):
+    credits = {}
+    if document.get("doctype") == "CN Remittance Allocation" and document.get("name") and document.get("docstatus") == 1:
+        from credinomina_reconciliation.client_credit import load_credits, row_credit_amounts, RESULT
+        credits = row_credit_amounts([item for item in load_credits([document.name]) if item.result == RESULT],
+                                    document.get("detail_rows") or [])
     by_row = defaultdict(list)
     for target in document.get("targets") or []:
         if target.get("detail_row"):
             by_row[target.get("detail_row")].append(target)
     for row in document.get("detail_rows") or []:
         row.update(linked_balance(row.get("amount_usd"), by_row[row.get("name")], row.get("matched_targets")))
+        row.client_credit_usd = credits.get(row.get("name"), 0)
+        row.pending_usd = money_float(money(row.pending_usd) - money(row.client_credit_usd))

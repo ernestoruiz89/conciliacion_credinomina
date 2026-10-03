@@ -42,7 +42,7 @@ def execute(filters=None):
                 "voucher", "tmov", "tdoc", "accounting_reference", "event_type", "accounting_classification", "match_status", "deposit_match_status", "application_adjustment_status"], limit_page_length=0))
     items = frappe.get_list("CN Complementary Item", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
         fields=["name", "docstatus", "source_date", "posting_date", "source_account", "source_currency", "source_debit", "source_credit", "source_description",
-            "description", "source_fx_rate", "accounting_source_key", "source_row", "source_client_name", "client_number", "loan_number", "employer", "source_voucher",
+            "description", "source_fx_rate", "accounting_source_key", "source_row", "source_client_name", "client_number", "loan_number", "employer", "source_voucher", "credit_management_status",
             "voucher", "tmov", "tdoc", "accounting_reference", "category", "amount_usd", "accounting_classification", "review_status", "compensation_status", "result", "source_file", "source_file_hash", "registration_exception"], limit_page_length=0)
     if items and frappe.has_permission("CN Remittance Allocation", "read"):
         assigned = defaultdict(lambda: money(0))

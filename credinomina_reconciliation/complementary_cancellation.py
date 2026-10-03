@@ -89,7 +89,7 @@ def prepare_cancellation(item):
                 if frappe.db.get_value("CN Remittance Allocation", name, "docstatus") == 1]
     periods.update(_deposit_periods(deposits))
     # A periodless, loan-specific complement can also alter an operative claim.
-    if item.loan_number and not item.get("generic_distribution") and item.category not in {ADJUSTMENT, engine.COMPANY_CREDIT}:
+    if item.loan_number and not item.get("generic_distribution") and item.category not in {ADJUSTMENT, engine.COMPANY_CREDIT, engine.CLIENT_CREDIT}:
         candidates = ([frappe.get_doc("CN Reconciliation Period", item.period)] if item.period else
                       engine._load_open_periods(["in", sorted(companies)]) if companies else [])
         mapping = engine._allocate_complementary_items([item], candidates)
@@ -230,7 +230,7 @@ def reconcile_cancellation(item, scope):
             row._historical_backfill = row.processing_route == "Historica" or (
                 row.processing_route != "Operativa" and bool(document.historical_backfill or document.historical_period))
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "employer": ["in", scope["companies"]],
-        "category": ["not in", [engine.COMPANY_CREDIT, engine.TOLERANCE_CATEGORY, ADJUSTMENT, "Compensación entre partidas"]]},
+        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, ADJUSTMENT, "Compensación entre partidas"]]},
         fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution"],
         limit_page_length=0)
     # Preserve global uniqueness for periodless loan complements, without
@@ -282,9 +282,10 @@ def reconcile_cancellation(item, scope):
     for deposit in mutable:
         engine._sync_rounding_movements([movement for movement in allocation["rounding_movements"]
             if movement["deposit_id"] == deposit.name], allocation, rows, deposit_name=deposit.name)
-    surplus = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": engine.COMPANY_CREDIT,
+    surplus = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],
         "registered_deposit": ["in", [deposit.name for deposit in mutable]]},
-        fields=["name", "period", "registered_deposit", "reference as deposit_reference", "deposit_voucher", "amount_usd", "result", "employer"],
+        fields=["name", "period", "registered_deposit", "reference as deposit_reference", "deposit_voucher", "amount_usd", "result", "employer",
+                "category", "credit_detail_row", "credit_client", "client_number", "client_name"],
         order_by="creation asc", limit_page_length=0) if mutable else []
     engine._classify_surplus(allocation, surplus)
     allocation["allocations"].extend(fixed_allocations)

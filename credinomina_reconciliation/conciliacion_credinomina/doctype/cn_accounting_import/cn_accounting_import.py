@@ -15,6 +15,7 @@ from credinomina_reconciliation.accounting_naming import (
     accounting_month, accounting_prefix, new_accounting_name, rename_accounting_import,
 )
 from credinomina_reconciliation.company_credit import CATEGORY as COMPANY_CREDIT
+from credinomina_reconciliation.client_credit import CATEGORY as CLIENT_CREDIT
 from credinomina_reconciliation.tolerance_items import (
     CATEGORY as TOLERANCE_CATEGORY, item_values, tolerance_item_write,
 )
@@ -786,7 +787,7 @@ def _reconcile_sources(employer=None, progress=None):
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas"]], **company_filters},
+        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, CLIENT_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas"]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -816,10 +817,10 @@ def _reconcile_sources(employer=None, progress=None):
     )
     surplus_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": COMPANY_CREDIT, **company_filters},
+        filters={"docstatus": 1, "category": ["in", [COMPANY_CREDIT, CLIENT_CREDIT]], **company_filters},
         fields=[
             "name", "period", "registered_deposit", "reference as deposit_reference", "deposit_voucher",
-            "amount_usd", "result", "employer",
+            "amount_usd", "result", "employer", "category", "credit_detail_row", "credit_client", "client_number", "client_name",
         ],
         order_by="creation asc",
     )
@@ -1359,6 +1360,12 @@ def _prepare_remittance_details(
     attach_periods(remittances)
     by_deposit = {deposit["id"]: deposit for deposit in deposits}
     names = [item.name for item in remittances]
+    from credinomina_reconciliation.client_credit import load_credits
+    client_credits = load_credits(names)
+    credits_by_row = defaultdict(list)
+    for credit in client_credits:
+        if credit.credit_detail_row:
+            credits_by_row[credit.credit_detail_row].append(credit)
     detail_rows = frappe.get_all(
         "CN Remittance Detail",
         filters={"parent": ["in", names]},
@@ -1426,6 +1433,8 @@ def _prepare_remittance_details(
             plans.append({
                 "row": row, "amount_usd": amount, "explanation": explanation,
                 "targets": [], "status": "", "reason": "",
+                "client_credits": credits_by_row[row.name],
+                "client_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name])),
             })
         # Administrative collections and other signed complements belong to
         # targets, not to fictitious client detail rows. Linked complements
@@ -1447,7 +1456,16 @@ def _prepare_remittance_details(
             and not any(entry["deposit_id"] == deposit_id for entry in prior_instructions)
         )
         for plan in plans:
-            amount = plan["amount_usd"]
+            amount = money_float(money(plan["amount_usd"]) - money(plan["client_credit_usd"]))
+            if plan["client_credits"]:
+                people = {credit.credit_client for credit in plan["client_credits"]}
+                companies = {credit.employer for credit in plan["client_credits"]}
+                if len(people) == 1 and len(companies) == 1:
+                    credit = plan["client_credits"][0]
+                    plan["row"].client = credit.credit_client
+                    plan["row"].client_number = credit.client_number
+                    plan["row"].employer = credit.employer
+                    plan["row"].identity_reason = "Cliente confirmado en saldo a favor"
             manual = [entry for entry in prior_instructions
                       if entry["deposit_id"] == deposit_id
                       and entry.get("detail_row") == plan["row"].name]
@@ -1458,6 +1476,14 @@ def _prepare_remittance_details(
             ):
                 plan["status"] = "Revisar"
                 plan["reason"] = plan["row"].identity_reason
+                continue
+            if amount < 0:
+                plan["status"] = "Revisar"
+                plan["reason"] = "El saldo a favor supera el importe de la fila del detalle"
+                continue
+            if not amount and plan["client_credit_usd"] and not manual:
+                plan["status"] = "Conciliada"
+                plan["reason"] = "Importe documentado íntegramente como saldo a favor del cliente; no aplicado al crédito"
                 continue
             if not amount:
                 plan["status"] = (
@@ -1517,6 +1543,8 @@ def _prepare_remittance_details(
     return {
         "instructions": instructions, "blocked_deposits": blocked,
         "contexts": contexts, "rounding_eligible": rounding_eligible,
+        "client_credit_reservations": {deposit_id: money_float(sum_money(credit.amount_usd for credit in client_credits
+                if registered_ids.get(credit.registered_deposit) == deposit_id)) for deposit_id in registered_ids.values()},
     }
 
 
@@ -1568,8 +1596,14 @@ def _sync_remittance_details(context, allocation, claims=()):
                     "match_reason": plan["reason"],
                     "matched_targets": json.dumps(targets, ensure_ascii=False),
                     "matched_targets_summary": describe_targets(targets, descriptions),
+                    "client_credit_usd": plan.get("client_credit_usd", 0),
                 }
                 updates.update(linked_balance(plan["amount_usd"], plan.get("manual_targets", []), targets))
+                if plan.get("client_credit_usd"):
+                    updates["pending_usd"] = money_float(money(updates["pending_usd"]) - money(plan["client_credit_usd"]))
+                    summary = "; ".join(credit.name for credit in plan["client_credits"])
+                    updates["match_reason"] += "; Saldo a favor del cliente documentado: US$ {0} ({1}); gestión independiente".format(plan["client_credit_usd"], summary)
+                    updates["matched_targets_summary"] += "\nSaldo a favor del cliente: US$ {0} — {1}. No aplicado al crédito.".format(plan["client_credit_usd"], summary)
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
@@ -1898,17 +1932,24 @@ def _distribute_deposits(
     instructions.extend(detail_context["instructions"])
     previously_blocked = set(manually_ambiguous_deposits)
     manually_ambiguous_deposits.update(detail_context["blocked_deposits"])
-    result = allocate_cash(
-        deposits, claims, instructions, manually_ambiguous_deposits
-    )
+    # Client-owned cash is never available for new manual or automatic claims.
+    # Keep the original full deposit for evidence/totals and put its reservation
+    # back in the residual after distributing only the spendable budget.
+    reservations = detail_context.get("client_credit_reservations", {})
+    cash_deposits = [{**deposit, "amount_usd": money_float(max(money(deposit["amount_usd"]) - money(reservations.get(deposit["id"])), money(0)))}
+                     for deposit in deposits]
+    result = allocate_cash(cash_deposits, claims, instructions, manually_ambiguous_deposits)
+    for deposit_id, amount in reservations.items():
+        if deposit_id in result["deposit_remaining"]:
+            result["deposit_remaining"][deposit_id] = money_float(money(result["deposit_remaining"][deposit_id]) + money(amount))
     detail_statuses = _sync_remittance_details(detail_context, result, claims)
     detail_identities = {plan["row"].name: plan["row"] for state in detail_context["contexts"].values() for plan in state["rows"]}
     movements = rounding_movements(
         deposits, claims, result["allocations"], result["deposit_remaining"],
         result["claim_remaining"], tolerance_by_employer,
-        result["blocked_deposits"] - (
+        (result["blocked_deposits"] - (
             detail_context["rounding_eligible"] - previously_blocked
-        ),
+        )) | {deposit_id for deposit_id, amount in reservations.items() if money(amount) > 0},
     )
     result["rounding_movements"] = movements
     for movement in movements:
@@ -2029,13 +2070,17 @@ def _distribute_deposits(
     result["registered_ids"] = registered_ids
     result["complementary_target"] = complementary_target
     result["complementary_totals"] = complementary_totals
+    result["client_credit_context"] = detail_context
     return result
 
 
 def _classify_surplus(allocation, surplus_items):
+    from credinomina_reconciliation.paying_employers import allowed_employers
     """Document unapplied cash, without treating it as a loan or fee payment."""
     meta_by_id = allocation["deposit_meta"]
     justified = defaultdict(float)
+    client_justified = defaultdict(float)
+    credit_results = {}
     for item in surplus_items:
         if item.registered_deposit:
             selected = allocation["registered_ids"].get(item.registered_deposit)
@@ -2055,7 +2100,10 @@ def _classify_surplus(allocation, surplus_items):
         else:
             deposit_id = candidates[0]
             company = meta_by_id[deposit_id].get("employer")
-            if item.get("employer") and company and item.employer != company:
+            client_credit = item.get("category") == CLIENT_CREDIT
+            if item.get("employer") and company and item.employer != company and not (
+                client_credit and item.employer in allowed_employers(company)
+            ):
                 status = "Empresa no coincide"
             elif not can_document_surplus(
                 allocation["deposit_remaining"][deposit_id],
@@ -2065,12 +2113,15 @@ def _classify_surplus(allocation, surplus_items):
                 status = "Excede saldo sin distribuir"
             else:
                 justified[deposit_id] += flt(item.amount_usd)
+                if client_credit:
+                    client_justified[deposit_id] += flt(item.amount_usd)
                 status = "Saldo a favor documentado"
         if item.result != status:
             frappe.db.set_value(
                 "CN Complementary Item", item.name, "result", status,
                 update_modified=False,
             )
+        credit_results[item.name] = status
     for deposit_id, meta in meta_by_id.items():
         total = flt(allocation["deposit_remaining"][deposit_id])
         company_credit = money_float(justified[deposit_id])
@@ -2080,8 +2131,20 @@ def _classify_surplus(allocation, surplus_items):
             source.unclassified_usd = unclassified
             if company_credit:
                 source.allocation_reason += " " + _(
-                    "Saldo a favor documentado de la empresa: {0} US$; no aplicado al credito."
+                    "Saldo a favor documentado: {0} US$; no aplicado al crédito."
                 ).format(company_credit)
+    allocation["client_credit_totals"] = dict(client_justified)
+    # A provisional row plan is not proof: only classified, confirmed credits
+    # can explain its excess. Leave invalid classifications visibly under review.
+    for parent, state in allocation.get("client_credit_context", {}).get("contexts", {}).items():
+        for plan in state["rows"]:
+            credits = plan.get("client_credits", [])
+            if credits and any(credit_results.get(credit.name) != "Saldo a favor documentado" for credit in credits):
+                frappe.db.set_value("CN Remittance Detail", plan["row"].name, {
+                    "client_credit_usd": 0, "match_status": "Revisar", "match_reason": "Saldo a favor no documentado; revise la partida complementaria",
+                    "pending_usd": money_float(money(plan["amount_usd"]) - sum_money(target["amount_usd"] for target in plan["targets"])),
+                }, update_modified=False)
+                frappe.db.set_value("CN Remittance Allocation", parent, {"detail_status": "Revisar filas", "result": "Revisar detalle"}, update_modified=False)
 
 
 def _sync_registered_deposit_detail(allocation):
@@ -2095,6 +2158,7 @@ def _sync_registered_deposit_detail(allocation):
             "CN Remittance Allocation", name, "detail_status"
         )
         result = current_result
+        client_credit = allocation.get("client_credit_totals", {}).get(deposit_id, 0)
         if (
             current_result in {"Parcial", "Sin aplicación"}
             and flt(source.unallocated_usd) > CASH_EPSILON
@@ -2130,6 +2194,10 @@ def _sync_registered_deposit_detail(allocation):
             # portion; the submitted surplus explains the remaining cash.
             detail_status = "Distribución manual; excedente documentado"
             result = "Parcial con saldo a favor"
+        if client_credit and flt(source.unclassified_usd) <= CASH_EPSILON and detail_status in {
+            "Conciliado", "Conciliado; excedente documentado", "Distribución manual; excedente documentado",
+        } and current_result not in {"Revisar destinos", "Distribuido, aplicación pendiente", "Parcial, aplicación pendiente"}:
+            result = "Conciliado con saldo a favor del cliente"
         frappe.db.set_value(
             "CN Remittance Allocation", name,
             {

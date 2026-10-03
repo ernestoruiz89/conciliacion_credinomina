@@ -1,7 +1,9 @@
 frappe.ui.form.on("CN Complementary Item", {
     setup(frm) {
         frm.set_query("registered_deposit", () => ({filters: {docstatus: 1,
-            ...(frm.doc.employer ? {employer: frm.doc.employer} : {})}}));
+            ...(frm.doc.employer && frm.doc.category !== "Saldo a favor del cliente" ? {employer: frm.doc.employer} : {})}}));
+        frm.set_query("credit_client", () => ({filters: frm.doc.employer ? {employer: frm.doc.employer} : {}}));
+        frm.set_query("credit_assigned_to", () => ({filters: {enabled: 1}}));
         frm.set_query("period", () => ({filters: {status: ["!=", "Cerrado"],
             ...(frm.doc.employer ? {employer: frm.doc.employer} : {})}}));
         frm.set_query("employer", "distribution_companies", () => ({filters: {name: ["!=", frm.doc.employer || ""]}}));
@@ -20,9 +22,16 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.set_value("review_action", "Ajuste de aplicación");
         }
         const credit = frm.doc.category === "Saldo a favor de la empresa";
+        const clientCredit = frm.doc.category === "Saldo a favor del cliente";
+        if (clientCredit && frm.doc.docstatus === 0) {
+            frm.set_value("review_action", "Saldo a favor del cliente");
+            if (!frm.doc.credit_assigned_to) frm.set_value("credit_assigned_to", frappe.session?.user);
+        } else if (!clientCredit && frm.doc.docstatus === 0 && frm.doc.review_action === "Saldo a favor del cliente") {
+            frm.set_value("review_action", "Partida de depósito");
+        }
         // Keep invalid prefilled identities visible so the user can clear them.
         ["client_number", "loan_number", "installment_number"].forEach(f => frm.toggle_display(f, (!credit && !frm.doc.generic_distribution) || !!frm.doc[f]));
-        frm.set_df_property("reference", "read_only", credit);
+        frm.set_df_property("reference", "read_only", credit || clientCredit);
     },
     generic_distribution(frm) {
         frm.trigger("category");
@@ -46,20 +55,30 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         if (frm.doc.review_action === "Ajuste de aplicación") frm.set_value("category", "Ajuste de aplicación");
         if (frm.doc.review_action === "Compensación entre partidas") frm.set_value("category", "Compensación entre partidas");
+        if (frm.doc.review_action === "Saldo a favor del cliente" && frm.doc.category !== frm.doc.review_action) frm.set_value("category", frm.doc.review_action);
+    },
+    select_credit_detail: cn_select_client_credit_detail,
+    record_credit_management: cn_record_client_credit_management,
+    async credit_client(frm) {
+        if (!frm.doc.credit_client || frm.doc.docstatus !== 0) return;
+        const client = frm.doc.credit_client;
+        const r = await frappe.db.get_value("CN Client", client, ["client_name", "client_number", "employer"]);
+        if (frm.doc.credit_client !== client) return;
+        await frm.set_value({client_name: r.message.client_name, client_number: r.message.client_number, employer: r.message.employer});
     },
     async registered_deposit(frm) {
-        if (!frm.doc.registered_deposit || frm.doc.category !== "Saldo a favor de la empresa") return;
+        if (!frm.doc.registered_deposit || !["Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)) return;
         const name = frm.doc.registered_deposit;
         const r = await frappe.db.get_value("CN Remittance Allocation", name,
             ["employer", "deposit_reference", "deposit_voucher", "deposit_date"]);
-        if (frm.doc.registered_deposit !== name || frm.doc.category !== "Saldo a favor de la empresa") return;
-        await frm.set_value({employer: r.message.employer, reference: r.message.deposit_reference,
+        if (frm.doc.registered_deposit !== name || !["Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)) return;
+        await frm.set_value({...(frm.doc.category === "Saldo a favor de la empresa" ? {employer: r.message.employer} : {}), reference: r.message.deposit_reference,
             deposit_voucher: r.message.deposit_voucher, posting_date: frm.doc.posting_date || r.message.deposit_date});
     },
     refresh(frm) {
         cn_comp_add_exception_button(frm);
         const automatic = frm.doc.category === "Diferencia por tolerancia";
-        const categories = ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Saldo a favor de la empresa", "Ajuste de aplicación", "Compensación entre partidas"];
+        const categories = ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Ajuste de aplicación", "Compensación entre partidas"];
         if (frm.doc.accounting_source_key) categories.unshift("Por clasificar");
         if (automatic) categories.push("Diferencia por tolerancia");
         frm.set_df_property("category", "options", categories.join("\n"));
@@ -79,6 +98,7 @@ frappe.ui.form.on("CN Complementary Item", {
             if (frm.get_perm(0, "write")) frm.enable_save();
         }
         frm.trigger("category");
+        cn_client_credit_history(frm);
         if (frm.doc.registered_deposit) frm.add_custom_button(__("Abrir depósito"),
             () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.registered_deposit));
         if (frm.doc.docstatus === 2) return;
@@ -92,13 +112,13 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.add_custom_button(__("Consultar saldo a fecha"), () => cn_compensation_balance_dialog(frm));
         }
         if ((frm.doc.docstatus === 0 || betweenItems) && !frm.is_new() && frm.get_perm(0, "submit")
-            && !["Ajuste de aplicación", "Saldo a favor de la empresa"].includes(frm.doc.category)
+            && !["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)
             && !frm.doc.related_application && !frm.doc.registered_deposit
             && (!compensated || frm.doc.compensation_pending_usd > 0)) {
             frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
-            if (!betweenItems && !compensated) frm.add_custom_button(__("Vincular a aplicación"), () => cn_select_original_application(frm));
+            if (!betweenItems && !compensated && frm.doc.category !== "Saldo a favor del cliente") frm.add_custom_button(__("Vincular a aplicación"), () => cn_select_original_application(frm));
             if (frm.doc.review_action === "Ajuste de aplicación" && frm.get_perm(0, "submit")) {
                 frm.add_custom_button(__("Confirmar ajuste"), () => frappe.confirm(
                     __("Se reducirá el aplicado neto de la aplicación vinculada. No se registrará un depósito. ¿Confirmar ajuste?"),
@@ -110,6 +130,16 @@ frappe.ui.form.on("CN Complementary Item", {
                         frappe.show_alert({message: __("Ajuste confirmado. Los saldos de la empresa fueron actualizados."), indicator: "green"});
                     }));
             }
+        }
+        if (frm.doc.category === "Saldo a favor del cliente") {
+            const confirmed = frm.doc.docstatus === 1;
+            for (const field of ["category", "review_action", "registered_deposit", "credit_client", "credit_detail_row", "employer", "period", "client_number", "loan_number", "amount", "currency", "fx_rate", "posting_date"]) frm.set_df_property(field, "read_only", confirmed ? 1 : 0);
+            frm.toggle_display("select_credit_detail", !confirmed);
+            frm.toggle_display("record_credit_management", confirmed && Number(frm.doc.credit_pending_usd) > 0 && !!frm.get_perm(0, "submit"));
+            frm.dashboard.set_headline_alert(confirmed
+                ? __("Saldo del cliente documentado: el depósito se concilia sin aumentar lo aplicado. Gestión: {0}. Registrar gestión documenta una devolución o aplicación externa; no genera pagos ni asientos.", [frm.doc.credit_management_status || "Pendiente"])
+                : __("Identifique cliente, depósito y fila del excedente. Indique importe positivo, motivo, responsable y fecha compromiso. Si esta partida ya fue importada, reclasifíquela aquí; no cree otra copia."), "blue");
+            return;
         }
         if (betweenItems) {
             frm.dashboard.set_headline_alert(__("{0}. Use Compensar con otra partida para confirmar nuevas compensaciones. No registra depósitos ni modifica aplicaciones. El historial conserva ambas partidas.",
@@ -140,6 +170,72 @@ function cn_comp_add_exception_button(frm) {
     } else if (frappe.model?.can_create?.("CN Reconciliation Exception")) {
         frm.add_custom_button(__("Crear excepción"), () => cn_comp_create_exception(frm));
     }
+}
+
+async function cn_select_client_credit_detail(frm) {
+    if (!frm.doc.registered_deposit) {frappe.msgprint(__("Seleccione primero el depósito de origen.")); return;}
+    const deposit = frm.doc.registered_deposit;
+    const response = await frappe.call({method: "credinomina_reconciliation.client_credit.get_deposit_detail", args: {deposit_name: deposit}});
+    if (frm.doc.registered_deposit !== deposit) return;
+    const rows = (response.message.rows || []).filter(row => !frm.doc.credit_client || row.client === frm.doc.credit_client || row.client_number === frm.doc.client_number);
+    const dialog = new frappe.ui.Dialog({title: __("Seleccionar fila del depósito"), fields: [
+        {fieldname: "row", fieldtype: "Select", label: __("Fila que ya incluye el excedente"), options: [{value: "", label: "Excedente fuera del detalle por cliente"}, ...rows.map(row => ({value: row.name,
+            label: `${row.client_name || row.client_number} · ${row.loan_number || "Sin crédito"} · ${format_currency(row.amount_usd, "USD")}`}))],
+            description: __("Vincule únicamente si el importe de la fila contiene el saldo del cliente. Un excedente informado fuera del detalle no reduce sus pagos.")},
+    ], primary_action_label: __("Vincular fila"), async primary_action(values) {
+        const row = rows.find(row => row.name === values.row);
+        if (!row) {await frm.set_value("credit_detail_row", ""); dialog.hide(); return;}
+        await frm.set_value({credit_detail_row: row.name, loan_number: row.loan_number || "",
+            ...(row.client ? {credit_client: row.client} : {}), client_number: row.client_number || ""});
+        dialog.hide();
+    }});
+    dialog.show();
+}
+
+function cn_client_credit_history(frm) {
+    const wrapper = frm.fields_dict?.credit_history_preview?.$wrapper;
+    if (!wrapper) return;
+    let history = [];
+    try {history = JSON.parse(frm.doc.credit_history || "[]");} catch (_) { /* No unsafe HTML from invalid JSON. */ }
+    if (!Array.isArray(history)) history = [];
+    const esc = v => frappe.utils.escape_html(String(v ?? ""));
+    const proof = url => /^(\/private\/files\/|\/files\/|https?:\/\/)/i.test(url || "")
+        ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${__("Ver soporte")}</a>` : "—";
+    wrapper.html(history.length ? `<div style="overflow:auto"><table class="table table-bordered"><thead><tr>
+        <th>${__("Fecha")}</th><th>${__("Gestión")}</th><th>${__("US$")}</th><th>${__("Referencia")}</th><th>${__("Soporte")}</th><th>${__("Registrado por")}</th><th>${__("Observaciones")}</th></tr></thead><tbody>
+        ${history.map(row => `<tr><td>${esc(frappe.datetime.str_to_user(row.fecha))}</td><td>${esc(row.tratamiento)}</td><td>${esc(format_currency(row.importe_usd, "USD"))}</td><td>${esc(row.referencia)}</td><td>${proof(row.soporte)}</td><td>${esc(row.usuario)}</td><td>${esc(row.observaciones)}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="text-muted">${__("Sin gestiones documentadas. Clasificar el saldo no significa que ya fue devuelto o aplicado.")}</p>`);
+}
+
+async function cn_record_client_credit_management(frm) {
+    if (frm._cn_credit_management_busy) return;
+    if (frm.is_dirty()) await frm.save();
+    if (frm.doc.docstatus !== 1 || frm.doc.category !== "Saldo a favor del cliente" || !(Number(frm.doc.credit_pending_usd) > 0)) return;
+    let busy = false;
+    const dialog = new frappe.ui.Dialog({title: __("Documentar devolución o aplicación"), size: "large", fields: [
+        {fieldtype: "HTML", options: `<p>${__("Registre solo gestiones realizadas fuera de esta herramienta, con referencia del core o comprobante. No genera asientos, depósitos ni aplicaciones nuevas.")}</p>`},
+        {fieldname: "treatment", fieldtype: "Select", label: __("Gestión realizada"), options: "Devolución\nAplicación futura", reqd: 1,
+            default: frm.doc.credit_treatment === "Aplicación futura" ? "Aplicación futura" : "Devolución"},
+        {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe gestionado US$"), reqd: 1, default: frm.doc.credit_pending_usd},
+        {fieldname: "event_date", fieldtype: "Date", label: __("Fecha de gestión"), reqd: 1, default: frappe.datetime.get_today()},
+        {fieldtype: "Column Break"},
+        {fieldname: "reference", fieldtype: "Data", label: __("Referencia del core / comprobante"), reqd: 1},
+        {fieldname: "support_file", fieldtype: "Attach", label: __("Soporte adjunto a la partida"), reqd: 1,
+            options: {doctype: frm.doctype || frm.doc.doctype, docname: frm.doc.name}},
+        {fieldname: "notes", fieldtype: "Small Text", label: __("Observaciones")},
+    ], primary_action_label: __("Registrar gestión"), async primary_action(values) {
+        if (busy || frm._cn_credit_management_busy) return;
+        busy = frm._cn_credit_management_busy = true;
+        dialog.get_primary_btn().prop("disabled", true);
+        try {
+            await frappe.call({method: "credinomina_reconciliation.client_credit.record_management",
+                args: {item_name: frm.doc.name, modified: frm.doc.modified, ...values}, freeze: true, freeze_message: __("Registrando seguimiento del saldo…")});
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.show_alert({message: __("Gestión documentada. La distribución original del depósito se conserva."), indicator: "green"});
+        } finally {busy = frm._cn_credit_management_busy = false; dialog.get_primary_btn().prop("disabled", false);}
+    }});
+    dialog.show();
 }
 
 async function cn_comp_create_exception(frm) {
@@ -201,7 +297,7 @@ async function cn_compensate_items_dialog(frm) {
             {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales y se reducirá únicamente el saldo pendiente de ambas partidas.")}</p>`},
             {fieldtype: "Link", fieldname: "counterpart", label: __("Partida a compensar"), options: "CN Complementary Item", reqd: 1,
                 get_query: () => ({filters: {name: ["!=", frm.doc.name], docstatus: ["!=", 2],
-                    category: ["not in", ["Ajuste de aplicación", "Saldo a favor de la empresa", "Diferencia por tolerancia"]]}}),
+                    category: ["not in", ["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Diferencia por tolerancia"]]}}),
                 async onchange() {
                     const selected = dialog.get_value("counterpart");
                     preview = null;

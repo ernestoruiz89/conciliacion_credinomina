@@ -1,7 +1,11 @@
 frappe.listview_settings["CN Complementary Item"] = {
-    add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status"],
+    add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result"],
     has_indicator_for_draft: true,
     get_indicator(doc) {
+        if (doc.category === "Saldo a favor del cliente") {
+            const status = doc.docstatus === 2 ? "Cancelado" : doc.docstatus === 0 ? "Por confirmar" : doc.credit_management_status || "Pendiente";
+            return [__(`Saldo del cliente · ${status}`), doc.docstatus === 2 ? "gray" : status === "Resuelto" ? "green" : "orange", "category,=,Saldo a favor del cliente"];
+        }
         if (doc.category === "Compensación entre partidas") {
             const status = doc.compensation_status || "Sin compensar";
             return [__(status), status === "Compensada totalmente" ? "green" : "orange", `compensation_status,=,${status}`];
@@ -26,6 +30,10 @@ frappe.listview_settings["CN Complementary Item"] = {
             : [__("Pendiente de registro"), "orange", "accounting_status,=,Pendiente de registro"];
     },
     onload(listview) {
+        listview.page.add_inner_button(__("Saldos de clientes pendientes"), () => {
+            listview.filter_area.add([["CN Complementary Item", "category", "=", "Saldo a favor del cliente"],
+                ["CN Complementary Item", "credit_pending_usd", ">", 0], ["CN Complementary Item", "docstatus", "=", 1]]);
+        });
         listview.page.add_inner_button(__("Compensaciones pendientes"), () => {
             listview.filter_area.add([["CN Complementary Item", "category", "=", "Compensación entre partidas"],
                 ["CN Complementary Item", "compensation_status", "in", ["Sin compensar", "Compensada parcialmente"]],

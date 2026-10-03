@@ -1,6 +1,10 @@
 frappe.listview_settings["CN Remittance Allocation"] = {
     // Currency is required to format the original deposit, not its USD equivalent.
-    add_fields: ["deposit_date", "deposit_amount", "deposit_currency", "bank_account"],
+    add_fields: ["deposit_date", "deposit_amount", "deposit_currency", "bank_account", "result"],
+    get_indicator(doc) {
+        const result = doc.result || "Pendiente";
+        return [__(result), result.startsWith("Conciliado") ? "green" : "orange", `result,=,${result}`];
+    },
     onload(listview) {
         const settings = listview.list_view_settings;
         if (settings.fields) {

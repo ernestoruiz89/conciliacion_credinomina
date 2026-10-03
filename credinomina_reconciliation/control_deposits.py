@@ -37,7 +37,15 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
     item_ids = sorted({e["partida"] for d in deposits
                        for e in _entries(d.get("allocation_detail")) if e.get("partida")})
     items = {}
+    client_credits = []
     if frappe.has_permission("CN Complementary Item", "read"):
+        names = [deposit["name"] for deposit in deposits]
+        for offset in range(0, len(names), 500):
+            client_credits.extend(frappe.get_list("CN Complementary Item", filters={
+                "registered_deposit": ["in", names[offset:offset + 500]], "docstatus": 1,
+                "category": "Saldo a favor del cliente", "result": "Saldo a favor documentado",
+            }, fields=["name", "registered_deposit", "employer", "client_name", "client_number", "loan_number", "amount_usd",
+                       "credit_pending_usd", "credit_management_status"], limit_page_length=0))
         for offset in range(0, len(item_ids), 500):
             for item in frappe.get_list(
                 "CN Complementary Item", filters={"name": ["in", item_ids[offset:offset + 500]], "docstatus": 1},
@@ -55,9 +63,9 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
             ):
                 periods[period["name"]] = period
     if not include_details:
-        return build_cash_deposits(deposits, items, periods, include_details=False)
+        return build_cash_deposits(deposits, items, periods, include_details=False, client_credits=client_credits)
     people = _load_credit_people(deposits, periods)
-    return build_cash_deposits(deposits, items, periods, people)
+    return build_cash_deposits(deposits, items, periods, people, client_credits=client_credits)
 
 
 def _credit_key(entry):
@@ -100,7 +108,7 @@ def _load_credit_people(deposits, periods):
     return result
 
 
-def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True):
+def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True, client_credits=None):
     """Actual allocations classify cash; planned/manual targets do not settle it."""
     items, periods, people = items or {}, periods or {}, people or {}
     output = []
@@ -154,12 +162,15 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         total = money(deposit.get("amount_usd"))
         allocated = money(deposit.get("allocated_usd"))
         credit_balance = money(deposit.get("justified_surplus_usd"))
+        client_balances = [item for item in client_credits or [] if item.get("registered_deposit") == deposit["name"]]
+        client_total = sum((money(item.get("amount_usd")) for item in client_balances), money(0))
+        client_pending = sum((money(item.get("credit_pending_usd")) for item in client_balances), money(0))
         review = allocated - credits - other - adjustments
         unclassified = total - allocated - credit_balance
         result = deposit.get("result") or "Pendiente"
         needs_review = bool(
             review or unclassified or credit_balance < 0
-            or (result != "Conciliado" and not (
+            or (result not in {"Conciliado", "Conciliado con saldo a favor del cliente"} and not (
                 credit_balance > 0 and result in {"Parcial con saldo a favor", "Saldo a favor documentado"}
             ))
         )
@@ -173,9 +184,11 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "original_amount": money_float(deposit.get("deposit_amount")),
             "total_usd": float(total), "credits_usd": float(credits), "other_usd": float(other),
             "adjustments_usd": float(adjustments), "credit_balance_usd": float(credit_balance),
+            "client_credit_usd": float(client_total), "client_credit_pending_usd": float(client_pending),
+            "undetailed_credit_usd": float(credit_balance - client_total),
             "unclassified_usd": float(unclassified), "review_usd": float(review),
             "result": result, "needs_review": needs_review,
-            "settled": not needs_review and credit_balance == 0 and result == "Conciliado",
+            "settled": not needs_review and ((credit_balance == 0 and result == "Conciliado") or result == "Conciliado con saldo a favor del cliente"),
             "shared": len(related) > 1, "payroll_months": sorted(months),
             "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount),
                               "employer": destination_employers.get((kind, label, month), ""),
@@ -183,6 +196,11 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                                          for person in credit_details.get((kind, label, month), {}).values()]}
                              for (kind, label, month), amount in destinations.items()],
         })
+        if include_details:
+            output[-1]["destinations"].extend({"type": "Saldo a favor del cliente", "label": " · ".join(filter(None, [item.get("name"), item.get("credit_management_status")])),
+                "month": "", "employer": item.get("employer"), "amount_usd": float(money(item.get("amount_usd"))),
+                "people": [{"client_name": item.get("client_name"), "client_number": item.get("client_number"), "loan_number": item.get("loan_number"),
+                            "amount_usd": float(money(item.get("amount_usd")))}]} for item in client_balances)
         if not include_details:
             output[-1].pop("destinations")
             output[-1]["detail_loaded"] = False

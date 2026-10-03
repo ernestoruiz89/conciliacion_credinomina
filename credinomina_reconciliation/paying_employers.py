@@ -76,6 +76,9 @@ def validate_paying_for(document):
     if removed:
         # Do not silently invalidate confirmed allocations (including closed periods).
         for name in frappe.get_all("CN Remittance Allocation", filters={"employer": document.name, "docstatus": 1}, pluck="name"):
+            if frappe.db.exists("CN Complementary Item", {"docstatus": 1, "category": "Saldo a favor del cliente",
+                    "registered_deposit": name, "employer": ["in", sorted(removed)]}):
+                frappe.throw(_("La autorización se utiliza en un saldo a favor del cliente del depósito {0}.").format(name))
             deposit = frappe.get_doc("CN Remittance Allocation", name)
             periods = set(selected_periods(deposit))
             for target in deposit.targets:

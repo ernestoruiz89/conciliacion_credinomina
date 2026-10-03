@@ -106,6 +106,19 @@ def validate_review_item(doc, previous=None):
                 return clean_text(value)
             if normalized(doc.get(field)) != normalized(previous.get(field)):
                 frappe.throw(_("No se puede modificar la evidencia contable original: {0}.").format(field))
+    from credinomina_reconciliation.client_credit import CATEGORY as CLIENT_CREDIT
+    if doc.category == CLIENT_CREDIT:
+        if doc.get("accounting_classification") in {APPLICATION, DEBIT_NOTE}:
+            frappe.throw(_("Una aplicación de pago o su reversión no se puede clasificar como saldo a favor del cliente."))
+        if not previous or previous.docstatus != 1:
+            doc.related_import = ""
+            doc.related_application = ""
+            doc.application_adjustment_usd = 0
+            doc.adjustment_periods = "[]"
+            doc.adjustment_collection_rows = "[]"
+        doc.review_action = CLIENT_CREDIT
+        doc.review_status = "Saldo a favor del cliente identificado"
+        return
     prepare_deposit_treatment(doc, previous)
     if doc.category == "Compensación entre partidas":
         doc.review_action = "Compensación entre partidas"

@@ -15,7 +15,8 @@ class DetailBalancesTests(unittest.TestCase):
         schema = json.loads((Path(__file__).resolve().parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_detail/cn_remittance_detail.json").read_text(encoding="utf-8"))
         fields = {field["fieldname"]: field for field in schema["fields"]}
         names = ["client_name", "loan_number", "amount_usd", "linked_usd", "pending_usd", "match_status"]
-        self.assertEqual(schema["field_order"][2:8], names)
+        self.assertEqual([name for name in schema["field_order"][2:9] if name != "client_credit_usd"], names)
+        self.assertTrue(fields["client_credit_usd"]["read_only"] and fields["client_credit_usd"]["allow_on_submit"])
         self.assertEqual(sum(fields[name]["columns"] for name in names), 10)
         for name in ("linked_usd", "pending_usd"):
             self.assertTrue(fields[name]["read_only"] and fields[name]["allow_on_submit"] and fields[name]["in_list_view"])

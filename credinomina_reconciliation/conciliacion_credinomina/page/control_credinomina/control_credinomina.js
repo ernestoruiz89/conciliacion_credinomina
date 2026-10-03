@@ -702,11 +702,15 @@ function showCashDeposit(deposit, parentDialog) {
 
 function renderCashDistribution(deposit) {
     const lines = (deposit.destinations || []).map(item => ({...item}));
+    const creditUndetailed = deposit.undetailed_credit_usd ?? deposit.credit_balance_usd;
     for (const [field, type, label] of [
-        ["credit_balance_usd", __("Saldo a favor"), __("Pendiente de gestión; no aplicado a créditos")],
+        ["undetailed_credit_usd", __("Otros saldos a favor"), __("No aplicado a créditos")],
         ["unclassified_usd", __("Sin identificar"), __("Pendiente de asignar o justificar")],
         ["review_usd", __("Distribución por revisar"), __("El importe asignado no coincide con su desglose")],
-    ]) if (Math.abs(Number(deposit[field] || 0)) > MONEY_EPSILON) lines.push({type, label, amount_usd: deposit[field]});
+    ]) {
+        const amount = field === "undetailed_credit_usd" ? creditUndetailed : deposit[field];
+        if (Math.abs(Number(amount || 0)) > MONEY_EPSILON) lines.push({type, label, amount_usd: amount});
+    }
     const original = new Intl.NumberFormat("es-NI", {minimumFractionDigits: 2, maximumFractionDigits: 2}).format(Number(deposit.original_amount || 0));
     const summaryTotal = cashTableTotal(lines);
     return `<div class="cn-cash-distribution">
@@ -721,6 +725,7 @@ function renderCashDistribution(deposit) {
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
         ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
+        ${Number(deposit.client_credit_usd) > MONEY_EPSILON ? `<p>${esc(__("Saldo de clientes pendiente de gestión"))}: ${money(deposit.client_credit_pending_usd)}</p>` : ""}
     </div>`;
 }
 

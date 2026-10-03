@@ -18,7 +18,9 @@ def _status(row, item=None):
             return "Partida cancelada; evidencia conservada"
         if item.get("registration_exception"):
             return "Registro contable verificado"
-        if item.get("docstatus") == 1 and item.get("category") not in {"Ajuste de aplicación", "Compensación entre partidas", "Saldo a favor de la empresa"}:
+        if item.get("category") == "Saldo a favor del cliente" and item.get("docstatus") == 1:
+            return (item.get("result") or "Por revisar") + " · " + (item.get("credit_management_status") or "Pendiente")
+        if item.get("docstatus") == 1 and item.get("category") not in {"Ajuste de aplicación", "Compensación entre partidas", "Saldo a favor de la empresa", "Saldo a favor del cliente"}:
             if item.get("cash_assigned_usd") is None:
                 return "Estado de depósito no disponible"
             assigned = abs(money(item["cash_assigned_usd"]))

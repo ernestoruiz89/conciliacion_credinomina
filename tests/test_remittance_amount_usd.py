@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import (
     CNRemittanceAllocation,
@@ -49,7 +49,8 @@ class RemittanceAmountUsdTest(unittest.TestCase):
             _invalidate_changed_detail_credits=Mock(),
             get_doc_before_save=Mock(return_value=None),
         )
-        CNRemittanceAllocation.before_update_after_submit(document)
+        with patch("credinomina_reconciliation.detail_balances.update_detail_balances"):
+            CNRemittanceAllocation.before_update_after_submit(document)
         self.assertEqual("R-1", document.deposit_reference)
         self.assertEqual("V-1", document.deposit_voucher)
         document._validate_deposit.assert_called_once_with()

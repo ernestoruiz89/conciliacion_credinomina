@@ -181,7 +181,11 @@ class CNRemittanceAllocation(Document):
             if target_employer and target_employer not in allowed:
                 frappe.throw(_("Un destino pertenece a una empresa no autorizada por la pagadora."))
             assigned += money(target.amount_usd)
-        if assigned > money(equivalent) + MONEY_EPSILON:
+        from credinomina_reconciliation.client_credit import load_credits
+        client_reserved = sum((money(item.amount_usd) for item in load_credits([self.name])), money(0)) if self.name and self.docstatus == 1 else money(0)
+        if assigned > money(equivalent) - client_reserved + MONEY_EPSILON:
+            if client_reserved:
+                frappe.throw(_("Los destinos usan efectivo reservado como saldo a favor de clientes. Ese saldo no está disponible para nuevos pagos."))
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
 
     @staticmethod
@@ -237,7 +241,7 @@ class CNRemittanceAllocation(Document):
             )
             if not complementary or complementary.docstatus != 1:
                 frappe.throw(_("Confirme primero la partida complementaria."))
-            if complementary.category == "Saldo a favor de la empresa":
+            if complementary.category in {"Saldo a favor de la empresa", "Saldo a favor del cliente"}:
                 frappe.throw(_("El saldo a favor se vincula desde la partida al depósito; no se asigna como pago en Destinos."))
             if complementary.category == TOLERANCE_CATEGORY:
                 frappe.throw(_("La diferencia por tolerancia ya se aplica automáticamente; no se puede agregar a Destinos."))
@@ -253,6 +257,8 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("El período de la partida complementaria está cerrado."))
 
     def before_cancel(self):
+        from credinomina_reconciliation.client_credit import guard_detail_replacement
+        guard_detail_replacement(self, operation="cancelar el depósito")
         self._assert_open_related_periods()
         for target in self.targets or []:
             self._check_open_target(target)
@@ -290,6 +296,8 @@ class CNRemittanceAllocation(Document):
 
     def before_update_after_submit(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.client_credit import guard_deposit_changes
+        guard_deposit_changes(self, previous)
         if previous:
             # These are server-recorded results, not editable reconciliation
             # inputs. A late detail (or a form sending empty/zero defaults)
@@ -306,6 +314,8 @@ class CNRemittanceAllocation(Document):
         self._invalidate_changed_detail_credits()
         if previous and self._reconciliation_inputs_changed(previous):
             self.result = "Pendiente"
+        from credinomina_reconciliation.detail_balances import update_detail_balances
+        update_detail_balances(self)
 
     def _reconciliation_inputs_changed(self, previous):
         def input_value(document, fieldname):
@@ -377,27 +387,31 @@ def create_complementary_item(remittance_name: str, modified: str, values):
         frappe.throw(_("Los datos de la partida no son válidos."))
     item = frappe.new_doc("CN Complementary Item")
     for field in ("category", "voucher", "voucher_line", "posting_date", "currency", "amount",
-                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type"):
+                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type",
+                  "credit_client", "credit_detail_row", "credit_treatment", "credit_assigned_to", "credit_commitment_date"):
         if field in values:
             item.set(field, values[field])
     item.reference = document.deposit_reference
     item.employer = document.employer
     company_credit = item.category == "Saldo a favor de la empresa"
-    if company_credit:
+    client_credit = item.category == "Saldo a favor del cliente"
+    if client_credit:
+        item.employer = ""  # The beneficiary's company may differ from the payer.
+    if company_credit or client_credit:
         item.registered_deposit = document.name
     if item.period and frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
         frappe.throw(_("El período está cerrado."))
     item.flags.defer_reconciliation = True
     item.insert()
     item.submit()
-    if not company_credit:
+    if not company_credit and not client_credit:
         document.append("targets", {
             "complementary_item": item.name, "amount_usd": item.amount_usd,
             "notes": item.description,
         })
         document.save()
     return {"name": item.name, "accounting_status": item.accounting_status,
-            "company_credit": company_credit, "result": item.result}
+            "company_credit": company_credit, "client_credit": client_credit, "result": item.result}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -464,6 +478,8 @@ def import_remittance_detail(remittance_name: str):
 
 
 def _apply_remittance_detail(document, records, content, source_url, origin="Archivo importado"):
+    from credinomina_reconciliation.client_credit import guard_detail_replacement
+    guard_detail_replacement(document)
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
     for target in document.targets or []:

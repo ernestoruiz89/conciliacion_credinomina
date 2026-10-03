@@ -94,6 +94,29 @@ importes permiten un cruce único.
   directamente al depósito confirmado, sin agregarse a los destinos ni al
   detalle de clientes: no es pago de crédito ni ingreso administrativo. El
   excedente sin explicar sigue sin conciliar.
+- **Saldo a favor del cliente**, en Partidas Complementarias, identifica el
+  excedente de una persona sin incrementar lo aplicado al crédito. Seleccione
+  cliente, depósito confirmado, importe positivo, motivo, responsable y fecha
+  compromiso. Si la partida ya viene de contabilidad, reclasifique esa misma
+  partida: su evidencia contable original se conserva y no se cuenta dos veces.
+  Vincule una fila del detalle **solo si su importe incluye el exceso**: por
+  ejemplo, detalle US$110 = aplicación US$100 + saldo US$10. Si el detalle
+  muestra únicamente los US$100 aplicados, deje el vínculo de fila vacío.
+  Cuando las diferencias quedan explicadas, el depósito muestra **Conciliado
+  con saldo a favor del cliente**; el importe se reserva y no puede asignarse
+  también a otros destinos. Esto no significa que se haya devuelto.
+  Use **Registrar gestión del saldo** para documentar devoluciones o aplicaciones
+  futuras realizadas fuera de la herramienta, con fecha, referencia y soporte
+  adjunto. Admite gestiones parciales y conserva un historial de importes,
+  usuarios y comprobantes. La lista **Saldos de clientes pendientes** permite
+  darle seguimiento. Puede continuar la gestión después de cerrar el período,
+  sin alterar su conciliación original. No genera pagos ni asientos en el core.
+  La aplicación futura es una gestión externa documentada: no vincula ni
+  concilia automáticamente otro movimiento contable y no reutiliza el depósito
+  original como un nuevo pago. La verificación de asientos importados se
+  mantiene en el flujo de excepciones contables.
+  Los registros existentes no se reclasifican automáticamente; las partidas
+  con gestiones registradas no pueden cancelarse ni fusionarse.
 - Excepciones detectadas antes del depósito, con traslado de comentarios al
   detalle del depósito cuando el faltante corresponde al mismo caso.
 

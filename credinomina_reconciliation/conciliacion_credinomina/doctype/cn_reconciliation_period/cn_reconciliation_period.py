@@ -1069,7 +1069,7 @@ def close_period(period_name: str, progress_id: str = ""):
             frappe.throw(_("Hay destinos de depósitos históricos pendientes o inválidos."))
         if frappe.db.count(
             "CN Complementary Item",
-            {"docstatus": 1, "category": "Saldo a favor de la empresa", "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
+            {"docstatus": 1, "category": ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]], "period": period.name, "result": ["!=", "Saldo a favor documentado"]},
         ):
             frappe.throw(_("Hay excedentes históricos pendientes de validar."))
         report(95, _("Guardando el resultado y bloqueando el período…"))
@@ -1086,7 +1086,7 @@ def close_period(period_name: str, progress_id: str = ""):
     if frappe.db.count(
         "CN Complementary Item",
         {
-            "docstatus": 1, "category": "Saldo a favor de la empresa", "period": period.name,
+            "docstatus": 1, "category": ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]], "period": period.name,
             "result": ["!=", "Saldo a favor documentado"],
         },
     ):

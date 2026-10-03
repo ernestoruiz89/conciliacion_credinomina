@@ -35,6 +35,7 @@ class Snapshot(dict):
 class RemittancePostSubmitTests(unittest.TestCase):
     def setUp(self):
         for patcher in (
+            patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]),
             patch("credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.now_datetime", return_value="2026-09-30 00:00:00"),
             patch("credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation._", side_effect=lambda text: text),
             patch.dict(frappe.__dict__, {"session": SimpleNamespace(user="operator@example.test")}),
