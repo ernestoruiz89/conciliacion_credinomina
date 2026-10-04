@@ -53,6 +53,27 @@ class ClientPositionTests(unittest.TestCase):
         self.assertEqual(len(self.build({'from_month': '2026-10-01', 'to_month': '2026-10-31'})), 1)
         self.assertEqual(len(self.build({'only_open': 1})), 3)
 
+    def test_reconciliation_status_matches_displayed_state_and_combines_with_type(self):
+        for state, kind in [('Depósito parcial', 'Cobranza'), ('Pendiente', 'Aplicación'), ('Documentado', 'Partida complementaria')]:
+            with self.subTest(state=state):
+                rows = self.build({'operational_status': state, 'position_type': kind, 'employer': 'E', 'only_open': 1})
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]['operational_status'], state)
+                self.assertEqual(rows[0]['position_type'], kind)
+                totals = summary(rows)
+                self.assertEqual(totals[0]['value'], 20 if kind == 'Aplicación' else 0)
+                self.assertEqual(totals[1]['value'], 6 if kind == 'Partida complementaria' else 0)
+        self.assertEqual(self.build({'operational_status': 'Pendiente', 'position_type': 'Cobranza'}), [])
+        self.assertEqual(self.build({'operational_status': 'Parcial'}), [])  # Exact, not substring matching.
+        self.assertEqual(len(self.build({'operational_status': '', 'position_type': ''})), 3)
+
+    def test_extended_collection_state_can_be_filtered_verbatim(self):
+        status = 'Conciliado con movimiento de conciliación -0.0100 US$ · deducción inferida por depósito, sin detalle de planilla'
+        collections = [dict(period='P', payroll_month='2025-04-01', operational_status=status)]
+        rows = build_position(collections, [], [], {}, [], {'operational_status': status})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(build_position(collections, [], [], {}, [], {'operational_status': 'Conciliado'}), [])
+
     def test_company_credit_not_assigned_to_person_and_accounting_task_stays_open(self):
         item = dict(name='C', category='Saldo a favor de la empresa', docstatus=1, employer='E',
             client_number='1', loan_number='L', posting_date='2025-01-01', amount_usd=10,

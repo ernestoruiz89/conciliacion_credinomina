@@ -10,7 +10,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 def _matches(row, filters):
-    for field in ('employer', 'client_number', 'national_id', 'loan_number', 'collection_cycle'):
+    for field in ('employer', 'client_number', 'national_id', 'loan_number', 'collection_cycle', 'operational_status'):
         if filters.get(field) and str(row.get(field) or '') != str(filters[field]):
             return False
     when = row.get('event_date')
