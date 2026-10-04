@@ -1,0 +1,21 @@
+{
+  "doctype": "Report",
+  "name": "Estado de Cuenta por Empresa",
+  "report_name": "Estado de Cuenta por Empresa",
+  "report_type": "Script Report",
+  "ref_doctype": "CN Reconciliation Period",
+  "module": "Conciliacion Credinomina",
+  "is_standard": "Yes",
+  "disabled": 0,
+  "add_total_row": 0,
+  "prepared_report": 0,
+  "creation": "2026-10-04 15:30:00.000000",
+  "modified": "2026-10-04 15:30:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator",
+  "roles": [
+    {"role": "System Manager"},
+    {"role": "Supervisor Credinomina"},
+    {"role": "Operador Credinomina"}
+  ]
+}

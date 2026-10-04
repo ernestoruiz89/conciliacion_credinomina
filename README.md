@@ -899,18 +899,28 @@ El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
-**Estado de Cuenta Operativo** abre por defecto en **Vista → Resumen**: una
-fila por empresa con **Pendiente US$**, **Saldo a favor empresa US$**, **Saldo
-a favor clientes US$** y **Saldo US$**. Los saldos a favor documentados aún
-por gestionar aparecen negativos; el saldo es la suma de esas tres columnas.
-Por ejemplo, `38.13 − 5.16 − 28.90 = 4.07`. Este neto es informativo: no
-compensa deudas ni autoriza utilizar el saldo de un cliente para otro.
-La cobranza no genera CxC; tampoco se descuentan otra vez las partidas que
-ya ajustaron las aplicaciones. Los saldos a favor sin confirmar y las demás
-complementarias se consultan en **Vista → Detalle**, con sus documentos de
-origen. Los filtros se aplican antes de agrupar y la exportación corresponde
-a la vista elegida. Si falta conversión a US$, el pendiente y el neto de la
-empresa quedan sin determinar, no en cero.
+El reporte independiente **Estado de Cuenta por Empresa**, en **6. Control y
+reportes**, abre en **Resumen** y agrupa saldos pendientes por empresa. **Detalle**
+usa las mismas columnas monetarias y agrega fecha, cliente, crédito, documento
+de origen, estado y observaciones. La exportación estándar conserva la vista
+seleccionada. El **Estado de Cuenta Operativo** mantiene su detalle anterior.
+
+El saldo informativo suma: aplicado sin depósito, partidas del core pendientes
+(incluidas las **Por clasificar**, débito positivo y crédito negativo), saldos a
+favor de empresa/clientes por gestionar (negativos) y depósitos sin conciliar
+(negativos). Ejemplo REPSA: `4,474.07 − 7.35 − 0.18 − 154.28 − 3,173.81 = 1,138.45`.
+No ejecuta compensaciones ni convierte la cobranza en CxC. Solo se considera el
+remanente de cada partida; los ajustes ya aplicados no se descuentan otra vez.
+El depósito pendiente excluye asignaciones y saldos a favor ya documentados,
+para no duplicarlos. Incluye depósitos importados del core aún sin confirmar;
+excluye borradores manuales y cancelados. Las fechas filtran el origen de los
+movimientos, no reconstruyen saldos históricos. Si falta un importe o su signo,
+el saldo de la empresa queda sin determinar, nunca como cero.
+
+El Excel de **Control de Credinómina → Partidas y excepciones** también incluye
+las complementarias del core, incluso en revisión, con su remanente firmado,
+débito/crédito y moneda originales, utilizado US$, asiento y descripción completa.
+Las alertas y excepciones pueden describir un mismo caso: no se suman como deudas.
 
 El reporte **Antigüedad de Saldos** consulta por defecto la CxC de aplicaciones:
 **aplicado en el core menos depósitos asignados y compensaciones confirmadas

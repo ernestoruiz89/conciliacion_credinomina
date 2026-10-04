@@ -49,6 +49,8 @@ def export_control_excel(year=None, employer=None):
     from credinomina_reconciliation.control_export import build_control_workbook
 
     data = _build_control_data(year, employer, full_export=True)
+    from credinomina_reconciliation.core_item_position import load_core_items
+    data['core_complementary_items'] = load_core_items(cint(data['year']) or None, employer)
     period_names = [period["name"] for period in data["periods"]]
     exceptions = []
     exception_fields = [

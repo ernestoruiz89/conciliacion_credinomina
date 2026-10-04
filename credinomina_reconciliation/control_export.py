@@ -144,8 +144,19 @@ def build_control_workbook(
             employer=application.get("employer"),
         ))
     issue_rows = [
-        (*row, _commitment_delay(row, generated_at.date())) for row in issue_rows
+        (*row, _commitment_delay(row, generated_at.date()), None, None, None, None) for row in issue_rows
     ]
+    for item in data.get('core_complementary_items') or []:
+        balance = item['_balance']
+        row = _issue('Partida complementaria del core', None, item.get('client_number'),
+            item.get('loan_number'), item.get('name'), item.get('_signed_pending_usd'),
+            balance.get('financial_status'), employer=item.get('employer'),
+            cause=item.get('category'), event_date=item.get('source_date') or item.get('posting_date'),
+            external_reference=item.get('source_voucher') or item.get('voucher'),
+            evidence=item.get('source_file'),
+            detail=item.get('source_description') or item.get('description'))
+        issue_rows.append((*row, None, item.get('source_debit'), item.get('source_credit'),
+                           item.get('source_currency'), balance.get('used_usd')))
 
     _write_table(
         book.create_sheet("Detalle cliente"), "Detalle por cliente y aplicación", scope,
@@ -170,7 +181,7 @@ def build_control_workbook(
     )
     _write_table(
         book.create_sheet("Partidas y excepciones"), "Partidas y excepciones", scope,
-        ISSUE_HEADERS, issue_rows, money_columns={8}, date_columns={2, 13, 18},
+        ISSUE_HEADERS, issue_rows, money_columns={8, 20, 21, 23}, date_columns={2, 13, 18},
     )
     _write_table(
         book.create_sheet("Gestiones"), "Gestiones de excepciones", scope,
@@ -233,6 +244,7 @@ ISSUE_HEADERS = (
     "Referencia / ID", "Monto USD", "Estado", "Causa", "Responsable",
     "Próxima acción", "Compromiso", "Evidencia", "Referencia externa",
     "Detalle", "Resolución", "Vencimiento contractual", "Días atraso compromiso",
+    "Débito original core", "Crédito original core", "Moneda original core", "Utilizado partida USD",
 )
 
 ACTION_HEADERS = (
@@ -412,6 +424,7 @@ def _write_guide(book, scope):
         ("Cuenta por cobrar", "Aplicado neto menos depósitos asignados, considerando tolerancias. Las compensaciones confirmadas a aplicaciones ya reducen el aplicado neto; no se descuentan dos veces. Cobranza y deducción son informativas, no generan CxC."),
         ("Detalle de deducción", "Deducido y Cobranza no deducida suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
+        ("Partidas complementarias del core", "Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
         ("Excepciones sin período", "Se incluyen por año de creación y empresa. Excepciones vinculadas: por mes de cobranza del período. Compromiso es fecha de gestión, no vencimiento del pago."),
         ("Cruces y distribución", "Cruces parte de los períodos seleccionados, incluso con depósitos de otro año. Distribución parte de los depósitos recibidos en el año, incluso hacia períodos de otro año."),
         ("Trazabilidad", "Datos de Períodos, Importaciones contables, Distribuciones de depósito y Excepciones de Credinómina, respetando permisos del usuario."),

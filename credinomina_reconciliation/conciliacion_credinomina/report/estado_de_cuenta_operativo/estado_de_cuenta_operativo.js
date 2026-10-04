@@ -1,6 +1,5 @@
 frappe.query_reports["Estado de Cuenta Operativo"] = {
     filters: [
-        { fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1 },
         { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nPartida complementaria" },
         { fieldname: "operational_status", label: __("Estado de conciliación"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto de la columna Estado de conciliación."),
@@ -21,11 +20,4 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         { fieldname: "to_month", label: __("Hasta"), fieldtype: "Date" },
         { fieldname: "only_open", label: __("Solo pendientes"), fieldtype: "Check", default: 0 },
     ],
-    formatter(value, row, column, data, default_formatter) {
-        const summary_fields = ["pending_usd", "company_credit_usd", "client_credit_usd", "balance_usd"];
-        if (data && summary_fields.includes(column.fieldname) && data[column.fieldname] == null) {
-            return `<span class="text-muted" title="${__("Importe sin determinar; revise el detalle y la conversión de moneda.")}">—</span>`;
-        }
-        return default_formatter(value, row, column, data);
-    },
 };

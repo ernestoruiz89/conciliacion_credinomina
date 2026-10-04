@@ -36,11 +36,15 @@ class ExportScopeTests(unittest.TestCase):
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
              patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook'):
             page.export_control_excel(2025, 'Empresa A')
-        filters = captured[0][1]['filters']
+        filters = next(kwargs['filters'] for doctype, kwargs in captured if doctype == 'CN Reconciliation Exception')
         self.assertIn(['creation', '>=', '2025-01-01'], filters)
         self.assertIn(['creation', '<', '2026-01-01'], filters)
         self.assertIn(['employer', '=', 'Empresa A'], filters)
         self.assertEqual(response.filecontent, b'workbook')
+        core_filters = next(kwargs['filters'] for doctype, kwargs in captured if doctype == 'CN Complementary Item')
+        self.assertEqual(core_filters['employer'], 'Empresa A')
+        self.assertEqual(core_filters['source_date'], ['between', ['2025-01-01', '2025-12-31']])
+        self.assertEqual(core_filters['accounting_source_key'], ['is', 'set'])
 
     def test_employer_export_keeps_both_unlinked_routes_and_excludes_other_company(self):
         def get_list(doctype, **kwargs):
