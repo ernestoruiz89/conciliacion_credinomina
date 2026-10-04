@@ -74,6 +74,29 @@ class DepositIdentityTests(unittest.TestCase):
         self.assertEqual(conflict.client_name, "Beatriz Ruiz")
         self.assertEqual(conflict.client_number, "002")
 
+    def test_real_frappe_detail_document_resolves_and_revalidates_credit(self):
+        from frappe.model.base_document import BaseDocument
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_detail.cn_remittance_detail import CNRemittanceDetail
+
+        for credit in ("13375", "13375-1"):
+            for docstatus in (0, 1):
+                with self.subTest(credit=credit, docstatus=docstatus):
+                    with patch.object(BaseDocument, "_get_table_fields", return_value=[]), \
+                            patch.object(CNRemittanceDetail, "init_valid_columns"):
+                        row = CNRemittanceDetail(dict(doctype="CN Remittance Detail", loan_number=credit, docstatus=docstatus))
+                    # A real Frappe document supports .get(), not row["loan_number"].
+                    self.assertFalse(hasattr(row, "__getitem__"))
+                    complete_detail_clients([row], self.clients, "EMP", {"EMP"}, self.loans)
+                    self.assertEqual((row.client, row.client_name, row.client_number), ("1", "Ana María Pérez", "001"))
+                    # Saving an existing deposit repeats validation on enriched child documents.
+                    complete_detail_clients([row], self.clients, "EMP", {"EMP"}, self.loans)
+                    self.assertEqual(row.client, "1")
+                    row.loan_number = "13376-1"
+                    complete_detail_clients([row], self.clients, "EMP", {"EMP"}, self.loans)
+                    self.assertFalse(row.client)
+                    self.assertIn("Conflicto", row.identity_reason)
+                    self.assertEqual(row.client_number, "001")
+
     def test_minimal_csv_headers_accept_each_identifier_and_keep_zero_rows(self):
         for header in ("Nro. Crédito", "Nro Cédula", "Nro. Cliente", "Nro. Empleado", "Nombre y Apellidos del Cliente"):
             with self.subTest(header=header):

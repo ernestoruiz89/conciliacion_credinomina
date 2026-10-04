@@ -32,7 +32,7 @@ def resolve_detail_identity(row, clients, loan_clients=None):
             return None, f"Conflicto: no se pudo verificar {label} en los clientes de la empresa"
         matches.append(found)
     if row.get("loan_number") and loan_clients is not None:
-        found = set(loan_clients.get(credit_key(row["loan_number"]), ()))
+        found = set(loan_clients.get(credit_key(row.get("loan_number")), ()))
         if not found or None in found:
             return None, "Conflicto: no se pudo verificar el cliente del crédito en cartera o aplicaciones"
         # A loan belonging to different people must never be disambiguated by a name.
