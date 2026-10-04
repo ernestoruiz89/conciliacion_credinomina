@@ -947,6 +947,9 @@ El tratamiento de una subcategoría usada no puede modificarse retroactivamente.
 El Excel de **Control de Credinómina → Partidas y excepciones** también incluye
 las complementarias del core, incluso en revisión, con su remanente firmado,
 débito/crédito y moneda originales, utilizado US$, asiento y descripción completa.
+Las partidas del core **Conciliadas** sin saldo ni gestión pendiente se excluyen
+solo de esta hoja; **Detalle cliente**, **Depósitos** y sus distribuciones conservan
+la trazabilidad. Las excepciones documentadas se mantienen de forma independiente.
 Las alertas y excepciones pueden describir un mismo caso: no se suman como deudas.
 
 El reporte **Antigüedad de Saldos** consulta por defecto la CxC de aplicaciones:

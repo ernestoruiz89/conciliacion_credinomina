@@ -162,6 +162,8 @@ def build_control_workbook(
     ]
     for item in data.get('core_complementary_items') or []:
         balance = item['_balance']
+        if not _core_item_needs_follow_up(balance):
+            continue
         row = _issue('Partida complementaria del core', None, item.get('client_number'),
             item.get('loan_number'), item.get('name'), item.get('_signed_pending_usd'),
             balance.get('financial_status'), employer=item.get('employer'),
@@ -445,7 +447,7 @@ def _write_guide(book, scope):
         ("Cuenta por cobrar", "Aplicado neto menos depósitos asignados, considerando tolerancias. Las compensaciones confirmadas a aplicaciones ya reducen el aplicado neto; no se descuentan dos veces. Cobranza y deducción son informativas, no generan CxC."),
         ("Detalle de deducción", "Deducido y Cobranza no deducida suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
-        ("Partidas complementarias del core", "Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
+        ("Partidas complementarias del core", "En Partidas y excepciones se omiten las conciliadas sin saldo ni gestión pendiente; su distribución se conserva en las hojas de detalle y depósitos. Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
         ("CxC por ajuste de depósito", "Ajustes manuales negativos con subcategoría de tratamiento CxC a la empresa y distribuidos en depósitos confirmados: se muestran positivos como saldo trasladado a la empresa, aunque la partida esté totalmente distribuida. Contabilizar no equivale a cobrar. Al desconciliar el depósito desaparece el traslado; la aplicación vuelve a pendiente."),
         ("Excepciones sin período", "Se incluyen por año de creación y empresa. Excepciones vinculadas: por mes de cobranza del período. Compromiso es fecha de gestión, no vencimiento del pago."),
         ("Cruces y distribución", "Cruces parte de los períodos seleccionados, incluso con depósitos de otro año. Distribución parte de los depósitos recibidos en el año, incluso hacia períodos de otro año."),
@@ -538,6 +540,21 @@ def _collection_pending(claim):
     return money_float(max(
         money(claim.get("applied_usd")) + money(claim.get("rounding_adjustment_usd")) - money(paid), 0,
     ))
+
+
+def _core_item_needs_follow_up(balance):
+    """Hide settled ledger items only on the actionable sheet, never at source.
+
+    Unknown balances and independent management/accounting work must stay visible.
+    Documented exceptions have their own rows and are not filtered here.
+    """
+    pending = balance.get('pending_usd')
+    return not (
+        balance.get('financial_status') == 'Conciliada'
+        and pending is not None and money(pending) == 0
+        and not money(balance.get('management_pending_usd'))
+        and balance.get('accounting_status') not in {'Pendiente de registro', 'Asiento informado'}
+    )
 
 
 def _complementary_total(row):
