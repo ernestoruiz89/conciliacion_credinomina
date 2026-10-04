@@ -157,7 +157,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "6. Control y reportes",
-      "link_count": 6,
+      "link_count": 7,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -178,6 +178,17 @@
       "label": "Control mensual de movimientos contables",
       "link_count": 0,
       "link_to": "Control Mensual de Movimientos Contables",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Accounting Import"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Transacciones por empresa",
+      "link_count": 0,
+      "link_to": "Transacciones por Empresa",
       "link_type": "Report",
       "onboard": 0,
       "type": "Link",
@@ -228,7 +239,7 @@
       "report_ref_doctype": "CN Reconciliation Period"
     }
   ],
-  "modified": "2026-10-01 20:00:00.000000",
+  "modified": "2026-10-04 12:30:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",

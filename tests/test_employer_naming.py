@@ -72,6 +72,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.freeze_application_deadlines",
                 "credinomina_reconciliation.patches.v1_0.refresh_legacy_workspace_sidebar",
                 "credinomina_reconciliation.patches.v1_0.clarify_accounting_registration",
+                "credinomina_reconciliation.patches.v1_0.add_company_transactions_report",
             ],
             list(patches["post_model_sync"]),
         )

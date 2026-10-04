@@ -482,6 +482,29 @@ La migración conserva en el nuevo campo original las descripciones ya almacenad
 y las tasas disponibles, sin reimportar archivos ni alterar montos. Los nuevos
 archivos conservan además el texto íntegro de DESCRIPCION, incluidos saltos de línea.
 
+### Transacciones por empresa
+
+En **6. Control y reportes → Transacciones por empresa**, consulte una matriz
+con una fila por empresa, los doce meses del año y el total anual. Filtre por
+año, empresa, **Aplicaciones** o **Depósitos** y **Incluir borradores** (desactivado
+por defecto).
+
+- Aplicaciones: cuenta las filas de tipo Aplicación en `CN Accounting Import`,
+  por fecha del movimiento, no la cantidad de documentos ni de períodos.
+- Depósitos: cuenta cada `CN Remittance Allocation` por fecha del depósito y
+  empresa pagadora; distribuirlo entre varios períodos no multiplica el conteo.
+- Verde: todas conciliadas; naranja: alguna parcial o una mezcla de conciliadas
+  y pendientes; rojo: todas pendientes. Los meses vacíos muestran «—».
+- Al pasar el cursor por una celda se muestran los conteos por estado.
+
+Se utiliza la conciliación actual contra depósitos/ajustes confirmados, no solo
+el cruce con cobranza. Un depósito totalmente distribuido con saldo a favor
+documentado puede estar conciliado aunque su gestión siga pendiente. Los
+borradores incluidos cuentan como pendientes (en importaciones se utiliza el
+estado **Borrador**, pues no se envían). No incluye documentos cancelados ni
+importaciones fallidas. Respeta los permisos de lectura del usuario y no
+modifica ni recalcula las conciliaciones.
+
 ## Instalación
 
 Requiere **Frappe Framework 15 o superior** y **Python 3.10 o superior**.
