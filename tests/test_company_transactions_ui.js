@@ -42,4 +42,12 @@ for (const [percentage, halfCovered, color] of [[49.99, false, "#fb923c"], [50, 
 }
 assert.ok(formatter(5, "m04", {m04_state: "Parcial", m04_percentage: null, m04_half_covered: false}).includes("Porcentaje del importe no disponible"));
 assert.ok(formatter(5, "m04", {m04_state: "Conciliado", m04_percentage: 100, m04_half_covered: true}).includes("#dcfce7"));
+const clickable = formatter(5, "m04", {m04_state: "Parcial", _detail_filters: {year: 2025, employer: 'A"<script>', transaction_type: "Aplicaciones", include_drafts: 0}});
+assert.ok(clickable.startsWith('<button type="button"'));
+assert.ok(clickable.includes("cn-month-transactions"));
+assert.ok(clickable.includes("&quot;month&quot;:4"));
+assert.ok(!clickable.includes("<script>"));
+assert.ok(!formatter(0, "m04", {_detail_filters: {year: 2025}}).includes("<button"));
+assert.ok(!formatter(5, "m04", {_is_total: true, _detail_filters: {year: 2025}}).includes("cn-month-transactions"));
+assert.equal(report.formatter("Total", null, {fieldname: "employer"}, {_is_total: true}, () => "BAD LINK"), '<div style="font-weight:700;text-align:left">Total</div>');
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");

@@ -504,6 +504,14 @@ por defecto).
   Si falta conversión o la distribución compartida no permite atribuir el pago
   entre aplicaciones de distintos meses, se indica «Porcentaje no disponible»
   y se mantiene naranja, sin inventar un reparto.
+- Pulse una celda con transacciones para abrir el detalle de esa empresa y mes:
+  búsqueda, filtro por estado, páginas de 100 filas y enlaces a los documentos.
+  En aplicaciones se muestran cliente, crédito, aplicado, ajustes, neto, asignado
+  y pendiente; en depósitos, cuenta bancaria, importe, asignación y saldo a favor.
+  Los importes que no puedan atribuirse individualmente se muestran como «—» con
+  su motivo. Consultar el detalle no concilia ni modifica registros.
+- La fila **Total** suma cada mes y el año, sin duplicar los KPI. Los KPI cuentan
+  transacciones individuales, no la cantidad de celdas amarillas o naranjas.
 
 Se utiliza la conciliación actual contra depósitos/ajustes confirmados, no solo
 el cruce con cobranza. Un depósito totalmente distribuido con saldo a favor

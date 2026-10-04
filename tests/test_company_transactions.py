@@ -135,6 +135,70 @@ class CompanyTransactionsTests(unittest.TestCase):
                 self.assertEqual(child_filter["event_type"], "Aplicacion")
                 self.assertEqual(child_filter["parentfield"], "rows")
                 self.assertEqual(sum(item["value"] for item in summary), 3 + drafts)
+                self.assertEqual(data[-1]["_is_total"], True)
+                self.assertEqual(data[-1]["m04"], 3 + drafts)
+                self.assertEqual(data[-1]["total"], sum(item["value"] for item in summary))
+                self.assertEqual(data[0]["_detail_filters"], dict(year=2025, employer="A", transaction_type="Aplicaciones", include_drafts=drafts))
+
+    def test_detail_uses_same_month_scope_permissions_states_and_cash(self):
+        parent = frappe._dict(name="IMPORT", employer="A", status="Importado", historical_period="P")
+        rows = [frappe._dict(name="R", parent="IMPORT", idx=2, event_type="Aplicacion", event_date="2024-02-29",
+            effective=1, match_status="Conciliado", deposit_match_status="Depósito parcial", currency="USD", amount=100,
+            application_adjustment_usd=20, historical_remitted_usd=30, client_number="C1", client_name="Ana", loan_number="L1")]
+        with patch.object(frappe, "has_permission", return_value=True), \
+                patch.object(frappe, "get_list", return_value=[parent]) as listed, \
+                patch.object(frappe, "get_all", return_value=rows) as children:
+            result = report.get_month_detail("2024", "2", "A", state="Parcial", search="ana")
+        self.assertEqual(listed.call_args.kwargs["filters"]["employer"], "A")
+        self.assertEqual(children.call_args.kwargs["filters"]["event_date"], ["between", ["2024-02-01", "2024-02-29"]])
+        self.assertEqual(result["filtered_count"], 1)
+        row = result["rows"][0]
+        self.assertEqual((row["net_usd"], row["assigned_usd"], row["pending_usd"]), (80, 30, 50))
+        self.assertEqual((row["document"], row["name"], row["row_index"]), ("IMPORT", "R", 2))
+        self.assertEqual(result["summary"][1]["value"], 1)
+
+    def test_deposit_detail_paginates_filters_and_preserves_credit_separately(self):
+        rows = [frappe._dict(name=f"DEP-{index:03}", employer="A", deposit_date="2025-04-01", docstatus=1,
+                            amount_usd=100, allocated_usd=80, justified_surplus_usd=20, result="Conciliado con saldo a favor",
+                            deposit_reference=f"REF-{index:03}") for index in range(105)]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows), \
+                patch.object(frappe, "get_all") as children:
+            first = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos")
+            last = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", start=100)
+            found = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", search="REF-104")
+            empty = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", state="Pendiente")
+        self.assertEqual(len(first["rows"]), 100)
+        self.assertEqual(len(last["rows"]), 5)
+        self.assertEqual(first["total"], 105)
+        self.assertEqual(found["filtered_count"], 1)
+        row = found["rows"][0]
+        self.assertEqual((row["assigned_usd"], row["surplus_usd"], row["pending_usd"]), (80, 20, 0))
+        self.assertEqual(empty["rows"], [])
+        self.assertEqual(empty["summary"][0]["value"], 105)
+        children.assert_not_called()
+
+    def test_detail_never_exposes_shared_operative_cash_as_individual_cash(self):
+        parent = frappe._dict(name="I", employer="A", status="Importado")
+        source = frappe._dict(name="R", parent="I", event_type="Aplicacion", event_date="2025-04-30",
+            effective=1, match_status="Conciliado", deposit_match_status="Depósito parcial", currency="USD", amount=100,
+            client_number="1", collection_row_id="C")
+        collections = {"C": dict(applied_usd=200, remittance_detail='[{"importe_usd":60}]')}
+        with patch.object(frappe, "has_permission", return_value=True), \
+                patch.object(report, "load_transactions", return_value=([dict(name="R", state="Parcial")], [source], {"I": parent})), \
+                patch.object(report, "load_partial_collections", return_value=collections):
+            row = report.get_month_detail(2025, 4, "A")["rows"][0]
+        self.assertIsNone(row["assigned_usd"])
+        self.assertIsNone(row["pending_usd"])
+        self.assertIn("compartida", row["observations"])
+
+    def test_detail_invalid_filters_and_permission_fail_before_loading(self):
+        for values in (dict(year=2025, month=13), dict(year="sql", month=1), dict(year=2025, month=1, state="Otro"),
+                       dict(year=2025, month=1, transaction_type="Otro"), dict(year=2025, month=1)):
+            with patch.object(frappe, "has_permission", return_value=False), \
+                    patch.object(frappe, "throw", side_effect=ValueError), \
+                    patch.object(report, "load_transactions") as loader, self.assertRaises(ValueError):
+                report.get_month_detail(employer="A", **values)
+            loader.assert_not_called()
 
     def test_deposit_query_uses_deposit_date_payer_and_one_count_per_record(self):
         for drafts in (0, 1):
