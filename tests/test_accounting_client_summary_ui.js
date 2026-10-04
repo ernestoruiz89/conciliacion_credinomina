@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = 'credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/';
+const code = fs.readFileSync(path + 'cn_accounting_import.js', 'utf8');
+const schema = JSON.parse(fs.readFileSync(path + 'cn_accounting_import.json', 'utf8'));
+const context = {frappe: {ui: {form: {on() {}}}, utils: {escape_html: value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')}}, format_currency: (n, currency) => { assert.equal(currency, 'USD'); return 'USD ' + Number(n).toFixed(2); }, __: s => s};
+vm.createContext(context);
+vm.runInContext(code, context);
+const row = {client_name: '<img src=x>', client_number: '1', loans: ['<L>'], observations: [],
+    applied_usd: 100, assigned_usd: 75.39, rounding_usd: 0, balance_usd: 24.61, status: 'Parcial'};
+const html = context.accountingClientSummaryTable([row]);
+assert.ok(!html.includes('<img'));
+assert.ok(html.includes('&lt;img'));
+assert.ok(html.includes('75.39') && html.includes('24.61'));
+assert.ok(html.includes('Aplicado neto US$'));
+const many = Array.from({length: 51}, (_, i) => ({...row, client_name: `Cliente ${i}`, applied_usd: .1, assigned_usd: 0, balance_usd: .1}));
+const first = context.accountingClientSummaryTable(many, 0);
+assert.ok(!first.includes('<strong>Cliente 50</strong>'));
+assert.ok(first.includes('5.10')); // Total over all filtered customers, not the page.
+assert.ok(context.accountingClientSummaryTable(many, 1).includes('<strong>Cliente 50</strong>'));
+const unknown = context.accountingClientSummaryTable([{...row, assigned_usd: null, balance_usd: null}]);
+assert.ok(unknown.includes('—'));
+assert.ok(!unknown.includes('24.61'));
+assert.ok(code.includes('frm._client_summary_request === request'));
+assert.ok(code.includes('frm.doc.name === name'));
+assert.ok(code.includes('frm.is_dirty()'));
+assert.ok(code.includes('Reintentar'));
+assert.ok(schema.field_order.indexOf('client_summary_html') < schema.field_order.indexOf('rows'));
+assert.equal(schema.fields.find(f => f.fieldname === 'client_summary_html').fieldtype, 'HTML');
+console.log('OK: customer summary, cents, escaping, unknown totals, paging, stale responses and saved-data scope.');

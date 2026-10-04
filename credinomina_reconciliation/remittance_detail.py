@@ -95,11 +95,42 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     return True
 
 
+def _unidentified_complement_link(row, claim, instruction):
+    """An explicit row link may identify an otherwise unassigned complement.
+
+    Never use this relaxation for automatic matching or to override any
+    identity already recorded on a complementary item. Keep the source intact;
+    the target's detail_row is the auditable attribution.
+    """
+    identity_fields = (
+        "client", "client_number", "loan_number", "employee_number", "national_id", "client_name",
+    )
+    if claim.get("kind") != "X" or any(clean_text(claim.get(key)) for key in identity_fields):
+        return False
+    if claim.get("client_names"):
+        return False
+    if not row.get("name") or instruction.get("detail_row") != row.get("name"):
+        return False
+    if not any(clean_text(row.get(key)) for key in identity_fields):
+        return False
+    company = clean_text(claim.get("group"))
+    if row.get("employer") and clean_text(row.get("employer")) != company:
+        return False
+    if instruction.get("group") and clean_text(instruction.get("group")) != company:
+        return False
+    if claim.get("installment_number") and not _same_id(
+        row.get("installment_number"), claim.get("installment_number")
+    ):
+        return False
+    return True
+
+
 def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None):
     """Validate explicit row links; reuse their instruction IDs without booking twice."""
     by_id = {claim["id"]: claim for claim in claims}
     periods = _period_scope(period)
     targets = []
+    unidentified_complements = []
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
         allowed = set(allowed_groups or [employer])
@@ -117,6 +148,8 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
             if instruction.get("group") and instruction["group"] != company:
                 return [], "La empresa del destino genérico no coincide con la fila del detalle"
             instruction["group"] = company
+        elif _unidentified_complement_link(row, claim, instruction):
+            unidentified_complements.append(claim["id"].removeprefix("X:"))
         elif not _candidate_matches(row, claim):
             return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
         if (not money(instruction["amount_usd"]) or
@@ -127,7 +160,12 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
                         **({"group": instruction["group"]} if generic else {})})
     if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
         return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
-    return targets, "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+    reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+    if unidentified_complements:
+        reason += "; complementarias sin cliente/crédito atribuidas por vínculo manual explícito: " + ", ".join(
+            dict.fromkeys(unidentified_complements)
+        )
+    return targets, reason
 
 
 def suggest_detail_targets(

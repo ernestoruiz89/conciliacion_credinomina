@@ -6,7 +6,7 @@ import frappe
 
 from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.allocation_origin import DETAIL, MANUAL
-from credinomina_reconciliation.remittance_detail import manual_detail_targets
+from credinomina_reconciliation.remittance_detail import manual_detail_targets, suggest_detail_targets
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as source
 
 
@@ -219,3 +219,98 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.administrative_collection()
         self.claims[0].update(id="C:A", kind="C")
         self.assertEqual(self.reconcile()[2]["DEP"], "Conciliado")
+
+    def income_in_client_detail(self, kind="H"):
+        self.row.update(employer="EMP", client_number="4621", loan_number="109210-1",
+                        deducted_nio=0, deducted_usd=252.57)
+        self.claims = [
+            dict(id=kind + ":A", kind=kind, group="EMP", period="APRIL",
+                 client_number="4621", loan_number="109210-1", amount_usd=163.68),
+            dict(id=kind + ":B", kind=kind, group="EMP", period="APRIL",
+                 client_number="4621", loan_number="109210-1", amount_usd=88.60),
+            dict(id="X:INCOME", kind="X", group="EMP", period="", amount_usd=0.29),
+        ]
+        self.manual = [dict(id="TARGET-" + str(index), deposit_id="DEP", claim_id=claim["id"],
+                            amount_usd=claim["amount_usd"], detail_row="ROW")
+                       for index, claim in enumerate(self.claims)]
+        self.deposits[0]["amount_usd"] = 252.57
+
+    def test_income_without_customer_is_attributed_only_by_explicit_link(self):
+        for kind in ("H", "C"):
+            with self.subTest(kind=kind):
+                self.income_in_client_detail(kind)
+                context, result, statuses, row = self.reconcile()
+                self.assertEqual(statuses["DEP"], "Conciliado")
+                self.assertEqual(row["match_status"], "Conciliada")
+                self.assertIn("vínculo manual explícito: INCOME", row["match_reason"])
+                self.assertIn('"X:INCOME"', row["matched_targets"])
+                self.assertEqual(context["instructions"], [])
+                self.assertEqual(context["contexts"]["DEP"]["covered_total_usd"], 252.57)
+                self.assertEqual(context["contexts"]["DEP"]["outside_complements"], [])
+                self.assertEqual(len(result["allocations"]), 3)
+                self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+                self.assertEqual(result["claim_remaining"]["X:INCOME"], 0)
+                self.assertNotIn("client_number", self.claims[-1])
+                self.assertNotIn("loan_number", self.claims[-1])
+                self.assertEqual(self.reconcile()[1]["allocations"], result["allocations"])
+
+    def test_unidentified_complement_is_not_automatically_matched(self):
+        self.income_in_client_detail()
+        targets, _ = suggest_detail_targets(self.row, self.claims, 252.57, "EMP")
+        self.assertFalse(targets)
+        # Both applications still need explicit links; linking only the fee is insufficient.
+        self.manual = self.manual[-1:]
+        self.assertEqual(self.reconcile()[2]["DEP"], "Revisar filas")
+
+    def test_unidentified_complement_requires_correct_explicit_row_link(self):
+        self.income_in_client_detail()
+        for link in (None, "OTHER"):
+            with self.subTest(link=link):
+                manual = [self.manual[-1] | {"detail_row": link}]
+                targets, _ = manual_detail_targets(self.row, self.claims, manual, 0.29, "EMP")
+                self.assertFalse(targets)
+
+    def test_manual_complement_cannot_override_existing_identity_or_scope(self):
+        self.income_in_client_detail()
+        original = self.claims[-1]
+        for invalid in (
+            {"client_number": "OTHER"}, {"loan_number": "OTHER"}, {"client": "OTHER"},
+            {"employee_number": "OTHER"}, {"national_id": "OTHER"},
+            {"client_name": "OTHER"}, {"client_names": ["OTHER"]},
+            {"installment_number": "2"}, {"group": "OTHER"}, {"period": "OTHER"},
+            {"kind": "H"}, {"kind": "C"},
+        ):
+            with self.subTest(invalid=invalid):
+                claims = self.claims[:-1] + [original | invalid]
+                targets, _ = manual_detail_targets(self.row, claims, self.manual, 252.57, "EMP", "APRIL")
+                self.assertFalse(targets)
+        # An allowed co-payer does not override the employer explicitly set on the row.
+        targets, _ = manual_detail_targets(
+            self.row | {"employer": "OTHER"}, self.claims, self.manual[-1:], 0.29,
+            "EMP", allowed_groups=["EMP", "OTHER"],
+        )
+        self.assertFalse(targets)
+        targets, _ = manual_detail_targets(self.row, self.claims,
+            [self.manual[-1] | {"group": "OTHER"}], 0.29, "EMP")
+        self.assertFalse(targets)
+
+    def test_linked_unidentified_complement_still_requires_available_balance(self):
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                self.income_in_client_detail()
+                if missing:
+                    self.claims.pop()  # Unconfirmed or cancelled items are absent from claims.
+                else:
+                    self.claims[-1]["amount_usd"] = 0.28
+                _, result, statuses, row = self.reconcile()
+                self.assertNotEqual(result["instruction_results"]["TARGET-2"], "Aplicada")
+                self.assertEqual(statuses["DEP"], "Revisar filas")
+                self.assertEqual(row["match_status"], "Revisar")
+
+    def test_negative_unidentified_complement_can_be_linked_without_double_booking(self):
+        self.income_in_client_detail()
+        self.claims[-1]["amount_usd"] = self.manual[-1]["amount_usd"] = -0.29
+        self.row.deducted_usd = self.deposits[0]["amount_usd"] = 251.99
+        _, result, statuses, _ = self.reconcile()
+        self.assertEqual(statuses["DEP"], "Conciliado")
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)

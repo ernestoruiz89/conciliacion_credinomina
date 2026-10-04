@@ -9,7 +9,7 @@
     "import_tab", "source_section", "employer", "source_file", "source_column", "currency", "manual_fx_rate",
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
-    "total_application_adjustment_usd", "total_net_applied_usd", "rows_section", "rows", "notes",
+    "total_application_adjustment_usd", "total_net_applied_usd", "client_summary_section", "client_summary_html", "rows_section", "rows", "notes",
     "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "file_hash", "bulk_event_date", "bulk_source_file", "bulk_source_hash"
   ],
   "fields": [
@@ -24,6 +24,8 @@
     {"fieldname": "matching_column", "fieldtype": "Column Break"},
     {"fieldname": "results_tab", "fieldtype": "Tab Break", "label": "Resultados"},
     {"fieldname": "result_column", "fieldtype": "Column Break"},
+    {"fieldname": "client_summary_section", "fieldtype": "Section Break", "label": "Saldos por cliente"},
+    {"fieldname": "client_summary_html", "fieldtype": "HTML", "label": "Resumen por cliente", "read_only": 1},
     {"fieldname": "rows_section", "fieldtype": "Section Break", "label": "Aplicaciones de pago por cliente"},
     {"fieldname": "audit_tab", "fieldtype": "Tab Break", "label": "Historial"},
     {"fieldname": "audit_section", "fieldtype": "Section Break", "label": "Estado de importación"},
@@ -54,7 +56,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-10-02 16:10:00.000000",
+  "modified": "2026-10-04 00:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Accounting Import",

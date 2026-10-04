@@ -45,6 +45,14 @@ importes permiten un cruce único.
   Una complementaria **sin período** puede cubrir una fila cuando se vincula
   manualmente y coinciden empresa, cliente y crédito. Si tiene un período,
   este debe estar entre los seleccionados; no se ignoran períodos incompatibles.
+  Si la complementaria no identifica cliente ni crédito, se admite su atribución
+  mediante un vínculo manual explícito a la fila de la misma empresa, sin alterar
+  el asiento original. No se usa esta excepción para coincidencias automáticas ni
+  para ignorar identificadores contradictorios. Por ejemplo, un detalle de
+  US$252.57 puede vincular aplicaciones por US$252.28 y otros ingresos por US$0.29:
+  deben vincularse **todos** los destinos a esa fila. La partida debe estar
+  confirmada y tener saldo disponible; el motivo deja constancia de su atribución
+  manual y el importe se cuenta una sola vez.
 - **Movimientos contables** como única fuente de aplicaciones. El depósito se registra directamente con
   referencia, fecha, empresa, moneda e importe; el detalle/soporte puede
   adjuntarse después, sin cambiar la fecha del depósito. No
@@ -266,6 +274,18 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    el nombre `CONTA-NombreCorto-Mes-Año-###` (usa el código si no hay nombre corto). No modifica cargas anteriores.
 5. Abra los documentos y use **Conciliar esta empresa** cuando corresponda.
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
+
+En **Resultados → Saldos por cliente**, cada importación muestra el aplicado
+neto, depósitos asignados, ajuste de centavos y saldo pendiente por cliente,
+con búsqueda por nombre/número/crédito y totales de todos los clientes filtrados
+(no solo de la página visible). Los ajustes confirmados ya están descontados
+del aplicado neto; no se compensan deudas con sobrantes de otro crédito.
+**Actualizar resumen** solo consulta los datos guardados: no concilia ni modifica
+asignaciones. Si una cobranza operativa comparte depósitos entre importaciones
+y no permite atribuirlos a esta carga, se muestra **— / Revisar**, sin inventar
+un reparto. Los períodos no legibles y conversiones faltantes tampoco se presentan
+como saldos cero. Para incorporar esta sección en un sitio existente, ejecute
+`bench --site <sitio> migrate` tras actualizar la app y recargue el navegador.
 
 El procesamiento requiere un worker de la cola `long`. Puede cerrar el modal
 y volver a **Carga masiva** para consultar el avance. El plan, las empresas

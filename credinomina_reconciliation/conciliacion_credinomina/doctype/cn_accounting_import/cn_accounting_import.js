@@ -21,6 +21,7 @@ frappe.ui.form.on("CN Accounting Import", {
         }));
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
         updateImportExceptionNotice(frm);
+        loadAccountingClientSummary(frm);
         if (frm.is_new()) return;
 
         if (frappe.model.can_create("CN Reconciliation Period")) {
@@ -60,6 +61,80 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+function accountingClientSummaryTable(rows, page = 0) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const fields = ["applied_usd", "assigned_usd", "rounding_usd", "balance_usd"];
+    const amount = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
+    const total = field => rows.some(row => row[field] == null) ? null
+        : rows.reduce((sum, row) => sum + Math.round(Number(row[field]) * 100), 0) / 100;
+    const body = rows.slice(page * 50, (page + 1) * 50).map(row => {
+        const color = row.status === "Conciliado" ? "var(--green-50, #edfdf3)" : row.status === "Revisar" ? "var(--yellow-50, #fffae6)" : "transparent";
+        return `<tr style="background:${color}"><td><strong>${esc(row.client_name)}</strong>
+            <div class="text-muted">${esc((row.loans || []).join(", "))}</div>
+            ${(row.observations || []).map(note => `<div class="text-warning">${esc(note)}</div>`).join("")}</td>
+            <td>${esc(row.client_number || "—")}</td>
+            ${fields.map(field => `<td class="text-right" style="white-space:nowrap">${amount(row[field])}</td>`).join("")}
+            <td>${esc(__(row.status))}</td></tr>`;
+    }).join("");
+    return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px)">
+        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Aplicado neto US$", "Asignado a depósitos US$", "Ajuste de centavos US$", "Saldo US$", "Estado"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
+        <tbody>${body || `<tr><td colspan="7">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
+        <tfoot><tr><th colspan="2">${esc(__("Total de clientes filtrados"))} (${rows.length})</th>
+        ${fields.map(field => `<th class="text-right" style="white-space:nowrap">${amount(total(field))}</th>`).join("")}<th></th></tr></tfoot>
+    </table></div>`;
+}
+
+async function loadAccountingClientSummary(frm) {
+    const wrapper = frm.fields_dict?.client_summary_html?.$wrapper;
+    if (!wrapper) return;
+    const request = frm._client_summary_request = (frm._client_summary_request || 0) + 1;
+    const name = frm.doc.name;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    wrapper.off(".cnClientSummary");
+    if (frm.is_new() || frm.is_dirty()) {
+        wrapper.html(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos por cliente."))}</p>`);
+        return;
+    }
+    wrapper.html(`<p class="text-muted">${esc(__("Consultando saldos por cliente..."))}</p>`);
+    const current = () => frm._client_summary_request === request && frm.doc.name === name;
+    try {
+        const response = await frappe.call({method: "credinomina_reconciliation.accounting_client_summary.get_client_summary", args: {import_name: name}});
+        if (!current()) return;
+        if (frm.is_dirty()) {
+            wrapper.html(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
+            return;
+        }
+        const rows = response.message.rows || [];
+        wrapper.html(`<p class="text-muted">${esc(__("Solo aplicaciones efectivas de esta importación. El aplicado neto ya descuenta los ajustes confirmados; no incluye cobranza ni saldos a favor sin vincular. Datos guardados, según la última conciliación."))}</p>
+            <div class="flex mb-3" style="gap:12px;align-items:center;flex-wrap:wrap">
+                <input class="form-control input-sm cn-client-search" style="max-width:360px" aria-label="${esc(__("Buscar cliente, número o crédito"))}" placeholder="${esc(__("Buscar cliente, número o crédito"))}">
+                <button type="button" class="btn btn-default btn-sm cn-client-refresh">${esc(__("Actualizar resumen"))}</button>
+            </div><div class="cn-client-table"></div>
+            <div class="flex" style="gap:12px;align-items:center"><button type="button" class="btn btn-default btn-sm cn-client-prev">${esc(__("Anterior"))}</button>
+                <span class="cn-client-page"></span><button type="button" class="btn btn-default btn-sm cn-client-next">${esc(__("Siguiente"))}</button></div>
+            <p class="text-muted mt-2">${esc(__("Saldo = aplicado neto + ajuste de centavos − asignado. No se compensan saldos entre créditos. «—» indica que falta determinar un importe; el total tampoco se presenta como completo."))}</p>`);
+        let page = 0, query = "";
+        const render = () => {
+            const filtered = rows.filter(row => [row.client_name, row.client_number, ...(row.loans || [])].join(" ").toLocaleLowerCase().includes(query));
+            const pages = Math.max(1, Math.ceil(filtered.length / 50));
+            page = Math.max(0, Math.min(page, pages - 1));
+            wrapper.find(".cn-client-table").html(accountingClientSummaryTable(filtered, page));
+            wrapper.find(".cn-client-page").text(__("Página {0} de {1}", [page + 1, pages]));
+            wrapper.find(".cn-client-prev").prop("disabled", page === 0);
+            wrapper.find(".cn-client-next").prop("disabled", page === pages - 1);
+        };
+        wrapper.on("input.cnClientSummary", ".cn-client-search", event => { query = event.target.value.trim().toLocaleLowerCase(); page = 0; render(); });
+        wrapper.on("click.cnClientSummary", ".cn-client-prev", () => { page--; render(); });
+        wrapper.on("click.cnClientSummary", ".cn-client-next", () => { page++; render(); });
+        wrapper.on("click.cnClientSummary", ".cn-client-refresh", () => loadAccountingClientSummary(frm));
+        render();
+    } catch (error) {
+        if (!current()) return;
+        wrapper.html(`<p class="text-danger">${esc(__("No se pudo consultar el resumen. Revise sus permisos o vuelva a intentar."))}</p><button type="button" class="btn btn-default btn-sm cn-client-retry">${esc(__("Reintentar"))}</button>`);
+        wrapper.on("click.cnClientSummary", ".cn-client-retry", () => loadAccountingClientSummary(frm));
+    }
+}
 
 async function createAccountingPeriod(frm) {
     if (frm._creating_period) return;
