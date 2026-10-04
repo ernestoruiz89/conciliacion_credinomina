@@ -66,10 +66,11 @@ class SourceImportOptionsTest(unittest.TestCase):
             patch.object(source, "apply_accounting_currency_override", return_value=records),
             patch.object(source, "enrich_accounting_records", return_value=records),
             patch.object(source, "enrich_source_import_clients", return_value=records),
-            patch.object(source, "reconcile_all_sources", return_value={"rows": 1}),
+            patch.object(source, "_reconcile_sources", return_value={"rows": 1}) as reconcile,
         ):
             result = source.import_source_file("IMPORT")
         parser.assert_called_once_with("movimientos.xlsx", b"data")
+        reconcile.assert_called_once_with("Empresa")
         document.check_permission.assert_called_once_with("write")
         document.append.assert_called_once()
         document.save.assert_called_once()

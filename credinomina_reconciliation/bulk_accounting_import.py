@@ -7,7 +7,7 @@ from frappe import _
 from frappe.utils import cint, now_datetime
 from frappe.utils.file_manager import save_file
 
-from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
+from credinomina_reconciliation.accounting_batch import accounting_group_csv, accounting_source_records, group_applications, movement_key
 from credinomina_reconciliation.accounting_identity import identify_lines
 from credinomina_reconciliation.accounting_assignments import apply_assignments
 from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items
@@ -19,7 +19,7 @@ from credinomina_reconciliation.rounding import money_float, sum_money
 from credinomina_reconciliation.file_references import attach_existing_file, readable_file
 from credinomina_reconciliation.parsers import (
     SourceFileError, apply_accounting_currency_override, clean_text, file_sha256,
-    parse_accounting_movements, source_key, read_table, _records_from_header,
+    parse_accounting_movements, source_key,
 )
 
 DOCTYPE = "CN Accounting Import"
@@ -350,7 +350,7 @@ def _create_imports(plan, options, progress=None):
     source_records = None
     if any("csv_content" not in group for group in plan["groups"]):
         source, content = _file(options["source_file"])
-        source_records = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+        source_records = accounting_source_records(source.file_name, content)
     if any(group["employer"] == UNIDENTIFIED_EMPLOYER for group in plan["groups"]):
         ensure_unidentified_employer()
     records = []
@@ -449,8 +449,7 @@ def _exclude_completed_applications(plan):
             continue
         if len(remaining) != len(group["rows"]):
             # Use the frozen raw cells, never re-read the large original file.
-            raw = dict(_records_from_header(read_table("group.csv", group["csv_content"].encode("utf-8")), "cuenta_contable"))
-            raw = {int(values.get("cn_fila_origen") or number): values for number, values in raw.items()}
+            raw = accounting_source_records("group.csv", group["csv_content"].encode("utf-8"))
             group["csv_content"] = accounting_group_csv(raw, remaining).decode("utf-8")
             group.update(rows=remaining, count=len(remaining), total_usd=money_float(sum_money(row["amount_usd"] for row in remaining)))
         kept.append(group)
@@ -484,7 +483,7 @@ def run_bulk_job(token, user, attempt=None):
             source, content = _file(state["options"]["source_file"])
             if file_sha256(content) != plan["file_hash"]:
                 frappe.throw(_("El archivo original cambió durante el análisis. Genere otra vista previa."))
-            raw = dict(_records_from_header(read_table(source.file_name, content), "cuenta_contable"))
+            raw = accounting_source_records(source.file_name, content)
             total = checkpoint.prepare_blocks(token, plan, raw)
             state.update(total_blocks=total, completed_blocks=0, created_count=0,
                          original_content_hash=source.content_hash,

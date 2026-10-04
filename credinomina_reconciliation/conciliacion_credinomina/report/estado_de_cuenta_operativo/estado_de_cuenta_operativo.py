@@ -2,12 +2,29 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
-from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.aging import collection_shortfall_usd, deduction_pending_type
 from credinomina_reconciliation.reconciliation import AMOUNT_TOLERANCE
 from credinomina_reconciliation.rounding import MONEY_EPSILON, decimal_value, money, money_float
+from credinomina_reconciliation.report_records import records, child_records
+from credinomina_reconciliation.client_position import load_position, summary
 
 
 def execute(filters=None):
+    filters = frappe._dict(filters or {})
+    collection_columns, collections = _collection_report(filters)
+    data = load_position(collections, filters)
+    message = _("Posición actual de conciliación, no saldo contractual del préstamo. "
+        "Cobranza muestra deducciones y cuotas no deducidas; Aplicación muestra aplicado neto y depósitos asignados; "
+        "Partida complementaria separa distribución, registro contable y gestión de saldos a favor. "
+        "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
+        "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
+        "No reste automáticamente los saldos a favor. "
+        "Las fechas filtran el mes de cobranza, la fecha de aplicación o la fecha de la partida, según el tipo; "
+        "no reconstruyen saldos históricos. Solo se incluyen documentos visibles para su usuario.")
+    return get_columns(filters), data, message, None, summary(data)
+
+
+def _collection_report(filters=None):
     filters = frappe._dict(filters or {})
     columns = get_columns()
     periods = get_periods(filters)
@@ -23,10 +40,11 @@ def execute(filters=None):
     if filters.loan_number:
         row_filters["loan_number"] = filters.loan_number
 
-    rows = frappe.get_all(
-        "CN Collection Row",
+    rows = child_records(
+        "CN Collection Row", period_map, "CN Reconciliation Period", "collection_rows",
         filters=row_filters,
         fields=[
+            "name",
             "parent",
             "client_number",
             "client_name",
@@ -59,7 +77,7 @@ def execute(filters=None):
         classified_usd = money(row.complementary_usd) + max(money(row.fx_variance_usd), 0)
         rounding = money(row.rounding_adjustment_usd)
         classified_nio = money(classified_usd * decimal_value(rate))
-        employee_pending = employee_receivable_usd(row)
+        employee_pending = collection_shortfall_usd(row)
         item = frappe._dict(
             {
                 **row,
@@ -70,6 +88,7 @@ def execute(filters=None):
                 "collection_cycle": period.collection_cycle or "Mensual",
                 "deduction_basis": period.deduction_basis or "",
                 "employer": period.employer,
+                "source_rows": row.get("name"),
                 "employee_pending_usd": employee_pending,
                 "employee_pending_nio": (
                     money_float(decimal_value(employee_pending) * decimal_value(rate))
@@ -95,14 +114,17 @@ def execute(filters=None):
                 "operational_status": get_status(row),
             }
         )
-        if filters.only_open and item.operational_status == "Conciliado":
+        if deduction_pending_type(row):
+            for field in ("pending_core_usd", "pending_core_nio", "employer_receivable_usd", "employer_receivable_nio"):
+                item[field] = None
+        if filters.only_open and _base_status(row) == "Conciliado":
             continue
         data.append(item)
     return columns, data
 
 
 def get_periods(filters):
-    conditions = {}
+    conditions = {"reconciliation_mode": "Operativa"}
     if filters.employer:
         conditions["employer"] = filters.employer
     if filters.from_month and filters.to_month:
@@ -111,7 +133,7 @@ def get_periods(filters):
         conditions["payroll_month"] = [">=", filters.from_month]
     elif filters.to_month:
         conditions["payroll_month"] = ["<=", filters.to_month]
-    periods = frappe.get_all(
+    periods = records(
         "CN Reconciliation Period",
         filters=conditions,
         fields=["name", "employer", "payroll_month", "collection_cycle", "deduction_basis"],
@@ -136,6 +158,9 @@ def get_status(row):
 
 
 def _base_status(row):
+    pending_detail = deduction_pending_type(row)
+    if pending_detail:
+        return pending_detail
     if row.application_status == "Diferencia aplicacion vs deposito":
         return "Diferencia entre aplicación y depósito; requiere revisión"
     if abs(flt(row.fx_variance_usd)) > AMOUNT_TOLERANCE:
@@ -149,17 +174,17 @@ def _base_status(row):
         "Importes inconsistentes",
         "Importe invalido",
     }:
-        return "Pendiente del trabajador / excepcion"
+        return "Cobranza no deducida; revisar primera conciliación"
     if row.application_status == "Aplicado y remitido":
         return "Conciliado"
     if row.application_status == "Remitido, aplicacion parcial":
-        return "Remitido por la empresa; aplicación parcial en core"
+        return "Depositado por la empresa; aplicación parcial en core"
     if row.application_status == "Depósito parcial":
-        return "Empresa remitió parcialmente"
+        return "Depósito parcial"
     if row.application_status == "Aplicacion parcial":
         return "Aplicación parcial en core; depósito pendiente"
     if row.application_status == "Aplicacion encontrada":
-        return "Aplicado en core; empresa por remitir"
+        return "Aplicado en core; depósito pendiente"
     if max(
         flt(row.deducted_usd) - flt(row.applied_usd) - flt(row.complementary_usd),
         flt(row.deducted_nio) - flt(row.applied_nio),
@@ -168,7 +193,7 @@ def _base_status(row):
     return "Pendiente de conciliacion"
 
 
-def get_columns():
+def get_collection_columns():
     return [
         {"fieldname": "payroll_month", "label": _("Mes"), "fieldtype": "Date", "width": 95},
         {"fieldname": "collection_cycle", "label": _("Ciclo"), "fieldtype": "Data", "width": 140},
@@ -179,21 +204,53 @@ def get_columns():
         {"fieldname": "national_id", "label": _("Cedula"), "fieldtype": "Data", "width": 135},
         {"fieldname": "loan_number", "label": _("Credito"), "fieldtype": "Data", "width": 100},
         {"fieldname": "installment_number", "label": _("Cuota"), "fieldtype": "Data", "width": 70},
-        {"fieldname": "expected_usd", "label": _("Cobrado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 105},
+        {"fieldname": "expected_usd", "label": _("Cobranza enviada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "deducted_usd", "label": _("Deducido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 110},
         {"fieldname": "applied_usd", "label": _("Aplicado al crédito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "complementary_usd", "label": _("Partida complementaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
         {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
-        {"fieldname": "employee_pending_usd", "label": _("CxC a empleado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
+        {"fieldname": "employee_pending_usd", "label": _("Cobranza no deducida US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "pending_core_usd", "label": _("Pendiente core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "employer_receivable_usd", "label": _("Deducido sin depósito asignado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
         {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
         {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
         {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
-        {"fieldname": "employee_pending_nio", "label": _("CxC a empleado equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
+        {"fieldname": "employee_pending_nio", "label": _("Cobranza no deducida equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
         {"fieldname": "pending_core_nio", "label": _("Pendiente core C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 125},
         {"fieldname": "employer_receivable_nio", "label": _("Deducido sin depósito asignado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
         {"fieldname": "operational_status", "label": _("Estado operativo"), "fieldtype": "Data", "width": 230},
     ]
+
+
+def get_columns(filters=None):
+    view = (filters or {}).get('position_type')
+    columns = [
+        {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},
+        {'fieldname': 'position_type', 'label': _('Tipo'), 'fieldtype': 'Data', 'width': 175},
+        {'fieldname': 'employer', 'label': _('Empresa'), 'fieldtype': 'Link', 'options': 'CN Employer', 'width': 155},
+        {'fieldname': 'client_name', 'label': _('Cliente'), 'fieldtype': 'Data', 'width': 220},
+        {'fieldname': 'client_number', 'label': _('Nro. Cliente'), 'fieldtype': 'Data', 'width': 110},
+        {'fieldname': 'loan_number', 'label': _('Nro. Crédito'), 'fieldtype': 'Data', 'width': 120},
+        {'fieldname': 'source_doctype', 'label': _('Tipo de origen'), 'fieldtype': 'Data', 'hidden': 1},
+        {'fieldname': 'source_document', 'label': _('Documento de origen'), 'fieldtype': 'Dynamic Link', 'options': 'source_doctype', 'width': 190},
+    ]
+    metrics = []
+    if not view or view == 'Cobranza':
+        metrics.extend([('expected_usd', 'Cobranza enviada US$'), ('deducted_usd', 'Deducido US$'),
+                        ('employee_pending_usd', 'Cuota no deducida US$'), ('pending_core_usd', 'Pendiente core US$')])
+    if not view or view == 'Aplicación':
+        metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
+                        ('rounding_adjustment_usd', 'Tolerancia US$'), ('applied_pending_usd', 'Aplicado pendiente US$')])
+    if not view or view == 'Partida complementaria':
+        metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
+                        ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
+                        ('credit_pending_usd', 'Saldo a favor por gestionar US$')])
+    columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Currency', 'options': 'usd_currency', 'width': 150}
+                   for field, label in metrics)
+    columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
+                   for field, label, width in [('category', 'Categoría', 180), ('operational_status', 'Estado de conciliación', 210),
+                       ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
+                       ('observation', 'Observación', 350), ('source_rows', 'Filas de origen', 170)])
+    return columns

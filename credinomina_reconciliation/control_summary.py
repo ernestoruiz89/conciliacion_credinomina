@@ -2,6 +2,7 @@
 from collections import defaultdict
 
 import frappe
+from credinomina_reconciliation.aging import VALID_DEDUCTION_STATUSES
 
 
 def collection_summaries(period_names):
@@ -9,11 +10,17 @@ def collection_summaries(period_names):
     for start in range(0, len(period_names), 500):
         rows = frappe.db.sql("""
             SELECT parent,
-                SUM(CASE WHEN COALESCE(deduction_status, '') IN ('', 'Pendiente de detalle')
+                SUM(CASE WHEN COALESCE(deduction_status, '') NOT IN %(valid_statuses)s
                     THEN 0 ELSE GREATEST(ROUND(COALESCE(expected_usd, 0), 2)
                         - ROUND(COALESCE(deducted_usd, 0), 2), 0) END) AS worker_gap_usd,
-                SUM(CASE WHEN COALESCE(deduction_status, '') IN ('', 'Pendiente de detalle')
+                SUM(CASE WHEN COALESCE(deduction_status, '') NOT IN %(valid_statuses)s
                     THEN COALESCE(expected_usd, 0) ELSE 0 END) AS pending_detail_usd,
+                SUM(CASE WHEN COALESCE(deduction_status, '') NOT IN %(valid_statuses)s
+                    THEN 0 ELSE GREATEST(ROUND(COALESCE(deducted_usd, 0), 2)
+                        - ROUND(COALESCE(remitted_usd, 0), 2)
+                        - GREATEST(ROUND(COALESCE(fx_variance_usd, 0), 2), 0)
+                        - GREATEST(-ROUND(COALESCE(rounding_adjustment_usd, 0), 2), 0), 0)
+                    END) AS employer_gap_usd,
                 SUM(CASE WHEN application_status = 'Diferencia aplicacion vs deposito'
                     THEN 1 ELSE 0 END) AS application_difference_count,
                 SUM(CASE WHEN application_status IN
@@ -22,7 +29,8 @@ def collection_summaries(period_names):
             FROM `tabCN Collection Row`
             WHERE parent IN %(parents)s AND parenttype = 'CN Reconciliation Period'
             GROUP BY parent
-        """, {"parents": tuple(period_names[start:start + 500])}, as_dict=True)
+        """, {"parents": tuple(period_names[start:start + 500]),
+              "valid_statuses": VALID_DEDUCTION_STATUSES}, as_dict=True)
         result.update({row.parent: row for row in rows})
     return result
 

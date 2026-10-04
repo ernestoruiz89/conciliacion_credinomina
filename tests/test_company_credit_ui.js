@@ -48,6 +48,8 @@ for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
         is_new: () => false, is_dirty: () => false, reload_doc: async () => {reloaded++;}});
     assert.ok(dialog.options.fields.find(f => f.fieldname === "category").options.includes("Saldo a favor de la empresa"));
     assert.ok(dialog.options.fields.find(f => f.fieldname === "reason_type").mandatory_depends_on);
+    assert.ok(dialog.options.fields.find(f => f.fieldname === "credit_assigned_to").mandatory_depends_on.includes("Saldo a favor de la empresa"));
+    assert.ok(dialog.options.fields.find(f => f.fieldname === "credit_commitment_date").mandatory_depends_on.includes("Saldo a favor de la empresa"));
     await dialog.options.primary_action({category: "Saldo a favor de la empresa", amount: 10});
     assert.equal(request.args.remittance_name, "DEP");
     assert.equal(reloaded, 1);

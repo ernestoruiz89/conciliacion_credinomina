@@ -54,17 +54,17 @@ def build_control_workbook(
         for claim in period.get("rows") or []:
             detail_rows.append(_collection_detail(period, claim))
             link_rows.extend(_claim_links(period, claim, historical=False))
-            due = claim.get("employee_receivable_usd")
+            due = claim.get("collection_shortfall_usd")
             if due is None and _money(claim.get("expected_usd")) > CASH_EPSILON:
                 issue_rows.append(_issue(
                     "Detalle de deducción pendiente", period,
                     claim.get("client_number"), claim.get("loan_number"),
                     claim.get("application_reference"), _money(claim.get("expected_usd")),
-                    "Pendiente", detail="Sin evidencia suficiente para calcular CxC del empleado.",
+                    "Pendiente", detail="Falta confirmar la deducción; la cobranza no es una cuenta por cobrar.",
                 ))
             elif due is not None and _money(due) > CASH_EPSILON:
                 issue_rows.append(_issue(
-                    "CxC empleado", period, claim.get("client_number"),
+                    "Cobranza no deducida", period, claim.get("client_number"),
                     claim.get("loan_number"), claim.get("application_reference"),
                     _money(due), "Pendiente", detail=claim.get("deduction_match_note"),
                 ))
@@ -178,6 +178,15 @@ def build_control_workbook(
         date_columns={4},
     )
     _write_guide(book, scope)
+    if "aging_rows" in data:
+        _write_table(book.create_sheet("Antigüedad guardada"), "Saldos guardados de este período al registrar el corte",
+            scope + " · No reconstruye fechas anteriores ni representa todo el saldo de la empresa.",
+            ("Importación", "Cliente", "Nro. cliente", "Crédito", "Fecha aplicación", "Vencimiento conservado",
+             "Origen del plazo", "Aplicado US$", "Depositado US$", "Ajuste US$", "Pendiente US$", "Días de atraso", "Observación"),
+            [(r.get("source_import"), r.get("client_name"), r.get("client_number"), r.get("loan_number"),
+              _date(r.get("application_date")), _date(r.get("due_date")), r.get("payment_term_origin"),
+              r.get("applied_usd"), r.get("paid_usd"), r.get("adjustment_usd"), r.get("amount_usd"), r.get("age_days"),
+              r.get("observation")) for r in data["aging_rows"]], money_columns={8, 9, 10, 11}, date_columns={5, 6})
     # System Settings uses the same numeric day/month/year tokens as Excel.
     # Keep native dates (sortable/filterable), changing only their display style.
     for sheet in book:
@@ -197,7 +206,7 @@ SUMMARY_HEADERS = (
     "Fecha inicio aplicación", "Fecha fin aplicación", "Vencimiento pago",
     "Resultado", "Cobranza USD", "Deducido USD", "Aplicado neto USD",
     "Complementario USD", "Ajuste de redondeo USD", "Depósito asignado total USD",
-    "Aplicado pendiente de depósito USD", "CxC empleado USD", "Deducido sin depósito asignado USD",
+    "Aplicado pendiente de depósito USD", "Cobranza no deducida USD", "Deducido sin depósito asignado USD",
     "Depósito asignado a créditos USD", "Excepciones abiertas", "Último corte de control",
     "Motivo y próxima gestión", "Observaciones", "Cierre", "Cobranza sin detalle USD",
 )
@@ -207,7 +216,7 @@ DETAIL_HEADERS = (
     "Nombre del cliente", "Cédula", "N.º crédito", "N.º cuota",
     "Fecha aplicación", "Asiento contable", "Recibo", "Referencia aplicación",
     "Cobranza USD", "Deducido USD", "Aplicado neto USD", "Complementario USD",
-    "Ajuste de redondeo USD", "Depósito asignado a créditos USD", "CxC empleado USD",
+    "Ajuste de redondeo USD", "Depósito asignado a créditos USD", "Cobranza no deducida USD",
     "Aplicado pendiente de depósito USD", "Estado", "Comentarios",
     "Importación contable", "Fila de origen", "Aplicación bruta USD", "Reducción confirmada USD",
 )
@@ -237,7 +246,7 @@ MONTHLY_HEADERS = (
     "Depósito asignado a créditos USD", "Ajuste de redondeo USD", "Pendiente USD",
     "Excepciones abiertas de períodos", "Aplicado sin período USD", "Depósitos recibidos",
     "Depositado completo USD", "Depósito sin clasificar USD", "Depósitos por revisar",
-    "Cobranza USD", "Deducido USD", "CxC empleados conocida USD", "Cobranza sin detalle USD",
+    "Cobranza USD", "Deducido USD", "Cobranza no deducida conocida USD", "Cobranza sin detalle USD",
 )
 
 
@@ -264,19 +273,19 @@ def _unassigned(data):
 
 
 def _employee_due(period):
-    known = [r["employee_receivable_usd"] for r in period.get("rows") or []
-             if r.get("employee_receivable_usd") is not None]
+    known = [r["collection_shortfall_usd"] for r in period.get("rows") or []
+             if r.get("collection_shortfall_usd") is not None]
     return _sum(known) if known else NA
 
 
 def _missing_detail(period):
     return _sum(r.get("expected_usd") for r in period.get("rows") or []
-                if r.get("employee_receivable_usd") is None)
+                if r.get("collection_shortfall_usd") is None)
 
 
 def _known_deductions(period):
     known = [r.get("deducted_usd") for r in period.get("rows") or []
-             if r.get("employee_receivable_usd") is not None]
+             if r.get("collection_shortfall_usd") is not None]
     return _sum(known) if known else NA
 
 
@@ -399,8 +408,9 @@ def _write_guide(book, scope):
         ("Saldo a favor documentado", "Clasificación del depósito original. No representa necesariamente lo pendiente de devolver hoy: puede haber gestiones posteriores."),
         ("Importe original", "Moneda indicada en cada depósito. No sumar importes NIO y USD en una misma cifra. Las demás columnas monetarias se concilian en USD."),
         ("Modalidad y cierre", "Histórica y operativa usan iguales conceptos de resultado. Cierre indica si el período está bloqueado, no que sus diferencias estén resueltas."),
-        ("N/D", "No disponible o no aplicable, no equivale a cero. En histórico no se inventan cobranza, deducción ni CxC del empleado."),
-        ("Detalle de deducción", "Deducido y CxC empleados suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
+        ("N/D", "No disponible o no aplicable, no equivale a cero. En histórico no se inventan cobranza ni deducción."),
+        ("Cuenta por cobrar", "Aplicado neto menos depósitos asignados, considerando tolerancias. Las compensaciones confirmadas a aplicaciones ya reducen el aplicado neto; no se descuentan dos veces. Cobranza y deducción son informativas, no generan CxC."),
+        ("Detalle de deducción", "Deducido y Cobranza no deducida suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
         ("Excepciones sin período", "Se incluyen por año de creación y empresa. Excepciones vinculadas: por mes de cobranza del período. Compromiso es fecha de gestión, no vencimiento del pago."),
         ("Cruces y distribución", "Cruces parte de los períodos seleccionados, incluso con depósitos de otro año. Distribución parte de los depósitos recibidos en el año, incluso hacia períodos de otro año."),
@@ -530,10 +540,10 @@ def _collection_detail(period, claim):
         claim.get("national_id"), claim.get("loan_number"), claim.get("installment_number"),
         None, None, None, claim.get("application_reference"),
         _money(claim.get("expected_usd")),
-        _money(claim.get("deducted_usd")) if claim.get("employee_receivable_usd") is not None else NA,
+        _money(claim.get("deducted_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
         _money(claim.get("applied_usd")), _money(claim.get("complementary_usd")),
         _money(claim.get("rounding_adjustment_usd")), _collection_cash(claim),
-        _money(claim.get("employee_receivable_usd")) if claim.get("employee_receivable_usd") is not None else NA,
+        _money(claim.get("collection_shortfall_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
         _collection_pending(claim),
         " / ".join(str(item) for item in (claim.get("deduction_status"), claim.get("application_status")) if item),
         comments,

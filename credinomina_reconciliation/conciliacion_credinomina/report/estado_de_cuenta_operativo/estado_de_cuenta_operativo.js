@@ -1,5 +1,6 @@
 frappe.query_reports["Estado de Cuenta Operativo"] = {
     filters: [
+        { fieldname: "position_type", label: __("Tipo de posición"), fieldtype: "Select", options: "\nCobranza\nAplicación\nPartida complementaria" },
         { fieldname: "client_number", label: __("Nro. Cliente"), fieldtype: "Data" },
         { fieldname: "national_id", label: __("Nro Cedula"), fieldtype: "Data" },
         { fieldname: "loan_number", label: __("Nro. Credito"), fieldtype: "Data" },

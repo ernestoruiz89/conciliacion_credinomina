@@ -43,6 +43,21 @@ class ApplicationAgingTests(unittest.TestCase):
         self.assertEqual(deposit_due_date("2024-01-31", 29), date(2024, 2, 29))
         self.assertIsNone(deposit_due_date(None))
 
+    def test_receivable_is_core_less_confirmed_adjustment_and_cash_never_collection(self):
+        for expected, deducted in ((0, 0), (1000, 1000), (1000, 0)):
+            with self.subTest(expected=expected, deducted=deducted):
+                self.collections['C'].update(expected_usd=expected, deducted_usd=deducted,
+                    complementary_usd=500, deduction_status='Importes inconsistentes',
+                    remittance_detail=json.dumps([{'destino': 'Cobranza', 'importe_usd': 30},
+                        {'destino': 'Partida complementaria', 'importe_usd': 500}]))
+                row = self.balances([self.operative(amount=100, application_adjustment_usd=20)])[0]
+                self.assertEqual((row['applied_usd'], row['paid_usd'], row['amount_usd']), (80, 30, 50))
+        historical = self.balances([self.source(amount=100, application_adjustment_usd=20, historical_remitted_usd=30)])[0]
+        self.assertEqual(historical['amount_usd'], 50)
+        # An unconfirmed adjustment has not changed the source's confirmed reduction.
+        historical = self.balances([self.source(amount=100, application_adjustment_usd=0, historical_remitted_usd=30)])[0]
+        self.assertEqual(historical['amount_usd'], 70)
+
     def test_grace_deadline_inclusive_and_each_employers_own_setting(self):
         source = self.source()
         self.assertEqual(self.balances([source], "2025-05-10")[0]["not_due"], 100)

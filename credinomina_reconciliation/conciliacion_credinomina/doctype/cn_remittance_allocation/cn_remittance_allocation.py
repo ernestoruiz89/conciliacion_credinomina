@@ -185,7 +185,7 @@ class CNRemittanceAllocation(Document):
         client_reserved = sum((money(item.amount_usd) for item in load_credits([self.name])), money(0)) if self.name and self.docstatus == 1 else money(0)
         if assigned > money(equivalent) - client_reserved + MONEY_EPSILON:
             if client_reserved:
-                frappe.throw(_("Los destinos usan efectivo reservado como saldo a favor de clientes. Ese saldo no está disponible para nuevos pagos."))
+                frappe.throw(_("Los destinos usan efectivo reservado como saldo a favor. Ese saldo no está disponible para nuevos pagos."))
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
 
     @staticmethod
@@ -372,8 +372,8 @@ class CNRemittanceAllocation(Document):
 @frappe.whitelist(methods=["POST"])
 def create_complementary_item(remittance_name: str, modified: str, values):
     """Create, confirm and attach a complement in one permission-checked transaction."""
-    frappe.db.sql("select name from `tabCN Remittance Allocation` where name=%s for update", (remittance_name,))
-    document = frappe.get_doc("CN Remittance Allocation", remittance_name)
+    from credinomina_reconciliation.client_credit import lock_credit_deposit
+    document = lock_credit_deposit(remittance_name)
     document.check_permission("write")
     if document.docstatus == 2:
         frappe.throw(_("El depósito está cancelado."))
@@ -415,7 +415,7 @@ def create_complementary_item(remittance_name: str, modified: str, values):
 
 
 @frappe.whitelist(methods=["POST"])
-def reconcile_remittance(remittance_name: str, progress_id: str = ""):
+def reconcile_remittance(remittance_name: str, progress_id: str = "", reason: str = ""):
     """Run reconciliation only when the user explicitly requests it."""
     document = frappe.get_doc("CN Remittance Allocation", remittance_name)
     document.check_permission("write")
@@ -432,7 +432,9 @@ def reconcile_remittance(remittance_name: str, progress_id: str = ""):
                 user=frappe.session.user,
             )
     from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
-    return reconcile_deposit(document, progress=progress)
+    from credinomina_reconciliation.reconciliation_audit import audit_reason
+    with audit_reason("Conciliar depósito", reason):
+        return reconcile_deposit(document, progress=progress)
 
 
 @frappe.whitelist(methods=["POST"])

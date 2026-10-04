@@ -43,8 +43,8 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
         for offset in range(0, len(names), 500):
             client_credits.extend(frappe.get_list("CN Complementary Item", filters={
                 "registered_deposit": ["in", names[offset:offset + 500]], "docstatus": 1,
-                "category": "Saldo a favor del cliente", "result": "Saldo a favor documentado",
-            }, fields=["name", "registered_deposit", "employer", "client_name", "client_number", "loan_number", "amount_usd",
+                "category": ["in", ["Saldo a favor del cliente", "Saldo a favor de la empresa"]], "result": "Saldo a favor documentado",
+            }, fields=["name", "category", "registered_deposit", "employer", "client_name", "client_number", "loan_number", "amount_usd",
                        "credit_pending_usd", "credit_management_status"], limit_page_length=0))
         for offset in range(0, len(item_ids), 500):
             for item in frappe.get_list(
@@ -162,9 +162,16 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         total = money(deposit.get("amount_usd"))
         allocated = money(deposit.get("allocated_usd"))
         credit_balance = money(deposit.get("justified_surplus_usd"))
-        client_balances = [item for item in client_credits or [] if item.get("registered_deposit") == deposit["name"]]
+        balances = [item for item in client_credits or [] if item.get("registered_deposit") == deposit["name"]]
+        client_balances = [item for item in balances if item.get("category") != "Saldo a favor de la empresa"]
+        company_balances = [item for item in balances if item.get("category") == "Saldo a favor de la empresa"]
         client_total = sum((money(item.get("amount_usd")) for item in client_balances), money(0))
-        client_pending = sum((money(item.get("credit_pending_usd")) for item in client_balances), money(0))
+        def pending(items):
+            return sum((money(item.get("credit_pending_usd") if item.get("credit_management_status")
+                              else item.get("amount_usd")) for item in items), money(0))
+        client_pending = pending(client_balances)
+        company_total = sum((money(item.get("amount_usd")) for item in company_balances), money(0))
+        company_pending = pending(company_balances)
         review = allocated - credits - other - adjustments
         unclassified = total - allocated - credit_balance
         result = deposit.get("result") or "Pendiente"
@@ -186,10 +193,12 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "total_usd": float(total), "credits_usd": float(credits), "other_usd": float(other),
             "adjustments_usd": float(adjustments), "credit_balance_usd": float(credit_balance),
             "client_credit_usd": float(client_total), "client_credit_pending_usd": float(client_pending),
-            "undetailed_credit_usd": float(credit_balance - client_total),
+            "company_credit_usd": float(company_total), "company_credit_pending_usd": float(company_pending),
+            "credit_management_pending_usd": float(client_pending + company_pending),
+            "undetailed_credit_usd": float(credit_balance - client_total - company_total),
             "unclassified_usd": float(unclassified), "review_usd": float(review),
             "result": result, "needs_review": needs_review,
-            "settled": not needs_review and ((credit_balance == 0 and result == "Conciliado") or result == "Conciliado con saldo a favor del cliente"),
+            "settled": not needs_review and credit_balance == client_total + company_total,
             "shared": len(related) > 1, "payroll_months": sorted(months),
             "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount),
                               "employer": destination_employers.get((kind, label, month), ""),
@@ -198,10 +207,10 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                              for (kind, label, month), amount in destinations.items()],
         })
         if include_details:
-            output[-1]["destinations"].extend({"type": "Saldo a favor del cliente", "label": " · ".join(filter(None, [item.get("name"), item.get("credit_management_status")])),
+            output[-1]["destinations"].extend({"type": item.get("category") or "Saldo a favor del cliente", "label": " · ".join(filter(None, [item.get("name"), item.get("credit_management_status")])),
                 "month": "", "employer": item.get("employer"), "amount_usd": float(money(item.get("amount_usd"))),
                 "people": [{"client_name": item.get("client_name"), "client_number": item.get("client_number"), "loan_number": item.get("loan_number"),
-                            "amount_usd": float(money(item.get("amount_usd")))}]} for item in client_balances)
+                            "amount_usd": float(money(item.get("amount_usd")))}] if item in client_balances else []} for item in balances)
         if not include_details:
             output[-1].pop("destinations")
             output[-1]["detail_loaded"] = False

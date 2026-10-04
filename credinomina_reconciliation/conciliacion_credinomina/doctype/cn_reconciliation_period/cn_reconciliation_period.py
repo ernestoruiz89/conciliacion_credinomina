@@ -8,7 +8,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 
-from credinomina_reconciliation.aging import employee_receivable_usd, operational_balances
+from credinomina_reconciliation.aging import collection_shortfall_usd, operational_balances
 from credinomina_reconciliation.cadence import (
     MONTHLY,
     cycle_code,
@@ -196,7 +196,7 @@ class CNReconciliationPeriod(Document):
         )
         if not changed:
             return
-        _reconcile_if_sources()
+        _reconcile_if_sources(self.employer)
 
     def _set_due_date(self):
         if self.reconciliation_mode == "Historica":
@@ -464,10 +464,10 @@ def recognize_collection_from_deposit(period_name: str, source_row_id: str, just
     period.flags.skip_comment_reconciliation = True
     period.save()
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        reconcile_all_sources,
+        _reconcile_sources,
     )
 
-    summary = reconcile_all_sources()
+    summary = _reconcile_sources(period.employer)
     return {"period": period.name, "source_reconciliation": summary}
 
 
@@ -497,10 +497,10 @@ def revert_deposit_recognition(period_name: str):
     period.flags.skip_comment_reconciliation = True
     period.save()
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        reconcile_all_sources,
+        _reconcile_sources,
     )
 
-    summary = reconcile_all_sources()
+    summary = _reconcile_sources(period.employer)
     return {"period": period.name, "source_reconciliation": summary}
 
 
@@ -535,7 +535,7 @@ def import_collection(period_name: str):
         for row in period.collection_rows
     )
     if period.collection_import_sha256 == import_hash and period.collection_rows and not needs_credit_normalization:
-        source_summary = _reconcile_if_sources()
+        source_summary = _reconcile_if_sources(period.employer)
         return {
             "period": period.name, "rows": len(period.collection_rows),
             "status": period.status, "unchanged": True,
@@ -643,7 +643,7 @@ def import_collection(period_name: str):
     )
     source_summary = (
         detail_result.get("source_reconciliation") if detail_result
-        else _reconcile_if_sources()
+        else _reconcile_if_sources(period.employer)
     )
     period.reload()
     return {
@@ -708,7 +708,7 @@ def recognize_collection_as_employer_detail(period_name: str, evidence_date: str
     period.notes = _append_note(period.notes, note)
     period.flags.skip_comment_reconciliation = True
     period.save()
-    source_summary = _reconcile_if_sources()
+    source_summary = _reconcile_if_sources(period.employer)
     return {"period": period.name, "rows": len(period.collection_rows), "source_reconciliation": source_summary}
 
 
@@ -750,7 +750,7 @@ def import_employer_response(period_name: str):
         and period.deduction_basis == "Detalle de empresa"
         and not needs_credit_normalization
     ):
-        source_summary = _reconcile_if_sources()
+        source_summary = _reconcile_if_sources(period.employer)
         return {
             "period": period.name, "status": period.status,
             "unchanged": True, "source_reconciliation": source_summary,
@@ -908,7 +908,7 @@ def import_employer_response(period_name: str):
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
-    source_summary = _reconcile_if_sources()
+    source_summary = _reconcile_if_sources(period.employer)
     if source_summary is not None:
         period.reload()
     return {
@@ -946,7 +946,7 @@ def _control_cut_summary(period, open_exceptions, pending_details):
         row.deduction_status in (None, "", "Pendiente de detalle") for row in rows
     )
     worker_receivable = sum(
-        employee_receivable_usd(row) or 0 for row in rows
+        collection_shortfall_usd(row) or 0 for row in rows
     )
     deducted_unremitted = sum(
         balance["amount_usd"]
@@ -964,7 +964,7 @@ def _control_cut_summary(period, open_exceptions, pending_details):
         f"Cobranza US$ {flt(period.expected_usd):.2f}; "
         f"deducido US$ {flt(period.deducted_usd):.2f}; "
         f"aplicado US$ {flt(period.applied_usd):.2f}; "
-        f"remitido US$ {flt(period.remitted_usd):.2f}; "
+        f"depositado US$ {flt(period.remitted_usd):.2f}; "
         f"excepciones abiertas {open_exceptions}; "
         f"detalles de depósito pendientes {pending_details}"
     )
@@ -973,7 +973,7 @@ def _control_cut_summary(period, open_exceptions, pending_details):
     return (
         f"{figures}; cuotas sin detalle {awaiting_detail}; "
         f"cuotas sin liquidar {unsettled_rows}; "
-        f"CxC empleados confirmada US$ {worker_receivable:.2f}; "
+        f"Cobranza no deducida confirmada US$ {worker_receivable:.2f}; "
         f"deducido sin depósito asignado US$ {deducted_unremitted:.2f}"
     )
 
@@ -988,7 +988,7 @@ def record_control_cut(period_name: str, note: str):
     note = clean_text(note)
     if len(note) < 12:
         frappe.throw(_("Indique el motivo y la siguiente gestión del corte (mínimo 12 caracteres)."))
-    if _reconcile_if_sources() is not None:
+    if _reconcile_if_sources(period.employer) is not None:
         period.reload()
     if period.status == "Borrador" and not period.collection_rows:
         frappe.throw(_("Cargue la cobranza o las aplicaciones históricas antes del corte."))
@@ -1011,9 +1011,12 @@ def record_control_cut(period_name: str, note: str):
     )
     period.flags.skip_comment_reconciliation = True
     period.save()
+    from credinomina_reconciliation.control_cuts import save_cut
+    evidence = save_cut(period)
     return {
         "period": period.name, "status": period.status,
         "control_cut_on": period.control_cut_on, "summary": summary,
+        **evidence,
     }
 
 
@@ -1127,12 +1130,12 @@ def close_period(period_name: str, progress_id: str = ""):
             _("Hay diferencias cambiarias pendientes de revisar y aplicar en el core.")
         )
     if any(
-        employee_receivable_usd(row) is None
-        or employee_receivable_usd(row) > CASH_EPSILON
+        collection_shortfall_usd(row) is None
+        or collection_shortfall_usd(row) > CASH_EPSILON
         for row in period.collection_rows
     ):
         frappe.throw(_(
-            "Hay cuotas sin detalle confirmado o saldos a empleados por recuperar. "
+            "Hay diferencias de cobranza o deducciones sin confirmar en la primera conciliación; no representan CxC por sí mismas. "
             "Registre un corte de control y mantenga abierto el período para su seguimiento."
         ))
     if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):
@@ -1243,27 +1246,26 @@ def export_collection(period_name: str):
     return {"file_url": file_doc.file_url, "file_name": file_name}
 
 
-def _reconcile_if_sources(employer=None, progress=None):
+def _reconcile_if_sources(employer, progress=None):
+    if not employer:
+        frappe.throw(_("Indique la empresa antes de actualizar sus conciliaciones."))
+    from credinomina_reconciliation.paying_employers import reconciliation_companies
+    companies = reconciliation_companies(employer)
+    scope = {"employer": ["in", companies]}
     imported_core = frappe.db.exists(
         "CN Accounting Import",
-        {"status": ["in", ["Importado", "Importado con excepciones"]]},
+        {**scope, "status": ["in", ["Importado", "Importado con excepciones"]]},
     )
     confirmed_cash = frappe.db.exists(
-        "CN Remittance Allocation", {"docstatus": 1},
+        "CN Remittance Allocation", {**scope, "docstatus": 1},
     )
     confirmed_complement = frappe.db.exists(
-        "CN Complementary Item", {"docstatus": 1},
+        "CN Complementary Item", {**scope, "docstatus": 1},
     )
     if not (imported_core or confirmed_cash or confirmed_complement):
         return None
-    if employer:
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
-        return _reconcile_sources(employer, progress=progress)
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        reconcile_all_sources,
-    )
-
-    return reconcile_all_sources()
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+    return _reconcile_sources(employer, progress=progress)
 
 
 def _deduction_stage_status(rows, unmatched, missing):

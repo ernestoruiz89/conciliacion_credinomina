@@ -149,7 +149,7 @@ def run():
             )
             assert cut["status"] == "Pendiente"
             period.reload()
-            assert period.control_cut_on and "CxC empleados" in period.control_cut_summary
+            assert period.control_cut_on and "Cobranza no deducida" in period.control_cut_summary
             assert len([row for row in period.collection_rows if row.deduction_status == "Deduccion parcial"]) == 1
 
             resolved = frappe.get_doc("CN Reconciliation Exception", exception.name)
@@ -264,9 +264,9 @@ def run_remittance_before_files():
                 return SimpleNamespace(file_name="collection.xlsx"), files["collection"]
             return SimpleNamespace(file_name="response.xlsx"), files["response"]
 
-        original_reconcile = source_module.reconcile_all_sources
+        original_reconcile = source_module._reconcile_sources
         with patch.object(period_module, "_attached_file", side_effect=attached), \
-             patch.object(source_module, "reconcile_all_sources", wraps=original_reconcile) as reconcile:
+             patch.object(source_module, "_reconcile_sources", wraps=original_reconcile) as reconcile:
             collection_result = period_module.import_collection(period.name)
             assert collection_result["source_reconciliation"] is not None
             period.reload()

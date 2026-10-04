@@ -165,7 +165,13 @@ class CNReconciliationException(Document):
             )
         ):
             from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-                reconcile_all_sources,
+                _reconcile_sources,
             )
 
-            reconcile_all_sources()
+            from credinomina_reconciliation.paying_employers import reconciliation_companies
+            companies = {self.employer, previous.employer if previous else None} - {None, ""}
+            processed = set()
+            for company in sorted(companies):
+                if company not in processed:
+                    _reconcile_sources(company)
+                    processed.update(reconciliation_companies(company))

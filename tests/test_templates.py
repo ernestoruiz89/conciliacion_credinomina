@@ -107,7 +107,7 @@ class TemplateTests(unittest.TestCase):
         with (
             patch("frappe.has_permission", return_value=True),
             patch("frappe.get_doc", return_value=document) as get_doc,
-            patch("frappe.local", new=SimpleNamespace(response=response)),
+            patch("frappe.local", new=SimpleNamespace(response=response, flags=SimpleNamespace(in_test=False))),
         ):
             download_import_template("deposito", remittance_name=document.name)
         get_doc.assert_called_once_with("CN Remittance Allocation", document.name)
@@ -145,7 +145,7 @@ class TemplateTests(unittest.TestCase):
         with (
             patch("frappe.has_permission", return_value=True),
             patch("frappe.get_doc", return_value=period) as get_doc,
-            patch("frappe.local", new=SimpleNamespace(response=response)),
+            patch("frappe.local", new=SimpleNamespace(response=response, flags=SimpleNamespace(in_test=False))),
         ):
             download_import_template("deposito", "CN-PER-1")
         get_doc.assert_called_once_with("CN Reconciliation Period", "CN-PER-1")

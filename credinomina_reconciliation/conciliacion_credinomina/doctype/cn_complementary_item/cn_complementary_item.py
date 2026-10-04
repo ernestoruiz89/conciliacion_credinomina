@@ -35,7 +35,6 @@ class CNComplementaryItem(Document):
             frappe.throw(_("Indique la referencia del depósito."))
         self.voucher = (self.voucher or "").strip()
         self.voucher_line = (self.voucher_line or "").strip()
-        self.accounting_status = "Registrada" if self.voucher else "Pendiente de registro"
         apply_registration_status(self)
         if not money(self.amount):
             frappe.throw(_("El importe complementario debe ser distinto de cero."))
@@ -82,12 +81,12 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
-        if self.category == client_credit.CATEGORY:
+        if self.category in client_credit.CREDIT_CATEGORIES:
             from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
             reconcile_deposit(frappe.get_doc("CN Remittance Allocation", self.registered_deposit))
             self.reload()
             if self.result != client_credit.RESULT:
-                frappe.throw(_("El saldo a favor del cliente no se pudo documentar: {0}.").format(self.result or "Pendiente"))
+                frappe.throw(_("El saldo a favor no se pudo documentar: {0}.").format(self.result or "Pendiente"))
             return
         if self.category == compensation.CATEGORY:
             return  # Direct offsets never participate in deposit reconciliation.
@@ -96,13 +95,8 @@ class CNComplementaryItem(Document):
             return
         if is_tolerance_item(self):
             return
-        if self.category == CATEGORY or not self.flags.get("defer_reconciliation"):
+        if not self.flags.get("defer_reconciliation"):
             self._reconcile()
-        if self.category == CATEGORY:
-            result = frappe.db.get_value(self.doctype, self.name, "result")
-            if result != "Saldo a favor documentado":
-                frappe.throw(_("El saldo a favor no se pudo confirmar: {0}.").format(result or "Pendiente"))
-            self.result = result
 
     def before_cancel(self):
         client_credit.guard_cancel(self)
@@ -151,8 +145,8 @@ class CNComplementaryItem(Document):
         self.flags.cancellation_result = reconcile_cancellation(self, self.flags.cancellation_scope)
 
     def before_rename(self, old, new, merge=False):
-        if self.category == client_credit.CATEGORY and self.docstatus == 1:
-            frappe.throw(_("No se puede renombrar o fusionar un saldo a favor del cliente confirmado; conserve su seguimiento."))
+        if self.category in client_credit.CREDIT_CATEGORIES and self.docstatus == 1:
+            frappe.throw(_("No se puede renombrar o fusionar un saldo a favor confirmado; conserve su seguimiento."))
         from credinomina_reconciliation.complementary_exceptions import guard_item_delete
         guard_item_delete(self)
         compensation.guard_delete(self)
@@ -160,10 +154,12 @@ class CNComplementaryItem(Document):
 
     def _reconcile(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-            reconcile_all_sources,
+            _reconcile_sources,
         )
 
-        reconcile_all_sources()
+        if self.employer:
+            # The engine expands only connected payers/shared complementary pools.
+            _reconcile_sources(self.employer)
 
     def _reconcile_application(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources

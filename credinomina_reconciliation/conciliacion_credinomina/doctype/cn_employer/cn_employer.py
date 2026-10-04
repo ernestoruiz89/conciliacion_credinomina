@@ -12,6 +12,13 @@ class CNEmployer(Document):
         if not self.employer_name:
             frappe.throw(_("Indique el nombre de la empresa."))
         previous = self.get_doc_before_save()
+        self.reconciliation_revision = 0
+        if previous:
+            from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
+            lock_cash_pool([self.name])
+            self.reconciliation_revision = frappe.db.sql(
+                "SELECT reconciliation_revision FROM `tabCN Employer` WHERE name=%s FOR UPDATE", self.name,
+            )[0][0]
         if (
             previous and previous.name == previous.employer_name
             and self.name != self.employer_name
@@ -59,11 +66,11 @@ class CNEmployer(Document):
             return
         if not frappe.db.exists(
             "CN Accounting Import",
-            {"status": ["in", ["Importado", "Importado con excepciones"]]},
+            {"employer": self.name, "status": ["in", ["Importado", "Importado con excepciones"]]},
         ):
             return
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-            reconcile_all_sources,
+            _reconcile_sources,
         )
 
-        reconcile_all_sources()
+        _reconcile_sources(self.name)

@@ -10,7 +10,9 @@ from frappe.utils import flt, getdate, nowdate
 
 from credinomina_reconciliation.aging import age_balance, operational_balances
 from credinomina_reconciliation.application_aging import APPLICATION_BALANCE, application_balances
+from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.rounding import money_float, sum_money
+from credinomina_reconciliation.report_records import records, child_records
 
 
 def execute(filters=None):
@@ -26,44 +28,7 @@ def _execute_applications(filters):
     to_month = getdate(filters.to_month).replace(day=1) if filters.get("to_month") else None
     if from_month and to_month and from_month > to_month:
         frappe.throw(_("El mes inicial no puede ser posterior al mes final."))
-    # First resolve readable parents. Child table queries must never bypass
-    # the period/import permissions by selecting all child rows directly.
-    periods = {row.name: row for row in frappe.get_list(
-        "CN Reconciliation Period",
-        fields=["name", "employer", "payroll_month", "collection_cycle", "reconciliation_mode"],
-        limit_page_length=0,
-    )}
-    imports = {row.name: row for row in frappe.get_list(
-        "CN Accounting Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
-        fields=["name", "employer", "historical_backfill", "historical_period"],
-        limit_page_length=0,
-    )}
-    sources = frappe.get_all(
-        "CN Source Row", filters={"parent": ["in", list(imports)],
-                                  "parenttype": "CN Accounting Import", "parentfield": "rows",
-                                  "event_type": "Aplicacion", "effective": 1},
-        fields=[
-            "name", "parent", "event_type", "event_date", "effective", "match_status",
-            "client", "client_name", "client_number", "national_id", "loan_number", "installment_number",
-            "currency", "amount", "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
-            "processing_route", "historical_period", "portfolio_employer", "collection_row_id",
-            "application_allocation_detail", "historical_remitted_usd", "historical_detail", "application_adjustment_usd",
-        ], limit_page_length=0,
-    ) if imports else []
-    collections = {row.name: row for row in frappe.get_all(
-        "CN Collection Row", filters={"parent": ["in", list(periods)],
-                                      "parenttype": "CN Reconciliation Period", "parentfield": "collection_rows"},
-        fields=["name", "parent", "client", "client_name", "client_number", "national_id", "loan_number",
-                "installment_number", "remittance_detail", "rounding_adjustment_usd", "fx_variance_usd"],
-        limit_page_length=0,
-    )} if periods else {}
-    employer_names = {row.employer for row in list(periods.values()) + list(imports.values()) if row.employer}
-    employer_names.update(row.portfolio_employer for row in sources if row.portfolio_employer)
-    employers = {row.name: row for row in frappe.get_all(
-        "CN Employer", filters={"name": ["in", list(employer_names)]},
-        fields=["name", "grace_days"], limit_page_length=0,
-    )} if employer_names else {}
+    sources, imports, periods, collections, employers = load_application_context()
     data = []
     for row in application_balances(sources, imports, periods, collections, employers, as_of):
         if any(filters.get(field) and row.get(field) != filters[field]
@@ -94,14 +59,18 @@ def _execute_applications(filters):
         summary.append({"label": _("Aplicaciones sin conversión US$"), "value": missing_fx,
                         "indicator": "red", "datatype": "Int"})
     message = _(
-        "Saldo actual = aplicado + ajuste de conciliación − depósito asignado al crédito, en US$. "
+        "CxC actual = aplicado neto + ajuste de tolerancia − depósito asignado al crédito, en US$. "
+        "El aplicado neto ya descuenta las compensaciones confirmadas vinculadas a la aplicación; no se restan dos veces. "
+        "La cobranza solicitada y las deducciones son controles de la primera conciliación, no crean esta CxC. "
         "Incluye histórico y operativo; no depende de haber recibido el detalle de deducción. "
         "El vencimiento se calcula con grace_days de la empresa desde el primer día del mes siguiente "
         "a la fecha de aplicación: 10 significa el día 10; la mora empieza el día 11. "
         "No se descuentan depósitos sin asignar ni diferencias cambiarias en revisión. "
         "Si una cuota agrupa vencimientos distintos y un pago parcial no identifica qué aplicación cubre, "
         "su saldo queda sin distribución de antigüedad. "
-        "Se usa el plazo vigente de la empresa. La fecha elegida mide la antigüedad del saldo actual, "
+        "Se conserva el vencimiento al cargar; cambiar el plazo de la empresa no modifica lo ya cargado. "
+        "Origen del plazo identifica las estimaciones de datos migrados, que no acreditan el convenio histórico. "
+        "La fecha elegida mide la antigüedad del saldo actual, "
         "no reconstruye saldos pasados. Las cuotas no deducidas se consultan por separado en Tipo de saldo."
     )
     return get_application_columns(), data, message, None, summary
@@ -125,31 +94,30 @@ def _execute_operational(filters):
         period_filters["payroll_month"] = ["<=", min(to_month or as_of, as_of)]
     if filters.get("employer"):
         period_filters["employer"] = filters.employer
-    periods = frappe.get_list(
+    periods = list(records(
         "CN Reconciliation Period", filters=period_filters,
         fields=[
             "name", "employer", "payroll_month", "collection_cycle",
             "cutoff_date", "remittance_due_date", "status",
         ],
         order_by="employer asc, payroll_month asc",
-        limit_page_length=10000,
-    )
+    ))
     if not periods:
         return get_columns(), []
     period_by_name = {period.name: period for period in periods}
-    row_filters = {"parent": ["in", list(period_by_name)]}
+    row_filters = {}
     for field in ("client_number", "national_id", "loan_number"):
         if filters.get(field):
             row_filters[field] = filters[field]
-    collection_rows = frappe.get_all(
-        "CN Collection Row", filters=row_filters,
+    collection_rows = child_records(
+        "CN Collection Row", period_by_name, "CN Reconciliation Period", "collection_rows", filters=row_filters,
         fields=[
             "name", "parent", "client", "client_number", "client_name",
             "national_id", "loan_number", "installment_number",
             "expected_usd", "deducted_usd", "applied_usd", "remitted_usd",
             "fx_variance_usd", "rounding_adjustment_usd", "deduction_status",
         ],
-        order_by="parent asc, idx asc", limit_page_length=100000,
+        order_by="parent asc, idx asc",
     )
     data = []
     summary = defaultdict(float)
@@ -196,19 +164,19 @@ def _execute_operational(filters):
             "indicator": indicator, "datatype": "Currency", "currency": "USD",
         }
         for label, indicator in (
-            ("CxC a empleados (cuota no deducida)", "red"),
+            ("Cobranza no deducida (informativo)", "red"),
             ("Deducido sin depósito asignado", "orange"),
             ("Detalle de empresa pendiente", "blue"),
+            ("Detalle de empresa por aclarar", "orange"),
         )
         if summary[label] > 0
     ]
     message = _(
-        "Antigüedad de saldos operativos actuales según la fecha indicada. "
-        "Los tipos de saldo son distintos y no deben sumarse como una sola deuda. "
+        "Seguimiento informativo de diferencias de cobranza según la fecha indicada. "
+        "Estos importes no son cuentas por cobrar: la CxC se consulta en Aplicado pendiente de depósito. "
         "Una deducción sin depósito asignado puede estar cubierta por un depósito recibido sin detalle; "
         "por sí sola no prueba una cuenta por cobrar a la empresa. "
-        "La cuota no deducida requiere cotejo con el saldo y la mora del core antes de calcular provisiones; "
-        "este reporte no registra un asiento ni reconstruye saldos históricos a una fecha anterior."
+        "Este control no calcula deuda del empleado, provisiones ni saldos históricos a una fecha anterior."
     )
     return get_columns(), data, message, None, report_summary
 
@@ -234,7 +202,6 @@ def get_columns():
         {"fieldname": "days_61_90", "label": _("61–90 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "days_over_90", "label": _("Más de 90 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "without_date", "label": _("Sin fecha US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 120},
-        {"fieldname": "provision_review_usd", "label": _("Cuota para revisar en core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 180},
     ]
 
 
@@ -254,4 +221,5 @@ def get_application_columns():
                                ("adjustment_usd", "Ajuste conciliación US$"), ("fx_variance_usd", "Diferencia cambiaria US$"))],
     ]
     columns.append({"fieldname": "observation", "label": _("Observación"), "fieldtype": "Data", "width": 360})
+    columns.append({"fieldname": "payment_term_origin", "label": _("Origen del plazo"), "fieldtype": "Data", "width": 300})
     return columns

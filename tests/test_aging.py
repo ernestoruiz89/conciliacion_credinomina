@@ -1,9 +1,23 @@
 import unittest
 
-from credinomina_reconciliation.aging import age_balance, employee_receivable_usd, operational_balances
+from credinomina_reconciliation.aging import age_balance, collection_shortfall_usd, operational_balances
 
 
 class AgingTests(unittest.TestCase):
+    def test_invalid_detail_never_confirms_employee_or_employer_debt(self):
+        from credinomina_reconciliation.reconciliation import classify_deduction
+        amounts = dict(expected_usd=100, expected_nio=3650, deducted_usd=50, deducted_nio=3650)
+        self.assertEqual(classify_deduction(**amounts), "Importes inconsistentes")
+        for status in ("Importes inconsistentes", "Moneda no coincide", "Importe invalido", "Estado desconocido"):
+            with self.subTest(status=status):
+                row = {**amounts, "deduction_status": status}
+                self.assertIsNone(collection_shortfall_usd(row))
+                balances = list(operational_balances(row, {}))
+                self.assertEqual(len(balances), 1)
+                self.assertEqual(balances[0]["balance_type"], "Detalle de empresa por aclarar")
+                self.assertEqual(balances[0]["amount_usd"], 100)
+                self.assertEqual(balances[0]["provision_review_usd"], 0)
+
     def test_age_bands_are_exclusive_at_boundaries(self):
         cases = [
             ("2026-10-10", "not_due", 0),
@@ -37,10 +51,10 @@ class AgingTests(unittest.TestCase):
             "deduction_status": "Deduccion parcial",
         }, period))
         self.assertEqual([row["amount_usd"] for row in rows], [30, 20])
-        self.assertEqual(rows[0]["balance_type"], "CxC a empleados (cuota no deducida)")
+        self.assertEqual(rows[0]["balance_type"], "Cobranza no deducida (informativo)")
         self.assertEqual(rows[1]["balance_type"], "Deducido sin depósito asignado")
         self.assertEqual([row["due_date"] for row in rows], ["2026-09-30", "2026-10-10"])
-        self.assertEqual([row["provision_review_usd"] for row in rows], [30, 0])
+        self.assertEqual([row["provision_review_usd"] for row in rows], [0, 0])
         unknown = list(operational_balances({
             "expected_usd": 60, "deducted_usd": 0,
             "deduction_status": "Pendiente de detalle",
@@ -50,18 +64,18 @@ class AgingTests(unittest.TestCase):
         self.assertEqual(unknown[0]["provision_review_usd"], 0)
 
     def test_employee_receivable_requires_company_detail(self):
-        self.assertIsNone(employee_receivable_usd({
+        self.assertIsNone(collection_shortfall_usd({
             "expected_usd": 46.52, "deducted_usd": 0,
             "deduction_status": "Pendiente de detalle",
         }))
-        self.assertIsNone(employee_receivable_usd({
+        self.assertIsNone(collection_shortfall_usd({
             "expected_usd": 46.52, "deducted_usd": 0,
         }))
-        self.assertEqual(employee_receivable_usd({
+        self.assertEqual(collection_shortfall_usd({
             "expected_usd": 46.52, "deducted_usd": 20,
             "deduction_status": "Deduccion parcial",
         }), 26.52)
-        self.assertEqual(employee_receivable_usd({
+        self.assertEqual(collection_shortfall_usd({
             "expected_usd": 46.52, "deducted_usd": 46.53,
             "deduction_status": "Deduccion en exceso",
         }), 0)

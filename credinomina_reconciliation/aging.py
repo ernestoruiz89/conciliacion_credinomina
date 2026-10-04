@@ -1,4 +1,4 @@
-"""Operational aging of payroll balances, without inventing core loan arrears."""
+"""Informational payroll differences, separate from application receivables."""
 
 from __future__ import annotations
 
@@ -9,6 +9,20 @@ from credinomina_reconciliation.rounding import money, money_float
 
 
 BUCKETS = ("not_due", "days_1_30", "days_31_60", "days_61_90", "days_over_90")
+VALID_DEDUCTION_STATUSES = (
+    "Deduccion total", "Deduccion parcial", "No deducido",
+    "Deduccion en exceso", "Inferida por depósito",
+)
+
+
+def deduction_pending_type(row: Mapping[str, Any]) -> str | None:
+    """Unknown/invalid deductions are evidence to review, never confirmed debt."""
+    status = row.get("deduction_status")
+    if not status or status == "Pendiente de detalle":
+        return "Detalle de empresa pendiente"
+    if status not in VALID_DEDUCTION_STATUSES:
+        return "Detalle de empresa por aclarar"
+    return None
 
 
 def _date(value: Any) -> date | None:
@@ -39,28 +53,31 @@ def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]
     return {"age_days": days, "age_bucket": bucket, **values}
 
 
-def employee_receivable_usd(row: Mapping[str, Any]) -> float | None:
-    """Undeducted installment, or unknown until the employer provides detail."""
-    status = row.get("deduction_status")
-    if not status or status == "Pendiente de detalle":
+def collection_shortfall_usd(row: Mapping[str, Any]) -> float | None:
+    """Requested but not deducted; this is not an account receivable."""
+    if deduction_pending_type(row):
         return None
     return money_float(max(
         money(row.get("expected_usd")) - money(row.get("deducted_usd")), 0
     ))
 
 
+def unassigned_deduction_usd(row: Mapping[str, Any]) -> float | None:
+    if deduction_pending_type(row):
+        return None
+    return money_float(max(money(row.get("deducted_usd")) - money(row.get("remitted_usd"))
+        - max(money(row.get("fx_variance_usd")), 0)
+        - max(-money(row.get("rounding_adjustment_usd")), 0), 0))
+
+
 def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
-    """Return distinct exposures; never add unconfirmed detail to a receivable."""
+    """First-reconciliation diagnostics only; not financial receivables."""
     expected = money(row.get("expected_usd"))
-    deducted = money(row.get("deducted_usd"))
-    remitted = money(row.get("remitted_usd"))
-    fx = max(money(row.get("fx_variance_usd")), 0)
-    rounding_short = max(-money(row.get("rounding_adjustment_usd")), 0)
-    worker_shortfall = employee_receivable_usd(row)
+    worker_shortfall = collection_shortfall_usd(row)
     if worker_shortfall is None:
         if expected > 0:
             yield {
-                "balance_type": "Detalle de empresa pendiente",
+                "balance_type": deduction_pending_type(row),
                 "amount_usd": money_float(expected),
                 "due_date": period.get("cutoff_date"),
                 "provision_review_usd": 0,
@@ -68,12 +85,12 @@ def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
         return
     if worker_shortfall > 0:
         yield {
-            "balance_type": "CxC a empleados (cuota no deducida)",
+            "balance_type": "Cobranza no deducida (informativo)",
             "amount_usd": worker_shortfall,
             "due_date": period.get("cutoff_date"),
-            "provision_review_usd": worker_shortfall,
+            "provision_review_usd": 0,
         }
-    unassigned_deduction = money_float(max(deducted - remitted - fx - rounding_short, 0))
+    unassigned_deduction = unassigned_deduction_usd(row)
     if unassigned_deduction > 0:
         yield {
             "balance_type": "Deducido sin depósito asignado",

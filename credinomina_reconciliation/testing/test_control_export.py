@@ -56,7 +56,7 @@ class TestControlExport(unittest.TestCase):
                 "loan_number": "L-2", "expected_usd": 100, "deducted_usd": 90,
                 "applied_usd": 90, "complementary_usd": 0,
                 "rounding_adjustment_usd": 0, "remitted_usd": 90,
-                "employee_receivable_usd": 10, "application_reference": "AP-2",
+                "collection_shortfall_usd": 10, "application_reference": "AP-2",
                 "remittance_detail": json.dumps([
                     {"referencia": "DEP-2", "fecha": "2026-10-16", "importe_usd": 90},
                 ]),
@@ -242,10 +242,10 @@ class TestControlExport(unittest.TestCase):
     def test_monthly_does_not_report_missing_deductions_as_zero(self):
         period = {"employer": "A", "month": "2026-09", "reconciliation_mode": "Operativa",
                   "expected_usd": 100, "deducted_usd": 0,
-                  "rows": [{"expected_usd": 100, "employee_receivable_usd": None}]}
+                  "rows": [{"expected_usd": 100, "collection_shortfall_usd": None}]}
         row, = monthly_rows({"periods": [period]})
         self.assertEqual(row[14:], (100, "N/D", "N/D", 100))
-        period["rows"].append({"expected_usd": 50, "deducted_usd": 40, "employee_receivable_usd": 10})
+        period["rows"].append({"expected_usd": 50, "deducted_usd": 40, "collection_shortfall_usd": 10})
         period["expected_usd"] = 150
         row, = monthly_rows({"periods": [period]})
         self.assertEqual(row[14:], (150, 40, 10, 100))

@@ -5,7 +5,7 @@
   "istable": 1,
   "editable_grid": 1,
   "engine": "InnoDB",
-  "field_order": ["usd_currency", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "operation_id", "entry_key"],
+  "field_order": ["usd_currency", "counterpart", "compensation_date", "amount_usd", "reason", "reverses_operation_id", "confirmed_by", "confirmed_on", "operation_id", "entry_key"],
   "fields": [
     {"fieldname": "counterpart", "fieldtype": "Link", "options": "CN Complementary Item", "label": "Partida vinculada", "in_list_view": 1, "columns": 3, "reqd": 1, "read_only": 1},
     {"fieldname": "compensation_date", "fieldtype": "Date", "label": "Fecha de compensación", "in_list_view": 1, "columns": 2, "reqd": 1, "read_only": 1},
@@ -15,8 +15,9 @@
     {"fieldname": "confirmed_by", "fieldtype": "Link", "options": "User", "label": "Confirmado por", "read_only": 1, "reqd": 1},
     {"fieldname": "confirmed_on", "fieldtype": "Datetime", "label": "Confirmado el", "read_only": 1, "reqd": 1},
     {"fieldname": "operation_id", "fieldtype": "Data", "label": "Operación", "read_only": 1, "hidden": 1, "search_index": 1, "reqd": 1},
-    {"fieldname": "entry_key", "fieldtype": "Data", "label": "Identificador único", "read_only": 1, "hidden": 1, "unique": 1, "reqd": 1}
+    {"fieldname": "entry_key", "fieldtype": "Data", "label": "Identificador único", "read_only": 1, "hidden": 1, "unique": 1, "reqd": 1},
+    {"fieldname": "reverses_operation_id", "fieldtype": "Data", "label": "Operación revertida", "read_only": 1, "description": "La reversión conserva el movimiento original y registra un importe negativo en ambas partidas."}
   ],
   "permissions": [],
-  "modified": "2026-10-01 18:00:00.000000"
+  "modified": "2026-10-03 12:00:00.000000"
 }

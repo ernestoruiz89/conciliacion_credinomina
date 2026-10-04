@@ -16,9 +16,16 @@ class ControlLazyTests(unittest.TestCase):
             self.assertEqual(control_summary.historical_difference_counts(["P"])["P"], 3)
 
     def test_dashboard_requests_summary_but_excel_requests_full_data(self):
-        with patch.object(control, "_build_control_data", return_value={}) as build:
-            control.get_control_data("Todos", "A")
+        with patch.object(control, "_build_control_data", return_value={"year": "Todos"}) as build:
+            self.assertEqual(control.get_control_data("Todos", "A")["work_scope"], "Todos")
         build.assert_called_once_with("Todos", "A", summary_only=True)
+
+    def test_work_overview_ignores_calendar_year_but_keeps_employer(self):
+        with patch.object(control, "_build_control_data", return_value={"work_scope": "Todos"}) as build:
+            self.assertEqual(control.get_work_overview("A")["work_scope"], "Todos")
+        build.assert_called_once_with("Todos", "A", summary_only=True, detail_section="work_overview")
+        with patch.object(control, "_build_control_data", return_value={"year": 2026}):
+            self.assertEqual(control.get_control_data(2026)["work_scope"], "calendar")
 
     def test_period_detail_checks_permission_before_loading(self):
         doc = Mock()
@@ -72,9 +79,10 @@ class ControlLazyTests(unittest.TestCase):
         self.assertNotIn("destinations", row)
 
     def test_pagination_is_bounded_and_rejects_unknown_sections(self):
-        with patch.object(control, "_build_control_data", return_value={"work_items": list(range(250))}) as build:
+        rows = [{"name": str(i), "priority": i % 3} for i in range(250)]
+        with patch.object(control, "_build_control_data", return_value={"work_items": rows}) as build:
             page = control.get_control_rows("work_items", "Todos", "A", 100)
-        self.assertEqual(page, {"rows": list(range(100, 200)), "count": 250})
+        self.assertEqual(page, {"rows": rows[100:200], "count": 250, "overdue_count": 84})
         build.assert_called_once_with("Todos", "A", summary_only=True, detail_section="work_items")
         with patch.object(control.frappe, "throw", side_effect=ValueError), patch.object(control, "_build_control_data") as build:
             with self.assertRaises(ValueError):

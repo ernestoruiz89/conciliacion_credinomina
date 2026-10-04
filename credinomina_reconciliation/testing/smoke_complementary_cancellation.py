@@ -155,6 +155,7 @@ def run():
                     "reference": credit_cash.deposit_reference,
                     "employer": companies[0].name, "period": credit_period.name, "registered_deposit": credit_cash.name,
                     "posting_date": date, "currency": "USD", "amount": 10, "reason_type": "Error de la empresa",
+                    "credit_assigned_to": "Administrator", "credit_commitment_date": date, "credit_treatment": "Pendiente de decisión",
                     "description": "Saldo de prueba"}).insert()
                 credit.submit(); credit_cash.reload()
                 allocation_before = credit_cash.allocation_detail

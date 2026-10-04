@@ -7,6 +7,7 @@
   "engine": "InnoDB",
   "field_order": [
     "usd_currency",
+    "reconciliation_revision",
     "nio_currency",
     "employer_name",
     "employer_code",
@@ -22,6 +23,7 @@
     "notes"
   ],
   "fields": [
+    {"fieldname": "reconciliation_revision", "fieldtype": "Int", "default": "0", "hidden": 1, "read_only": 1, "no_copy": 1, "label": "Revisión técnica de conciliación"},
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
     {"fieldname": "employer_name", "fieldtype": "Data", "in_list_view": 1, "label": "Empresa", "reqd": 1, "description": "Identifica el documento. Para cambiarlo después de crearlo, use Renombrar."},

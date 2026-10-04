@@ -12,10 +12,22 @@ from credinomina_reconciliation.remittance_periods import selected_periods
 
 
 def lock_cash_pool(companies):
-    """Serialize company and individual-deposit runs sharing the same cash pool."""
+    """Serialize cash mutations and reject an obsolete repeatable-read snapshot.
+
+    Waiting for FOR UPDATE alone is insufficient: ordinary reads afterward can
+    still see a snapshot established earlier in this transaction. Compare that
+    snapshot's generation with the locked current generation before computing.
+    A conflict rolls back the request; the next request starts with fresh data.
+    """
     if companies:
-        frappe.db.sql("SELECT name FROM `tabCN Employer` WHERE name IN %(companies)s ORDER BY name FOR UPDATE",
-                      {"companies": tuple(sorted(companies))})
+        params = {"companies": tuple(sorted(companies))}
+        query = "SELECT name, reconciliation_revision FROM `tabCN Employer` WHERE name IN %(companies)s ORDER BY name"
+        before = frappe.db.sql(query, params, as_dict=True)
+        current = frappe.db.sql(query + " FOR UPDATE", params, as_dict=True)
+        revisions = lambda rows: {row["name"]: int(row.get("reconciliation_revision") or 0) for row in rows}
+        if revisions(before) != revisions(current):
+            frappe.throw(_("Otra operación actualizó los saldos de estas empresas mientras se procesaba la solicitud. Recargue y vuelva a conciliar; no se guardó una distribución desactualizada."))
+        frappe.db.sql("UPDATE `tabCN Employer` SET reconciliation_revision=coalesce(reconciliation_revision,0)+1 WHERE name IN %(companies)s", params)
 
 
 def entries(value):

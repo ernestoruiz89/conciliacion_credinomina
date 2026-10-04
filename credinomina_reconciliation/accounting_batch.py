@@ -6,7 +6,7 @@ import csv
 import io
 
 from credinomina_reconciliation.employer_naming import AccountingEmployerResolver, UNIDENTIFIED_EMPLOYER
-from credinomina_reconciliation.parsers import SourceFileError, clean_text, source_key
+from credinomina_reconciliation.parsers import SourceFileError, clean_text, source_key, read_table, _records_from_header
 from credinomina_reconciliation.reconciliation import duplicate_business_key
 from credinomina_reconciliation.rounding import sum_money
 
@@ -14,6 +14,20 @@ from credinomina_reconciliation.rounding import sum_money
 def movement_key(record):
     # Similarity for review only, never proof that two physical lines are one.
     return source_key(*duplicate_business_key(record))
+
+
+def accounting_source_records(file_name, content):
+    """Index by original evidence row, including previously filtered/grouped CSVs."""
+    result = {}
+    for number, values in _records_from_header(read_table(file_name, content), "cuenta_contable"):
+        original = clean_text(values.get("cn_fila_origen"))
+        if original and (not original.isascii() or not original.isdigit() or int(original) <= 0):
+            raise SourceFileError(f"Fila {number}: CN_FILA_ORIGEN debe ser un entero positivo.")
+        key = int(original) if original else number
+        if key in result:
+            raise SourceFileError(f"Fila {number}: CN_FILA_ORIGEN {key} está repetida.")
+        result[key] = values
+    return result
 
 
 def accounting_group_csv(source_records, rows):

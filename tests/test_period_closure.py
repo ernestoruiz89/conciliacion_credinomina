@@ -155,6 +155,7 @@ class CloseProgressTests(unittest.TestCase):
         module = "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import"
         progress = Mock()
         with patch.object(frappe, "db", SimpleNamespace(exists=lambda *_: True)), \
+             patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["A"]), \
              patch(module + "._reconcile_sources", return_value={"matched": 1}) as scoped, \
              patch(module + ".reconcile_all_sources") as global_reconcile:
             self.assertEqual(controller._reconcile_if_sources("A", progress), {"matched": 1})

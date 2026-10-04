@@ -478,7 +478,7 @@ def operational_status(
     *, expected: float, deducted: float, applied: float, remitted: float
 ) -> str:
     if deducted + AMOUNT_TOLERANCE < expected:
-        return "Pendiente del trabajador"
+        return "Cobranza no deducida; revisar primera conciliación"
     if applied + AMOUNT_TOLERANCE < deducted:
         return "Deducido, pendiente de aplicar en core"
     if remitted + AMOUNT_TOLERANCE < deducted:

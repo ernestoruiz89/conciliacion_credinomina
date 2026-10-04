@@ -33,6 +33,9 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.toggle_display("select_detail_credit", !frm.is_new() && frm.doc.docstatus !== 2 &&
             !!frm.get_perm(0, "write") && !!(frm.doc.detail_rows || []).length);
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
+        if (!frm.is_new()) {
+            frm.add_custom_button(__("Historial de conciliación"), () => showReconciliationHistory(frm), __("Conciliación"));
+        }
         if (!frm.is_new() && Number(frm.doc.justified_surplus_usd) > 0) {
             frm.add_custom_button(__("Ver saldos a favor"), () => frappe.set_route("List", "CN Complementary Item", {
                 registered_deposit: frm.doc.name, category: ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]], docstatus: 1,
@@ -113,10 +116,24 @@ async function reconcileRemittance(frm) {
     };
     try {
         if (frm.is_dirty()) await frm.save();
+        let reason = "";
+        if (Number(frm.doc.allocated_usd) > 0 || Number(frm.doc.justified_surplus_usd) > 0) {
+            reason = await new Promise(resolve => {
+                let accepted = false;
+                const dialog = new frappe.ui.Dialog({title: __("Verificar distribución existente"),
+                    fields: [{fieldname: "reason", fieldtype: "Small Text", label: __("Motivo"), reqd: 1,
+                        description: __("Explique qué está verificando o corrigiendo. Si cambia la distribución, se conservarán el antes y el después.")}],
+                    primary_action_label: __("Conciliar"),
+                    primary_action(values) { accepted = true; resolve(values.reason); dialog.hide(); },
+                    onhide() { if (!accepted) resolve(null); }});
+                dialog.show();
+            });
+            if (reason === null) return;
+        }
         frappe.realtime.on(event, onProgress);
         const response = await frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.reconcile_remittance",
-            args: { remittance_name: name, progress_id: progressId },
+            args: { remittance_name: name, progress_id: progressId, reason },
             freeze: true,
             freeze_message: __("Conciliando este depósito y actualizando sus destinos…"),
         });
@@ -125,7 +142,7 @@ async function reconcileRemittance(frm) {
         const escape = value => frappe.utils.escape_html(String(value ?? ""));
         frappe.msgprint({
             title: __("Conciliación finalizada"),
-            indicator: (frm.doc.result || "").startsWith("Conciliado") ? "green" : "orange",
+            indicator: remittancePresentation(frm.doc).color,
             message: `<p><b>${__("Estado del depósito")}:</b> ${escape(frm.doc.result)}</p>
                 <p>${__("Depósito")}: ${escape(result.deposit || name)}</p>
                 <p>${__("Filas del detalle")}: ${escape(result.detail_rows || 0)} ·
@@ -138,6 +155,47 @@ async function reconcileRemittance(frm) {
         frappe.realtime.off(event, onProgress);
         frm.reconciliation_running = false;
     }
+}
+
+async function showReconciliationHistory(frm) {
+    const escape = value => frappe.utils.escape_html(String(value ?? ""));
+    const labels = {amount_usd: "Depositado US$", allocated_usd: "Distribuido US$",
+        justified_surplus_usd: "Saldo a favor documentado US$", unclassified_usd: "Sin clasificar US$",
+        result: "Resultado", detail_status: "Estado del detalle"};
+    const dialog = new frappe.ui.Dialog({title: __("Historial de conciliación"), size: "extra-large",
+        fields: [{fieldname: "history", fieldtype: "HTML"}], primary_action_label: __("Cerrar"), primary_action: () => dialog.hide()});
+    const wrapper = dialog.get_field("history").$wrapper;
+    let start = 0, loading = false;
+    function distribution(value) {
+        let rows;
+        try { rows = JSON.parse(value || "[]"); } catch (_) { return `<pre>${escape(value)}</pre>`; }
+        if (!Array.isArray(rows)) return `<pre>${escape(value)}</pre>`;
+        return `<table class="table table-bordered"><thead><tr><th>${__("Destino")}</th><th>${__("Período / documento")}</th><th>${__("US$")}</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escape(row.tipo)}</td><td>${escape([row.periodo, row.aplicacion_id || row.partida || row.fila_id, row.credito].filter(Boolean).join(" · "))}</td><td class="text-right">${escape(format_currency(row.importe_usd, "USD", 2))}</td></tr>`).join("") || `<tr><td colspan="3">${__("Sin distribución")}</td></tr>`}</tbody></table>`;
+    }
+    async function load() {
+        if (loading) return;
+        loading = true;
+        try {
+            const {message} = await frappe.call({method: "credinomina_reconciliation.reconciliation_audit.get_history",
+                args: {deposit_name: frm.doc.name, start}, freeze: true});
+            wrapper.find("[data-more-history]").remove();
+            if (!start) wrapper.html(`<p class="text-muted">${escape(message.notice)}</p>`);
+            for (const row of message.rows || []) {
+                const before = row.before || {}, after = row.after || {};
+                wrapper.append(`<details style="margin-bottom:16px"><summary><strong>${escape(frappe.datetime.str_to_user(row.date))}</strong> · ${escape(row.user)} · ${escape(row.action)}</summary>
+                    <p>${escape(row.reason || row.command || __("Actualización automática"))}</p>
+                    <table class="table table-bordered"><thead><tr><th>${__("Dato")}</th><th>${__("Antes")}</th><th>${__("Después")}</th></tr></thead><tbody>${Object.entries(labels).map(([key, label]) => `<tr><td>${escape(__(label))}</td><td>${escape(key.endsWith("_usd") ? format_currency(before[key], "USD", 2) : before[key])}</td><td>${escape(key.endsWith("_usd") ? format_currency(after[key], "USD", 2) : after[key])}</td></tr>`).join("")}</tbody></table>
+                    <h5>${__("Distribución anterior")}</h5>${distribution(before.allocation_detail)}
+                    <h5>${__("Nueva distribución")}</h5>${distribution(after.allocation_detail)}</details>`);
+            }
+            if (!start && !message.rows?.length) wrapper.append(`<p>${__("Aún no hay cambios de conciliación registrados en esta bitácora.")}</p>`);
+            start = message.next_start;
+            if (message.has_more) wrapper.append(`<button type="button" class="btn btn-default" data-more-history>${__("Ver anteriores")}</button>`);
+        } finally { loading = false; }
+    }
+    wrapper.on("click", "[data-more-history]", load);
+    dialog.show();
+    await load();
 }
 
 function toggleApplicationDetailAction(frm) {
@@ -316,8 +374,9 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __("Importe (+ / −)"), precision: 2, reqd: 1},
             {fieldname: "fx_rate", fieldtype: "Float", label: __("Tipo de cambio C$/US$"), precision: 8, default: frm.doc.fx_rate,
                 depends_on: "eval:doc.currency === 'NIO'", mandatory_depends_on: "eval:doc.currency === 'NIO'"},
-            {fieldtype: "Section Break", label: __("Saldo a favor del cliente"), depends_on: "eval:doc.category === 'Saldo a favor del cliente'"},
+            {fieldtype: "Section Break", label: __("Seguimiento del saldo a favor"), depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
             {fieldname: "credit_detail_row", fieldtype: "Select", label: __("Fila que incluye el excedente (opcional)"),
+                depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 read_only: !!sourceRow,
                 description: __("Si detalle US$110 incluye US$10 de exceso, vincule su fila. Si el detalle muestra solo los US$100 aplicados, deje el vínculo vacío."),
                 options: [{value: "", label: "Excedente fuera del detalle por cliente"}, ...(frm.doc.detail_rows || []).map(row => ({value: row.name, label: `${row.client_name || row.client_number || "Cliente sin identificar"} · ${row.loan_number || "Sin crédito"}`}))],
@@ -326,14 +385,15 @@ async function createRemittanceComplementary(frm, options = {}) {
                     if (row) await dialog.set_values({credit_client: row.client || "", client_number: row.client_number || "", loan_number: row.loan_number || ""});
                 }},
             {fieldname: "credit_client", fieldtype: "Link", options: "CN Client", label: __("Cliente beneficiario"),
+                depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 read_only: !!sourceRow?.client,
                 mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]]}})},
             {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"), options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión"},
             {fieldtype: "Column Break"},
             {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user,
-                mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'"},
-            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'"},
+                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
+            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
             {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
             {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), reqd: 1},
             {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable (opcional)"), description: __("Sin asiento quedará pendiente de registro contable. Puede completarlo después en la partida.")},
@@ -610,15 +670,30 @@ async function importRemittanceDetail(frm) {
     await frm.reload_doc();
 }
 
+function remittanceCashAmounts(doc) {
+    const cents = value => Math.round(Number(value || 0) * 100);
+    const total = cents(doc.amount_usd), assigned = cents(doc.allocated_usd), credit = cents(doc.justified_surplus_usd);
+    return {assigned: assigned / 100, credit: credit / 100, pending: (total - assigned - credit) / 100};
+}
+
 function remittancePresentation(doc, dirty = false) {
     const registration = doc.docstatus === 2 ? "Cancelado" : doc.docstatus === 1 ? "Confirmado" : "Borrador";
-    const reconciled = doc.docstatus === 1 && (doc.result || "").startsWith("Conciliado");
-    const review = doc.docstatus === 1 && ["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(doc.result);
+    const cash = remittanceCashAmounts(doc);
+    const financialReview = !Number.isFinite(cash.pending) || cash.pending !== 0 || cash.credit < 0;
+    const recordedSettlement = ["Conciliado", "Conciliado con saldo a favor del cliente"].includes(doc.result)
+        || cash.credit > 0 && ["Parcial con saldo a favor", "Saldo a favor documentado"].includes(doc.result);
+    const detailReview = (doc.detail_status || "").startsWith("Revisar");
+    const reconciled = doc.docstatus === 1 && recordedSettlement && !financialReview && !detailReview;
+    const review = doc.docstatus === 1 && (detailReview ||
+        ["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(doc.result) || recordedSettlement && financialReview);
     let hint = "Depósito en borrador: todavía no participa en la conciliación. Complete los datos y guarde; después confirme o solicite confirmación a un supervisor.";
     if (doc.docstatus === 2) hint = "Este depósito está cancelado y no participa en la conciliación.";
     else if (doc.docstatus === 1) {
         if (dirty) hint = "Hay cambios sin guardar. Los resultados mostrados corresponden a la última conciliación; guarde y luego use Conciliar.";
-        else if (!doc.detail_count && !(doc.targets || []).length && doc.result !== "Conciliado" && !review) {
+        else if (reconciled) hint = cash.credit > 0
+            ? "Distribución conciliada con saldo a favor documentado. Revise su gestión en Distribución completa: clasificar el dinero no significa haberlo devuelto o aplicado en el core."
+            : "Depósito conciliado. Consulte la distribución y las excepciones en Resultado; conciliar no confirma el registro de ajustes en el core.";
+        else if (!doc.detail_count && !(doc.targets || []).length && !review) {
             hint = "Depósito confirmado, pendiente de detalle por cliente o destinos manuales. Puede cargar el archivo cuando llegue, aunque sea en otro mes.";
         }
         else if (doc.result === "Pendiente" || doc.detail_status === "Cargado; pendiente de conciliación") {
@@ -626,18 +701,18 @@ function remittancePresentation(doc, dirty = false) {
         } else if (review && Number(doc.allocated_usd) > 0 && Number(doc.unallocated_usd) === 0) {
             hint = "El dinero está distribuido, pero la revisión no ha terminado. Revise los estados y motivos en Detalle por cliente y Destinos.";
         } else if (review) hint = "Revise los estados y motivos en Detalle por cliente y Destinos. Después guarde y use Conciliar.";
-        else if (reconciled) hint = "Depósito conciliado. Consulte la distribución y las excepciones en Resultado.";
         else hint = "Revise el detalle o seleccione partidas en Destinos. Guarde y use Conciliar para actualizar los saldos.";
     }
     return {
         registration, hint,
-        result: doc.docstatus === 2 ? "No participa" : doc.docstatus !== 1 ? "Sin conciliar" : doc.result || "Pendiente",
+        result: doc.docstatus === 2 ? "No participa" : doc.docstatus !== 1 ? "Sin conciliar"
+            : review && recordedSettlement ? "Por revisar" : reconciled && cash.credit > 0 ? "Conciliado con saldo a favor" : doc.result || "Pendiente",
         color: doc.docstatus === 2 ? "gray" : dirty ? "orange" : reconciled ? "green" : review ? "orange" : "blue",
     };
 }
 
 function remittanceMoney(value) {
-    const amount = Number(value || 0);
+    const amount = Number(value ?? 0);
     return Number.isFinite(amount) ? amount.toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 }
 
@@ -673,21 +748,24 @@ function renderRemittanceOverview(frm) {
     const escape = value => frappe.utils.escape_html(String(value || ""));
     const state = remittancePresentation(frm.doc, frm.is_dirty());
     const confirmed = frm.doc.docstatus === 1;
+    const cash = remittanceCashAmounts(frm.doc);
     const cards = [
         ["Equivalente del depósito", `US$ ${remittanceMoney(frm.doc.amount_usd)}`],
-        ["Distribuido · última conciliación", confirmed ? `US$ ${remittanceMoney(frm.doc.allocated_usd)}` : "—"],
-        ["Sin distribuir · última conciliación", confirmed ? `US$ ${remittanceMoney(frm.doc.unallocated_usd)}` : "—"],
-        ["Estado del detalle", frm.doc.detail_status || "Sin detalle cargado"],
+        ["Asignado a créditos y otros conceptos", confirmed ? `US$ ${remittanceMoney(cash.assigned)}` : "—"],
+        ["Saldo a favor documentado", confirmed ? `US$ ${remittanceMoney(cash.credit)}` : "—"],
+        ["Sin asignar ni justificar", confirmed ? `US$ ${remittanceMoney(cash.pending)}` : "—"],
     ];
     const html = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
         <strong>${escape(frm.doc.employer || "Nuevo depósito")}</strong>
         <span>${escape(state.registration)} · <span class="indicator-pill ${state.color}">${escape(state.result)}</span></span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">
         ${cards.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
             <div class="small text-muted">${escape(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${escape(value)}</div>
         </div>`).join("")}
-    </div><p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>`;
+    </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = asignado + saldo a favor documentado + sin asignar ni justificar."))}</p>
+    <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}${state.result !== frm.doc.result && confirmed ? ` · ${escape(__("Resultado registrado"))}: ${escape(frm.doc.result || __("Pendiente"))}` : ""}</p>
+    <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>`;
     const existing = frm.$wrapper.find(".cn-remittance-overview");
     if (existing.length) existing.html(html);
     else frm.dashboard.add_section(`<div class="cn-remittance-overview">${html}</div>`);

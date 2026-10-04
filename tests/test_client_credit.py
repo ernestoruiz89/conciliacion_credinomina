@@ -102,7 +102,7 @@ class ManagementTests(unittest.TestCase):
             check_permission=Mock(), add_comment=Mock(), clear_cache=Mock())
         self.args = dict(item_name="C", modified="stamp", treatment="Devolución", amount_usd=6, event_date="2025-05-20", reference="REC", support_file="/private/files/proof.pdf")
         self.db = Mock()
-        for patcher in (patch.object(credit.frappe, "get_doc", side_effect=lambda dt, name: self.item if dt == "CN Complementary Item" else Row(check_permission=Mock())),
+        for patcher in (patch.object(credit.frappe, "get_doc", side_effect=lambda dt, name, **kwargs: self.item if dt == "CN Complementary Item" else Row(check_permission=Mock())),
                         patch.object(credit.frappe, "db", self.db), patch.object(credit.frappe, "get_all", return_value=["FILE"]),
                         patch.object(credit.frappe, "throw", side_effect=ValueError), patch.dict(credit.frappe.__dict__, {"session":Row(user="Operator")}),
                         patch.object(credit, "now_datetime", return_value="2026-10-02 12:00:00")):
@@ -122,6 +122,15 @@ class ManagementTests(unittest.TestCase):
         self.item.check_permission.assert_any_call("write")
         self.item.check_permission.assert_any_call("submit")
 
+    def test_company_management_uses_same_partial_follow_up_without_releasing_cash(self):
+        self.item.category = "Saldo a favor de la empresa"
+        result = credit.record_management(**(self.args | {"amount_usd": 2}))
+        self.assertEqual((result["status"], result["pending_usd"]), ("Parcialmente resuelto", 4))
+        self.assertEqual(self.item.amount_usd, 10)
+        self.assertEqual(set(self.db.set_value.call_args.args[2]), set(credit.MANAGED_FIELDS))
+        with self.assertRaises(ValueError):
+            credit.guard_cancel(self.item)
+
     def test_invalid_management_is_rejected(self):
         for changes in ({"amount_usd":7}, {"amount_usd":0}, {"amount_usd":-1}, {"modified":"old"}, {"reference":""},
                         {"support_file":""}, {"event_date":"2025-05-09"}, {"event_date":"2999-01-01"}, {"treatment":"Unknown"}):
@@ -132,6 +141,37 @@ class ManagementTests(unittest.TestCase):
     def test_support_must_belong_to_item(self):
         with patch.object(credit.frappe, "get_all", return_value=[]), self.assertRaises(ValueError):
             credit.record_management(**self.args)
+        self.db.set_value.assert_not_called()
+
+    def test_reverse_legacy_management_appends_evidence_and_preserves_cash(self):
+        original = json.loads(self.item.credit_history)
+        entry = credit.management_history(self.item)[0]
+        result = credit.reverse_management("C", "stamp", entry["entry_id"], "2025-05-20", "Importe documentado por error")
+        values = self.db.set_value.call_args.args[2]
+        history = json.loads(values["credit_history"])
+        self.assertEqual(history[:-1], original)
+        self.assertEqual(history[-1]["reverses"], entry["entry_id"])
+        self.assertEqual(history[-1]["importe_usd"], -4)
+        self.assertEqual(history[-1]["usuario"], "Operator")
+        self.assertEqual((result["pending_usd"], result["status"]), (10, "Pendiente"))
+        self.assertEqual(set(values), set(credit.MANAGED_FIELDS))
+        self.item.update(values)
+        self.assertFalse(any(row["can_reverse"] for row in credit.management_history(self.item)))
+        with self.assertRaises(ValueError):
+            credit.reverse_management("C", "stamp", entry["entry_id"], "2025-05-20", "Segundo intento")
+        # Zero net managed does not authorize erasing the history or freeing cash.
+        with self.assertRaises(ValueError):
+            credit.guard_cancel(self.item)
+
+    def test_reversal_checks_version_dates_identity_reason_and_permissions(self):
+        entry = credit.management_history(self.item)[0]
+        args = dict(item_name="C", modified="stamp", entry_id=entry["entry_id"], event_date="2025-05-20", reason="Corrección")
+        for change in ({"modified": "stale"}, {"entry_id": "other"}, {"reason": ""}, {"event_date": "2025-05-09"}, {"event_date": "2999-01-01"}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                credit.reverse_management(**(args | change))
+        self.item.check_permission.side_effect = PermissionError
+        with self.assertRaises(PermissionError):
+            credit.reverse_management(**args)
         self.db.set_value.assert_not_called()
 
     def test_permissions_checked_and_draft_cancelled_or_unclassified_rejected(self):

@@ -295,7 +295,7 @@ def audit():
         "as_of_date": "2027-02-01", "to_month": "2026-11-01",
     })
     totals = {item["label"]: item["value"] for item in summary}
-    assert totals["CxC a empleados (cuota no deducida)"] == 805.5, totals
+    assert totals["Cobranza no deducida (informativo)"] == 805.5, totals
     assert totals["Deducido sin depósito asignado"] == 920.5, totals
     assert len(rows) == 37, len(rows)
     assert all(abs(sum(row[key] for key in (

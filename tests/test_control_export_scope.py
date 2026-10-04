@@ -14,7 +14,7 @@ class ExportScopeTests(unittest.TestCase):
         with patch.object(page, '_build_control_data', return_value={"year": "Todos", "periods": []}), \
              patch.object(frappe, 'has_permission', return_value=True), \
              patch.object(frappe, 'get_list', return_value=[]) as read, \
-             patch.object(frappe, 'local', SimpleNamespace(response=response)), \
+             patch.object(frappe, 'local', SimpleNamespace(response=response, flags=frappe._dict(in_test=False))), \
              patch.object(page, 'now_datetime', return_value=datetime(2026, 10, 2)), \
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
              patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook'):
@@ -31,7 +31,7 @@ class ExportScopeTests(unittest.TestCase):
         with patch.object(page, '_build_control_data', return_value={"year": 2025, "periods": []}), \
              patch.object(frappe, 'has_permission', return_value=True), \
              patch.object(frappe, 'get_list', side_effect=get_list), \
-             patch.object(frappe, 'local', SimpleNamespace(response=response)), \
+             patch.object(frappe, 'local', SimpleNamespace(response=response, flags=frappe._dict(in_test=False))), \
              patch.object(page, 'now_datetime', return_value=datetime(2026, 10, 2)), \
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
              patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook'):

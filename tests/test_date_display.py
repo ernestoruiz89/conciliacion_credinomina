@@ -58,10 +58,11 @@ class DateDisplayTests(unittest.TestCase):
                 generated_at=datetime(2025, 4, 23, 14, 30), date_format=pattern,
             )
             book = load_workbook(io.BytesIO(content))
-            generated = book["Resumen"]["B3"]
-            self.assertEqual(generated.number_format, pattern + " hh:mm")
-            self.assertEqual(generated.value, datetime(2025, 4, 23, 14, 30))
-            dates = [cell for row in book["Partidas y excepciones"] for cell in row
+            # Export scope carries the generation timestamp; dates in tables
+            # remain native Excel dates rather than preformatted text.
+            rendered = datetime(2025, 4, 23, 14, 30).strftime(pattern.replace("yyyy", "%Y").replace("mm", "%m").replace("dd", "%d") + " %H:%M")
+            self.assertIn(rendered, book["Resumen mensual"]["A2"].value)
+            dates = [cell for row in book["Aplicaciones sin período"] for cell in row
                      if isinstance(cell.value, datetime)]
             self.assertEqual(len(dates), 1)
             self.assertEqual(dates[0].number_format, pattern)

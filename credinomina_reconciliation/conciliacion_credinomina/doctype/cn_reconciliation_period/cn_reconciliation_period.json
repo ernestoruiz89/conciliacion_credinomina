@@ -77,7 +77,7 @@
     {"depends_on": "eval:doc.deduction_recognition_on", "fieldname": "deduction_recognition_on", "fieldtype": "Datetime", "label": "Reconocido el", "read_only": 1},
     {"depends_on": "eval:doc.deduction_recognition_on", "fieldname": "deduction_recognition_by", "fieldtype": "Link", "label": "Reconocido por", "options": "User", "read_only": 1},
     {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "totals_section", "fieldtype": "Section Break", "label": "Cobranza y deducción"},
-    {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "expected_usd", "fieldtype": "Currency", "label": "Cobrado US$", "options": "usd_currency", "precision": "2", "read_only": 1},
+    {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "expected_usd", "fieldtype": "Currency", "label": "Cobranza enviada US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "expected_nio", "fieldtype": "Currency", "label": "Cobrado C$", "options": "nio_currency", "precision": "2", "read_only": 1},
     {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "deducted_usd", "fieldtype": "Currency", "label": "Deducido US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"depends_on": "eval:doc.reconciliation_mode != 'Historica'", "fieldname": "deducted_nio", "fieldtype": "Currency", "label": "Deducido C$", "options": "nio_currency", "precision": "2", "read_only": 1},

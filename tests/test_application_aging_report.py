@@ -15,6 +15,8 @@ class ApplicationAgingReportTests(unittest.TestCase):
 
         def get_list(doctype, **kwargs):
             calls.append(("list", doctype, kwargs))
+            if doctype == "CN Employer":
+                return [frappe._dict(name="E", grace_days=10)]
             return periods if doctype == "CN Reconciliation Period" else imports
 
         def get_all(doctype, **kwargs):

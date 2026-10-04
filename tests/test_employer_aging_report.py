@@ -43,11 +43,11 @@ class EmployerAgingTests(unittest.TestCase):
 
     def test_operational_types_not_combined(self):
         _, data, *_ = self.execute([
-            dict(employer="E", balance_type="CxC a empleados (cuota no deducida)", amount_usd=10, provision_review_usd=10),
+            dict(employer="E", balance_type="Cobranza no deducida (informativo)", amount_usd=10, provision_review_usd=10),
             dict(employer="E", balance_type="Detalle de empresa pendiente", amount_usd=20),
         ], operational=True)
         self.assertEqual(len(data), 2)
-        self.assertEqual(data[0]["provision_review_usd"], 10)
+        self.assertNotIn("provision_review_usd", data[0])
         self.assertNotIn("missing_fx_count", data[0])
 
     def test_empty_operational_result(self):

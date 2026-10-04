@@ -9,7 +9,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 class CollectionAsDetailTests(unittest.TestCase):
     def period(self):
         return SimpleNamespace(
-            name="P1", reconciliation_mode="Operativa", status="Pendiente",
+            name="P1", employer="EMP", reconciliation_mode="Operativa", status="Pendiente",
             deduction_basis="", employer_response_file="", notes="Observación previa",
             collection_rows=[frappe._dict(expected_usd=20.125, expected_nio=740,
                 deducted_usd=0, deducted_nio=0, deduction_status="Pendiente de detalle",
@@ -26,7 +26,7 @@ class CollectionAsDetailTests(unittest.TestCase):
                 patch.object(module, "_reconcile_if_sources", return_value=None) as reconcile:
             result = module.recognize_collection_as_employer_detail("P1", **{
                 "evidence_date": "2026-09-30", "confirmed": 1, **args})
-            reconcile.assert_called_once()
+            reconcile.assert_called_once_with("EMP")
             return result
 
     def test_copies_with_decimal_rounding_and_audit_without_deposit(self):

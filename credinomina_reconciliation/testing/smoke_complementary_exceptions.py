@@ -54,7 +54,7 @@ def run():
                 "review_action": "Pendiente de revisión", "accounting_source_key": marker + "-KEY",
                 "source_voucher": marker + "-AS", "source_account": "3004", "source_currency": "NIO",
                 "source_credit": 0.37, "source_debit": 0, "source_fx_rate": 36.6243,
-                "source_file": f"/private/files/{marker}.csv", "source_row": 2,
+                "source_file": f"/private/files/{marker}.csv", "source_file_hash": marker + "-HASH", "source_row": 2,
                 "source_date": "2025-10-03", "source_description": "Registro real del centavo",
                 "description": "Registro real del centavo"}).insert()
             candidates = api.get_registration_candidates(name, marker + "-AS")
@@ -97,14 +97,16 @@ def run():
                 "review_action": "Pendiente de revisión", "accounting_source_key": marker + "-POS-KEY",
                 "source_voucher": marker + "-POS", "source_account": "3004", "source_currency": "USD",
                 "source_debit": 0.01, "source_credit": 0, "source_file": f"/private/files/{marker}.csv",
-                "source_row": 3, "source_date": "2025-10-03", "description": "Registro tolerancia en el core"}).insert()
+                "source_row": 3, "source_date": "2025-10-03", "source_file_hash": marker + "-HASH",
+                "source_description": "Registro tolerancia en el core", "description": "Registro tolerancia en el core"}).insert()
             source = frappe.get_doc({"doctype": api.IMPORT, "employer": employer.name,
-                "source_file": f"/private/files/{marker}.csv", "status": "Importado", "currency": "USD"})
+                "source_file": f"/private/files/{marker}.csv", "file_hash": marker + "-HASH", "status": "Importado", "currency": "USD"})
             source.append("rows", {"event_type": "Ajuste", "event_date": "2025-10-03", "source_row": 3,
                 "source_key": marker + "-ROW", "accounting_source_key": marker + "-POS-KEY",
                 "complementary_item": positive.name, "currency": "USD", "amount": 0.01,
                 "amount_usd": 0.01, "source_currency": "USD", "source_debit": 0.01,
-                "source_credit": 0, "source_account": "3004", "voucher": marker + "-POS"})
+                "source_credit": 0, "source_account": "3004", "voucher": marker + "-POS",
+                "source_description": "Registro tolerancia en el core"})
             source.insert()
             candidates = api.get_registration_candidates(auto_exception, marker + "-POS")
             assert len(candidates) == 1 and candidates[0]["type"] == api.SOURCE, candidates

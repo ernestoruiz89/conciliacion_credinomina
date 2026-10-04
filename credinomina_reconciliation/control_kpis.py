@@ -50,6 +50,7 @@ def load_application_figures(year, employer, today):
         fields=["name", "employer", "historical_backfill", "historical_period"], limit_page_length=0)}
     sources = _children("CN Source Row", imports, [
         "name", "parent", "event_type", "event_date", "effective", "match_status",
+        "payment_due_date", "payment_term_origin",
         "currency", "amount", "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
         "processing_route", "historical_period", "portfolio_employer", "collection_row_id",
         "application_allocation_detail", "historical_remitted_usd", "historical_detail", "application_adjustment_usd",
@@ -109,12 +110,12 @@ def summarize_deposits(rows):
 def summarize_credits(rows):
     client, company = money(0), money(0)
     for row in {row["name"]: row for row in rows}.values():
+        pending = row.get("credit_pending_usd") if row.get("credit_management_status") else row.get("amount_usd")
         if row.get("category") == "Saldo a favor del cliente":
             # Older/uninitialized follow-up fields must not turn a credit into zero.
-            pending = row.get("credit_pending_usd") if row.get("credit_management_status") else row.get("amount_usd")
             client += max(money(pending), 0)
         else:
-            company += max(money(row.get("amount_usd")), 0)
+            company += max(money(pending), 0)
     return {"client_pending_usd": float(client), "company_documented_usd": float(company),
             "credit_pending_usd": float(client + company)}
 

@@ -71,7 +71,7 @@ def run():
             "source_file": individual_file.file_url, "currency": "USD"}).insert()
         frappe.get_doc({"doctype": "File", "file_name": individual_file.file_name, "file_url": individual_file.file_url,
             "is_private": 1, "attached_to_doctype": individual.doctype, "attached_to_name": individual.name}).insert()
-        with patch.object(accounting, "reconcile_all_sources", return_value={}):
+        with patch.object(accounting, "_reconcile_sources", return_value={}):
             response = accounting.import_source_file(individual.name)
             individual = frappe.get_doc("CN Accounting Import", response["import_name"])
             ids = [row.name for row in individual.rows]

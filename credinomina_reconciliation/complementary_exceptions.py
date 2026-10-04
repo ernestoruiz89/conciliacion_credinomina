@@ -110,22 +110,25 @@ def validate_exception(doc, previous=None):
 def sync_item_registration(doc):
     if not doc.get("complementary_item"):
         return
+    from credinomina_reconciliation.accounting_registration import exception_registration_status
     frappe.db.set_value(ITEM, doc.complementary_item, {
         "accounting_exception": doc.name,
-        "accounting_status": "Registrada" if doc.status == "Resuelta" and doc.get("core_evidence_key") else "Pendiente de registro",
+        "accounting_status": exception_registration_status(doc),
     }, update_modified=False)
     frappe.clear_document_cache(ITEM, doc.complementary_item)
 
 
 def apply_registration_status(item):
     """Preserve explicit follow-up even when an automatic tolerance is rebuilt."""
+    from credinomina_reconciliation.accounting_registration import base_registration_status, exception_registration_status
+    item.accounting_status = base_registration_status(item)
     if not item.get("accounting_exception"):
         return
     exception = frappe.db.get_value(EXCEPTION, item.accounting_exception,
-        ["complementary_item", "status", "core_evidence_key"], as_dict=True)
+        ["complementary_item", "status", "core_evidence_key", "core_voucher"], as_dict=True)
     if not exception or exception.complementary_item != item.name:
         frappe.throw(_("El vínculo de seguimiento contable de la partida no es válido."))
-    item.accounting_status = "Registrada" if exception.status == "Resuelta" and exception.core_evidence_key else "Pendiente de registro"
+    item.accounting_status = exception_registration_status(exception)
 
 
 def guard_item_link(item, previous=None):

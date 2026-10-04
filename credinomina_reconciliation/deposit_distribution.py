@@ -81,8 +81,8 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
             "period": visible_period.get("name") or "", "record_doctype": record_type,
             "record_name": record, "state": state, "description": description,
             "amount_usd": money(0), "management_pending_usd": (
-                money_float(item.get("credit_pending_usd")) if category == CLIENT_CREDIT else None),
-            "management_status": (item.get("credit_management_status") or "Pendiente") if category == CLIENT_CREDIT else "",
+                money_float(item.get("credit_pending_usd") if item.get("credit_management_status") else item.get("amount_usd")) if category in {CLIENT_CREDIT, COMPANY_CREDIT} else None),
+            "management_status": (item.get("credit_management_status") or "Pendiente") if category in {CLIENT_CREDIT, COMPANY_CREDIT} else "",
             "difference_usd": difference})
         row["amount_usd"] += money(amount)
 

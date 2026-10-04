@@ -6,6 +6,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
         refreshPeriodPending(frm);
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
+        frm.add_custom_button(__("Ver cortes registrados"), () => showRegisteredCuts(frm), __("Más opciones"));
 
         if (frm.doc.reconciliation_mode !== "Historica") addExportButton(frm);
         if (frm.doc.status === "Cerrado") {
@@ -270,7 +271,7 @@ function showControlCutDialog(frm) {
         fields: [
             {
                 fieldname: "notice", fieldtype: "HTML",
-                options: `<p>${__("Este corte guarda los importes y pendientes actuales para rendición. No cierra el período, no afirma que esté conciliado y permite cargar detalles o depósitos posteriores.")}</p>`,
+                options: `<p>${__("Este corte conserva archivos privados Excel y JSON con los importes, detalle y antigüedad actuales de este período. No cierra el período ni reconstruye saldos a una fecha anterior. Los cortes anteriores se conservan aunque lleguen datos posteriores.")}</p>`,
             },
             {
                 fieldname: "note", fieldtype: "Small Text",
@@ -290,6 +291,35 @@ function showControlCutDialog(frm) {
         },
     });
     dialog.show();
+}
+
+async function showRegisteredCuts(frm) {
+    const dialog = new frappe.ui.Dialog({title: __("Cortes registrados del período"), size: "extra-large", fields: [{fieldname: "cuts", fieldtype: "HTML"}]});
+    const wrapper = dialog.get_field("cuts").$wrapper;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    let start = 0;
+    wrapper.html(`<p>${esc(__("Cada corte conserva los valores del momento en que fue registrado; no recalcula el pasado. Incluya los archivos privados y el historial Version en sus respaldos. Los cortes anteriores a esta mejora no tienen archivo detallado."))}</p>`);
+    async function load() {
+        try {
+            const {message} = await frappe.call({method: "credinomina_reconciliation.control_cuts.get_cuts", args: {period_name: frm.doc.name, start}});
+            wrapper.find("[data-more-cuts]").remove();
+            if (!message.rows?.length && !start) wrapper.append(`<p>${esc(__("No hay cortes detallados registrados."))}</p>`);
+            for (const cut of message.rows || []) {
+                const links = ["xlsx", "json"].map(ext => {
+                    const file = cut.files?.[ext];
+                    return file?.url?.startsWith("/private/files/") ? `<a class="btn btn-default btn-sm" href="${esc(file.url)}" target="_blank" rel="noopener">${esc(__("Descargar"))} ${ext.toUpperCase()}</a>` : "";
+                }).join(" ");
+                wrapper.append(`<section class="border rounded p-3 mb-3" style="font-size:14px"><h5>${esc(frappe.datetime.str_to_user(cut.recorded_at))} · ${esc(cut.recorded_by)}</h5><p>${esc(cut.summary)}</p><p>${esc(cut.note)}</p><p class="text-muted">${esc(cut.scope)}</p>${links}</section>`);
+            }
+            start = message.next_start;
+            if (message.has_more) wrapper.append(`<button class="btn btn-default" data-more-cuts>${esc(__("Ver más cortes"))}</button>`);
+        } catch (_) {
+            frappe.msgprint(__("No se pudieron consultar los cortes. Intente nuevamente."));
+        }
+    }
+    wrapper.on("click", "[data-more-cuts]", () => load());
+    dialog.show();
+    await load();
 }
 
 function addExportButton(frm) {

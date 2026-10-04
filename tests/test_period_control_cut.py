@@ -33,6 +33,7 @@ class PeriodControlCutTests(unittest.TestCase):
              patch.object(period_module.frappe, "db", db), \
              patch.object(period_module.frappe, "session", SimpleNamespace(user="auditor")), \
              patch.object(period_module, "_reconcile_if_sources", return_value=None), \
+             patch("credinomina_reconciliation.control_cuts.save_cut", return_value={"cut": "CUT"}) as archive, \
              patch.object(period_module, "_pending_remittance_details_for_period", return_value=["R-1"]), \
              patch.object(period_module, "now_datetime", return_value=datetime(2026, 9, 28, 15, 20)):
             result = period_module.record_control_cut(
@@ -41,12 +42,14 @@ class PeriodControlCutTests(unittest.TestCase):
 
         self.assertEqual(period.status, "Pendiente")
         self.assertEqual(result["status"], period.status)
-        self.assertIn("CxC empleados confirmada US$ 20.00", period.control_cut_summary)
+        self.assertIn("Cobranza no deducida confirmada US$ 20.00", period.control_cut_summary)
         self.assertIn("deducido sin depósito asignado US$ 10.00", period.control_cut_summary)
         self.assertIn("excepciones abiertas 1", period.control_cut_summary)
         self.assertIn("detalles de depósito pendientes 1", period.control_cut_summary)
         self.assertIn("El período permanece abierto", period.notes)
         period.save.assert_called_once()
+        archive.assert_called_once_with(period)
+        self.assertEqual(result["cut"], "CUT")
 
     def test_cut_uses_same_fx_and_rounding_balance_as_aging(self):
         period = self._period()
@@ -61,7 +64,9 @@ class PeriodControlCutTests(unittest.TestCase):
         period.collection_rows = []
         summary = period_module._control_cut_summary(period, 0, 1)
         self.assertIn("aplicado US$ 30.00", summary)
-        self.assertNotIn("CxC empleados", summary)
+        self.assertIn("depositado US$ 20.00", summary)
+        self.assertNotIn("remitido US$", summary)
+        self.assertNotIn("Cobranza no deducida", summary)
 
     def test_partial_deduction_is_identified_not_fully_reconciled(self):
         rows = [frappe._dict(deduction_status="Deduccion parcial")]
@@ -129,7 +134,8 @@ class PeriodControlCutTests(unittest.TestCase):
              patch.object(period_module, "_pending_registered_targets", return_value=False):
             with self.assertRaises(ValueError):
                 period_module.close_period(period.name)
-        self.assertIn("saldos a empleados", reject.call_args.args[0].lower())
+        self.assertIn("primera conciliación", reject.call_args.args[0].lower())
+        self.assertIn("no representan cxc", reject.call_args.args[0].lower())
 
     def test_empty_operative_period_cannot_close(self):
         period = SimpleNamespace(
@@ -226,37 +232,39 @@ class PeriodControlCutTests(unittest.TestCase):
     def test_import_reconciliation_is_triggered_when_sources_exist(self):
         path = (
             "credinomina_reconciliation.conciliacion_credinomina.doctype"
-            ".cn_accounting_import.cn_accounting_import.reconcile_all_sources"
+            ".cn_accounting_import.cn_accounting_import._reconcile_sources"
         )
         with patch.object(period_module.frappe, "db", SimpleNamespace(exists=lambda *_: True)), \
+             patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["EMP"]), \
              patch(path, return_value={"matched": 1}) as reconcile:
-            self.assertEqual(period_module._reconcile_if_sources(), {"matched": 1})
-        reconcile.assert_called_once_with()
+            self.assertEqual(period_module._reconcile_if_sources("EMP"), {"matched": 1})
+        reconcile.assert_called_once_with("EMP", progress=None)
 
     def test_reconciliation_runs_when_remittance_precedes_collection(self):
         path = (
             "credinomina_reconciliation.conciliacion_credinomina.doctype"
-            ".cn_accounting_import.cn_accounting_import.reconcile_all_sources"
+            ".cn_accounting_import.cn_accounting_import._reconcile_sources"
         )
         db = SimpleNamespace(exists=lambda doctype, *_: doctype == "CN Remittance Allocation")
         with patch.object(period_module.frappe, "db", db), \
+             patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["EMP"]), \
              patch(path, return_value={"cash": 1}) as reconcile:
-            self.assertEqual(period_module._reconcile_if_sources(), {"cash": 1})
-        reconcile.assert_called_once_with()
+            self.assertEqual(period_module._reconcile_if_sources("EMP"), {"cash": 1})
+        reconcile.assert_called_once_with("EMP", progress=None)
 
     def test_comment_change_reconciles_even_with_only_confirmed_remittance(self):
-        previous = SimpleNamespace(collection_rows=[frappe._dict(
+        previous = SimpleNamespace(employer="EMP", collection_rows=[frappe._dict(
             name="ROW-1", first_exception_comment="Antes", application_comment="",
         )])
         current = SimpleNamespace(
-            flags=frappe._dict(), collection_rows=[frappe._dict(
+            employer="EMP", flags=frappe._dict(), collection_rows=[frappe._dict(
                 name="ROW-1", first_exception_comment="Aclarado con empresa",
                 application_comment="",
             )], get_doc_before_save=lambda: previous,
         )
         with patch.object(period_module, "_reconcile_if_sources", return_value={}) as reconcile:
             period_module.CNReconciliationPeriod.on_update(current)
-        reconcile.assert_called_once_with()
+        reconcile.assert_called_once_with("EMP")
 
     def test_loaded_operational_period_cannot_change_company_or_month(self):
         previous = SimpleNamespace(

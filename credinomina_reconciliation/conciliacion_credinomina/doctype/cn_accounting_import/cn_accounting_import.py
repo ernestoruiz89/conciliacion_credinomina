@@ -182,6 +182,8 @@ class CNAccountingImport(Document):
         from credinomina_reconciliation.complementary_exceptions import guard_verified_import
         guard_verified_import(self, self.get_doc_before_save(), _SOURCE_EVIDENCE_FIELDS)
         refresh_rows(self.rows or [])
+        from credinomina_reconciliation.application_deadlines import freeze_deadlines
+        freeze_deadlines(self)
         self._validate_closed_source_edits()
         self.recalculate_summary()
 
@@ -562,7 +564,7 @@ def import_source_file(import_name: str):
     if deposits:
         document.notes += _(" {0} depósitos vinculados. Revise sus registros y confirme los borradores; la fila contable no aplica efectivo por separado.").format(len(deposits))
     document.save()
-    result = _reconcile_sources(document.employer) if document.bulk_source_hash else reconcile_all_sources()
+    result = _reconcile_sources(document.employer)
     result["import_name"] = document.name
     return result
 
@@ -805,7 +807,7 @@ def _reconcile_sources(employer=None, progress=None):
             "name", "deposit_reference", "deposit_voucher", "reconciliation_identity",
             "amount_usd", "result", "employer", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate", "notes",
-            "allocated_usd", "unallocated_usd",
+            "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
             "allocation_detail",
             "support_file", "detail_file", "detail_source_file", "detail_hash",
             "detail_status", "detail_total_usd", "detail_count",
@@ -1653,6 +1655,8 @@ def _distribute_deposits(
     periods, source_rows, deposit_pairs, complementary_items,
     complementary_by_target, manual_allocations, registered_ids, fixed_coverage=None,
 ):
+    from credinomina_reconciliation.reconciliation_audit import snapshot
+    audit_before = {item.name: snapshot(item) for item in manual_allocations}
     rows_by_name = {
         row.name: row for period in periods for row in period.collection_rows
     }
@@ -2076,6 +2080,7 @@ def _distribute_deposits(
     result["complementary_target"] = complementary_target
     result["complementary_totals"] = complementary_totals
     result["client_credit_context"] = detail_context
+    result["audit_before"] = audit_before
     return result
 
 
@@ -2215,6 +2220,16 @@ def _sync_registered_deposit_detail(allocation):
             },
             update_modified=False,
         )
+        if name in allocation.get("audit_before", {}):
+            from credinomina_reconciliation.reconciliation_audit import record_transition, snapshot
+            before = allocation["audit_before"][name]
+            after = snapshot({**before, "allocated_usd": source.allocated_usd,
+                              "unallocated_usd": source.unallocated_usd,
+                              "allocation_detail": source.allocation_detail,
+                              "justified_surplus_usd": source.justified_surplus_usd,
+                              "unclassified_usd": source.unclassified_usd,
+                              "result": result, "detail_status": detail_status})
+            record_transition(name, before, after)
 
 
 def _sync_rounding_movements(movements, allocation, source_rows, employer=None, deposit_name=None):

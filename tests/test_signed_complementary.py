@@ -85,4 +85,4 @@ class SignedComplementaryTests(unittest.TestCase):
             db.get_value.return_value = None
             CNComplementaryItem.before_update_after_submit(SimpleNamespace(validate=lambda: CNComplementaryItem.validate(doc)))
         self.assertEqual(doc.voucher, "AS-100")
-        self.assertEqual(doc.accounting_status, "Registrada")
+        self.assertEqual(doc.accounting_status, "Asiento informado")

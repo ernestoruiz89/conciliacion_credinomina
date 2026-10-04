@@ -3,6 +3,7 @@ import frappe
 
 from credinomina_reconciliation.complementary_compensation import (
     CATEGORY, confirm_compensation, get_compensation_balance, preview_compensation,
+    get_reversible_compensations, reverse_compensation,
 )
 
 
@@ -85,7 +86,29 @@ def run():
         left.reload(); credit.reload()
         assert left.compensation_pending_usd == credit.compensation_pending_usd == 0
         assert frappe.db.count("CN Remittance Allocation") == before
+        choices = get_reversible_compensations(left.name)
+        assert len(choices["rows"]) == 2
+        original_operation = preview["request_key"]
+        reversal = (left.name, original_operation, "2025-10-01", "Corrección de compensación equivocada", choices["request_key"])
+        reverse_compensation(*reversal)
+        reverse_compensation(*reversal)  # retry does not restore twice
+        left.reload(); right.reload(); final.reload()
+        assert left.compensation_pending_usd == 30 and right.compensation_pending_usd == 30
+        assert final.compensation_pending_usd == 30  # unrelated offset unchanged
+        assert left.amount == 100 and right.amount == -30
+        assert len(left.compensations) == 3 and len(right.compensations) == 2
+        assert left.compensations[-1].reverses_operation_id == original_operation
+        assert left.compensations[-1].amount_usd == right.compensations[-1].amount_usd == -30
+        assert get_compensation_balance(left.name, "2025-09-30")["pending_usd"] == 0
+        assert get_compensation_balance(left.name, "2025-10-01")["pending_usd"] == 30
+        assert get_compensation_balance(right.name, "2025-09-30")["pending_usd"] == 0
+        assert get_compensation_balance(right.name, "2025-10-01")["pending_usd"] == 30
+        rejects(lambda: reverse_compensation(left.name, original_operation, "2025-10-01", "Repetición", "d" * 32))
+        rejects(lambda: left.cancel())
+        left.reload()
+        assert len(get_reversible_compensations(left.name)["rows"]) == 1
+        assert frappe.db.count("CN Remittance Allocation") == before
         return {"partial_full_multiple": "OK", "dated_balances": "OK", "idempotence": "OK",
-                "evidence_and_edit_guards": "OK", "not_a_deposit": "OK", "rolled_back": True}
+                "evidence_and_edit_guards": "OK", "paired_reversal_and_retry": "OK", "historical_balance_preserved": "OK", "not_a_deposit": "OK", "rolled_back": True}
     finally:
         frappe.db.rollback()

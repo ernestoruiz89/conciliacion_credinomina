@@ -42,19 +42,24 @@ def application_balances(sources, imports, periods, collections, employers, as_o
 
     def base(source, period, employer, mode):
         period = period or {}
+        due = source.get("payment_due_date")
+        if due:
+            due = date.fromisoformat(str(due)[:10])
+        elif employer in employers and employer != "NO IDENTIFICADA":
+            due = deposit_due_date(source.get("event_date"), employers[employer].get("grace_days"))
         return {
             **{field: source.get(field) for field in IDENTITY_FIELDS},
             "source_import": source.get("parent"),
+            "source_rows": source.get("name") or "",
             "application_date": source.get("event_date"),
             "period": period.get("name"), "employer": employer,
             "payroll_month": period.get("payroll_month"),
             "collection_cycle": period.get("collection_cycle"),
             "reconciliation_mode": mode, "usd_currency": "USD",
             "balance_type": APPLICATION_BALANCE,
-            "due_date": deposit_due_date(
-                source.get("event_date"), (employers.get(employer) or {}).get("grace_days"),
-            ) if employer in employers else None,
-            "observation": "" if employer in employers else "Empresa pendiente de identificar",
+            "due_date": due,
+            "payment_term_origin": source.get("payment_term_origin") or "Plazo vigente sin conservar; no acredita el plazo histórico",
+            "observation": "" if employer in employers and employer != "NO IDENTIFICADA" else "Empresa pendiente de identificar",
         }
 
     def emit(item, applied, paid=0, adjustment=0, fx=0):
@@ -91,6 +96,9 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             output.append({**item, "observation": "Falta tipo de cambio; saldo US$ sin determinar"})
             continue
         if money(applied) <= 0:
+            if include_settled and money(source.get("application_adjustment_usd")) > 0:
+                item["observation"] = "Aplicación compensada por ajuste; no representa un depósito"
+                emit(item, applied)
             continue
         if mode == "Historica":
             linked = bool(historical and source.get("match_status") == "Conciliado")
@@ -139,6 +147,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             # Do not invent a payment order when the stored allocation does
             # not identify which month's applications were covered.
             item = dict(parts[0], due_date=None, application_date=None)
+            item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in parts if part["source_rows"]}))
             if len({part["source_import"] for part in parts}) > 1:
                 item["source_import"] = None
             item["observation"] = "Varias fechas de vencimiento: falta distribuir el pago entre aplicaciones"
@@ -149,6 +158,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             by_due[part["due_date"]].append(part)
         for grouped in by_due.values():
             item = dict(grouped[0])
+            item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in grouped if part["source_rows"]}))
             application_dates = [part["application_date"] for part in grouped if part.get("application_date")]
             item["application_date"] = min(application_dates) if application_dates else None
             if len({part["source_import"] for part in grouped}) > 1:

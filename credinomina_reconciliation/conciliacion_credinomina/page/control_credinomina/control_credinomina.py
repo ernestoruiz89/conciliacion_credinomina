@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, getdate, now_datetime
 
-from credinomina_reconciliation.aging import employee_receivable_usd
+from credinomina_reconciliation.aging import collection_shortfall_usd, unassigned_deduction_usd, deduction_pending_type
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.control_deposits import get_cash_deposits
 from credinomina_reconciliation.control_summary import collection_summaries, historical_difference_counts, readable_imports
@@ -115,7 +115,16 @@ def export_control_excel(year=None, employer=None):
 @frappe.whitelist()
 def get_control_data(year=None, employer=None):
     """Permission-scoped, real data for the monthly control matrix."""
-    return _build_control_data(year, employer, summary_only=True)
+    data = _build_control_data(year, employer, summary_only=True)
+    # A calendar-year sample must never masquerade as the complete work queue.
+    data["work_scope"] = "Todos" if data["year"] == "Todos" else "calendar"
+    return data
+
+
+@frappe.whitelist()
+def get_work_overview(employer=None):
+    """Lazy all-year work queue, independent from calendar/KPI/export filters."""
+    return _build_control_data("Todos", employer, summary_only=True, detail_section="work_overview")
 
 
 @frappe.whitelist()
@@ -155,12 +164,18 @@ def get_deposit_detail(deposit_name: str):
 
 
 @frappe.whitelist()
-def get_control_rows(section: str, year=None, employer=None, start=0):
+def get_control_rows(section: str, year=None, employer=None, start=0, work_kind="", responsible="", due=""):
     if section not in {"open_deposits", "unassigned_historical_applications", "work_items"}:
         frappe.throw(_("Sección de control inválida."))
     start = max(cint(start), 0)
     rows = _build_control_data(year, employer, summary_only=True, detail_section=section)[section]
-    return {"rows": rows[start:start + 100], "count": len(rows)}
+    if section == "work_items" and (work_kind or responsible or due):
+        from credinomina_reconciliation.follow_up_queue import filter_work
+        rows = filter_work(rows, work_kind, responsible, due, as_of=now_datetime().date())
+    result = {"rows": rows[start:start + 100], "count": len(rows)}
+    if section == "work_items":
+        result["overdue_count"] = sum(item.get("priority") == 0 for item in rows)
+    return result
 
 
 def _year_filter(field, year):
@@ -254,7 +269,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             limit_page_length=_row_limit(20000, full_export),
         )
         for row in rows:
-            row["employee_receivable_usd"] = employee_receivable_usd(row)
+            row["collection_shortfall_usd"] = collection_shortfall_usd(row)
+            row["deduction_pending_reason"] = deduction_pending_type(row)
             rows_by_period[row.parent].append(row)
         historical_rows = [] if summary_only or not frappe.has_permission("CN Accounting Import", "read") else frappe.get_all(
             "CN Source Row",
@@ -330,13 +346,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         fx_variance = max(flt(period.fx_variance_usd), 0)
         period_rows = rows_by_period[period.name]
         worker_gap = sum(
-            flt(row.employee_receivable_usd)
+            flt(row.collection_shortfall_usd)
             for row in period_rows
         ) if not is_historical else 0
         pending_detail = sum(
             flt(row.expected_usd)
             for row in period_rows
-            if row.employee_receivable_usd is None
+            if row.collection_shortfall_usd is None
         ) if not is_historical else 0
         aggregate = collection_totals.get(period.name, {})
         if summary_only:
@@ -345,7 +361,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         adjustment = flt(period.rounding_adjustment_usd)
         # This is an assignment gap, not a confirmed company receivable: an
         # already received deposit may still lack its per-client detail.
-        employer_gap = max(deducted - remitted - fx_variance - max(-adjustment, 0), 0) if not is_historical else 0
+        employer_gap = (flt(aggregate.get("employer_gap_usd")) if summary_only else
+                        sum(flt(unassigned_deduction_usd(row)) for row in period_rows)) if not is_historical else 0
         historical_pending = max(applied + adjustment - remitted, 0) if is_historical else 0
         period_surpluses = surplus_by_period[period.name]
         period_movements = movements_by_period[period.name]
@@ -760,6 +777,15 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         unassigned_historical_applications, unassigned_operational_applications,
         employer_names,
     )
+    from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up
+    if not detail_period and detail_section in (None, "work_items", "work_overview"):
+        work_items = merge_follow_up(work_items, load_follow_up(year, employer))
+    if detail_section == "work_overview":
+        return {"work_scope": "Todos", "work_items": work_items[:100], "work_item_count": len(work_items),
+                "overdue_count": sum(item["priority"] == 0 for item in work_items),
+                "open_deposits": deposits[:100], "open_deposit_count": len(deposits),
+                "unassigned_historical_applications": unassigned_historical_applications[:100],
+                "unassigned_historical_count": len(unassigned_historical_applications)}
     if detail_section:
         return {detail_section: {
             "open_deposits": deposits,
@@ -783,7 +809,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         "open_deposit_count": len(deposits),
         "unassigned_historical_count": len(unassigned_historical_applications),
         "work_item_count": len(work_items),
-        "overdue_count": sum(item["kind"] == "overdue_exception" for item in work_items),
+        "overdue_count": sum(item["priority"] == 0 for item in work_items),
         "open_deposits": deposits[:100] if summary_only else deposits,
         "unassigned_historical_applications": unassigned_historical_applications[:100] if summary_only else unassigned_historical_applications,
         "unassigned_operational_applications": unassigned_operational_applications[:100] if summary_only else unassigned_operational_applications,
@@ -858,7 +884,7 @@ def _build_work_items(
                 action = ("Importar y validar el detalle recibido de la empresa."
                           if period.get("employer_response_file") else
                           "Solicitar e importar el detalle de deducción de la empresa.")
-                add(2, "company_detail", "Deducción sin detalle de empresa",
+                add(2, "company_detail", "Detalle de empresa pendiente o por aclarar",
                     action, amount_usd=missing, **target)
             if period.get("deduction_basis") == "Depósito coincidente":
                 add(2, "inferred_deduction", "Deducción inferida del depósito",

@@ -108,7 +108,7 @@ def run():
         individual_file.attached_to_name = individual.name
         individual_file.attached_to_field = "source_file"
         individual_file.save()
-        with patch.object(accounting, "reconcile_all_sources", return_value={}):
+        with patch.object(accounting, "_reconcile_sources", return_value={}):
             first = accounting.import_source_file(individual.name)
             reloaded = frappe.get_doc("CN Accounting Import", first["import_name"])
             assert reloaded.total_usd == 0 and reloaded.rows[0].complementary_item

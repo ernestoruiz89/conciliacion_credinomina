@@ -82,7 +82,7 @@ class ControlKpiTests(unittest.TestCase):
         self.assertEqual(result, {"received_usd": 1030, "deposit_count": 3,
             "unassigned_usd": 20, "unassigned_count": 1, "overallocated_count": 1})
 
-    def test_credits_exclude_resolved_client_amount_and_retain_company_limitation(self):
+    def test_credits_exclude_resolved_amounts_for_clients_and_companies(self):
         client = {"name": "C", "category": "Saldo a favor del cliente", "amount_usd": 100,
                   "credit_pending_usd": 40, "credit_management_status": "Parcial"}
         result = kpis.summarize_credits([client, client,
@@ -90,6 +90,12 @@ class ControlKpiTests(unittest.TestCase):
             dict(client, name="OLD", amount_usd=5, credit_management_status="", credit_pending_usd=0),
             {"name": "COMPANY", "category": "Saldo a favor de la empresa", "amount_usd": 10}])
         self.assertEqual(result, {"client_pending_usd": 45, "company_documented_usd": 10, "credit_pending_usd": 55})
+        self.assertEqual(kpis.summarize_credits([
+            {"name": "PARTIAL", "category": "Saldo a favor de la empresa", "amount_usd": 100,
+             "credit_management_status": "Parcialmente resuelto", "credit_pending_usd": 40},
+            {"name": "DONE", "category": "Saldo a favor de la empresa", "amount_usd": 100,
+             "credit_management_status": "Resuelto", "credit_pending_usd": 0},
+        ])["credit_pending_usd"], 40)
 
     def test_unavailable_permissions_are_not_zero_and_never_query_children(self):
         with patch.object(kpis.frappe, "has_permission", return_value=False), \

@@ -1,4 +1,5 @@
 import unittest
+from contextlib import ExitStack
 from unittest.mock import Mock, patch
 
 import frappe
@@ -89,6 +90,79 @@ class ComplementaryCompensationTests(unittest.TestCase):
         doc.check_permission.side_effect = PermissionError
         with patch.object(frappe, "get_doc", return_value=doc), self.assertRaises(PermissionError):
             offsets.get_compensation_balance("A", "2025-08-01")
+
+    def reversal_pair(self):
+        left, right = item(), item("B", -100)
+        for doc, other in ((left, right), (right, left)):
+            doc.category = offsets.CATEGORY
+            doc.docstatus = 1
+            doc.flags = frappe._dict()
+            doc.check_permission = Mock()
+            doc.save = Mock()
+            doc.append = lambda field, value, doc=doc: doc[field].append(frappe._dict(value))
+            doc.compensations = [frappe._dict(operation_id="a" * 32, counterpart=other.name,
+                amount_usd=30, compensation_date="2025-08-01", reason="Original")]
+        return left, right
+
+    def reversal_context(self, left, right):
+        stack = ExitStack()
+        stack.enter_context(patch.object(frappe, "get_doc", side_effect=lambda doctype, name, **kw: left if name == "A" else right))
+        stack.enter_context(patch.object(frappe, "db", Mock(exists=Mock(return_value=False))))
+        stack.enter_context(patch.object(frappe, "session", frappe._dict(user="reviewer@example.test")))
+        def reject(message, *args, **kwargs):
+            raise ValueError(message)
+        stack.enter_context(patch.object(frappe, "throw", side_effect=reject))
+        stack.enter_context(patch.object(offsets, "_", side_effect=lambda text: text))
+        stack.enter_context(patch.object(offsets, "nowdate", return_value="2026-10-03"))
+        stack.enter_context(patch.object(offsets, "now_datetime", return_value="2026-10-03 10:00:00"))
+        return stack
+
+    def test_reversal_appends_pair_preserves_cutoff_and_is_idempotent(self):
+        left, right = self.reversal_pair()
+        with self.reversal_context(left, right):
+            args = ("A", "a" * 32, "2025-09-01", "Error de selección", "b" * 32)
+            offsets.reverse_compensation(*args)
+            offsets.reverse_compensation(*args)
+            for doc in (left, right):
+                self.assertEqual(len(doc.compensations), 2)
+                self.assertEqual(doc.compensations[0].amount_usd, 30)
+                self.assertEqual(doc.compensations[1].amount_usd, -30)
+                self.assertEqual(doc.compensations[1].reverses_operation_id, "a" * 32)
+                self.assertEqual(doc.compensations[1].confirmed_by, "reviewer@example.test")
+                self.assertEqual(offsets.balance(doc, "2025-08-31")["pending_usd"], 70)
+                self.assertEqual(offsets.balance(doc, "2025-09-01")["pending_usd"], 100)
+                doc.save.assert_called_once()
+                self.assertNotIn("compensation_write_token", doc.flags)
+                with self.assertRaises(ValueError):
+                    offsets.guard_delete(doc)
+            self.assertEqual(offsets.get_reversible_compensations("A")["rows"], [])
+            with self.assertRaisesRegex(ValueError, "ya fue revertida"):
+                offsets.reverse_compensation("A", "a" * 32, "2025-09-01", "Otra", "c" * 32)
+            with self.assertRaisesRegex(ValueError, "otros datos"):
+                offsets.reverse_compensation("A", "a" * 32, "2025-09-01", "Otro motivo", "b" * 32)
+
+    def test_reversal_requires_valid_pair_date_reason_and_both_permissions(self):
+        cases = [
+            ("2025-07-31", "Corrección", None),
+            ("2027-01-01", "Corrección", None),
+            ("2025-09-01", "", None),
+            ("2025-09-01", "Corrección", "amount"),
+            ("2025-09-01", "Corrección", "missing"),
+            ("2025-09-01", "Corrección", "permission"),
+        ]
+        for date, reason, problem in cases:
+            with self.subTest(problem=problem, date=date, reason=reason):
+                left, right = self.reversal_pair()
+                if problem == "amount":
+                    right.compensations[0].amount_usd = 29
+                elif problem == "missing":
+                    right.compensations = []
+                elif problem == "permission":
+                    right.check_permission.side_effect = PermissionError
+                with self.reversal_context(left, right), self.assertRaises((ValueError, PermissionError)):
+                    offsets.reverse_compensation("A", "a" * 32, date, reason, "b" * 32)
+                left.save.assert_not_called()
+                right.save.assert_not_called()
 
 
 if __name__ == "__main__":

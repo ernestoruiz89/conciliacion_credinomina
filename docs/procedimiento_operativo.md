@@ -2,13 +2,14 @@
 
 ## Principio de control
 
-La aplicacion separa tres hechos que no deben confundirse:
+La aplicación separa cuatro hechos que no deben confundirse:
 
-1. **Cuota enviada a cobro:** obligacion esperada del trabajador en la planilla.
-2. **Deduccion confirmada:** la empresa demuestra que retuvo el dinero al trabajador. Desde esa fecha el importe confirmado deja de ser un pendiente operativo del trabajador y pasa a ser una cuenta por cobrar a la empresa.
-3. **Depósito y aplicacion:** la empresa deposita el dinero y el core registra la aplicacion al credito.
+1. **Cobranza enviada:** importe solicitado en la planilla; es un dato de control, no una CxC.
+2. **Deducción confirmada:** evidencia de lo retenido por la empresa; permite revisar la primera conciliación, pero no genera por sí misma CxC en esta herramienta.
+3. **Aplicación en el core:** base de la CxC que se debe conciliar, tanto en modalidad histórica como operativa.
+4. **Depósito o compensación vinculada:** cobertura efectiva de la aplicación. Solo reduce su CxC el importe asignado o compensado mediante una partida complementaria confirmada y vinculada.
 
-El atraso de la empresa en remitir el dinero no debe presentarse al cliente como mora por el importe que ya fue deducido y documentado. El estado de cuenta operativo muestra por separado el saldo del trabajador, la cuenta por cobrar a la empresa y el pago pendiente de aplicar en el core.
+La CxC es lo aplicado menos lo depositado/compensado de forma vinculada, sin descontar dos veces los ajustes ya incluidos en el aplicado neto. El estado de cuenta operativo separa esa CxC de las diferencias de cobranza y de los saldos a favor. No determina la mora contractual del trabajador; para ello se consulta el core y la evidencia de deducción.
 
 ## Calendario mensual
 
@@ -18,7 +19,7 @@ Ejemplo para una cuota deducida en abril:
 - La empresa devuelve el detalle definitivo de lo efectivamente deducido.
 - La deduccion confirmada se reconoce con fecha de la evidencia de planilla.
 - La empresa remite el dinero en mayo, dentro del plazo definido en su ficha (por defecto, hasta el dia 10).
-- En mayo se importan los movimientos contables para las aplicaciones. El depósito y su detalle se registran en Distribución de Depósito; la segunda conciliación vincula aplicación y depósito.
+- Se importan los movimientos contables conservando la fecha real de cada aplicación, aunque sea anterior al depósito. El depósito y su detalle se registran en Distribución de Depósito; la segunda conciliación vincula aplicación y depósito/compensación.
 
 El periodo siempre se identifica por el **mes de la planilla**, no por el mes en que llega el deposito.
 
@@ -34,9 +35,9 @@ El periodo siempre se identifica por el **mes de la planilla**, no por el mes en
 
 Resultados posibles:
 
-- **Deduccion total:** trabajador cubierto; se abre cuenta por cobrar a la empresa.
-- **Deduccion parcial:** solo el importe confirmado pasa a la empresa; la diferencia sigue a cargo del trabajador.
-- **No deducido:** no se reconoce pago ni cuenta por cobrar a la empresa. Debe documentarse el motivo y gestionarse recuperacion o reprogramacion.
+- **Deducción total:** la deducción coincide con lo solicitado; no crea ni liquida por sí sola CxC.
+- **Deducción parcial:** se documenta la diferencia de la primera conciliación; no se convierte automáticamente en deuda del trabajador.
+- **No deducido:** se documenta el motivo y la gestión necesaria. La CxC de aplicaciones existentes permanece hasta recibir cobertura vinculada, independientemente de esta clasificación.
 - **Deduccion en exceso:** no se aplica automaticamente; queda como excepcion.
 - **Pendiente de detalle:** la empresa aun no envio evidencia. No equivale a pago ni a falta de pago definitiva.
 - **Ambigua o sin coincidencia:** revision humana obligatoria; nunca se asigna por similitud de nombre.
@@ -45,7 +46,7 @@ Resultados posibles:
 
 De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos registrados en Distribución de Depósito (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes y corte asignados explícitamente: mensual, fecha exacta de aplicación o rango inclusivo de fechas. Las fechas de aplicación pueden ser el 15, el 30 o cualquier otro día, incluso de un mes posterior al de cobranza. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Depósito confirmada.
 
-Este saldo **no** prueba que la empresa deba dinero ni que el trabajador no haya pagado: son conclusiones que exigirían la cobranza y la deducción, ausentes en el histórico. Tampoco se registra un pago nuevo en el core. Una aplicación de agosto depositada en septiembre permanece en agosto por su período asignado. Desde **septiembre de 2026**, los períodos nuevos son **Operativos** y usan ambas conciliaciones descritas abajo. Véase la secuencia de carga en `docs/instalacion_y_uso.md`.
+El saldo de aplicaciones sin depósito o compensación vinculada constituye la CxC de esta herramienta, con la misma regla que en operativo. No prueba por sí solo que el trabajador no haya pagado ni registra un pago nuevo en el core. Una aplicación de agosto depositada en septiembre permanece en agosto por su período asignado. Desde **septiembre de 2026**, los períodos nuevos son **Operativos** y usan ambas conciliaciones descritas abajo. Véase la secuencia de carga en `docs/instalacion_y_uso.md`.
 
 ## Cobranza mensual y quincenal
 
@@ -67,8 +68,8 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 
 - Registrar el monto efectivamente deducido, incluso si es cero.
 - Usar la excepcion para documentar `subsidio`, `suspension`, `ingreso insuficiente` u otra causa.
-- Mantener la diferencia como pendiente del trabajador hasta que exista un nuevo acuerdo, reprogramacion o recuperacion autorizada.
-- No trasladar a la empresa un importe que no retuvo, salvo que el convenio le asigne expresamente esa responsabilidad.
+- Mantener la diferencia como pendiente de aclaración de cobranza; no sumarla a la CxC ni presentarla automáticamente como deuda del trabajador.
+- Determinar cualquier responsabilidad contractual fuera de este cálculo de conciliación, con el convenio y la evidencia correspondiente.
 - No capitalizar, condonar ni reprogramar automaticamente desde esta aplicacion; esas decisiones pertenecen al core y a las politicas de credito.
 
 ## Cuando el detalle llega tarde
@@ -77,7 +78,7 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 - No se simula una deduccion para cuadrar el deposito.
 - Cuando llegue la evidencia, se importa al periodo original aunque el archivo llegue a finales de mayo.
 - Si el deposito llega antes que el detalle, puede quedar registrado y confirmado sin asignar todavía a una cobranza. Cuando llegue evidencia posterior, se recalcula la conciliación; una aplicación enlazada antes de comprobar la deducción se muestra como **provisional**, no como descuento salarial confirmado.
-- Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` solo corresponde cuando todas las cuotas y los depósitos están liquidados y no quedan saldos del empleado ni excepciones abiertas.
+- Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` exige resolver las revisiones de la primera conciliación y liquidar las aplicaciones, sin excepciones abiertas. Una diferencia de cobranza no es por sí misma deuda del empleado.
 - Un período `Cerrado` queda en solo lectura. Si se descubre una corrección necesaria, un supervisor o administrador debe usar **Reabrir período** y documentar el motivo; después revisa nuevamente los saldos y ejecuta el cierre otra vez.
 
 ## Conciliacion 2: aplicaciones contra deposito
@@ -117,7 +118,9 @@ El depósito se registra en el depósito por su importe total, aunque supere las
 
 ## Página de control
 
-**Control de Credinómina** abre con **Qué falta hacer**, una lista de evidencia y acciones pendientes ordenada para la operación diaria: detalle de empresa, aplicaciones sin período, detalle de depósito por revisar y saldos sin clasificar. Debajo muestra una matriz por empresa y mes de planilla, inspirada en el tablero facilitado. Cada celda presenta remitido frente a deducido, estado y cuenta por cobrar; al abrirla se ven las cuotas, excepciones y saldos a favor del período. También lista depósitos con saldo a favor documentado o sin asignar, mostrando cada porción por separado. Usa datos reales de esta app; no reproduce cifras ficticias ni envía datos a Gemini u otro servicio externo.
+**Control de Credinómina** separa **Calendario** y **Trabajo de conciliación** en pestañas. La bandeja reúne detalle de empresa, aplicaciones sin período, depósitos por revisar, complementarias, saldos a favor por gestionar y excepciones aunque no tengan período. Siempre consulta **todos los años**, independientemente del año elegido para el calendario, cifras de control y Excel. Filtre por empresa, tipo de pendiente, responsable o compromiso; el filtro considera todas las páginas. La bandeja se carga al abrir su pestaña; si falla, muestra un aviso y permite reintentar, sin presentar un conjunto parcial como completo. La celda mensual muestra por separado los depósitos completos recibidos ese mes, aunque paguen períodos anteriores. El efectivo no debe sumarse otra vez a sus asignaciones.
+
+En el formulario del depósito, **depositado = asignado + saldo a favor documentado + sin asignar ni justificar**. Un depósito completamente distribuido puede mostrar **Conciliado con saldo a favor** y, simultáneamente, una gestión de devolución o aplicación futura pendiente. El saldo a favor original se conserva aunque su gestión se complete; no se vuelve a liberar ese efectivo para pagar otra aplicación. El estado de conciliación no certifica por sí mismo el registro contable en el core. Si el importe no cuadra o el detalle sigue por revisar, no se muestra en verde aunque el resultado guardado diga «Conciliado».
 
 El ejemplo HTML divide cada mes en dos quincenas. Esta versión conserva una celda mensual por empresa que suma los períodos disponibles y muestra cada quincena como acceso separado al detalle; no muestra una quincena inexistente como si ya estuviera conciliada.
 
@@ -125,32 +128,112 @@ El ejemplo HTML divide cada mes en dos quincenas. Esta versión conserva una cel
 
 Si la empresa deposita US$100, el core aplica US$90 al crédito y los US$10 restantes son una cobranza administrativa asentada en otro comprobante:
 
-1. Crear una **Partida Complementaria** con la misma referencia del depósito, el concepto, número y línea del asiento, fecha, importe y justificación. Si el asiento está en C$, registrar la tasa C$/US$ y su evidencia.
+1. Crear una **Partida Complementaria** con referencia, concepto, fecha, importe y justificación. El asiento puede completarse después; si falta, dé seguimiento con **Crear / Ver excepción → Registrar ajuste en el core** y verifique el registro contra la importación contable. Si el importe está en C$, indique la tasa C$/US$.
 2. El supervisor revisa y confirma la partida. Solo las partidas confirmadas participan en la conciliación. No se genera ni se modifica el asiento contable desde esta app.
 3. Si esos US$10 corresponden a una cuota concreta, indicar crédito y, de ser necesario, empresa, período, cliente y número de cuota. Solo se atribuyen a la fila de cobranza cuando el enlace es único. Sin ese enlace, cuadran el depósito pero no reducen un saldo individual.
 4. Al recalcular, la segunda conciliación puede asignar **US$90 a la cobranza del crédito + US$10 a la partida complementaria = US$100 depositados**. El estado de cuenta mantiene visibles los US$90 de aplicación y los US$10 administrativos por separado; no registra ficticiamente US$100 como pago del préstamo. Si el reparto no es único, debe documentarse con Distribuciones de Depósito.
 
-La referencia sola no prueba que una partida pertenezca a un cliente. Deben conservarse el comprobante y la justificación; si falta cualquiera de ellos, el caso permanece para revisión humana.
+La referencia sola no prueba que una partida pertenezca a un cliente. Conserve la justificación y documente el comprobante cuando exista. La cabecera de la partida separa importe utilizado, pendiente financiero y situación contable: conciliar no equivale a contabilizar.
 
 ## Estado de cuenta al cliente
+
+**Estado de Cuenta Operativo** presenta la posición actual en tres tipos de fila:
+
+- **Cobranza**: importe solicitado, deducido, cuota no deducida y pendiente de
+  aplicación en el core. Son controles informativos, no deuda calculada.
+- **Aplicación**: aplicado neto de ajustes confirmados, depósito asignado,
+  tolerancia y pendiente. Incluye histórico, operativo y aplicaciones sin período;
+  si varias aplicaciones comparten una cobranza, su efectivo se cuenta una vez.
+- **Partida complementaria**: importe original, utilizado, pendiente financiero,
+  situación contable y saldo a favor pendiente de gestión. El documento enlazado
+  conserva las gestiones y sus reversiones.
+
+Use **Tipo de posición** para reducir las columnas cuando revise una etapa.
+La cobranza solicitada y lo no deducido son datos informativos de la primera
+conciliación: **no generan una cuenta por cobrar**. La CxC de esta herramienta
+es el **aplicado en el core menos depósitos asignados y compensaciones confirmadas
+vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se
+restan dos veces. La tolerancia permanece identificada por separado.
+Por ejemplo, aplicado US$100, ajuste confirmado US$20 y depósito US$30 dejan
+CxC US$50, sin importar cuánto se había solicitado cobrar.
+
+La CxC y el saldo a favor pendiente de gestión no se compensan automáticamente.
+Las partidas genéricas de
+empresa no se atribuyen automáticamente a una persona. Los enlaces de origen
+y las filas identificadas permiten revisar las aplicaciones agrupadas.
+
+Los filtros Desde/Hasta usan el mes de cobranza, la fecha de aplicación o la
+fecha de la partida según su tipo. No reconstruyen un saldo de fecha pasada.
+El resumen y la antigüedad recuperan todas las páginas de datos autorizadas,
+sin cortar los totales en 10000 períodos o 100000 filas.
 
 El reporte **Estado de Cuenta Operativo** debe acompanarse del estado oficial del core cuando se requiera capital, intereses y saldo contractual. El reporte de esta app explica las partidas en transito:
 
 - cobrado en planilla;
 - deducido al trabajador;
-- pendiente del trabajador;
+- diferencia de cobranza pendiente de aclarar (informativa);
 - deducido pero pendiente de aplicar en el core;
 - cuenta por cobrar a la empresa;
-- aplicado y remitido.
+- aplicado y depositado/compensado.
 - partida complementaria y diferencia cambiaria, cuando existan, separadas del pago al crédito.
 
-Ante una consulta, el saldo operativo del trabajador excluye cualquier deduccion ya confirmada. Si el core aun no refleja la aplicacion, el estado debe decir expresamente `Deducido por la empresa; pendiente de aplicar en el core` y mostrar la referencia disponible.
+Ante una consulta, no se presenta la diferencia de cobranza como saldo contractual del trabajador. Si el core aún no refleja la aplicación, el estado debe indicar `Deducido por la empresa; pendiente de aplicar en el core` y mostrar la referencia disponible, sin generar CxC de aplicación ficticia.
 
 ## Cierre y controles
 
 - Resolver o justificar todas las excepciones.
-- Verificar que las aplicaciones conciliadas tengan evidencia de deposito.
+- Verificar que las aplicaciones conciliadas tengan cobertura trazable por depósito asignado o compensación confirmada y vinculada.
 - Registrar un corte de control mensual si aún hay partidas abiertas, sin presentarlo como liquidación.
-- Cerrar el periodo solo cuando todas las filas estén aplicadas y remitidas y no quede CxC de empleados sin resolver.
+- Cerrar el período después de resolver las revisiones de cobranza y liquidar las aplicaciones; las diferencias de la primera conciliación no se presentan como CxC.
 - Conservar los archivos originales, su hash, usuario y fecha de importacion.
 - Restringir acceso porque los archivos contienen cedulas e informacion salarial.
+
+## Saldos a favor y rendición
+
+Si se reciben US$1,000, se distribuyen US$800 a créditos, US$100 a cobranza
+administrativa y US$100 a saldo a favor, los US$1,000 quedan explicados, pero
+pueden quedar US$100 por devolver. Ese pendiente de gestión se presenta por
+separado y nunca se convierte en otro pago ni libera el depósito original.
+
+Registre la devolución o aplicación externa, parcial o total, con responsable,
+fecha compromiso, referencia y soporte. Una clasificación equivocada se
+cancela expresamente antes de redistribuir, siempre que no existan gestiones
+realizadas ni períodos cerrados afectados. No compense automáticamente saldos
+de personas o empresas distintas.
+
+Para rendir el mes sin detener datos tardíos, registre un corte de control y
+consulte **Más opciones → Ver cortes registrados**. Cada corte conserva Excel
+y JSON privados del período con las cifras de ese momento. La antigüedad
+normal es actual; no debe presentarse como reconstrucción de una fecha pasada.
+Respalde tanto la base (incluido Version) como los archivos privados.
+
+## Corrección trazable de gestiones y compensaciones
+
+En un saldo a favor, use **Revertir gestión** para corregir una devolución o
+aplicación externa registrada por error. Seleccione la gestión original e indique
+fecha y motivo. La app agrega una entrada negativa enlazada al registro original;
+no elimina el historial, no modifica el asiento del core y no libera efectivo del
+depósito. El importe vuelve a quedar pendiente de gestión. No se puede cancelar
+la partida para borrar ese historial, aunque todas sus gestiones estén revertidas.
+
+En una compensación entre partidas, use **Revertir compensación**. La reversión
+se registra en ambas partidas dentro de una sola transacción y restaura sus
+pendientes por el importe original compensado. La fecha no puede preceder al
+último movimiento de cualquiera de las dos partidas. Las consultas a fechas
+anteriores conservan el saldo que correspondía antes de la reversión. Repetir
+una misma confirmación no duplica su efecto. Se requieren permisos de escritura
+y confirmación en ambas partidas; los períodos cerrados siguen protegidos.
+
+## Evidencia de registro en el core
+
+Escribir un comprobante deja la partida como **Asiento informado**, no como
+registro verificado. **Importada del core** indica que existe evidencia contable
+original completa, no que se haya aprobado su clasificación o distribución.
+Para la gestión **Registrar ajuste en el core**, la excepción debe comprobar
+el asiento contra la importación antes de mostrar **Registro verificado**.
+Un depósito conciliado puede conservar una gestión contable pendiente.
+
+Un detalle de empresa ausente o inconsistente se muestra como **Detalle de
+empresa pendiente** o **Detalle de empresa por aclarar**. Ni la solicitud de
+cobranza ni la deducción crean esta CxC, incluso cuando el detalle es válido.
+La CxC nace de las aplicaciones y su cobertura confirmada, en ambas modalidades.

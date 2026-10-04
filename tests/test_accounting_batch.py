@@ -2,7 +2,7 @@ import unittest
 from copy import deepcopy
 from datetime import datetime
 
-from credinomina_reconciliation.accounting_batch import accounting_group_csv, group_applications, movement_key
+from credinomina_reconciliation.accounting_batch import accounting_group_csv, accounting_source_records, group_applications, movement_key
 from credinomina_reconciliation.parsers import apply_accounting_currency_override, parse_accounting_movements, read_table
 
 
@@ -47,6 +47,14 @@ class AccountingBatchTest(unittest.TestCase):
         apply_accounting_currency_override(rows, "NIO", "36.6243")
         self.assertEqual(rows[0]["amount_usd"], 22.52)
         self.assertEqual(rows[0]["amount_nio"], 824.78)
+        # A filtered/grouped CSV keeps the workbook row, not its new CSV line 2.
+        indexed = accounting_source_records("individual.csv", content)
+        self.assertEqual(list(indexed), [25])
+        regenerated = accounting_group_csv(indexed, rows)
+        reimported = parse_accounting_movements("reimport.csv", regenerated)
+        self.assertEqual(reimported[0]["source_row"], 25)
+        self.assertEqual(reimported[0]["source_debit"], 824.78)
+        self.assertEqual(reimported[0]["source_description"], rows[0]["source_description"])
 
     def test_groups_by_company_and_exact_day_across_months_and_years(self):
         records = [movement(event_date=day, employer_text=company)

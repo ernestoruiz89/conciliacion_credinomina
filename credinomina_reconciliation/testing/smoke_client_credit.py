@@ -83,6 +83,16 @@ def run():
                 item.credit_commitment_date = "2026-10-05"
                 item.credit_treatment = "Devolución"
                 item.save(); item.submit()
+                # Calendar year must not hide pending financial/accounting management.
+                if mode == "Historica" and included:
+                    from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_control_data, get_work_overview
+                    current_year = get_control_data(2026, employer.name)
+                    assert current_year["work_scope"] == "calendar"
+                    assert not any(task.get("target_name") == item.name for task in current_year["work_items"])
+                    overview = get_work_overview(employer.name)
+                    assert overview["work_scope"] == "Todos"
+                    assert any(task.get("target_name") == item.name and task["kind"] == "credit_management" for task in overview["work_items"])
+                    assert "periods" not in overview and "year" not in overview, "Work fetch must not replace calendar"
                 item.reload(); deposit.reload(); source.reload(); period.reload()
                 assert item.result == credit.RESULT
                 assert (deposit.allocated_usd, deposit.justified_surplus_usd, deposit.unclassified_usd) == (100, 10, 0), deposit.as_dict()
@@ -93,6 +103,17 @@ def run():
                 assert (item.credit_resolved_usd, item.credit_pending_usd, item.credit_management_status) == (0, 10, "Pendiente")
                 assert all(entry.get("partida") != item.name for entry in json.loads(deposit.allocation_detail))
                 assert get_pending_targets(deposit.name)["available_cents"] == 0
+                # The full customer position separates cash-covered applications
+                # from the credit awaiting an external refund, in both modes.
+                from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_operativo.estado_de_cuenta_operativo import execute as customer_position
+                _, position, _, _, position_totals = customer_position({"employer": employer.name, "client_number": marker})
+                applications = [entry for entry in position if entry["position_type"] == "Aplicación"]
+                credits = [entry for entry in position if entry["position_type"] == "Partida complementaria" and entry["source_document"] == item.name]
+                assert len(applications) == len(credits) == 1, position
+                assert applications[0]["applied_usd"] == applications[0]["remitted_usd"] == 100
+                assert applications[0]["applied_pending_usd"] == 0
+                assert credits[0]["credit_pending_usd"] == 10
+                assert [total["value"] for total in position_totals] == [0, 10]
                 overview, = get_cash_deposits(None, deposit_name=deposit.name)
                 assert overview["settled"] and not overview["needs_review"]
                 assert overview["credits_usd"] == 100 and overview["client_credit_usd"] == 10
@@ -157,8 +178,26 @@ def run():
                 item.save(); item.reload()
                 assert item.credit_resolved_usd == 10 and len(json.loads(item.credit_history)) == 2
                 must_fail(lambda: item.cancel())
+                item.reload()
+                history_before = json.loads(item.credit_history)
+                entry = credit.get_management_history(item.name)["rows"][0]
+                reversed_result = credit.reverse_management(item.name, str(item.modified), entry["entry_id"], deposit_date, "Corrección de gestión sintética")
+                item.reload(); deposit.reload(); period.reload()
+                assert reversed_result["pending_usd"] == 4 and item.credit_resolved_usd == 6
+                assert json.loads(item.credit_history)[:2] == history_before
+                must_fail(lambda: credit.reverse_management(item.name, str(item.modified), entry["entry_id"], deposit_date, "Repetición"))
+                second_entry = next(row for row in credit.get_management_history(item.name)["rows"] if row["can_reverse"])
+                credit.reverse_management(item.name, str(item.modified), second_entry["entry_id"], deposit_date, "Corrección de la segunda gestión")
+                item.reload(); deposit.reload(); period.reload()
+                assert item.credit_resolved_usd == 0 and item.credit_pending_usd == 10
+                assert item.credit_management_status == "Pendiente" and len(json.loads(item.credit_history)) == 4
+                assert deposit.allocation_detail == distribution and deposit.justified_surplus_usd == 10
+                assert period.status == "Cerrado" and period.applied_usd == 100 and period.remitted_usd == 100
+                assert deposit.amount_usd - deposit.allocated_usd - deposit.justified_surplus_usd == 0
+                must_fail(lambda: get_pending_targets(deposit.name))  # Closed period remains locked.
+                must_fail(lambda: item.cancel())
             return {"both_modes": True, "authorized_other_payer": True, "excess_inside_and_outside_detail": True, "NIO_deposit_USD_reconciliation": True, "application": 100, "client_credit": 10,
-                    "original_GL_preserved": True, "closed_period_management": True, "partial_and_full_management": True,
+                    "original_GL_preserved": True, "closed_period_management": True, "partial_and_full_management": True, "append_only_reversal_without_freeing_cash": True,
                     "no_double_use": True, "complete_deposit_distribution": True, "create_credit_from_detail": True, "rolled_back": True}
     finally:
         frappe.db.rollback()

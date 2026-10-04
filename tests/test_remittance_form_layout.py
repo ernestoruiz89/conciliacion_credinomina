@@ -30,6 +30,9 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         self.assertEqual(doc["field_order"][target_index - 2:target_index],
                          ["select_pending_targets", "link_detail_targets"])
         self.assertTrue(fields["technical_section"]["collapsible"])
+        self.assertGreater(doc["field_order"].index("unallocated_usd"), doc["field_order"].index("technical_section"))
+        self.assertIn("Incluye los saldos a favor", fields["unallocated_usd"]["description"])
+        self.assertEqual(fields["unclassified_usd"]["label"], "Sin asignar ni justificar US$")
         self.assertTrue(fields["result"]["allow_on_submit"])
         self.assertFalse(fields["detail_rows"].get("read_only"))
         self.assertTrue(fields["detail_rows"]["allow_on_submit"])

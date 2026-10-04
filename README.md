@@ -14,7 +14,7 @@ no deducida de una deducción ya realizada pero aún no remitida o aplicada.
 
 | Período | Qué se concilia | Qué no se presume |
 | --- | --- | --- |
-| **Histórico: abril 2025 – agosto 2026** | Aplicaciones del core contra depósitos registrados con soporte. | No se reconstruye la cobranza ni la deducción de planilla; una aplicación sin depósito no se presenta como deuda del trabajador o de la empresa. |
+| **Histórico: abril 2025 – agosto 2026** | Aplicaciones del core contra depósitos y compensaciones confirmadas. | No se reconstruye la cobranza ni la deducción de planilla. La CxC es lo aplicado pendiente de cubrir, igual que en operativo. |
 | **Operativo: desde septiembre 2026** | Cobranza, detalle de deducción y aplicación; después, aplicación contra depósito. | Una deducción no se convierte en pago aplicado al crédito hasta que el core lo confirme. |
 
 La cobranza puede ser **mensual o quincenal** por empresa. Cada quincena tiene
@@ -664,8 +664,8 @@ El año corresponde al mes de cobranza para aplicaciones vinculadas (fecha de
 aplicación para las no vinculadas), fecha de depósito para efectivo, fecha de
 partida para saldos a favor y fecha compromiso para excepciones. Se muestran
 saldos actuales, no saldos reconstruidos a una fecha pasada. Los saldos de
-clientes usan su pendiente de gestión; los de empresa muestran el documentado
-vigente, pues aún no tienen seguimiento de devoluciones parciales. Las cifras
+clientes y empresas usan su pendiente de gestión, descontando devoluciones o
+aplicaciones externas documentadas, sin volver a liberar el efectivo original. Las cifras
 de cobranza, deducción y tolerancia se conservan en **Detalle del proceso**.
 La exportación tiene sus propias hojas de seguimiento y un resumen por empresa y mes.
 Sus bases de fecha se explican en la hoja **Guía**; no se debe restar el efectivo
@@ -692,10 +692,15 @@ períodos pendientes no se muestra conciliado. La opción cambia solo la vista,
 no los registros ni el Excel exportado.
 
 Al final del mes, si aún falta evidencia o dinero, use **Registrar corte de
-control** en el período. Guarda fecha, responsable, saldos y siguiente gestión
-sin bloquear archivos que lleguen después. **Cerrar período** es distinto:
-requiere las cuotas aplicadas y remitidas, sin saldos del empleado ni
-excepciones abiertas; después solo un supervisor puede reabrirlo con motivo.
+control** en el período. Guarda fecha, responsable, saldos y siguiente gestión,
+además de archivos privados Excel y JSON con los valores de ese momento.
+**Más opciones → Ver cortes registrados** permite consultar cada corte sin
+recalcularlo con datos posteriores. Su alcance es ese período, no todos los
+depósitos o saldos de la empresa. No bloquea archivos que lleguen después.
+**Cerrar período** es distinto:
+requiere resolver las revisiones de cobranza y liquidar las aplicaciones,
+sin excepciones abiertas; no convierte lo no deducido en deuda del empleado.
+Después solo un supervisor puede reabrirlo con motivo.
 El cierre actualiza las conciliaciones de la empresa y su grupo financiero
 relacionado (pagadoras y partidas genéricas compartidas), no las de todas las
 empresas del sitio. Revisa datos recientes y depósitos vinculados aunque sean
@@ -757,7 +762,7 @@ por partida de ambas modalidades, sin compensar excedentes de otros clientes
 ni usar pagos de partidas complementarias para cubrir créditos. Se conserva
 por separado **Deducido sin depósito asignado USD**, porque no mide lo mismo.
 **N/D** indica un dato no disponible o no aplicable, no un cero; los totales
-de cobranza, deducción y CxC a empleados suman únicamente los datos disponibles.
+de cobranza y deducción suman únicamente los datos disponibles; son informativas, no CxC.
 
 Las **excepciones** permiten registrar una causa clasificada, responsable,
 próxima gestión, fecha compromiso, referencia y soporte. Al pasar a **En
@@ -805,22 +810,23 @@ El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
-El reporte **Antigüedad de Saldos** separa por empresa y cliente las cuotas
-no deducidas, las deducciones sin depósito asignado y las filas sin detalle de
-empresa. Distribuye cada importe en bandas de 1–30, 31–60, 61–90 y más de
-90 días desde su fecha de referencia. Es un control operativo de saldos
-actuales, no un cálculo de provisión ni una reconstrucción histórica; para
-provisionar hay que cotejar el saldo y la mora del crédito en el core y aplicar
-la política vigente de la IMF. Un depósito recibido sin detalle puede estar
-cubriendo deducciones aún no asignadas por cliente: no sume ambos importes ni
-interprete la deducción sin depósito asignado como CxC confirmada.
+El reporte **Antigüedad de Saldos** consulta por defecto la CxC de aplicaciones:
+**aplicado en el core menos depósitos asignados y compensaciones confirmadas
+vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se
+restan nuevamente. Conserva la tolerancia identificada por separado y no usa
+saldos a favor sin distribución como pagos. Es el saldo actual, no una
+reconstrucción contable histórica.
 
-El tablero muestra **CxC a empleados (no deducido)** por año, período y cliente:
+Los otros tipos permiten consultar diferencias de cobranza, deducciones sin
+depósito asignado y detalle pendiente, únicamente como seguimiento de la
+primera conciliación. Estos importes no generan CxC y no se suman a ella.
+
+El tablero muestra **Cobranza no deducida (informativo)** por año, período y cliente:
 es la cuota enviada menos lo efectivamente deducido, únicamente cuando se
 recibió el detalle de la empresa. Una cuota sin detalle permanece en **Detalle
-pendiente**, no se presume deuda del empleado. La cifra es un control operativo
-en US$ y debe cotejarse con el saldo oficial del crédito en el core. En
-períodos históricos no se infiere CxC a empleados ni a empresas.
+pendiente**. Es información de la primera conciliación, no deuda del empleado.
+En ambas modalidades, la CxC se determina exclusivamente por las aplicaciones
+y su cobertura confirmada, no por la cobranza solicitada.
 
 ## Depósitos incluidos en movimientos contables
 
@@ -925,6 +931,72 @@ después de actualizar el código, compile los recursos y reinicie los procesos.
 No se vinculan empresas existentes automáticamente.
 
 ## Desarrollo y documentación
+
+### Controles de saldos y seguimiento
+
+En el depósito se deben distinguir dos preguntas: **¿está explicado todo el
+dinero recibido?** y **¿se completaron las gestiones pendientes?** Un saldo a
+favor documentado explica una parte del depósito, pero puede seguir pendiente
+de devolución o aplicación externa. No es un nuevo pago del préstamo.
+
+- Los saldos a favor de **clientes y empresas** reservan el efectivo de su
+  depósito. Ni una nueva aplicación ni otra conciliación pueden reutilizarlo.
+  Si se clasificó por error, cancele expresamente la partida antes de reasignar;
+  no se admite cancelarla cuando ya tiene gestiones realizadas o afecta un
+  período cerrado. Documentar una devolución no libera ese dinero de nuevo.
+- En las partidas de empresa, indique tratamiento, responsable y fecha
+  compromiso. **Registrar gestión** admite importes parciales, fecha real,
+  referencia y soporte; conserva actor, fecha, importe y pendiente en el
+  historial. Los registros antiguos se inicializan como pendientes sin
+  inventar devoluciones, responsables ni fechas compromiso.
+- La cabecera de la **Partida Complementaria** muestra importe original,
+  utilizado y pendiente; separa resultado financiero, estado contable y
+  gestión del saldo a favor. Un asiento registrado no significa conciliación
+  concluida. Los destinos planeados no se cuentan como dinero distribuido.
+- **Trabajo de conciliación** incluye complementarias, saldos a favor por
+  gestionar, registro/verificación en el core y excepciones sin período.
+  Sus filtros por tipo, responsable y compromiso consultan todos los
+  pendientes, no solo la primera página. Use **Todos** en Año para no omitir
+  registros de ejercicios anteriores.
+- **Conciliar** en un depósito afecta ese depósito y sus saldos relacionados.
+  Las acciones de empresa, importación, cierre y cancelación acotan el
+  recálculo al conjunto relacionado; no disparan una conciliación global.
+  Si otra operación cambia los saldos durante el cálculo, la solicitud se
+  rechaza y debe reintentarse tras recargar, evitando usar una lectura antigua.
+
+### Trazabilidad, vencimientos y cortes
+
+El depósito ofrece **Historial de conciliación**: usuario, fecha, motivo,
+importes y distribución anterior/nueva. Al redistribuir un depósito ya asignado
+se solicita un motivo. La actualización financiera y su evidencia se guardan
+en la misma transacción; una operación fallida no conserva media distribución.
+Repetir una conciliación sin cambios no agrega eventos vacíos.
+
+La bitácora y el índice de cortes usan el DocType estándar **Version**. La app
+agrega evidencia, no reescribe la anterior, pero esto **no es un archivo WORM**:
+un administrador de base de datos puede alterarlo. Conserve Version y adjuntos
+privados en los respaldos y excluya esta evidencia de limpiezas automáticas.
+Los archivos de corte incluyen huellas SHA-256 en su índice. El historial
+detallado comienza al instalar esta mejora; no se inventan eventos anteriores.
+
+Cada aplicación conserva su vencimiento calculado al registrarla, según el
+plazo de la empresa. Cambiar `grace_days` no altera movimientos existentes;
+reprocesar la misma fila conserva su fecha. Corregir la empresa o la fecha de
+aplicación recalcula el plazo y deja indicado el nuevo origen. Para los datos
+migrados se usa el plazo vigente **al migrar**, expresamente identificado como
+estimación que no acredita el convenio histórico. Las empresas no identificadas
+no reciben una fecha ficticia de vencimiento.
+
+**Antigüedad de Saldos** sigue mostrando saldos actuales: cambiar su fecha de
+referencia no reconstruye cuánto se debía entonces. Para reproducir una
+rendición anterior use sus archivos de **Corte de control**. Cada archivo
+preserva valores, no fórmulas conectadas al estado actual.
+
+Después de actualizar el código, respalde, ejecute `bench --site <sitio> migrate`,
+compile los recursos y reinicie los procesos. Esta mejora no cambia roles ni
+permisos. La matriz de pruebas, el cuadre de marzo de 2026 y los límites del
+ensayo aislado están en [Pruebas en WSL](docs/pruebas_wsl.md). No sustituyen un
+respaldo verificado ni una validación operativa con la configuración de producción.
 
 La evidencia de la simulación y los comandos de auditoría están en
 [Pruebas en WSL](docs/pruebas_wsl.md).

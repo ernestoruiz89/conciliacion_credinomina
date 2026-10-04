@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
 _WRITE_TOKEN = object()
-_ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key")
+_ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key", "reverses_operation_id")
 _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period",
                   "related_application", "related_import", "registered_deposit", "client_number", "loan_number", "description", "reference")
 
@@ -188,3 +188,71 @@ def get_compensation_balance(item_name, as_of_date):
     doc = frappe.get_doc(DOCTYPE, item_name)
     doc.check_permission("read")
     return _summary(doc, as_of_date)
+
+
+@frappe.whitelist()
+def get_reversible_compensations(item_name):
+    doc = frappe.get_doc(DOCTYPE, item_name)
+    doc.check_permission("read")
+    doc.check_permission("write")
+    reversed_ids = {row.reverses_operation_id for row in doc.compensations if row.get("reverses_operation_id")}
+    return {"request_key": uuid4().hex, "rows": [
+        {field: row.get(field) for field in ("operation_id", "counterpart", "compensation_date", "amount_usd", "reason")}
+        for row in doc.compensations if money(row.amount_usd) > 0 and row.operation_id not in reversed_ids
+    ]}
+
+
+@frappe.whitelist(methods=["POST"])
+def reverse_compensation(item_name, operation_id, reversal_date, reason, request_key):
+    """Append the opposite entry to both ledgers in one transaction."""
+    if not re.fullmatch(r"[a-f0-9]{32}", request_key or "") or request_key == operation_id:
+        frappe.throw(_("Abra de nuevo el selector de compensaciones para revertir."))
+    source = frappe.get_doc(DOCTYPE, item_name)
+    source.check_permission("read")
+    selected = next((row for row in source.compensations if row.operation_id == operation_id), None)
+    if not selected or money(selected.amount_usd) <= 0 or selected.get("reverses_operation_id"):
+        frappe.throw(_("Seleccione una compensación original válida."))
+    left, right = _load_pair(item_name, selected.counterpart, "submit")
+    left.check_permission("write")
+    right.check_permission("write")
+    _validate_pair(left, right)
+    reason = (reason or "").strip()
+    if not reason or not reversal_date:
+        frappe.throw(_("Indique fecha y motivo de la reversión."))
+    date = getdate(reversal_date)
+    originals = [[row for row in doc.compensations if row.operation_id == operation_id] for doc in (left, right)]
+    if not all(len(rows) == 1 for rows in originals):
+        frappe.throw(_("No se encuentran ambas partes de la compensación. Revise el historial."))
+    amount = money(originals[0][0].amount_usd)
+    if amount <= 0 or any(money(rows[0].amount_usd) != amount or rows[0].counterpart != other.name
+                         or rows[0].get("reverses_operation_id")
+                         for rows, other in zip(originals, (right, left))):
+        frappe.throw(_("Las dos partes de la compensación no coinciden."))
+    existing = [[row for row in doc.compensations if row.operation_id == request_key] for doc in (left, right)]
+    if any(existing):
+        if all(len(rows) == 1 for rows in existing) and all(
+            money(rows[0].amount_usd) == -amount and rows[0].reverses_operation_id == operation_id
+            and getdate(rows[0].compensation_date) == date and rows[0].reason == reason
+            and rows[0].counterpart == other.name for rows, other in zip(existing, (right, left))
+        ):
+            return {"left": _summary(left), "right": _summary(right)}
+        frappe.throw(_("Esta confirmación ya se utilizó con otros datos."))
+    if any(row.get("reverses_operation_id") == operation_id for doc in (left, right) for row in doc.compensations):
+        frappe.throw(_("La compensación ya fue revertida."))
+    latest = max(getdate(row.compensation_date) for doc in (left, right) for row in doc.compensations)
+    if date > getdate(nowdate()) or date < latest:
+        frappe.throw(_("La reversión no puede ser futura ni anterior a las compensaciones registradas."))
+    if any(money(balance(doc)["compensated_usd"]) < amount for doc in (left, right)):
+        frappe.throw(_("El saldo compensado no coincide con el historial."))
+    for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
+        other = right if doc.name == left.name else left
+        doc.append("compensations", {"operation_id": request_key, "entry_key": f"{request_key}-{index}",
+            "reverses_operation_id": operation_id, "counterpart": other.name,
+            "compensation_date": date, "amount_usd": -money_float(amount), "reason": reason,
+            "confirmed_by": frappe.session.user, "confirmed_on": now_datetime()})
+        doc.flags.compensation_write_token = _WRITE_TOKEN
+        try:
+            doc.save()
+        finally:
+            doc.flags.pop("compensation_write_token", None)
+    return {"left": _summary(left), "right": _summary(right)}
