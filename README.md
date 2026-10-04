@@ -102,6 +102,13 @@ importes permiten un cruce único.
   directamente al depósito confirmado, sin agregarse a los destinos ni al
   detalle de clientes: no es pago de crédito ni ingreso administrativo. El
   excedente sin explicar sigue sin conciliar.
+  En un depósito confirmado con saldo sin clasificar, el botón directo
+  **Crear saldo a favor de la empresa** propone ese saldo en US$ y abre el modal
+  con el concepto seleccionado. Requiere permisos para crear y confirmar partidas,
+  motivo, justificación, responsable y fecha compromiso. Revise si el excedente
+  pertenece a la empresa o a un cliente y si ya existe una partida contable antes
+  de confirmar. Se consulta después en **Distribución completa** y **Ver saldos
+  a favor**; no se agrega como pago de crédito en la tabla Destinos.
 - **Saldo a favor del cliente**, en Partidas Complementarias, identifica el
   excedente de una persona sin incrementar lo aplicado al crédito. Seleccione
   cliente, depósito confirmado, importe positivo, motivo, responsable y fecha

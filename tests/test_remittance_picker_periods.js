@@ -6,7 +6,8 @@ const path = require("node:path");
 
 function wrapper() {
     return {
-        content: "", handlers: new Map(),
+        content: "", handlers: new Map(), attrs: {},
+        attr(values) { Object.assign(this.attrs, values); return this; },
         html(value) { this.content = value; return this; },
         on(event, selector, handler) { this.handlers.set(`${event}:${selector}`, handler); return this; },
         val() { return this.value || ""; },
@@ -19,6 +20,7 @@ class Dialog {
         this.fields_dict = {};
         this.values = {};
         this.$wrapper = wrapper();
+        this.minimizeButton = wrapper();
         for (const field of options.fields) {
             if (!field.fieldname) continue;
             this.fields_dict[field.fieldname] = { df: field, $input: wrapper(), $wrapper: wrapper() };
@@ -31,6 +33,7 @@ class Dialog {
         this.fields_dict[name].df.onchange?.();
     }
     get_primary_btn() { return wrapper(); }
+    get_minimize_btn() { return this.minimizeButton; }
     show() {}
 }
 const context = {
@@ -62,6 +65,18 @@ assert.equal(query().filters.status[1], "Cerrado");
 // All pages selected by the existing action stay limited to the chosen periods.
 picker.dialog.fields_dict.items.$wrapper.handlers.get("click:[data-action]")({currentTarget: {dataset: {action: "select"}}});
 assert.deepEqual(Array.from(picker.selected.keys()), ["H:A", "H:B", "C:A", "X:B"]);
+// Use Frappe's native minimization: the picker and its fields are not recreated.
+assert.equal(picker.dialog.options.minimizable, true);
+assert.equal(picker.dialog.minimizeButton.attrs["aria-label"], "Minimizar selector de partidas");
+const selectedBefore = Array.from(picker.selected.entries());
+const itemsBefore = picker.dialog.fields_dict.items.$wrapper.content;
+picker.dialog.options.on_minimize_toggle.call(picker.dialog, true);
+assert.equal(picker.dialog.minimizeButton.attrs.title, "Restaurar selector de partidas");
+picker.dialog.options.on_minimize_toggle.call(picker.dialog, false);
+assert.equal(picker.dialog.minimizeButton.attrs["aria-label"], "Minimizar selector de partidas");
+assert.deepEqual(Array.from(picker.selected.entries()), selectedBefore);
+assert.equal(picker.dialog.fields_dict.items.$wrapper.content, itemsBefore);
+assert.equal(picker.dialog.get_value("use_detail_periods"), 1);
 picker.selected.clear();
 
 // The multi-period check intersects the existing type, company, search and single-period filters.
