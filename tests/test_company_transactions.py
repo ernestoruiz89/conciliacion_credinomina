@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import frappe
 
-from credinomina_reconciliation.company_transactions import application_state, deposit_state, monthly_counts
+from credinomina_reconciliation.company_transactions import application_state, deposit_state, monthly_counts, application_month_amounts, deposit_month_amounts
 from credinomina_reconciliation.conciliacion_credinomina.report.transacciones_por_empresa import transacciones_por_empresa as report
 
 
@@ -38,8 +38,66 @@ class CompanyTransactionsTests(unittest.TestCase):
             self.assertEqual(application_state(settled, {"status": "Borrador"}), "Pendiente")
             self.assertEqual(application_state(settled | {"effective": 0}, parent), "Pendiente")
             self.assertEqual(application_state(settled | {"match_status": "Ignorado"}, parent), "Pendiente")
-        for data in ({"deposit_match_status": "Depósito parcial"}, {"application_adjustment_usd": -10}, {"historical_remitted_usd": 10}):
+        for data in ({"deposit_match_status": "Depósito parcial"}, {"application_adjustment_usd": 10}, {"historical_remitted_usd": 10}):
             self.assertEqual(application_state(row | data, parent), "Parcial")
+        self.assertEqual(application_state(row | {"application_adjustment_usd": -10}, parent), "Pendiente")
+
+    def test_amount_percentage_is_weighted_not_based_on_count(self):
+        imports = {"I": {"status": "Importado", "employer": "A"}}
+        rows = [dict(name=str(index), parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="USD", amount=1,
+                     effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado") for index in range(9)]
+        rows.append(dict(rows[0], name="BIG", amount=991, deposit_match_status="Pendiente"))
+        amounts = application_month_amounts(rows, imports, {})
+        self.assertEqual(amounts[("A", "2025-04")], {"total_usd": 1000, "covered_usd": 9})
+        records = [dict(employer="A", date=row["event_date"], state=application_state(row, imports["I"])) for row in rows]
+        result = monthly_counts(records, 2025, amounts)[0]
+        self.assertEqual(result["m04"], 10)
+        self.assertEqual(result["m04_percentage"], 0.9)
+        self.assertFalse(result["m04_half_covered"])
+
+    def test_deposit_threshold_uses_exact_cents_and_drafts_add_no_coverage(self):
+        for paid, yellow in (("49.99", False), ("50", True), ("50.01", True)):
+            row = dict(employer="A", deposit_date="2025-04-30", docstatus=1, amount_usd=100, allocated_usd=paid)
+            amounts = deposit_month_amounts([row])
+            matrix = monthly_counts([dict(employer="A", date=row["deposit_date"], state="Parcial")], 2025, amounts)[0]
+            self.assertEqual(matrix["m04_half_covered"], yellow)
+        amounts = deposit_month_amounts([row, dict(row, docstatus=0, allocated_usd=100)])
+        self.assertEqual(amounts[("A", "2025-04")]["total_usd"], 200)
+        self.assertEqual(float(amounts[("A", "2025-04")]["covered_usd"]), 50.01)
+        matrix = monthly_counts([dict(employer="A", date="2025-04-30", state="Parcial")], 2025,
+            {("A", "2025-04"): {"total_usd": 100001, "covered_usd": 50000}})[0]
+        self.assertFalse(matrix["m04_half_covered"])
+
+    def test_historical_cash_and_positive_compensation_count_once(self):
+        imports = {"I": {"status": "Importado", "employer": "A", "historical_period": "P"}}
+        row = dict(name="R", parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="USD", amount=100,
+                   effective=1, match_status="Conciliado", deposit_match_status="Depósito parcial", client_number="1",
+                   application_adjustment_usd=20, historical_remitted_usd=30)
+        self.assertEqual(application_month_amounts([row], imports, {})[("A", "2025-04")], {"total_usd": 100, "covered_usd": 50})
+        row.update(application_adjustment_usd=25, historical_remitted_usd=0)
+        self.assertEqual(application_month_amounts([row], imports, {})[("A", "2025-04")]["covered_usd"], 25)
+        row.update(application_adjustment_usd=-25, historical_remitted_usd=50)
+        self.assertEqual(application_month_amounts([row], imports, {})[("A", "2025-04")], {"total_usd": 125, "covered_usd": 50})
+
+    def test_operative_cash_is_counted_once_and_shared_cross_month_cash_is_unknown(self):
+        imports = {"I": {"status": "Importado", "employer": "A"}}
+        row = dict(name="R", parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="USD", amount=100,
+                   effective=1, match_status="Conciliado", deposit_match_status="Depósito parcial", client_number="1", collection_row_id="C")
+        collections = {"C": dict(applied_usd=100, remittance_detail='[{"importe_usd":60},{"destino":"Partida complementaria","importe_usd":10}]')}
+        self.assertEqual(application_month_amounts([row], imports, collections)[("A", "2025-04")], {"total_usd": 100, "covered_usd": 60})
+        collections["C"]["applied_usd"] = 200
+        amounts = application_month_amounts([row, dict(row, name="R2", event_date="2025-05-15")], imports, collections)
+        self.assertIsNone(amounts[("A", "2025-04")]["covered_usd"])
+        self.assertIsNone(amounts[("A", "2025-05")]["covered_usd"])
+        amounts = application_month_amounts([row, dict(row, name="R2")], imports, collections)
+        self.assertEqual(amounts[("A", "2025-04")], {"total_usd": 200, "covered_usd": 60})
+
+    def test_conversion_and_missing_fx_do_not_invent_percentages(self):
+        imports = {"I": {"status": "Importado", "employer": "A"}}
+        row = dict(name="R", parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="NIO", amount=3662.43,
+                   manual_fx_rate=36.6243, effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado")
+        self.assertEqual(application_month_amounts([row], imports, {})[("A", "2025-04")], {"total_usd": 100, "covered_usd": 100})
+        self.assertIsNone(application_month_amounts([dict(row, manual_fx_rate=0)], imports, {})[("A", "2025-04")]["total_usd"])
 
     def test_deposits_require_confirmed_complete_distribution(self):
         row = {"docstatus": 1, "amount_usd": 100, "allocated_usd": 100, "result": "Conciliado"}

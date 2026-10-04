@@ -32,4 +32,13 @@ assert.ok(formatter(0, "m01", {}).includes("Sin transacciones"));
 assert.ok(!formatter(0, "m01", {}).includes("background"));
 assert.equal(report.formatter("value", null, null, {}, value => value), "value");
 assert.ok(!formatter(1, "m01", {m01_state: '<script>"'}).includes("<script>"));
+for (const [percentage, halfCovered, color] of [[49.99, false, "#ffedd5"], [50, true, "#fef9c3"], [75, true, "#fef9c3"]]) {
+    const result = formatter(5, "m04", {m04_state: "Parcial", m04_percentage: percentage,
+        m04_half_covered: halfCovered, m04_total_usd: 100, m04_covered_usd: percentage});
+    assert.ok(result.includes(color));
+    assert.ok(result.includes("Importe conciliado"));
+    assert.ok(result.includes(" / 100.00"));
+}
+assert.ok(formatter(5, "m04", {m04_state: "Parcial", m04_percentage: null, m04_half_covered: false}).includes("Porcentaje del importe no disponible"));
+assert.ok(formatter(5, "m04", {m04_state: "Conciliado", m04_percentage: 100, m04_half_covered: true}).includes("#dcfce7"));
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");

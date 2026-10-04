@@ -493,9 +493,17 @@ por defecto).
   por fecha del movimiento, no la cantidad de documentos ni de períodos.
 - Depósitos: cuenta cada `CN Remittance Allocation` por fecha del depósito y
   empresa pagadora; distribuirlo entre varios períodos no multiplica el conteo.
-- Verde: todas conciliadas; naranja: alguna parcial o una mezcla de conciliadas
-  y pendientes; rojo: todas pendientes. Los meses vacíos muestran «—».
-- Al pasar el cursor por una celda se muestran los conteos por estado.
+- Verde: todas conciliadas; rojo: todas pendientes. En meses parcialmente
+  conciliados, naranja si la cobertura del importe es menor al 50% y amarillo
+  desde el 50%. Los meses vacíos muestran «—».
+- El porcentaje pondera los importes US$ del mes, no la cantidad de transacciones.
+  El depósito permanece en el mes de su fecha y considera toda su distribución,
+  aunque cubra otros meses. La aplicación permanece en el mes de su fecha y
+  considera depósitos y compensaciones confirmadas de cualquier mes.
+- Al pasar el cursor por una celda se muestran los conteos, importes y porcentaje.
+  Si falta conversión o la distribución compartida no permite atribuir el pago
+  entre aplicaciones de distintos meses, se indica «Porcentaje no disponible»
+  y se mantiene naranja, sin inventar un reparto.
 
 Se utiliza la conciliación actual contra depósitos/ajustes confirmados, no solo
 el cruce con cobranza. Un depósito totalmente distribuido con saldo a favor
