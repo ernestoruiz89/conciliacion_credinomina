@@ -19,11 +19,17 @@ for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#ffedd5"],
     assert.ok(result.includes("Parciales: 1"));
     assert.ok(result.includes("Pendientes: 1"));
     assert.ok(result.includes('aria-label="'));
-    assert.ok(result.endsWith(">5</span>"));
+    assert.ok(result.includes("width:calc(100% + 8px)"));
+    assert.ok(result.includes("margin:-4px;padding:4px"));
+    assert.ok(result.includes("box-sizing:border-box;text-align:right"));
+    assert.ok(result.endsWith(">5</div>"));
+    assert.ok(formatter(500, "m04", {m04_state: state}).includes(color));
 }
-assert.equal(formatter(8, "total", {}), "8");
+assert.equal(formatter(8, "total", {}), '<div style="font-weight:bold;text-align:right">8</div>');
 assert.equal(formatter("A", "employer", {}), "A");
 assert.equal(formatter("", "employer", {}), "Sin empresa identificada");
 assert.ok(formatter(0, "m01", {}).includes("Sin transacciones"));
+assert.ok(!formatter(0, "m01", {}).includes("background"));
+assert.equal(report.formatter("value", null, null, {}, value => value), "value");
 assert.ok(!formatter(1, "m01", {m01_state: '<script>"'}).includes("<script>"));
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");
