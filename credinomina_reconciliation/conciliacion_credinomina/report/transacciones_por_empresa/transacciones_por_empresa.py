@@ -156,10 +156,12 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                                   row.get("parent") or "", cint(row.get("idx")), row.name))
     count = len(selected)
     start = max(cint(start), 0)
-    page = selected[start:start + 100]
-    collections = load_partial_collections(page, parents, partial_only=False) if transaction_type == "Aplicaciones" else {}
+    collections = load_partial_collections(selected, parents, partial_only=False) if transaction_type == "Aplicaciones" else {}
+    amount_fields = (["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
+                     if transaction_type == "Aplicaciones" else ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"])
+    totals = {field: money(0) for field in amount_fields}
     details = []
-    for row in page:
+    for index, row in enumerate(selected):
         item = {"name": row.name, "doctype": doctype, "state": states[row.name]}
         if transaction_type == "Aplicaciones":
             parent = parents[row.parent]
@@ -187,6 +189,11 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                         original_usd=row.get("amount_usd"), assigned_usd=money_float(assigned), surplus_usd=money_float(surplus),
                         pending_usd=money_float(max(money(row.get("amount_usd")) - assigned - surplus, 0)),
                         status_detail=row.get("result") if confirmed else "Borrador")
-        details.append(item)
+        for field in amount_fields:
+            # Unknown attribution/conversion must not produce a misleading partial total.
+            totals[field] = None if totals[field] is None or item.get(field) is None else totals[field] + money(item[field])
+        if start <= index < start + 100:
+            details.append(item)
     return {"rows": details, "total": len(records), "filtered_count": count, "start": start, "page_length": 100,
-            "summary": transaction_summary(records)}
+            "summary": transaction_summary(records),
+            "totals": {field: None if value is None else money_float(value) for field, value in totals.items()}}

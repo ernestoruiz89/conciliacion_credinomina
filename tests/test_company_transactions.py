@@ -156,6 +156,8 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual((row["net_usd"], row["assigned_usd"], row["pending_usd"]), (80, 30, 50))
         self.assertEqual((row["document"], row["name"], row["row_index"]), ("IMPORT", "R", 2))
         self.assertEqual(result["summary"][1]["value"], 1)
+        self.assertEqual(result["totals"], dict(original_usd=100, adjustment_usd=20, net_usd=80,
+                                               assigned_usd=30, rounding_usd=0, pending_usd=50))
 
     def test_deposit_detail_paginates_filters_and_preserves_credit_separately(self):
         rows = [frappe._dict(name=f"DEP-{index:03}", employer="A", deposit_date="2025-04-01", docstatus=1,
@@ -170,11 +172,15 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(len(first["rows"]), 100)
         self.assertEqual(len(last["rows"]), 5)
         self.assertEqual(first["total"], 105)
+        self.assertEqual(first["totals"], dict(original_usd=10500, assigned_usd=8400, surplus_usd=2100, pending_usd=0))
+        self.assertEqual(first["totals"], last["totals"])
         self.assertEqual(found["filtered_count"], 1)
+        self.assertEqual(found["totals"], dict(original_usd=100, assigned_usd=80, surplus_usd=20, pending_usd=0))
         row = found["rows"][0]
         self.assertEqual((row["assigned_usd"], row["surplus_usd"], row["pending_usd"]), (80, 20, 0))
         self.assertEqual(empty["rows"], [])
         self.assertEqual(empty["summary"][0]["value"], 105)
+        self.assertEqual(empty["totals"], dict(original_usd=0, assigned_usd=0, surplus_usd=0, pending_usd=0))
         children.assert_not_called()
 
     def test_detail_never_exposes_shared_operative_cash_as_individual_cash(self):
@@ -186,10 +192,23 @@ class CompanyTransactionsTests(unittest.TestCase):
         with patch.object(frappe, "has_permission", return_value=True), \
                 patch.object(report, "load_transactions", return_value=([dict(name="R", state="Parcial")], [source], {"I": parent})), \
                 patch.object(report, "load_partial_collections", return_value=collections):
-            row = report.get_month_detail(2025, 4, "A")["rows"][0]
+            result = report.get_month_detail(2025, 4, "A")
+            row = result["rows"][0]
         self.assertIsNone(row["assigned_usd"])
         self.assertIsNone(row["pending_usd"])
         self.assertIn("compartida", row["observations"])
+        self.assertIsNone(result["totals"]["assigned_usd"])
+        self.assertIsNone(result["totals"]["pending_usd"])
+        self.assertEqual(result["totals"]["original_usd"], 100)
+
+    def test_detail_totals_sum_decimal_cents(self):
+        rows = [frappe._dict(name=f"D{index}", employer="A", deposit_date="2025-04-01", docstatus=1,
+                            amount_usd=amount, allocated_usd=amount, result="Conciliado")
+                for index, amount in enumerate([0.1, 0.2, 46.52, 46.53])]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            totals = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos")["totals"]
+        self.assertEqual(totals["original_usd"], 93.35)
+        self.assertEqual(totals["assigned_usd"], 93.35)
 
     def test_detail_invalid_filters_and_permission_fail_before_loading(self):
         for values in (dict(year=2025, month=13), dict(year="sql", month=1), dict(year=2025, month=1, state="Otro"),

@@ -93,12 +93,17 @@ frappe.query_reports["Transacciones por Empresa"] = {
                             money(item.original_usd), money(item.assigned_usd), money(item.surplus_usd), money(item.pending_usd), status];
                     return `<tr>${cells.map((cell, index) => `<td style="vertical-align:top;${index >= 4 && index < cells.length - 1 ? "text-align:right;white-space:nowrap" : ""}">${cell}</td>`).join("")}</tr>`;
                 }).join("");
+                const amountFields = isApplication
+                    ? ["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
+                    : ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"];
+                const footer = `<tfoot><tr style="font-weight:700;background:var(--control-bg)"><th colspan="4">${__("Total filtrado")} · ${esc(data.filtered_count)} ${__("transacciones")}</th>
+                    ${amountFields.map(field => `<td style="text-align:right;white-space:nowrap">${money(data.totals?.[field])}</td>`).join("")}<td></td></tr></tfoot>`;
                 const end = start + data.rows.length;
                 wrapper.html(`<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">${cards}</div>
                     <p class="text-muted">${__("Los indicadores cuentan transacciones de esta empresa y mes, no celdas del calendario.")}</p>
-                    <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:14px"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
-                    <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody></table></div>
-                    <p class="text-muted">${__("Importes en US$. — significa que falta conversión o no se puede atribuir el importe individual sin repartir una asignación compartida.")}</p>
+                    <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:12px;line-height:1.4"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
+                    <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody>${footer}</table></div>
+                    <p class="text-muted">${__("El total incluye todas las páginas con los filtros actuales. Importes en US$. — indica que falta conversión o atribución individual; el total de esa columna también queda sin determinar.")}</p>
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span>${esc(data.rows.length ? start + 1 : 0)}–${esc(end)} / ${esc(data.filtered_count)} ${__("transacciones")}</span>
                     <div><button class="btn btn-default btn-sm cn-detail-previous" ${start === 0 ? "disabled" : ""}>${__("Anterior")}</button>
                     <button class="btn btn-default btn-sm cn-detail-next" ${end >= data.filtered_count ? "disabled" : ""}>${__("Siguiente")}</button></div></div>`);

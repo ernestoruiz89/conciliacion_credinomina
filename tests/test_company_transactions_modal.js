@@ -29,7 +29,8 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/report/transacciones_por_empresa/transacciones_por_empresa.js"), "utf8"), context);
 const report = context.frappe.query_reports["Transacciones por Empresa"];
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const payload = rows => ({message: {rows, summary: [{label: "Conciliadas", value: 100}], total: 105, filtered_count: 105, start: 0}});
+const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, net_usd: 8400, assigned_usd: 3150, rounding_usd: 0, pending_usd: 5250}) =>
+    ({message: {rows, totals, summary: [{label: "Conciliadas", value: 100}], total: 105, filtered_count: 105, start: 0}});
 
 (async () => {
     let click, offCalls = 0;
@@ -61,6 +62,11 @@ const payload = rows => ({message: {rows, summary: [{label: "Conciliadas", value
     assert.ok(!dialog.html.includes("<b>Shared</b>"));
     assert.ok(dialog.html.includes("/app/cn-accounting-import/IMPORT%20A%22"));
     assert.ok(dialog.html.includes("Fila 3"));
+    assert.ok(dialog.html.includes('font-size:12px;line-height:1.4'));
+    assert.ok(dialog.html.includes('<tfoot>'));
+    assert.ok(dialog.html.includes('Total filtrado · 105 transacciones'));
+    assert.ok(dialog.html.includes('USD 10500.00')); // Full filtered total, not the single visible row.
+    assert.ok(dialog.html.includes('todas las páginas'));
     dialog.handlers[".cn-detail-next"]();
     assert.equal(calls.at(-1).args.start, 100);
     dialog.handlers[".cn-detail-next"]();
@@ -91,12 +97,19 @@ const payload = rows => ({message: {rows, summary: [{label: "Conciliadas", value
 
     const deposits = report.show_month_detail({year: 2025, month: 4, employer: "A", transaction_type: "Depósitos", include_drafts: 1});
     requests.shift().resolve(payload([{document: "DEP-4-2025-0001", state: "Conciliado", bank_account: "BANPRO",
-        original_currency: "NIO", original_amount: 3662.43, original_usd: 100, assigned_usd: 80, surplus_usd: 20, pending_usd: 0}]));
+        original_currency: "NIO", original_amount: 3662.43, original_usd: 100, assigned_usd: 80, surplus_usd: 20, pending_usd: 0}],
+        {original_usd: 10500, assigned_usd: 8400, surplus_usd: 2100, pending_usd: 0}));
     await flush();
     assert.ok(deposits.html.includes("/app/cn-remittance-allocation/DEP-4-2025-0001"));
     assert.ok(deposits.html.includes("Saldo a favor US$"));
     assert.ok(deposits.html.includes("BANPRO"));
     assert.ok(deposits.html.includes("USD 20.00"));
+    assert.ok(deposits.html.includes("USD 2100.00"));
     assert.ok(deposits.fields[0].options.includes("Incluye borradores"));
+    deposits.primary_action();
+    requests.shift().resolve(payload([], {original_usd: 100, assigned_usd: null, surplus_usd: 0, pending_usd: null}));
+    await flush();
+    const footer = deposits.html.split("<tfoot>")[1].split("</tfoot>")[0];
+    assert.equal((footer.match(/>—</g) || []).length, 2);
     console.log("OK: month drill-down, filters, paging, dates, document links, escaping, races and errors.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

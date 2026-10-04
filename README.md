@@ -510,6 +510,8 @@ por defecto).
   y pendiente; en depósitos, cuenta bancaria, importe, asignación y saldo a favor.
   Los importes que no puedan atribuirse individualmente se muestran como «—» con
   su motivo. Consultar el detalle no concilia ni modifica registros.
+  El pie de la tabla totaliza todas las páginas con los filtros actuales usando
+  Decimal; si una columna contiene un importe indeterminado, su total muestra «—».
 - La fila **Total** suma cada mes y el año, sin duplicar los KPI. Los KPI cuentan
   transacciones individuales, no la cantidad de celdas amarillas o naranjas.
 
