@@ -827,6 +827,15 @@ function renderCashPanel(receipts) {
 
 function renderCashCard(deposit) {
     const state = deposit.needs_review || !deposit.settled ? "diferencia" : "conciliado";
+    const creditBalances = [
+        ["Saldo a favor del cliente", deposit.client_credit_usd],
+        ["Saldo a favor de la empresa", deposit.company_credit_usd],
+        ["Saldo a favor sin detalle", deposit.undetailed_credit_usd ?? (
+            (Math.round(Number(deposit.credit_balance_usd || 0) * 100)
+                - Math.round(Number(deposit.client_credit_usd || 0) * 100)
+                - Math.round(Number(deposit.company_credit_usd || 0) * 100)) / 100
+        )],
+    ];
     return `<button type="button" class="cn-period-card cn-${state}" data-cash-deposit="${esc(deposit.name)}">
         <span class="cn-period-card-name">${esc(deposit.reference || deposit.name)}</span>
         <span class="cn-cell-sub">${esc(displayDate(deposit.date))} · ${esc(deposit.name)}</span>
@@ -835,7 +844,7 @@ function renderCashCard(deposit) {
         <span class="cn-badge">${esc(cashStatus(deposit))}</span>
         <span class="cn-cell-sub">${esc(__("A créditos"))}: ${money(deposit.credits_usd)}</span>
         ${Math.abs(Number(deposit.other_usd)) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(deposit.other_usd)}</span>` : ""}
-        ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(deposit.credit_balance_usd)}</span>` : ""}
+        ${creditBalances.filter(([, amount]) => Number(amount) > MONEY_EPSILON).map(([label, amount]) => `<span class="cn-cell-credit">${esc(__(label))}: ${money(amount)}</span>`).join("")}
         ${Number(deposit.credit_management_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Pendiente de gestión"))}: ${money(deposit.credit_management_pending_usd)}</span>` : ""}
         ${Math.abs(Number(deposit.unclassified_usd)) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin identificar"))}: ${signedMoney(deposit.unclassified_usd)}</span>` : ""}
         ${deposit.shared ? `<span class="cn-cell-sub">${esc(__("Distribuido entre varios períodos"))}</span>` : ""}
@@ -877,7 +886,7 @@ function renderCashDistribution(deposit) {
             <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(cashStatus(deposit))}</div><div class="cn-cash-kpi-note">${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</div></div>
         </div>
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
-            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
+            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${renderCashCreditIdentity(item)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
         ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
@@ -886,12 +895,19 @@ function renderCashDistribution(deposit) {
     </div>`;
 }
 
+function renderCashCreditIdentity(destination) {
+    if (destination.type !== "Saldo a favor del cliente") return "";
+    const people = destination.people?.length ? destination.people : [{}];
+    return people.map(person => `<div><strong>${esc(__("Cliente"))}: ${esc(person.client_name || __("No disponible"))}</strong></div>
+        <div>${esc(__("Nro. Cliente"))}: ${esc(person.client_number || __("No disponible"))}</div>`).join("");
+}
+
 function cashTableTotal(rows) {
     return rows.reduce((cents, row) => cents + Math.round(Number(row.amount_usd || 0) * 100), 0) / 100;
 }
 
 function renderCreditPeople(destination) {
-    if (destination.type !== "Créditos" && !(destination.people || []).length) return "";
+    if (destination.type !== "Créditos") return "";
     const people = destination.people || [];
     if (!people.length) return `<p class="text-muted">${esc(destination.label)} · ${esc(__("Detalle por persona no disponible"))}</p>`;
     return `<div class="cn-list-scroll"><table class="cn-detail-table cn-credit-people">

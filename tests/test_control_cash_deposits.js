@@ -93,6 +93,30 @@ assert.match(signedTotals, /Total resumen<\/th><th class="cn-number">[^<]*0\.20/
 assert.match(signedTotals, /Total detalle por cliente<\/th><th class="cn-number">[^<]*0\.30/);
 const emptyTotals = renderCashDistribution({...deposit, destinations: [], credit_balance_usd: 0});
 assert.match(emptyTotals, /Total resumen<\/th><th class="cn-number">[^<]*0\.00/);
+const clientCredit = {type: "Saldo a favor del cliente", label: "CN-COMP-2026-00537 · Pendiente",
+    employer: "AIRTEC S A", amount_usd: 22.15,
+    people: [{client_name: "ANA <PEREZ> & LOPEZ", client_number: "00123", amount_usd: 22.15}]};
+const creditDeposit = {...deposit, destinations: [clientCredit], credit_balance_usd: 22.15, undetailed_credit_usd: 0};
+for (const type of ['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Partida complementaria']) {
+    const markup = renderCashDistribution({...creditDeposit, destinations: [{...clientCredit, type}]});
+    assert.ok(!markup.includes('cn-credit-people'), `No client detail table for ${type}`);
+    assert.ok(!markup.includes('Distribución por persona'));
+    assert.ok(markup.includes('Resumen de distribución'));
+    assert.match(markup, /Total resumen<\/th><th class="cn-number">[^<]*22\.15/);
+}
+const creditSummary = renderCashDistribution(creditDeposit).split('</table>')[0];
+assert.ok(creditSummary.includes('Cliente: ANA &lt;PEREZ&gt; &amp; LOPEZ'));
+assert.ok(creditSummary.includes('Nro. Cliente: 00123'));
+assert.ok(creditSummary.includes('CN-COMP-2026-00537 · Pendiente'));
+assert.ok(creditSummary.includes('Empresa: AIRTEC S A'));
+assert.ok(!creditSummary.includes('<PEREZ>'));
+assert.match(creditSummary, /Total resumen<\/th><th class="cn-number">[^<]*22\.15/);
+const missingClient = renderCashDistribution({...creditDeposit, destinations: [{...clientCredit, people: []}]}).split('</table>')[0];
+assert.ok(missingClient.includes('Cliente: No disponible'));
+assert.ok(missingClient.includes('Nro. Cliente: No disponible'));
+const companyCredit = renderCashDistribution({...creditDeposit, destinations: [{...clientCredit, type: 'Saldo a favor de la empresa', people: []}]}).split('</table>')[0];
+assert.ok(!companyCredit.includes('Nro. Cliente:'));
+assert.ok(!personalDetail.split('</table>')[0].includes('Nro. Cliente:'));
 assert.ok(breakdown.includes("Detalle por persona no disponible"));
 const bankDetail = renderCashDistribution({...deposit, bank_account: 'BANPRO <3268> & C$'});
 assert.ok(bankDetail.includes('Cuenta bancaria'));
@@ -103,6 +127,25 @@ const bankCard = renderCashCard({...deposit, bank_account: 'BANPRO <3268> & C$'}
 const managedCard = renderCashCard({...deposit, settled: true, credit_management_pending_usd: 75});
 assert.match(managedCard, /Conciliado con saldo a favor/);
 assert.match(managedCard, /Pendiente de gestión.*75\.00/);
+const clientCard = renderCashCard({...deposit, credit_balance_usd: 22.15, client_credit_usd: 22.15,
+    company_credit_usd: 0, undetailed_credit_usd: 0});
+assert.match(clientCard, /Saldo a favor del cliente:.*22\.15/);
+assert.ok(!clientCard.includes('Saldo a favor de la empresa:'));
+assert.ok(!clientCard.includes('Saldo a favor sin detalle:'));
+const companyCard = renderCashCard({...deposit, credit_balance_usd: 1.29, client_credit_usd: 0,
+    company_credit_usd: 1.29, undetailed_credit_usd: 0});
+assert.match(companyCard, /Saldo a favor de la empresa:.*1\.29/);
+assert.ok(!companyCard.includes('Saldo a favor del cliente:'));
+const mixedCard = renderCashCard({...deposit, credit_balance_usd: 23.44, client_credit_usd: 22.15,
+    company_credit_usd: 1.29, undetailed_credit_usd: 0});
+assert.match(mixedCard, /Saldo a favor del cliente:.*22\.15/);
+assert.match(mixedCard, /Saldo a favor de la empresa:.*1\.29/);
+assert.ok(!mixedCard.includes('Saldo a favor:'));
+assert.match(renderCashCard(deposit), /Saldo a favor sin detalle:.*100\.00/);
+const partialIdentity = renderCashCard({...deposit, client_credit_usd: 20});
+assert.match(partialIdentity, /Saldo a favor del cliente:.*20\.00/);
+assert.match(partialIdentity, /Saldo a favor sin detalle:.*80\.00/);
+assert.ok(!partialIdentity.includes('Saldo a favor de la empresa:'));
 assert.match(renderCashCard({...deposit, settled: false, needs_review: false}), /Por revisar/);
 assert.ok(bankCard.includes('Cuenta bancaria: BANPRO &lt;3268&gt; &amp; C$'));
 assert.ok(!bankCard.includes('BANPRO <3268>'));
