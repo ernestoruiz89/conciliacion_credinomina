@@ -94,6 +94,7 @@ def execute(filters=None):
                 )
     for row in data:
         row["usd_currency"] = "USD"
+        row['complementary_total_usd'] = money_float(money(row.complementary_usd) + money(row.rounding_adjustment_usd))
         row["nio_currency"] = "NIO"
         if row.reconciliation_mode == "Historica":
             row["historical_label"] = (
@@ -138,10 +139,9 @@ def get_columns():
         {"fieldname": "expected_usd", "label": _("Cobranza enviada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "deducted_usd", "label": _("Deducido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 110},
         {"fieldname": "applied_usd", "label": _("Aplicado al crédito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
-        {"fieldname": "complementary_usd", "label": _("Partida complementaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
+        {"fieldname": "complementary_total_usd", "label": _("Partidas complementarias US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 175},
         {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
-        {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 175},
         {"fieldname": "employee_shortfall_usd", "label": _("Cobranza no deducida US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "employer_receivable_usd", "label": _("Deducido sin depósito asignado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
         {"fieldname": "historical_pending_usd", "label": _("Aplicación histórica sin depósito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 185},

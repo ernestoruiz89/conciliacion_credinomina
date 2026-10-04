@@ -393,7 +393,7 @@ def create_complementary_item(remittance_name: str, modified: str, values):
     if not isinstance(values, dict):
         frappe.throw(_("Los datos de la partida no son válidos."))
     item = frappe.new_doc("CN Complementary Item")
-    for field in ("category", "voucher", "voucher_line", "posting_date", "currency", "amount",
+    for field in ("category", "subcategory", "voucher", "voucher_line", "posting_date", "currency", "amount",
                   "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type",
                   "credit_client", "credit_detail_row", "credit_treatment", "credit_assigned_to", "credit_commitment_date"):
         if field in values:

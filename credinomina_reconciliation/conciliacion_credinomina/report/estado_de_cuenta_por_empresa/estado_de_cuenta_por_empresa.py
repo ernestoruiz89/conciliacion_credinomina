@@ -11,6 +11,8 @@ def execute(filters=None):
         'Saldo suma las columnas con su signo; no ejecuta compensaciones. '
         'Las partidas pendientes del core incluyen Por clasificar: débito positivo y crédito negativo. '
         'Solo se resta el remanente, sin duplicar ajustes ya utilizados. '
+        'Saldo por cobrar a la empresa: ajustes manuales negativos clasificados como CxC a la empresa y efectivamente distribuidos en depósitos; '
+        'trasladan el faltante de las aplicaciones a la empresa. Su registro contable no equivale a cobro. '
         'Saldos a favor: documentados y aún por gestionar. Depósitos: importe sin asignar ni documentar como saldo a favor; '
         'incluye los importados del core sin confirmar, no los borradores manuales. '
         'Desde/Hasta filtran la fecha de origen, no la fecha de conciliación. '
@@ -40,6 +42,7 @@ def get_columns(filters=None):
             {'fieldname': 'period', 'label': _('Período'), 'fieldtype': 'Link', 'options': 'CN Reconciliation Period', 'width': 170},
             *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
               for field, label, width in [('status', 'Estado', 190), ('category', 'Concepto', 170),
+                  ('related_deposits', 'Depósitos relacionados', 195), ('accounting_status', 'Registro contable', 170),
                   ('reference', 'Referencia / asiento', 155), ('source_rows', 'Filas de origen', 120),
                   ('observation', 'Observaciones', 350)]],
         ]

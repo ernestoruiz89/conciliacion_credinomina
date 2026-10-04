@@ -51,6 +51,8 @@ def export_control_excel(year=None, employer=None):
     data = _build_control_data(year, employer, full_export=True)
     from credinomina_reconciliation.core_item_position import load_core_items
     data['core_complementary_items'] = load_core_items(cint(data['year']) or None, employer)
+    from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+    data['adjustment_receivables'] = load_receivables(employer=employer, year=cint(data['year']) or None)
     period_names = [period["name"] for period in data["periods"]]
     exceptions = []
     exception_fields = [
@@ -329,6 +331,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             fields=[
                 "name", "period", "deposit_reference", "application_source_row",
                 "signed_amount_usd", "tolerance_usd", "deposit_usd", "core_applied_usd",
+                "posting_date", "description",
             ] if not summary_only else ["name", "period", "signed_amount_usd"],
             order_by="creation desc",
             limit_page_length=_row_limit(20000, full_export),

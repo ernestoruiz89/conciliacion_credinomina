@@ -184,7 +184,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             <span class="cn-cell-amount">${money(period.applied_usd)} / ${money(period.remitted_usd)}</span>
                             <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
-                            ${(period.rounding_movement_count ?? (period.rounding_movements || []).length) ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
+                            ${(period.rounding_movement_count ?? (period.rounding_movements || []).length) ? `<span class="cn-cell-credit">${esc(__("Complementarias automáticas"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
                             ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Cobranza no deducida"))}: ${money(period.worker_gap_usd)}</span>` : ""}
                             ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito asignado"))}: ${money(period.employer_gap_usd)}</span>` : ""}
@@ -326,7 +326,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const rowTable = (period.rows || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
                 <th>${esc(__("Cliente"))}</th><th>${esc(__("Crédito / cuota"))}</th><th>${esc(__("Cobranza US$"))}</th><th>${esc(__("Deducido"))}</th><th>${esc(__("Cobranza no deducida US$"))}</th>
-                <th>${esc(__("Aplicado"))}</th><th>${esc(__("Complementario"))}</th><th>${esc(__("Depositado"))}</th><th>${esc(__("Ajuste US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción / antecedente"))}</th><th>${esc(__("Estado"))}</th>
+                <th>${esc(__("Aplicado"))}</th><th>${esc(__("Partidas complementarias"))}</th><th>${esc(__("Depositado"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción / antecedente"))}</th><th>${esc(__("Estado"))}</th>
             </tr></thead><tbody>${period.rows.map((row) => `<tr>
                 <td>${esc(row.client_number)} · ${esc(row.client_name)}</td>
                 <td>${esc(row.loan_number)} / ${esc(row.installment_number)}</td>
@@ -334,9 +334,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td class="cn-number">${money(row.deducted_usd)}</td>
                 <td class="cn-number">${row.collection_shortfall_usd == null ? esc(__(row.deduction_pending_reason || "Pendiente de detalle")) : money(row.collection_shortfall_usd)}</td>
                 <td class="cn-number">${money(row.applied_usd)}</td>
-                <td class="cn-number">${money(row.complementary_usd)}</td>
+                <td class="cn-number">${money(Number(row.complementary_usd || 0) + Number(row.rounding_adjustment_usd || 0))}</td>
                 <td class="cn-number">${money(row.remitted_usd)}</td>
-                <td class="cn-number">${signedMoney(row.rounding_adjustment_usd)}</td>
                 <td>${allocationLines(row.remittance_detail)}</td>
                 <td>${row.inherited_exception_comment ? `${esc(__("Trasladada: "))}${esc(row.inherited_exception_comment)}` : row.first_exception_comment ? `${esc(__("Primera conciliación: "))}${esc(row.first_exception_comment)}` : esc(row.application_comment || "—")}</td>
                 <td>${esc(applicationStatusLabel(row.deduction_pending_reason ? row.deduction_status : row.application_status || row.deduction_status))}${row.deduction_status === "Inferida por depósito" ? `<br><span class="cn-inherited-note">${esc(__("Deducción inferida, sin detalle de planilla"))}</span>` : ""}</td>
@@ -363,15 +362,13 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay excedentes documentados."))}</div>`;
         const movements = (period.rounding_movements || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Movimiento"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Aplicación core US$"))}</th><th>${esc(__("Depósito US$"))}</th><th>${esc(__("Diferencia firmada"))}</th><th>${esc(__("Tolerancia"))}</th>
+                <th>${esc(__("Partida complementaria"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Categoría"))}</th><th>${esc(__("Importe US$"))}</th>
             </tr></thead><tbody>${period.rounding_movements.map((item) => `<tr>
                 <td><button class="cn-text-link" type="button" data-movement="${esc(item.name)}">${esc(item.name)}</button></td>
                 <td>${esc(item.deposit_reference)}</td>
-                <td class="cn-number">${money(item.core_applied_usd)}</td>
-                <td class="cn-number">${money(item.deposit_usd)}</td>
+                <td>${esc(__("Diferencia por tolerancia"))}</td>
                 <td class="cn-number">${signedMoney(item.signed_amount_usd)}</td>
-                <td class="cn-number">${money(item.tolerance_usd)}</td>
-            </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin movimientos de diferencia menor."))}</div>`;
+            </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin partidas complementarias automáticas."))}</div>`;
         const dialog = new frappe.ui.Dialog({
             title: `${esc(period.employer_name || period.employer)} · ${esc(period.month)} · ${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}`,
             size: "extra-large",
@@ -413,7 +410,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     `}
                 </div>
                 ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Detalle de cobranza (informativo)"))}</h4>${rowTable}<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}`}
-                <h4>${esc(__("Movimientos de conciliación"))}</h4>${movements}
+                <h4>${esc(__("Partidas complementarias automáticas"))}</h4>${movements}
                 <h4>${esc(__("Excedentes de depósito"))}</h4>${surplus}
             </div>
         `);
@@ -780,7 +777,7 @@ function renderMonthSummary(periods, employer, month, receipts = []) {
             ["employer_gap_usd", __("Deducido sin depósito asignado")], ["pending_detail_usd", __("Detalle pendiente o por aclarar")]]
             .filter(([field]) => total[field] > MONEY_EPSILON)
             .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(total[field])}</span>`).join("")}
-        ${Math.abs(total.rounding_adjustment_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(total.rounding_adjustment_usd)}</span>` : ""}
+        ${Math.abs(total.rounding_adjustment_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Complementarias automáticas"))}: ${signedMoney(total.rounding_adjustment_usd)}</span>` : ""}
         ${total.hasDepositBalance ? `<span class="cn-cell-credit">${esc(__("Saldos de depósitos: ver períodos"))}</span>` : ""}
         ${renderCashSummary(receipts)}
         <span class="cn-cell-sub">${esc(__("Ver períodos del mes"))}</span>

@@ -104,7 +104,7 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
                 item=item, description=item.get("description") or "")
         elif entry.get("tipo") == "Movimiento de conciliación":
             item = items.get(entry.get("movimiento"), {})
-            add("Ajuste de conciliación", amount, period=period, item=item,
+            add("Partida complementaria", amount, period=period, item=item,
                 description=item.get("description") or entry.get("origen") or "",
                 difference=money_float(entry.get("diferencia_usd")))
         else:

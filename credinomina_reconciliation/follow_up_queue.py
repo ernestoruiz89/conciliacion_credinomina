@@ -4,7 +4,7 @@ import frappe
 from credinomina_reconciliation.complementary_balances import FIELDS, CREDIT_CATEGORIES, load_balances
 
 
-def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=None):
+def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=None, adjustment_receivables=()):
     today = str(as_of or date.today())[:10]
     tasks = []
     def add(item, kind, summary, action, amount=None, *, exception=False):
@@ -28,6 +28,9 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
         balance = balances[item["name"]]
         if item.get("docstatus") == 2:
             continue
+        if item.get('category') == 'Ajuste de conciliación' and item.get('subcategory_effect') in (None, '', 'Por clasificar'):
+            add(item, 'adjustment_classification', 'Ajuste de conciliación por clasificar',
+                'Seleccione una subcategoría. Distribuir el depósito no determina si el faltante sigue siendo una CxC.', abs(balance['original_usd']))
         if balance["financial_status"] == "Revisar distribución" or balance["pending_usd"]:
             add(item, "complementary_balance", "Partida complementaria · " + balance["financial_status"],
                 "Revisar el concepto y distribuir, ajustar o compensar el importe pendiente.", balance["pending_usd"])
@@ -39,6 +42,9 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
                 and balance["financial_status"] not in {"Cancelada", "Revertida", "No conciliatoria"}):
             add(item, "accounting_registration", "Partida pendiente de registro o verificación en el core",
                 "Crear / Ver excepción de registro contable y verificar el asiento contra la importación.", abs(balance["original_usd"]))
+    for item in adjustment_receivables:
+        add(item, 'company_receivable', 'CxC a la empresa por ajuste pendiente de cobro',
+            'Gestionar depósito o compensación vinculada. Registrar el asiento en el core no liquida esta deuda.', item['receivable_usd'])
     for item in exceptions:
         if item.get("status") not in {"Abierta", "En revision"}:
             continue
@@ -104,17 +110,19 @@ def load_follow_up(year=None, employer=None):
         if year:
             filters["posting_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
         items = frappe.get_list("CN Complementary Item", filters=filters,
-            fields=[*FIELDS, "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit"], limit_page_length=0)
+            fields=[*FIELDS, "subcategory_effect", "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit"], limit_page_length=0)
     if frappe.has_permission("CN Reconciliation Exception", "read"):
         exceptions = frappe.get_list("CN Reconciliation Exception", filters={**scope, "status": ["in", ["Abierta", "En revision"]]},
             fields=["name", "employer", "period", "status", "exception_type", "amount_usd", "assigned_to", "commitment_date", "next_action", "creation"],
             limit_page_length=0)
         if year:
             exceptions = [item for item in exceptions if str(item.get("commitment_date") or item.get("creation") or "")[:4] == str(year)]
-    if not items and not exceptions:
+    from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+    receivables = load_receivables(employer=employer, year=year) if frappe.has_permission('CN Complementary Item', 'read') and frappe.has_permission('CN Remittance Allocation', 'read') else []
+    if not items and not exceptions and not receivables:
         return []
     from frappe.utils import nowdate
-    return build_follow_up(items, load_balances(items), exceptions, as_of=nowdate(), credit_periods=load_credit_periods(items))
+    return build_follow_up(items, load_balances(items), exceptions, as_of=nowdate(), credit_periods=load_credit_periods(items), adjustment_receivables=receivables)
 
 
 def merge_follow_up(existing, additional):
@@ -130,8 +138,8 @@ def filter_work(items, kind="", responsible="", due="", as_of=None):
     if not (kind or responsible or due):
         return items
     today = str(as_of or date.today())[:10]
-    groups = {"credits": {"credit_management"}, "complements": {"complementary_balance"},
-              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception"},
+    groups = {"credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification"},
+              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification"},
               "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank"}}
     result = []
     for item in items:

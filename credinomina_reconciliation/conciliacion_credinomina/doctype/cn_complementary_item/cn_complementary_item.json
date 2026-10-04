@@ -9,7 +9,7 @@
     "review_section", "review_status", "review_action", "application_adjustment_usd", "amount_reviewed", "review_notes", "review_column", "related_import", "related_application", "adjustment_periods", "adjustment_collection_rows",
     "compensation_section", "compensation_status", "compensated_usd", "compensation_column", "compensation_pending_usd", "compensation_history_section", "compensations",
     "item_section", "usd_currency", "nio_currency", "naming_series",
-    "reference", "category", "posting_date", "amount_column", "currency", "amount", "fx_rate", "amount_usd",
+    "reference", "category", "subcategory", "subcategory_effect", "posting_date", "amount_column", "currency", "amount", "fx_rate", "amount_usd",
     "credit_section", "registered_deposit", "reason_type", "credit_column", "result", "deposit_voucher", "legacy_surplus_id", "legacy_surplus_snapshot",
     "client_credit_section", "credit_client", "credit_detail_row", "select_credit_detail", "credit_treatment", "client_credit_column", "credit_assigned_to", "credit_commitment_date", "credit_management_status", "credit_resolved_usd", "credit_pending_usd", "record_credit_management", "credit_history_section", "credit_history_preview", "credit_history",
     "allocation_section", "employer", "period", "allocation_column", "client_name", "client_number", "loan_number", "installment_number",
@@ -23,6 +23,8 @@
     "evidence_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification", "source_column", "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_date", "accounting_reference", "source_voucher", "source_client_name", "source_description", "source_file", "source_row", "source_file_hash", "accounting_source_key"
   ],
   "fields": [
+    {"fieldname": "subcategory", "fieldtype": "Link", "options": "CN Complementary Subcategory", "label": "Subcategoría", "allow_on_submit": 1, "in_standard_filter": 1, "depends_on": "eval:doc.category == 'Ajuste de conciliación'", "mandatory_depends_on": "eval:doc.category == 'Ajuste de conciliación'", "description": "Identifique si el ajuste deja una CxC a la empresa o tiene otro tratamiento. Distribuir el depósito no liquida esa CxC."},
+    {"fieldname": "subcategory_effect", "fieldtype": "Data", "label": "Tratamiento de la subcategoría", "read_only": 1, "hidden": 1, "allow_on_submit": 1, "no_copy": 1},
     {"fieldname": "financial_overview_section", "fieldtype": "Section Break", "label": "Control de la partida", "depends_on": "eval:!doc.__islocal"},
     {"fieldname": "financial_overview", "fieldtype": "HTML", "label": "Posición financiera"},
     {"fieldname": "client_credit_section", "fieldtype": "Section Break", "label": "Seguimiento del saldo a favor", "depends_on": "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},

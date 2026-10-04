@@ -102,6 +102,20 @@ def build_control_workbook(
                 detail=surplus.get("explanation"),
             ))
 
+    # Automatic tolerance items are real complementary records, not another
+    # additive column on each application. Preserve their signed amount/ID.
+    seen_items = set()
+    for period in periods:
+        for item in period.get('rounding_movements') or []:
+            if item.get('name') in seen_items:
+                continue
+            seen_items.add(item.get('name'))
+            issue_rows.append(_issue('Partida complementaria', period, None, None,
+                item.get('name'), _money(item.get('signed_amount_usd')), 'Vigente',
+                cause='Diferencia por tolerancia', external_reference=item.get('deposit_reference'),
+                event_date=item.get('posting_date'),
+                detail=item.get('description') or 'Generada automáticamente; no modifica el core ni representa efectivo adicional.'))
+
     for exception in exceptions:
         period = period_by_name.get(exception.get("period"))
         issue_rows.append(_issue(
@@ -157,16 +171,24 @@ def build_control_workbook(
             detail=item.get('source_description') or item.get('description'))
         issue_rows.append((*row, None, item.get('source_debit'), item.get('source_credit'),
                            item.get('source_currency'), balance.get('used_usd')))
+    for item in data.get('adjustment_receivables') or []:
+        row = _issue('Saldo por cobrar a la empresa', None, item.get('client_number'),
+            item.get('loan_number'), item['name'], item['receivable_usd'], item['receivable_status'],
+            employer=item.get('employer'), cause='Ajuste negativo de depósito',
+            event_date=item.get('posting_date'), external_reference=item.get('voucher'),
+            detail=' · '.join(filter(None, [item.get('description'), item.get('related_deposits'),
+                                          item.get('accounting_status')])))
+        issue_rows.append((*row, None, None, None, None, None))
 
     _write_table(
         book.create_sheet("Detalle cliente"), "Detalle por cliente y aplicación", scope,
         DETAIL_HEADERS, detail_rows,
-        money_columns={14, 15, 16, 17, 18, 19, 20, 21, 26, 27},
+        money_columns={14, 15, 16, 17, 18, 19, 20, 25, 26},
         date_columns={10},
     )
     _write_table(
         book.create_sheet("Cruces"), "Cruces aplicación y depósito", scope,
-        LINK_HEADERS, link_rows, money_columns={13, 14}, date_columns={11},
+        LINK_HEADERS, link_rows, money_columns={13}, date_columns={11},
     )
     _write_deposits(book, data, scope)
     _write_table(
@@ -193,7 +215,7 @@ def build_control_workbook(
         _write_table(book.create_sheet("Antigüedad guardada"), "Saldos guardados de este período al registrar el corte",
             scope + " · No reconstruye fechas anteriores ni representa todo el saldo de la empresa.",
             ("Importación", "Cliente", "Nro. cliente", "Crédito", "Fecha aplicación", "Vencimiento conservado",
-             "Origen del plazo", "Aplicado US$", "Depositado US$", "Ajuste US$", "Pendiente US$", "Días de atraso", "Observación"),
+             "Origen del plazo", "Aplicado US$", "Depositado US$", "Partidas complementarias US$", "Pendiente US$", "Días de atraso", "Observación"),
             [(r.get("source_import"), r.get("client_name"), r.get("client_number"), r.get("loan_number"),
               _date(r.get("application_date")), _date(r.get("due_date")), r.get("payment_term_origin"),
               r.get("applied_usd"), r.get("paid_usd"), r.get("adjustment_usd"), r.get("amount_usd"), r.get("age_days"),
@@ -216,7 +238,7 @@ SUMMARY_HEADERS = (
     "Período", "Empresa", "Mes cobranza", "Modalidad", "Alcance del período",
     "Fecha inicio aplicación", "Fecha fin aplicación", "Vencimiento pago",
     "Resultado", "Cobranza USD", "Deducido USD", "Aplicado neto USD",
-    "Complementario USD", "Ajuste de redondeo USD", "Depósito asignado total USD",
+    "Partidas complementarias USD", "Depósito asignado total USD",
     "Aplicado pendiente de depósito USD", "Cobranza no deducida USD", "Deducido sin depósito asignado USD",
     "Depósito asignado a créditos USD", "Excepciones abiertas", "Último corte de control",
     "Motivo y próxima gestión", "Observaciones", "Cierre", "Cobranza sin detalle USD",
@@ -226,8 +248,8 @@ DETAIL_HEADERS = (
     "Período", "Empresa", "Modalidad", "N.º cliente", "N.º empleado",
     "Nombre del cliente", "Cédula", "N.º crédito", "N.º cuota",
     "Fecha aplicación", "Asiento contable", "Recibo", "Referencia aplicación",
-    "Cobranza USD", "Deducido USD", "Aplicado neto USD", "Complementario USD",
-    "Ajuste de redondeo USD", "Depósito asignado a créditos USD", "Cobranza no deducida USD",
+    "Cobranza USD", "Deducido USD", "Aplicado neto USD", "Partidas complementarias USD",
+    "Depósito asignado a créditos USD", "Cobranza no deducida USD",
     "Aplicado pendiente de depósito USD", "Estado", "Comentarios",
     "Importación contable", "Fila de origen", "Aplicación bruta USD", "Reducción confirmada USD",
 )
@@ -236,7 +258,7 @@ LINK_HEADERS = (
     "Período", "Empresa", "Modalidad", "N.º cliente", "Nombre del cliente",
     "N.º crédito", "ID partida", "Referencia aplicación",
     "Referencia depósito", "Comprobante depósito", "Fecha depósito", "Destino",
-    "Monto vinculado USD", "Ajuste USD", "Origen", "Comentario heredado",
+    "Monto vinculado USD", "Origen", "Comentario heredado",
 )
 
 ISSUE_HEADERS = (
@@ -255,7 +277,7 @@ ACTION_HEADERS = (
 
 MONTHLY_HEADERS = (
     "Empresa", "Mes", "Períodos", "Períodos cerrados", "Aplicado neto en períodos USD",
-    "Depósito asignado a créditos USD", "Ajuste de redondeo USD", "Pendiente USD",
+    "Depósito asignado a créditos USD", "Partidas complementarias USD", "Pendiente USD",
     "Excepciones abiertas de períodos", "Aplicado sin período USD", "Depósitos recibidos",
     "Depositado completo USD", "Depósito sin clasificar USD", "Depósitos por revisar",
     "Cobranza USD", "Deducido USD", "Cobranza no deducida conocida USD", "Cobranza sin detalle USD",
@@ -328,7 +350,7 @@ def monthly_rows(data):
             sum(p.get("status") == "Cerrado" for p in periods),
             _sum(p.get("applied_usd") for p in periods),
             _sum(_period_credit_cash(p) for p in periods),
-            _sum(p.get("rounding_adjustment_usd") for p in periods),
+            _sum(_complementary_total(p) for p in periods),
             _sum(_period_pending(p) for p in periods),
             len({e["name"] for p in periods for e in p.get("exceptions") or [] if e.get("name")}),
             _sum(net_application_amount(a) for a in unassigned),
@@ -365,8 +387,8 @@ def _write_monthly(sheet, data, scope):
 
 DEPOSIT_HEADERS = (
     "Depósito", "Empresa pagadora", "Fecha depósito", "Referencia", "Cuenta bancaria", "Moneda",
-    "Importe original", "Depositado completo USD", "A créditos USD", "A complementarias USD",
-    "Efectivo de ajustes USD", "Saldo a favor documentado USD", "Sin clasificar USD",
+    "Importe original", "Depositado completo USD", "A créditos USD", "A partidas complementarias USD",
+    "Saldo a favor documentado USD", "Sin clasificar USD",
     "Asignación por revisar USD", "Resultado", "Meses de cobranza destino", "Tasa C$/USD",
 )
 
@@ -377,11 +399,11 @@ def _write_deposits(book, data, scope):
         DEPOSIT_HEADERS,
         [(d["name"], d.get("employer"), _date(d.get("date")), d.get("reference"), d.get("bank_account"),
           d.get("currency"), d.get("original_amount"), d.get("total_usd"), d.get("credits_usd"),
-          d.get("other_usd"), d.get("adjustments_usd"), d.get("credit_balance_usd"),
+          _sum([d.get("other_usd"), d.get("adjustments_usd")]), d.get("credit_balance_usd"),
           d.get("unclassified_usd"), d.get("review_usd"), d.get("result"),
           ", ".join(d.get("payroll_months") or []), d.get("fx_rate") or None) for d in deposits],
-        money_columns=set(range(7, 15)), date_columns={3}, total_columns=set(range(8, 15)))
-    for cell in book["Depósitos"]["Q"][4:]:
+        money_columns=set(range(7, 14)), date_columns={3}, total_columns=set(range(8, 14)))
+    for cell in book["Depósitos"]["P"][4:]:
         cell.number_format = "0.00000000"
     rows = []
     for d in deposits:
@@ -390,7 +412,7 @@ def _write_deposits(book, data, scope):
             people = target.get("people") or [{}]
             for person in people:
                 rows.append((d["name"], d.get("employer"), _date(d.get("date")),
-                    target.get("type"), target.get("employer"), target.get("label"), _month(target.get("month")),
+                    'Partida complementaria' if target.get('type') == 'Ajuste de conciliación' else target.get("type"), target.get("employer"), target.get("label"), _month(target.get("month")),
                     person.get("client_number"), person.get("client_name"), person.get("loan_number"),
                     person.get("amount_usd") if person else target.get("amount_usd")))
         # Residual classification is visible even without a client/period link.
@@ -415,8 +437,7 @@ def _write_guide(book, scope):
         ("Empresa pagadora", "El depósito completo se cuenta una sola vez para quien paga. Distribución depósitos muestra la empresa destino, aunque sea diferente."),
         ("Pendiente USD", "Suma saldos positivos por cliente/crédito. No compensa una deuda con el excedente de otra partida. Incluye ajustes de redondeo con su signo."),
         ("Aplicado neto USD", "Aplicación después de reducciones confirmadas mediante partidas complementarias. No se debe volver a descontar la misma reducción."),
-        ("Complementario USD", "Concepto distinto al pago del crédito, por ejemplo cobranza administrativa. Asignado total puede incluirlo. Asignado a créditos lo excluye."),
-        ("Efectivo de ajustes", "Parte del depósito consumida por ajustes. No equivale al signo del ajuste de redondeo que cambia el saldo de la aplicación."),
+        ("Partidas complementarias", "Incluyen partidas manuales y automáticas por tolerancia. En períodos se presenta el importe firmado; en Depósitos, únicamente el efectivo distribuido. Son perspectivas distintas y no se suman entre sí. Las automáticas se identifican en Partidas y excepciones por documento y categoría."),
         ("Saldo a favor documentado", "Clasificación del depósito original. No representa necesariamente lo pendiente de devolver hoy: puede haber gestiones posteriores."),
         ("Importe original", "Moneda indicada en cada depósito. No sumar importes NIO y USD en una misma cifra. Las demás columnas monetarias se concilian en USD."),
         ("Modalidad y cierre", "Histórica y operativa usan iguales conceptos de resultado. Cierre indica si el período está bloqueado, no que sus diferencias estén resueltas."),
@@ -425,6 +446,7 @@ def _write_guide(book, scope):
         ("Detalle de deducción", "Deducido y Cobranza no deducida suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
         ("Partidas complementarias del core", "Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
+        ("CxC por ajuste de depósito", "Ajustes manuales negativos con subcategoría de tratamiento CxC a la empresa y distribuidos en depósitos confirmados: se muestran positivos como saldo trasladado a la empresa, aunque la partida esté totalmente distribuida. Contabilizar no equivale a cobrar. Al desconciliar el depósito desaparece el traslado; la aplicación vuelve a pendiente."),
         ("Excepciones sin período", "Se incluyen por año de creación y empresa. Excepciones vinculadas: por mes de cobranza del período. Compromiso es fecha de gestión, no vencimiento del pago."),
         ("Cruces y distribución", "Cruces parte de los períodos seleccionados, incluso con depósitos de otro año. Distribución parte de los depósitos recibidos en el año, incluso hacia períodos de otro año."),
         ("Trazabilidad", "Datos de Períodos, Importaciones contables, Distribuciones de depósito y Excepciones de Credinómina, respetando permisos del usuario."),
@@ -453,8 +475,8 @@ def _write_summary(sheet, data, employer_label, generated_at):
             _control_state(period.get("control_state")),
             NA if historical_mode else _money(period.get("expected_usd")),
             NA if historical_mode else _known_deductions(period),
-            _money(period.get("applied_usd")), _money(period.get("complementary_usd")),
-            _money(period.get("rounding_adjustment_usd")), _money(period.get("remitted_usd")),
+            _money(period.get("applied_usd")), _complementary_total(period),
+            _money(period.get("remitted_usd")),
             _period_pending(period),
             NA if historical_mode else _employee_due(period),
             NA if historical_mode else _money(period.get("employer_gap_usd")),
@@ -468,18 +490,18 @@ def _write_summary(sheet, data, employer_label, generated_at):
     _write_table(sheet, "Conciliación por período",
                  f"Año de cobranza: {data.get('year') or 'Todos'}    Empresa: {employer_label}",
                  SUMMARY_HEADERS, summary_rows,
-                 money_columns=set(range(10, 20)) | {25}, date_columns={6, 7, 8, 21},
-                 total_columns=set(range(12, 17)) | {19, 20})
+                 money_columns=set(range(10, 19)) | {24}, date_columns={6, 7, 8, 20},
+                 total_columns=set(range(12, 16)) | {18, 19})
     sheet.column_dimensions["A"].width = 28
     sheet.column_dimensions["B"].width = 28
     sheet.column_dimensions["E"].width = 27
-    sheet.column_dimensions["U"].width = 23
-    sheet.column_dimensions["V"].width = 40
-    sheet.column_dimensions["W"].width = 65
+    sheet.column_dimensions["T"].width = 23
+    sheet.column_dimensions["U"].width = 40
+    sheet.column_dimensions["V"].width = 65
     sheet.freeze_panes = "C5"
     for cell in sheet["C"][4:]:
         cell.number_format = "yyyy-mm"
-    for column in ("P", "R"):
+    for column in ("O", "Q"):
         sheet.column_dimensions[column].width = 25
     sheet.sheet_properties.tabColor = NAVY
 
@@ -518,6 +540,12 @@ def _collection_pending(claim):
     ))
 
 
+def _complementary_total(row):
+    # Presentation only: keep the engine's separate cash and signed-adjustment
+    # fields unchanged; never use this display total to settle a loan.
+    return _sum([row.get('complementary_usd'), row.get('rounding_adjustment_usd')])
+
+
 def _collection_cash(claim):
     return _sum(
         entry.get("importe_usd") for entry in _json_list(claim.get("remittance_detail"))
@@ -554,8 +582,8 @@ def _collection_detail(period, claim):
         None, None, None, claim.get("application_reference"),
         _money(claim.get("expected_usd")),
         _money(claim.get("deducted_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
-        _money(claim.get("applied_usd")), _money(claim.get("complementary_usd")),
-        _money(claim.get("rounding_adjustment_usd")), _collection_cash(claim),
+        _money(claim.get("applied_usd")), _complementary_total(claim),
+        _collection_cash(claim),
         _money(claim.get("collection_shortfall_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
         _collection_pending(claim),
         " / ".join(str(item) for item in (claim.get("deduction_status"), claim.get("application_status")) if item),
@@ -571,7 +599,7 @@ def _historical_detail(period, application):
         application.get("national_id"), application.get("loan_number"), application.get("installment_number"),
         _date(application.get("event_date")), application.get("accounting_entry"), application.get("receipt"),
         application.get("reference"), NA, NA, net_application_amount(application),
-        0, _sum(e.get("diferencia_usd") for e in _json_list(application.get("historical_detail")) if isinstance(e, dict)),
+        _sum(e.get("diferencia_usd") for e in _json_list(application.get("historical_detail")) if isinstance(e, dict)),
         _money(application.get("historical_remitted_usd")), NA,
         _money(application.get("historical_balance_usd")),
         application.get("deposit_match_status"), application.get("deposit_match_reason"),
@@ -603,10 +631,10 @@ def _claim_links(period, claim, *, historical):
             claim.get("client_number"), claim.get("client_name"), claim.get("loan_number"),
             claim_id, application_reference, detail.get("referencia"), detail.get("comprobante"),
             _date(detail.get("fecha")),
-            ("Aplicación" if detail.get("destino") == "Aplicación histórica"
+            ('Partida complementaria' if detail.get('destino') == 'Movimiento de conciliación' or detail.get('diferencia_usd') is not None
+             else "Aplicación" if detail.get("destino") == "Aplicación histórica"
              else detail.get("destino") or ("Aplicación" if historical else "Cobranza")),
             _money(detail.get("importe_usd")),
-            _money(detail.get("diferencia_usd")) if detail.get("diferencia_usd") is not None else None,
             detail.get("origen"), inherited_text or claim.get("inherited_exception_comment"),
         ))
     return rows

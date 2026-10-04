@@ -5,6 +5,7 @@ from frappe.utils import getdate, nowdate
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.application_aging import application_balances
 from credinomina_reconciliation.core_item_position import load_core_items
+from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
 from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -15,6 +16,7 @@ METRICS = (
     ('company_credit_usd', 'Saldo a favor empresa US$'),
     ('client_credit_usd', 'Saldo a favor clientes US$'),
     ('deposit_pending_usd', 'Depósito sin conciliar US$'),
+    ('company_receivable_usd', 'Saldo por cobrar a la empresa US$'),
 )
 FIELDS = tuple(field for field, label in METRICS)
 CREDIT_CATEGORIES = {'Saldo a favor de la empresa', 'Saldo a favor del cliente'}
@@ -33,7 +35,7 @@ def _row(source, kind, doctype, document, event_date, field, amount, **extra):
     return result
 
 
-def build_detail(applications, core_items, credits, deposits, filters=None):
+def build_detail(applications, core_items, credits, deposits, filters=None, *, adjustment_receivables=()):
     """Compute each remaining amount once; filters act after all-time settlement."""
     filters = filters or {}
     result = []
@@ -101,6 +103,12 @@ def build_detail(applications, core_items, credits, deposits, filters=None):
             status=('Revisar distribución' if amount is not None and amount < 0 else
                     deposit.get('result') or 'Pendiente') if confirmed else 'Importado del core; sin confirmar',
             reference=deposit.get('deposit_reference'), observation=deposit.get('notes') or ''))
+    for item in adjustment_receivables:
+        result.append(_row(item, 'CxC por ajuste de depósito', 'CN Complementary Item', item['name'],
+            item.get('posting_date'), 'company_receivable_usd', item['receivable_usd'],
+            status=item['receivable_status'], category=item.get('category'),
+            reference=item.get('reference'), related_deposits=item.get('related_deposits'),
+            observation=item.get('description') or '', accounting_status=item.get('accounting_status')))
     def matches(row):
         if filters.get('employer') and row.get('employer') != filters['employer']:
             return False
@@ -155,4 +163,5 @@ def load_detail(filters):
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'result', 'notes']))
-    return build_detail(applications, core, credits, deposits, filters)
+    return build_detail(applications, core, credits, deposits, filters,
+                        adjustment_receivables=load_receivables(employer=filters.get('employer')))

@@ -69,20 +69,21 @@ class SignedComplementaryTests(unittest.TestCase):
     def document(self, **overrides):
         return SimpleNamespace(amount=-365.5, currency="NIO", fx_rate=36.55,
                                reference="REF", voucher="", voucher_line="", doctype="CN Complementary Item",
-                               name="COMP", period=None, employer="EMP", category="Ajuste de conciliación", **overrides)
+                               name="COMP", period=None, employer="EMP", category="Ajuste de conciliación", subcategory="Otro ajuste sin CxC", **overrides)
 
     def test_no_voucher_is_pending_and_does_not_collide_with_other_pending_items(self):
         doc = self.document()
         doc.flags = {}
         doc.get = lambda field, default=None: getattr(doc, field, default)
         with patch.object(frappe, "db", Mock()) as db:
+            db.get_value.return_value = 'Sin CxC adicional'
             CNComplementaryItem.validate(doc)
-            db.get_value.assert_not_called()
+            db.get_value.assert_called_once_with('CN Complementary Subcategory', doc.subcategory, 'effect')
         self.assertEqual(doc.amount_usd, -10)
         self.assertEqual(doc.accounting_status, "Pendiente de registro")
         doc.voucher = " AS-100 "
         with patch.object(frappe, "db", Mock()) as db:
-            db.get_value.return_value = None
+            db.get_value.side_effect = lambda doctype, *args, **kwargs: 'Sin CxC adicional' if doctype == 'CN Complementary Subcategory' else None
             CNComplementaryItem.before_update_after_submit(SimpleNamespace(validate=lambda: CNComplementaryItem.validate(doc)))
         self.assertEqual(doc.voucher, "AS-100")
         self.assertEqual(doc.accounting_status, "Asiento informado")

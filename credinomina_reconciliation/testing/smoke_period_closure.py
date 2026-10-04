@@ -57,6 +57,7 @@ def run():
             unrelated, unrelated_source = application(z, clients[2], "Historica", "2025-04-30", 17)
             generic = frappe.get_doc({"doctype": "CN Complementary Item", "employer": a,
                 "category": "Ajuste de conciliación", "reference": marker + "-GENERIC",
+                "subcategory": "Otro ajuste sin CxC",
                 "posting_date": "2025-05-01", "currency": "USD", "amount": 500,
                 "description": "Saldo compartido de prueba", "generic_distribution": 1})
             generic.append("distribution_companies", {"employer": b})

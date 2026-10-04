@@ -15,7 +15,7 @@ def execute(filters=None):
     data = load_position(collections, filters)
     message = _("Posición actual de conciliación, no saldo contractual del préstamo. "
         "Cobranza muestra deducciones y cuotas no deducidas; Aplicación muestra aplicado neto y depósitos asignados; "
-        "Partida complementaria separa distribución, registro contable y gestión de saldos a favor. "
+        "Partida complementaria incluye las diferencias automáticas por tolerancia y separa distribución, registro contable y gestión de saldos a favor. "
         "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
         "No reste automáticamente los saldos a favor. "
@@ -210,7 +210,6 @@ def get_collection_columns():
         {"fieldname": "complementary_usd", "label": _("Partida complementaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
-        {"fieldname": "rounding_adjustment_usd", "label": _("Movimiento de conciliación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
         {"fieldname": "employee_pending_usd", "label": _("Cobranza no deducida US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "pending_core_usd", "label": _("Pendiente core US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "employer_receivable_usd", "label": _("Deducido sin depósito asignado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
@@ -242,7 +241,7 @@ def get_columns(filters=None):
                         ('employee_pending_usd', 'Cuota no deducida US$'), ('pending_core_usd', 'Pendiente core US$')])
     if not view or view == 'Aplicación':
         metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
-                        ('rounding_adjustment_usd', 'Tolerancia US$'), ('applied_pending_usd', 'Aplicado pendiente US$')])
+                        ('applied_pending_usd', 'Aplicado pendiente US$')])
     if not view or view == 'Partida complementaria':
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
                         ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),

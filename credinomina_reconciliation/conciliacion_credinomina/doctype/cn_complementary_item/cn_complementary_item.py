@@ -50,6 +50,8 @@ class CNComplementaryItem(Document):
             frappe.throw(_("Seleccione USD o NIO como moneda de la partida."))
         if not money(self.amount_usd):
             frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
+        from credinomina_reconciliation.complementary_subcategories import validate_subcategory
+        validate_subcategory(self, previous)
         compensation.update_totals(self)
         if self.category == APPLICATION_ADJUSTMENT:
             validate_adjustment(self)

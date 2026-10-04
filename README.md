@@ -905,10 +905,20 @@ usa las mismas columnas monetarias y agrega fecha, cliente, crédito, documento
 de origen, estado y observaciones. La exportación estándar conserva la vista
 seleccionada. El **Estado de Cuenta Operativo** mantiene su detalle anterior.
 
+Los reportes presentan las diferencias automáticas por tolerancia como **Partidas
+complementarias**, identificadas por su categoría y documento, sin columnas separadas
+de tolerancia, redondeo o efectivo de ajustes. En **Estado de Cuenta Operativo** aparecen
+como filas del tipo **Partida complementaria**. En el Excel de control, los resúmenes
+unifican el importe firmado y **Partidas y excepciones** conserva el detalle de cada
+automática. En **Depósitos**, la columna **A partidas complementarias USD** muestra
+solo efectivo distribuido: una tolerancia negativa no inventa efectivo. No se suman
+entre sí el importe de la partida y su distribución; los cálculos de saldos no cambian.
+
 El saldo informativo suma: aplicado sin depósito, partidas del core pendientes
 (incluidas las **Por clasificar**, débito positivo y crédito negativo), saldos a
 favor de empresa/clientes por gestionar (negativos) y depósitos sin conciliar
-(negativos). Ejemplo REPSA: `4,474.07 − 7.35 − 0.18 − 154.28 − 3,173.81 = 1,138.45`.
+(negativos), más CxC de ajustes de depósito explícitamente clasificadas.
+Ejemplo REPSA: `4,474.07 − 7.35 − 0.18 − 154.28 − 3,173.81 + 0.01 = 1,138.46`.
 No ejecuta compensaciones ni convierte la cobranza en CxC. Solo se considera el
 remanente de cada partida; los ajustes ya aplicados no se descuentan otra vez.
 El depósito pendiente excluye asignaciones y saldos a favor ya documentados,
@@ -916,6 +926,23 @@ para no duplicarlos. Incluye depósitos importados del core aún sin confirmar;
 excluye borradores manuales y cancelados. Las fechas filtran el origen de los
 movimientos, no reconstruyen saldos históricos. Si falta un importe o su signo,
 el saldo de la empresa queda sin determinar, nunca como cero.
+
+**Subcategorías de partidas:** el catálogo está en **1. Preparación**. El Link
+**Subcategoría** es obligatorio en **Ajuste de conciliación**, también al crear
+la partida desde un depósito. Su tratamiento distingue **CxC a la empresa**,
+**Sin CxC adicional** y **Por clasificar**. Una CxC se reconoce solo por la porción
+negativa realmente utilizada en depósitos confirmados, no por destinos seleccionados.
+Se muestra positiva en el estado por empresa, en **Partidas y excepciones** del Excel,
+en la partida y en **Qué falta hacer**, aunque el depósito esté conciliado. El asiento
+informado o verificado no elimina la deuda. No se ofrece un cierre manual sin evidencia.
+El cierre mediante un nuevo depósito o una compensación vinculada requiere su flujo
+específico de liquidación; esta clasificación y visualización no lo registran automáticamente.
+
+El parche conserva los ajustes existentes como **Por clasificar**, salvo los ajustes
+manuales negativos cuya descripción es exactamente **CxC a la Empresa** (ignorando
+mayúsculas y espacios), que reciben esa subcategoría. No cambia importes ni distribuciones.
+Los ajustes por clasificar siguen visibles para revisión aunque estén distribuidos.
+El tratamiento de una subcategoría usada no puede modificarse retroactivamente.
 
 El Excel de **Control de Credinómina → Partidas y excepciones** también incluye
 las complementarias del core, incluso en revisión, con su remanente firmado,

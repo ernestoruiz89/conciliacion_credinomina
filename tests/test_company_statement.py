@@ -44,7 +44,7 @@ class CompanyStatementTests(unittest.TestCase):
         self.assertEqual(summary, [dict(employer='REPSA', usd_currency='USD',
             application_pending_usd=4474.07, core_pending_usd=-7.35,
             company_credit_usd=-.18, client_credit_usd=-154.28,
-            deposit_pending_usd=-3173.81, balance_usd=1138.45)])
+            deposit_pending_usd=-3173.81, company_receivable_usd=0, balance_usd=1138.45)])
         for row in detail:
             self.assertEqual(len([field for field in statement.FIELDS if row[field]]), 1)
             self.assertIn('source_document', row)
@@ -133,6 +133,7 @@ class CompanyStatementTests(unittest.TestCase):
              patch.object(statement, 'load_application_context', return_value=([], {}, {}, {}, {})), \
              patch.object(statement, 'application_balances', return_value=[self.app()]), \
              patch.object(statement, 'load_core_items', return_value=[self.core()]) as core, \
+             patch.object(statement, 'load_receivables', return_value=[]), \
              patch.object(statement, 'records', side_effect=read):
             data = statement.load_detail({'employer': 'REPSA', 'from_date': '2025-11-01'})
         core.assert_called_once_with(employer='REPSA')

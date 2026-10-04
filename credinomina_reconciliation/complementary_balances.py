@@ -91,4 +91,9 @@ def load_balances(items):
 def get_balance(item_name):
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("read")
-    return load_balances([item])[item.name]
+    balances = load_balances([item])
+    from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables
+    receivables = build_receivables([item], balances)
+    value = balances[item.name]
+    value['company_receivable_usd'] = money_float(sum((money(row['receivable_usd']) for row in receivables), money(0)))
+    return value

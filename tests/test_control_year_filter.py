@@ -30,7 +30,12 @@ class ControlYearFilterTests(unittest.TestCase):
             for field in ("payroll_month", "event_date", "deposit_date"):
                 self.assertNotIn(field, filters, (dt, filters))
             if "limit_page_length" in query:
-                self.assertEqual(query["limit_page_length"], 0)
+                # Receivables use the permission-aware paginator, not a screen cap.
+                if dt == 'CN Complementary Item' and 'subcategory_effect' in filters:
+                    self.assertEqual(query['limit_page_length'], 500)
+                    self.assertEqual(query.get('limit_start'), 0)
+                else:
+                    self.assertEqual(query["limit_page_length"], 0)
 
     def test_specific_year_keeps_date_filters(self):
         data, queries = self.load(2025)

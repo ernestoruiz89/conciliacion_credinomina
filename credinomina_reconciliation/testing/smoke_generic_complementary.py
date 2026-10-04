@@ -38,6 +38,7 @@ def run():
 
             def complement(amount, generic=False):
                 item = frappe.get_doc({"doctype": "CN Complementary Item", "employer": a, "category": "Ajuste de conciliación",
+                    "subcategory": "Otro ajuste sin CxC",
                     "reference": marker + "-UNRELATED", "posting_date": "2025-05-15", "currency": "USD", "amount": amount,
                     "description": "Prueba de partida con saldo único", "generic_distribution": int(generic)})
                 if generic:

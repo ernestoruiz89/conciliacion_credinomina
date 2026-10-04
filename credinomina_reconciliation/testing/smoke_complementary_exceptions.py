@@ -24,6 +24,7 @@ def run():
             period.db_set("status", "Cerrado", update_modified=False)
             before = frappe.db.get_value(period.doctype, period.name, "modified")
             origin = frappe.get_doc({"doctype": api.ITEM, "category": "Ajuste de conciliación",
+                "subcategory": "Otro ajuste sin CxC",
                 "employer": employer.name, "period": period.name, "reference": marker,
                 "posting_date": "2025-10-01", "currency": "USD", "amount": -0.01,
                 "description": "Centavo para registrar en el core"}).insert()

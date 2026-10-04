@@ -115,14 +115,14 @@ class TestControlExport(unittest.TestCase):
         self.assertEqual(summary["D5"].value, "Histórica")
         self.assertEqual(summary["I5"].value, "Conciliado")
         self.assertEqual(summary["I6"].value, "Con diferencias")
-        self.assertEqual(summary["P5"].value, 0)
-        self.assertEqual(summary["P6"].value, 0)
-        self.assertEqual(summary["N5"].value, 0.01)
+        self.assertEqual(summary["O5"].value, 0)
+        self.assertEqual(summary["O6"].value, 0)
+        self.assertEqual(summary["M5"].value, 0.01)
         self.assertEqual(summary["H6"].value.year, 2026)
-        self.assertEqual(summary["U6"].value.year, 2026)
-        self.assertEqual(summary["V6"].value, "Solicitar pago parcial y detalle actualizado")
-        self.assertEqual(summary["W6"].value, "Deducción parcial por ingreso insuficiente")
-        self.assertEqual(summary["X6"].value, "Abierto")
+        self.assertEqual(summary["T6"].value.year, 2026)
+        self.assertEqual(summary["U6"].value, "Solicitar pago parcial y detalle actualizado")
+        self.assertEqual(summary["V6"].value, "Deducción parcial por ingreso insuficiente")
+        self.assertEqual(summary["W6"].value, "Abierto")
         detail = book["Detalle cliente"]
         self.assertEqual(detail["N5"].value, "N/D")
         self.assertEqual(detail["O5"].value, "N/D")
@@ -170,10 +170,10 @@ class TestControlExport(unittest.TestCase):
         )))
         summary = book["Períodos"]
         self.assertEqual(sum(row[7] for row in monthly_rows({"periods": periods})), 50)
-        self.assertEqual([summary[f"P{r}"].value for r in (5, 6)], [30, 20])
+        self.assertEqual([summary[f"O{r}"].value for r in (5, 6)], [30, 20])
         self.assertEqual(summary["E6"].value, "Mensual")
         detail = book["Detalle cliente"]
-        self.assertEqual([detail[f"U{r}"].value for r in range(5, 9)], [30, 0, 20, 0])
+        self.assertEqual([detail[f"T{r}"].value for r in range(5, 9)], [30, 0, 20, 0])
         for sheet, header_row in ((summary, 4), (detail, 4), (book["Cruces"], 4)):
             for cell in sheet[header_row]:
                 self.assertNotRegex(cell.value, r"(?i)históric|operativ")
@@ -196,8 +196,8 @@ class TestControlExport(unittest.TestCase):
                 summary = book["Períodos"]
                 if mode:
                     self.assertEqual(summary["J5"].value, 0 if mode == "Operativa" else "N/D")
-                    self.assertEqual(summary["P5"].value, 0)
-                self.assertEqual(summary["P4"].value, "Aplicado pendiente de depósito USD")
+                    self.assertEqual(summary["O5"].value, 0)
+                self.assertEqual(summary["O4"].value, "Aplicado pendiente de depósito USD")
                 self.assertEqual(summary.freeze_panes, "C5")
 
     def test_monthly_groups_cuts_keeps_cash_separate_and_does_not_net_customers(self):

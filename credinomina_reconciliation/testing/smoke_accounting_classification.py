@@ -69,6 +69,7 @@ def run():
         assert internal.related_import == applications.name
         original_evidence = {field: internal.get(field) for field in review.EVIDENCE_FIELDS}
         internal.review_action = "Partida de depósito"
+        internal.subcategory = "Otro ajuste sin CxC"
         internal.reference = marker + "-DEP"
         internal.review_notes = "Cobranza identificada; importe y signo revisados"
         internal.amount_reviewed = 1

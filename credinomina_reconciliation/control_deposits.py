@@ -34,8 +34,8 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
     )
     # Parent permission checks also apply to descriptions of complementary items
     # and periods; never expose an inaccessible document through the overview.
-    item_ids = sorted({e["partida"] for d in deposits
-                       for e in _entries(d.get("allocation_detail")) if e.get("partida")})
+    item_ids = sorted({e.get("partida") or e.get("movimiento") for d in deposits
+                       for e in _entries(d.get("allocation_detail")) if e.get("partida") or e.get("movimiento")})
     items = {}
     client_credits = []
     if frappe.has_permission("CN Complementary Item", "read"):
@@ -141,7 +141,9 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                     label += " · " + entry["empresa"]
             elif entry.get("tipo") == "Movimiento de conciliación":
                 adjustments += amount  # Cash consumed, not the signed adjustment.
-                kind = "Ajuste de conciliación"
+                kind = "Partida complementaria"
+                item = items.get(entry.get('movimiento'), {})
+                label = ' · '.join(filter(None, [item.get('name'), item.get('category')])) or 'Partida complementaria (detalle no disponible)'
             if include_details and kind and amount:
                 key = (kind, label, month)
                 destination_employers[key] = entry.get("empresa") or visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""

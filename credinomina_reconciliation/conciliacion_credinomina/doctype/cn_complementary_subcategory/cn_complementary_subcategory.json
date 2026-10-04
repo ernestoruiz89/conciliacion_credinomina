@@ -1,0 +1,23 @@
+{
+  "doctype": "DocType",
+  "name": "CN Complementary Subcategory",
+  "module": "Conciliacion Credinomina",
+  "autoname": "field:subcategory_name",
+  "allow_rename": 1,
+  "engine": "InnoDB",
+  "field_order": ["subcategory_name", "effect", "description"],
+  "fields": [
+    {"fieldname": "subcategory_name", "fieldtype": "Data", "label": "Subcategoría", "reqd": 1, "unique": 1, "in_list_view": 1},
+    {"fieldname": "effect", "fieldtype": "Select", "label": "Tratamiento", "reqd": 1, "in_list_view": 1, "options": "Por clasificar\nCxC a la empresa\nSin CxC adicional", "default": "Por clasificar", "description": "CxC conserva el faltante como deuda de la empresa aunque el depósito quede distribuido. Registrar el asiento no equivale a cobrar."},
+    {"fieldname": "description", "fieldtype": "Small Text", "label": "Descripción"}
+  ],
+  "permissions": [
+    {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1},
+    {"role": "Supervisor Credinomina", "read": 1, "write": 1, "create": 1, "report": 1},
+    {"role": "Operador Credinomina", "read": 1, "report": 1}
+  ],
+  "track_changes": 1,
+  "modified": "2026-10-04 17:00:00.000000",
+  "sort_field": "subcategory_name",
+  "sort_order": "ASC"
+}

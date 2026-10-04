@@ -17,7 +17,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "1. Preparación",
-      "link_count": 4,
+      "link_count": 5,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -61,6 +61,16 @@
       "link_type": "DocType",
       "onboard": 0,
       "type": "Link"
+    },
+    {
+      "label": "Subcategorías de partidas",
+      "link_to": "CN Complementary Subcategory",
+      "link_type": "DocType",
+      "type": "Link",
+      "link_count": 0,
+      "hidden": 0,
+      "is_query_report": 0,
+      "onboard": 0
     },
     {
       "description": "Cree el período, cargue la cobranza y después el detalle de deducción de la empresa en ese mismo documento.",
@@ -250,7 +260,7 @@
       "report_ref_doctype": "CN Reconciliation Period"
     }
   ],
-  "modified": "2026-10-04 15:30:00.000000",
+  "modified": "2026-10-04 17:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",
