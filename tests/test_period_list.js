@@ -7,6 +7,11 @@ const directory = path.join(__dirname,
 const meta = JSON.parse(fs.readFileSync(path.join(directory, "cn_reconciliation_period.json"), "utf8"));
 const status = meta.fields.find(field => field.fieldname === "status");
 assert.equal(status.in_list_view, 1);
+assert.equal(status.in_standard_filter, 1);
+const employer = meta.fields.find(field => field.fieldname === "employer");
+assert.equal(employer.in_standard_filter, 1);
+assert.equal(employer.fieldtype, "Link");
+assert.equal(employer.options, "CN Employer");
 const states = Object.fromEntries(meta.states.map(state => [state.title, state.color]));
 assert.deepEqual(Object.keys(states).sort(), status.options.split("\n").sort());
 assert.equal(meta.states.length, Object.keys(states).length);
