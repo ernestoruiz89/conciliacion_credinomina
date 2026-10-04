@@ -12,7 +12,7 @@ assert.equal(filters.transaction_type.default, "Aplicaciones");
 assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos");
 assert.equal(filters.include_drafts.default, 0);
 const formatter = (value, field, data) => report.formatter(value, null, {fieldname: field}, data, value => String(value));
-for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#ffedd5"], ["Pendiente", "#fee2e2"]]) {
+for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#fb923c"], ["Pendiente", "#fee2e2"]]) {
     const result = formatter(5, "m04", {m04_state: state, m04_conciliado: 3, m04_parcial: 1, m04_pendiente: 1});
     assert.ok(result.includes(color));
     assert.ok(result.includes("Conciliadas: 3"));
@@ -32,10 +32,11 @@ assert.ok(formatter(0, "m01", {}).includes("Sin transacciones"));
 assert.ok(!formatter(0, "m01", {}).includes("background"));
 assert.equal(report.formatter("value", null, null, {}, value => value), "value");
 assert.ok(!formatter(1, "m01", {m01_state: '<script>"'}).includes("<script>"));
-for (const [percentage, halfCovered, color] of [[49.99, false, "#ffedd5"], [50, true, "#fef9c3"], [75, true, "#fef9c3"]]) {
+for (const [percentage, halfCovered, color] of [[49.99, false, "#fb923c"], [50, true, "#fef9c3"], [75, true, "#fef9c3"]]) {
     const result = formatter(5, "m04", {m04_state: "Parcial", m04_percentage: percentage,
         m04_half_covered: halfCovered, m04_total_usd: 100, m04_covered_usd: percentage});
     assert.ok(result.includes(color));
+    if (!halfCovered) assert.ok(result.includes("color:#431407"));
     assert.ok(result.includes("Importe conciliado"));
     assert.ok(result.includes(" / 100.00"));
 }

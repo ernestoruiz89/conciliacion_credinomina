@@ -17,7 +17,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         }
         if (!Number(value)) return '<span class="text-muted" title="' + __("Sin transacciones") + '">—</span>';
         const state = data[key + "_state"] || "Pendiente";
-        const colors = {Conciliado: ["#dcfce7", "#14532d"], Parcial: ["#ffedd5", "#9a3412"], Pendiente: ["#fee2e2", "#991b1b"]};
+        const colors = {Conciliado: ["#dcfce7", "#14532d"], Parcial: ["#fb923c", "#431407"], Pendiente: ["#fee2e2", "#991b1b"]};
         const percentage = data[key + "_percentage"];
         const known = percentage != null && Number.isFinite(Number(percentage));
         const [background, foreground] = state === "Parcial" && known && data[key + "_half_covered"]
