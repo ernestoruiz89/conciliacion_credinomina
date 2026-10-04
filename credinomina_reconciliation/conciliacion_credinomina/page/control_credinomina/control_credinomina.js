@@ -147,8 +147,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             </tr></thead><tbody>${visibleWork.map((item, index) => `<tr>
                 <td><span class="cn-work-priority cn-work-priority-${Number(item.priority)}">${esc(item.priority === 0 ? __("Vencida") : item.priority <= 1 ? __("Revisar") : item.priority <= 2 ? __("Pendiente") : __("Seguimiento"))}</span></td>
                 <td>${esc(item.employer_name)}</td>
-                <td>${esc(item.period_label)}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
-                <td>${esc(item.summary)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
+                <td>${esc(item.period_label)}${item.period_context ? `<div class="cn-work-context">${esc(__(item.period_context))}</div>` : ""}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
+                <td>${esc(item.summary)}${renderWorkClient(item)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
                 <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
                 <td>${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}</td>
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__("Abrir"))}</button></td>
@@ -907,6 +907,12 @@ function money(value) {
         style: "currency", currency: "USD", minimumFractionDigits: 2,
         maximumFractionDigits: 4,
     }).format(Number(value || 0));
+}
+
+function renderWorkClient(item) {
+    if (item.kind !== "credit_management" || item.category !== "Saldo a favor del cliente") return "";
+    return `<div class="cn-work-client"><strong>${esc(item.client_name || __("Nombre no informado"))}</strong>
+        <div>${esc(__("Nro. Cliente"))}: ${esc(item.client_number || __("No informado"))}</div></div>`;
 }
 
 function signedMoney(value) {
