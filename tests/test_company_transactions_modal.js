@@ -111,5 +111,23 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, net_
     await flush();
     const footer = deposits.html.split("<tfoot>")[1].split("</tfoot>")[0];
     assert.equal((footer.match(/>—</g) || []).length, 2);
+    for (const kind of ["Partidas complementarias contables", "Partidas complementarias sin origen contable"]) {
+        const complementary = report.show_month_detail({year: 2025, month: 4, employer: "A", transaction_type: kind, include_drafts: 0});
+        assert.equal(calls.at(-1).args.transaction_type, kind);
+        requests.shift().resolve(payload([{document: "COMP-1", date: "2025-04-30", state: "Parcial", category: "Compensación entre partidas",
+            client_name: "Ana", client_number: "10", loan_number: "100-1", signed_usd: -100, original_usd: 100,
+            resolved_usd: 60, pending_usd: 40, used_label: "Compensado", reason: "<script>unsafe</script>"}],
+            {original_usd: 100, resolved_usd: 60, pending_usd: 40}));
+        await flush();
+        assert.ok(complementary.html.includes("/app/cn-complementary-item/COMP-1"));
+        assert.ok(complementary.html.includes("Importe absoluto US$"));
+        assert.ok(complementary.html.includes("Resuelto US$"));
+        assert.ok(complementary.html.includes("USD -100.00"));
+        assert.ok(complementary.html.includes("USD 60.00"));
+        assert.ok(complementary.html.includes("Compensado"));
+        assert.ok(!complementary.html.includes("<script>"));
+        assert.ok(complementary.html.includes("no equivale a efectivo recibido"));
+        assert.ok(!complementary.html.includes("/app/cn-remittance-allocation/COMP-1"));
+    }
     console.log("OK: month drill-down, filters, paging, dates, document links, escaping, races and errors.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

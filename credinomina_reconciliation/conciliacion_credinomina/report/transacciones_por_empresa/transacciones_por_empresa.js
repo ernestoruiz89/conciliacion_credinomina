@@ -3,7 +3,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         {fieldname: "year", label: __("Año"), fieldtype: "Int", reqd: 1,
             default: Number(frappe.datetime.get_today().slice(0, 4))},
         {fieldname: "transaction_type", label: __("Tipo de transacción"), fieldtype: "Select", reqd: 1,
-            options: "Aplicaciones\nDepósitos", default: "Aplicaciones"},
+            options: "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable", default: "Aplicaciones"},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "include_drafts", label: __("Incluir borradores"), fieldtype: "Check", default: 0},
     ],
@@ -53,6 +53,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
     show_month_detail(args) {
         const esc = value => frappe.utils.escape_html(String(value ?? ""));
         const isApplication = args.transaction_type === "Aplicaciones";
+        const isComplementary = ["Partidas complementarias contables", "Partidas complementarias sin origen contable"].includes(args.transaction_type);
         const money = value => value == null ? "—" : esc(format_currency(value, "USD"));
         const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
         let dialog, sequence = 0, offset = 0, closed = false, busy = false;
@@ -74,20 +75,25 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 const cards = data.summary.map(item => `<div style="flex:1;min-width:150px;padding:12px;border:1px solid var(--border-color);border-radius:8px"><div>${esc(item.label)}</div><strong style="font-size:20px">${esc(item.value)}</strong></div>`).join("");
                 const headers = isApplication
                     ? ["Fecha", "Documento / fila", "Cliente", "Crédito", "Aplicado US$", "Ajuste US$", "Aplicado neto US$", "Asignado US$", "Redondeo US$", "Pendiente US$", "Estado"]
+                    : isComplementary ? ["Fecha", "Partida / concepto", "Cliente", "Crédito", "Importe absoluto US$", "Resuelto US$", "Pendiente US$", "Estado"]
                     : ["Fecha", "Depósito", "Referencia / asiento", "Cuenta bancaria", "Depositado US$", "Asignado US$", "Saldo a favor US$", "Sin distribuir US$", "Estado"];
                 const body = data.rows.map(item => {
                     const colors = {Conciliado: ["#dcfce7", "#14532d"], Parcial: ["#ffedd5", "#9a3412"], Pendiente: ["#fee2e2", "#991b1b"]};
                     const [background, color] = colors[item.state] || colors.Pendiente;
                     const badge = `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:${background};color:${color}">${esc(item.state)}</span>`;
-                    const extra = [item.status_detail, item.reason, item.observations].filter(Boolean).join(" · ");
+                    const management = item.management_pending_usd != null ? `${__("Gestión del saldo a favor")}: ${item.management_status} · ${__("Pendiente US$")}: ${item.management_pending_usd}` : "";
+                    const extra = [item.status_detail, item.used_label, management, item.reason, item.observations].filter(Boolean).join(" · ");
                     const status = `${badge}${extra ? `<details style="margin-top:6px"><summary>${__("Ver motivo")}</summary><div style="min-width:200px;white-space:normal">${esc(extra)}</div></details>` : ""}`;
-                    const slug = isApplication ? "cn-accounting-import" : "cn-remittance-allocation";
+                    const slug = isApplication ? "cn-accounting-import" : isComplementary ? "cn-complementary-item" : "cn-remittance-allocation";
                     const link = `<a href="/app/${slug}/${encodeURIComponent(item.document)}" target="_blank" rel="noopener noreferrer">${esc(item.document)}</a>`;
                     const date = item.date ? esc(frappe.datetime.str_to_user(item.date)) : "—";
                     const cells = isApplication
                         ? [date, `${link}<div>${__("Fila")} ${esc(item.row_index)}</div><div>${esc([item.reference, item.voucher, item.receipt].filter(Boolean).join(" · "))}</div>`,
                             `${esc(item.client_name || __("Sin identificar"))}<div>${__("Nro. Cliente")}: ${esc(item.client_number || "—")}</div>`, esc(item.loan_number || "—"),
                             money(item.original_usd), money(item.adjustment_usd), money(item.net_usd), money(item.assigned_usd), money(item.rounding_usd), money(item.pending_usd), status]
+                        : isComplementary ? [date, `${link}<div>${esc(item.category)}</div><div>${esc([item.reference, item.voucher].filter(Boolean).join(" · "))}</div><div>${__("Importe con signo")}: ${money(item.signed_usd)}</div>`,
+                            `${esc(item.client_name || __("Sin identificar"))}<div>${__("Nro. Cliente")}: ${esc(item.client_number || "—")}</div>`, esc(item.loan_number || "—"),
+                            money(item.original_usd), money(item.resolved_usd), money(item.pending_usd), status]
                         : [date, link, esc([item.reference, item.voucher].filter(Boolean).join(" · ")),
                             `${esc(item.bank_account || "—")}<div>${esc(item.original_currency)} ${esc(item.original_amount)}</div>`,
                             money(item.original_usd), money(item.assigned_usd), money(item.surplus_usd), money(item.pending_usd), status];
@@ -95,6 +101,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 }).join("");
                 const amountFields = isApplication
                     ? ["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
+                    : isComplementary ? ["original_usd", "resolved_usd", "pending_usd"]
                     : ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"];
                 const footer = `<tfoot><tr style="font-weight:700;background:var(--control-bg)"><th colspan="4">${__("Total filtrado")} · ${esc(data.filtered_count)} ${__("transacciones")}</th>
                     ${amountFields.map(field => `<td style="text-align:right;white-space:nowrap">${money(data.totals?.[field])}</td>`).join("")}<td></td></tr></tfoot>`;
@@ -104,6 +111,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:12px;line-height:1.4"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
                     <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody>${footer}</table></div>
                     <p class="text-muted">${__("El total incluye todas las páginas con los filtros actuales. Importes en US$. — indica que falta conversión o atribución individual; el total de esa columna también queda sin determinar.")}</p>
+                    ${isComplementary ? `<p class="text-muted">${__("La cobertura y los totales usan importes absolutos, sin compensar signos. Resuelto incluye depósitos, ajustes, compensaciones y tratamientos no conciliatorios documentados; no equivale a efectivo recibido. La gestión de saldos a favor se muestra en Ver motivo.")}</p>` : ""}
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span>${esc(data.rows.length ? start + 1 : 0)}–${esc(end)} / ${esc(data.filtered_count)} ${__("transacciones")}</span>
                     <div><button class="btn btn-default btn-sm cn-detail-previous" ${start === 0 ? "disabled" : ""}>${__("Anterior")}</button>
                     <button class="btn btn-default btn-sm cn-detail-next" ${end >= data.filtered_count ? "disabled" : ""}>${__("Siguiente")}</button></div></div>`);

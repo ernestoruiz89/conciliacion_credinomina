@@ -6,6 +6,10 @@ from frappe.utils import cint, nowdate
 from credinomina_reconciliation.company_transactions import (
     IMPORTED, application_state, deposit_state, monthly_counts, application_month_amounts, deposit_month_amounts,
 )
+from credinomina_reconciliation import complementary_transactions
+
+TRANSACTION_DOCTYPES = {"Aplicaciones": "CN Accounting Import", "Depósitos": "CN Remittance Allocation",
+                       **{kind: "CN Complementary Item" for kind in complementary_transactions.KINDS}}
 
 
 def execute(filters=None):
@@ -15,17 +19,18 @@ def execute(filters=None):
         frappe.throw(_("Indique un año válido entre 1900 y 9998."))
     year = int(raw_year)
     kind = filters.get("transaction_type") or "Aplicaciones"
-    if kind not in {"Aplicaciones", "Depósitos"}:
-        frappe.throw(_("Seleccione Aplicaciones o Depósitos."))
+    if kind not in TRANSACTION_DOCTYPES:
+        frappe.throw(_("Seleccione un tipo de transacción válido."))
     drafts = bool(cint(filters.get("include_drafts")))
-    doctype = "CN Accounting Import" if kind == "Aplicaciones" else "CN Remittance Allocation"
+    doctype = TRANSACTION_DOCTYPES[kind]
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("No tiene permiso para consultar estas transacciones."), frappe.PermissionError)
     dates = [f"{year}-01-01", f"{year}-12-31"]
     scoped = {"employer": filters.employer} if filters.get("employer") else {}
     records, sources, by_name = load_transactions(kind, drafts, scoped, dates)
     amounts = (application_month_amounts(sources, by_name, load_partial_collections(sources, by_name))
-               if kind == "Aplicaciones" else deposit_month_amounts(sources))
+               if kind == "Aplicaciones" else complementary_transactions.month_amounts(sources)
+               if kind in complementary_transactions.KINDS else deposit_month_amounts(sources))
     data = monthly_counts(records, year, amounts)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
@@ -38,12 +43,21 @@ def execute(filters=None):
                 "o falta conversión, el porcentaje no está disponible y se mantiene naranja. "
                 "Cada transacción permanece en el mes de su fecha y considera toda su cobertura, aunque los depósitos, aplicaciones o períodos relacionados sean de otros meses. "
                 "El color refleja el estado actual, no un corte histórico; no se ejecuta ninguna conciliación.")
-    message += " " + (_("Aplicaciones: una transacción por fila de aplicación, según Fecha del movimiento; no por documento ni por período. "
+    if kind in complementary_transactions.KINDS:
+        message += " " + _("Partidas complementarias: un documento por transacción y empresa titular. Las contables usan la fecha original del movimiento; las sin origen contable usan la fecha de la partida. "
+            "La separación utiliza la identidad de importación contable, no el comprobante. Se excluyen canceladas y tolerancias revertidas. "
+            "La cobertura usa importes absolutos para no compensar signos entre partidas; considera depósitos, ajustes y compensaciones confirmados de cualquier mes. "
+            "Los tratamientos No conciliatoria y Registro contable verificado cuentan como resueltos, no como efectivo recibido. "
+            "Un saldo a favor documentado puede estar conciliado aunque su gestión siga pendiente.")
+    else:
+        message += " " + (_("Aplicaciones: una transacción por fila de aplicación, según Fecha del movimiento; no por documento ni por período. "
                         "Conciliar con la cobranza no equivale a conciliar el depósito. Importaciones fallidas y registros cancelados se excluyen.")
         if kind == "Aplicaciones" else _("Depósitos: un registro por depósito, según Fecha del depósito y empresa pagadora, aunque cubra otras empresas o períodos. "
             "Un saldo a favor completamente documentado puede estar conciliado aunque su devolución siga pendiente. Se excluyen los cancelados."))
     if drafts:
-        message += " " + _("Los borradores se incluyen como pendientes; en aplicaciones se utiliza el estado Borrador de la importación.")
+        message += " " + _("Los borradores sin tratamiento confirmado se incluyen como pendientes; en aplicaciones se utiliza el estado Borrador de la importación.")
+    if kind in complementary_transactions.KINDS:
+        message += " " + _("Compensaciones confirmadas y tratamientos ya documentados se incluyen aunque el documento permanezca en borrador.")
     summary = transaction_summary(records)
     return columns(), data, message, None, summary
 
@@ -56,7 +70,9 @@ def transaction_summary(records):
 
 def load_transactions(kind, drafts, scoped, dates, detail=False):
     """Shared permission-scoped selection for both the grid and its drill-down."""
-    doctype = "CN Accounting Import" if kind == "Aplicaciones" else "CN Remittance Allocation"
+    if kind in complementary_transactions.KINDS:
+        return complementary_transactions.load_transactions(kind, drafts, scoped, dates, detail)
+    doctype = TRANSACTION_DOCTYPES[kind]
     records = []
     if kind == "Aplicaciones":
         # Accounting imports are not submittable; their business status defines drafts.
@@ -137,9 +153,9 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
 
     if not str(year).isdigit() or not 1900 <= int(year) <= 9998 or not str(month).isdigit() or not 1 <= int(month) <= 12:
         frappe.throw(_("Indique un año y mes válidos."))
-    if transaction_type not in {"Aplicaciones", "Depósitos"} or state not in {"", "Conciliado", "Parcial", "Pendiente"}:
+    if transaction_type not in TRANSACTION_DOCTYPES or state not in {"", "Conciliado", "Parcial", "Pendiente"}:
         frappe.throw(_("Tipo de transacción o estado inválido."))
-    doctype = "CN Accounting Import" if transaction_type == "Aplicaciones" else "CN Remittance Allocation"
+    doctype = TRANSACTION_DOCTYPES[transaction_type]
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("No tiene permiso para consultar estas transacciones."), frappe.PermissionError)
     year, month = int(year), int(month)
@@ -149,7 +165,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     states = {row["name"]: row["state"] for row in records}
     query = str(search or "").strip().casefold()
     fields = ("name", "parent", "client_name", "client_number", "loan_number", "reference", "voucher", "receipt",
-              "deposit_reference", "deposit_voucher", "bank_account")
+              "deposit_reference", "deposit_voucher", "bank_account", "category", "source_voucher", "source_description", "description")
     selected = [row for row in sources if (not state or states[row.name] == state)
                 and (not query or query in " ".join(str(row.get(field) or "") for field in fields).casefold())]
     selected.sort(key=lambda row: (str(row.get("event_date") or row.get("deposit_date") or ""),
@@ -158,7 +174,8 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     start = max(cint(start), 0)
     collections = load_partial_collections(selected, parents, partial_only=False) if transaction_type == "Aplicaciones" else {}
     amount_fields = (["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
-                     if transaction_type == "Aplicaciones" else ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"])
+                     if transaction_type == "Aplicaciones" else ["original_usd", "resolved_usd", "pending_usd"]
+                     if transaction_type in complementary_transactions.KINDS else ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"])
     totals = {field: money(0) for field in amount_fields}
     details = []
     for index, row in enumerate(selected):
@@ -179,6 +196,15 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                         observations=" · ".join(amounts["observations"]),
                         status_detail=row.get("deposit_match_status") or "Pendiente",
                         reason=row.get("deposit_match_reason") or row.get("match_reason") or "")
+        elif transaction_type in complementary_transactions.KINDS:
+            balance = row["_balance"]
+            item.update(row["_progress"])
+            item.update(document=row.name, date=row.get("event_date"), category=row.get("category"),
+                        client_name=row.get("client_name"), client_number=row.get("client_number"), loan_number=row.get("loan_number"),
+                        voucher=row.get("source_voucher") or row.get("voucher"), reference=row.get("accounting_reference") or row.get("reference"),
+                        signed_usd=row.get("amount_usd"), used_label=balance["used_label"],
+                        management_pending_usd=balance["management_pending_usd"], management_status=balance["management_status"],
+                        reason=row.get("source_description") or row.get("description") or "", observations=row.get("review_notes") or "")
         else:
             confirmed = row.get("docstatus") == 1
             assigned = money(row.get("allocated_usd")) if confirmed else money(0)

@@ -9,7 +9,7 @@ const report = context.frappe.query_reports["Transacciones por Empresa"];
 const filters = Object.fromEntries(report.filters.map(field => [field.fieldname, field]));
 assert.equal(filters.year.default, 2026);
 assert.equal(filters.transaction_type.default, "Aplicaciones");
-assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos");
+assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable");
 assert.equal(filters.include_drafts.default, 0);
 const formatter = (value, field, data) => report.formatter(value, null, {fieldname: field}, data, value => String(value));
 for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#fb923c"], ["Pendiente", "#fee2e2"]]) {

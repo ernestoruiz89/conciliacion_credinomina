@@ -486,13 +486,25 @@ archivos conservan además el texto íntegro de DESCRIPCION, incluidos saltos de
 
 En **6. Control y reportes → Transacciones por empresa**, consulte una matriz
 con una fila por empresa, los doce meses del año y el total anual. Filtre por
-año, empresa, **Aplicaciones** o **Depósitos** y **Incluir borradores** (desactivado
+año, empresa, tipo de transacción y **Incluir borradores** (desactivado
 por defecto).
 
 - Aplicaciones: cuenta las filas de tipo Aplicación en `CN Accounting Import`,
   por fecha del movimiento, no la cantidad de documentos ni de períodos.
 - Depósitos: cuenta cada `CN Remittance Allocation` por fecha del depósito y
   empresa pagadora; distribuirlo entre varios períodos no multiplica el conteo.
+- **Partidas complementarias contables**: documentos con identidad de importación
+  `accounting_source_key`, por fecha original del movimiento (`source_date`).
+- **Partidas complementarias sin origen contable**: documentos sin esa identidad,
+  por fecha de la partida (`posting_date`), incluyendo las manuales y tolerancias.
+  Tener un comprobante no cambia su origen. No se incluyen canceladas ni tolerancias
+  revertidas. Las compensaciones confirmadas y tratamientos ya documentados se
+  incluyen aunque su documento permanezca en borrador. Los otros borradores solo
+  se incluyen al marcar el filtro y cuentan como pendientes.
+  El avance usa importes absolutos, sin compensar signos entre partidas. El modal
+  muestra importe con signo, magnitud, resuelto y pendiente. «No conciliatoria» y
+  «Registro contable verificado» cuentan como resueltos, no como efectivo recibido;
+  el saldo a favor documentado conserva por separado su gestión pendiente.
 - Verde: todas conciliadas; rojo: todas pendientes. En meses parcialmente
   conciliados, naranja si la cobertura del importe es menor al 50% y amarillo
   desde el 50%. Los meses vacíos muestran «—».
