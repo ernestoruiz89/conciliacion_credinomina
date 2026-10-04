@@ -620,6 +620,15 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    documentada.
    En **Plantillas → Plantilla de detalle del depósito** descargue el mismo
    formato con deducidos (precargado si eligió **Períodos del detalle**).
+   No es obligatorio informar el nombre: basta **Nro. Crédito, Nro. Cédula,
+   Nro. Cliente, Nro. Empleado o Nombre y Apellidos**. Si informa varios,
+   todos deben corresponder a la misma persona. El crédito se verifica contra
+   cartera o aplicaciones contables; el nombre admite alias registrados y
+   apellidos/nombres en distinto orden. Al identificar al cliente se completan
+   su nombre y número faltantes, sin reemplazar los datos suministrados. Las
+   identidades desconocidas, ambiguas o contradictorias quedan por revisar y
+   no se concilian automáticamente. La búsqueda respeta las empresas autorizadas
+   por la pagadora. El importe equivalente US$ se calcula al cargar el detalle.
    Adjunte el archivo completado y pulse **Cargar detalle del depósito**. Un
    depósito puede cubrir 200 aplicaciones; varias
    depósitos pueden cubrir una aplicación. El detalle se compara en US$ y no

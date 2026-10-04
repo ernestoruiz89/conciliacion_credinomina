@@ -23,8 +23,19 @@ class Dialog {
         this.minimizeButton = wrapper();
         for (const field of options.fields) {
             if (!field.fieldname) continue;
-            this.fields_dict[field.fieldname] = { df: field, $input: wrapper(), $wrapper: wrapper() };
-            this.values[field.fieldname] = field.default || "";
+            this.fields_dict[field.fieldname] = { df: field, $input: wrapper(), $wrapper: wrapper(),
+                set_input: value => { this.values[field.fieldname] = value; } };
+            this.values[field.fieldname] = field.fieldtype === "Check" ? 0 : field.default || "";
+            if (field.fieldtype === "Check") {
+                // Reproduce Frappe's async defaults while Bootstrap is hidden:
+                // onchange cannot be relied upon to redraw the initial table.
+                Promise.resolve().then(() => {
+                    this.fields_dict[field.fieldname].set_input(field.default || 0);
+                    this.$wrapper.is = () => false;
+                    field.onchange?.();
+                    this.$wrapper.is = () => true;
+                });
+            }
         }
     }
     get_value(name) { return this.values[name]; }
@@ -53,11 +64,17 @@ const rows = [
     { id: "X:NONE", filter_period: "", kind: "Partida complementaria", employer: "Empresa A" },
 ].map(row => ({...row, pending_cents: 100, client_name: "Ana Pérez", reference: "REF"}));
 const data = { rows, employer: "Empresa A", allowed_employers: ["Empresa A", "Empresa B"], available_cents: 10000 };
+async function run() {
 const picker = new Picker({doc: {detail_periods: [{period: "A"}, {period: "B"}, {period: "A"}, {}]}}, data);
 const ids = () => Array.from(picker.filtered, row => row.id);
 assert.equal(picker.dialog.get_value("use_detail_periods"), 1);
 assert.equal(picker.detailPeriods.size, 2);
 assert.deepEqual(ids(), ["H:A", "H:B", "C:A", "X:B"]);
+// Already filtered on the first render, before delayed defaults have run.
+const initialItems = picker.dialog.fields_dict.items.$wrapper.content;
+await Promise.resolve();
+assert.deepEqual(ids(), ["H:A", "H:B", "C:A", "X:B"]);
+assert.equal(picker.dialog.fields_dict.items.$wrapper.content, initialItems);
 const query = picker.dialog.fields_dict.period.df.get_query;
 assert.deepEqual(Array.from(query().filters.name[1]), ["A", "B"]);
 assert.equal(query().filters.status[1], "Cerrado");
@@ -109,4 +126,8 @@ assert.equal(Number(empty.dialog.get_value("use_detail_periods")), 0);
 assert.equal(empty.dialog.fields_dict.use_detail_periods.df.read_only, 1);
 assert.deepEqual(Array.from(empty.filtered, row => row.id), rows.map(row => row.id));
 assert.match(empty.dialog.fields_dict.use_detail_periods.df.description, /Agregue períodos/);
+await Promise.resolve();
+assert.deepEqual(Array.from(empty.filtered, row => row.id), rows.map(row => row.id));
 console.log("OK: detail-period checkbox, defaults, multiple companies and kinds, intersecting filters, selection and empty table.");
+}
+run().catch(error => { console.error(error); process.exitCode = 1; });

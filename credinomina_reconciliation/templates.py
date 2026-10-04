@@ -102,6 +102,16 @@ def build_template_xlsx(
     row_fields = _DEPOSIT_ROW_FIELDS if template_type == "deposito" else _ROW_FIELDS
     column_widths = _DEPOSIT_COLUMN_WIDTHS if template_type == "deposito" else _COLUMN_WIDTHS
     text_columns = _DEPOSIT_TEXT_COLUMNS if template_type == "deposito" else _TEXT_COLUMNS
+    notes = dict(_HEADER_NOTES)
+    if template_type == "deposito":
+        identity_note = (
+            "Informe al menos uno: Nro. Crédito, Nro Cédula, Nro. Cliente, Nro. Empleado "
+            "o Nombre y Apellidos del Cliente. Ninguno es obligatorio individualmente. "
+            "Si informa varios, todos deben identificar a la misma persona dentro de la empresa. "
+            "El nombre admite alias registrados y apellidos/nombres en distinto orden."
+        )
+        for header in ("Nro. Crédito", "Nro Cédula", "Nro. Cliente", "Nro. Empleado", "Nombre y Apellidos del Cliente"):
+            notes[header] = identity_note
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = sheet_name
@@ -110,7 +120,7 @@ def build_template_xlsx(
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="1F4E78")
         cell.alignment = Alignment(vertical="center", wrap_text=True)
-        cell.comment = Comment(_HEADER_NOTES[cell.value], "Credinómina")
+        cell.comment = Comment(notes[cell.value], "Credinómina")
         sheet.column_dimensions[cell.column_letter].width = column_widths[cell.column - 1]
     sheet.row_dimensions[1].height = 34
 

@@ -72,7 +72,9 @@ class RemittanceCreditNormalizationTests(unittest.TestCase):
                     {"client_name": "Carlos", "deducted_usd": "46.53", "deducted_nio": "1700"},
                     {"client_name": "Diana", "deducted_usd": 0, "deducted_nio": 0},
                 ]
-                with patch.object(remittance, "load_client_index", return_value=[]), \
+                with patch.object(remittance, "load_client_index", return_value=[
+                        {"name": name, "client_name": name, "employer": "A"}
+                        for name in ("Ana", "Beatriz", "Carlos", "Diana")]), \
                         patch.object(remittance, "allowed_employers", return_value={"A"}), \
                         patch("credinomina_reconciliation.client_credit.guard_detail_replacement"), \
                         patch.object(remittance, "now_datetime", return_value="2026-10-04 10:00:00"):
@@ -93,7 +95,7 @@ class RemittanceCreditNormalizationTests(unittest.TestCase):
 
     def test_import_without_rate_keeps_nio_row_for_review_instead_of_treating_it_as_usd(self):
         document = Record(name="DEP", employer="A", targets=[], save=Mock())
-        with patch.object(remittance, "load_client_index", return_value=[]), \
+        with patch.object(remittance, "load_client_index", return_value=[{"name": "A1", "client_name": "Ana", "employer": "A"}]), \
                 patch.object(remittance, "allowed_employers", return_value={"A"}), \
                 patch("credinomina_reconciliation.client_credit.guard_detail_replacement"), \
                 patch.object(remittance, "now_datetime", return_value="2026-10-04 10:00:00"):

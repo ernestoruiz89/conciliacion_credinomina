@@ -265,6 +265,7 @@ def _value(row: list[Any], mapping: dict[str, int], fieldname: str) -> Any:
 def parse_collection_file(
     file_name: str, content: bytes, *, require_deduction: bool = False,
     keep_zero_rows: bool = False, require_name: bool = False,
+    require_identity: bool = False,
 ) -> list[dict[str, Any]]:
     rows = read_table(file_name, content)
     mapping: dict[str, int] | None = None
@@ -273,6 +274,9 @@ def parse_collection_file(
         candidate = header_mapping(row, COLLECTION_ALIASES)
         if (
             "client_name" in candidate
+            or (require_identity and any(key in candidate for key in (
+                "loan_number", "client_number", "employee_number", "national_id",
+            )) and any(key in candidate for key in ("deducted_usd", "deducted_nio")))
             or "loan_number" in candidate and (
                 "client_number" in candidate or "national_id" in candidate
             )
@@ -291,6 +295,11 @@ def parse_collection_file(
         deducted_usd = parse_amount(_value(row, mapping, "deducted_usd"))
         deducted_nio = parse_amount(_value(row, mapping, "deducted_nio"))
         if not any((loan_number, client_number, employee_number, national_id, client_name)):
+            if require_identity and any(value not in (None, "") for value in row):
+                raise SourceFileError(
+                    f"La fila {row_number} no tiene identificación: indique Nro. Crédito, "
+                    "Nro. Cédula, Nro. Cliente, Nro. Empleado o Nombre y Apellidos del Cliente."
+                )
             if require_name and any((expected_usd, expected_nio, deducted_usd, deducted_nio)):
                 raise SourceFileError(
                     f"La fila {row_number} tiene importe pero no tiene Nombre y Apellidos del Cliente."

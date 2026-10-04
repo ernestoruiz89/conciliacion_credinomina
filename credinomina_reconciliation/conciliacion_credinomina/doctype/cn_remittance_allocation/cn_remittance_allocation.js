@@ -1035,6 +1035,10 @@ class RemittanceTargetPicker {
             if (action === "next") this.page++;
             this.render();
         });
+        // Frappe applies dialog defaults asynchronously. Seed this control before
+        // the first render so the checked filter and the visible rows agree,
+        // even while Bootstrap is still showing the modal.
+        this.dialog.fields_dict.use_detail_periods.set_input(this.detailPeriods.size ? 1 : 0);
         this.dialog.show();
         this.render();
     }
@@ -1058,6 +1062,7 @@ class RemittanceTargetPicker {
     }
     filter() { this.page = 0; if (this.dialog && this.dialog.$wrapper.is(":visible")) this.render(); }
     filterDetailPeriods() {
+        if (!this.dialog) return;
         if (Number(this.dialog.get_value("use_detail_periods")) && this.dialog.get_value("period") &&
             !this.detailPeriods.has(this.dialog.get_value("period"))) {
             // An old single-period filter must not conflict with the table's scope.

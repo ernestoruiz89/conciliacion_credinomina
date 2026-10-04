@@ -4,10 +4,10 @@ from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 
 
-def complete_detail_clients(rows, clients, employer, allowed=None):
+def complete_detail_clients(rows, clients, employer, allowed=None, loan_clients=None):
     allowed = {employer} if allowed is None else allowed
     for row in rows:
-        client, reason = choose_detail_client(row, clients, employer, allowed)
+        client, reason = choose_detail_client(row, clients, employer, allowed, loan_clients)
         row.identity_reason = reason
         if not client:
             row.client = ""
@@ -17,6 +17,8 @@ def complete_detail_clients(rows, clients, employer, allowed=None):
         row.identity_reason = reason
         if not row.get("client_number"):
             row.client_number = client.get("client_number") or ""
+        if not row.get("client_name"):
+            row.client_name = client.get("client_name") or ""
 
 
 def portfolio_credit_choices(rows, snapshots, client, employer):
@@ -66,8 +68,15 @@ def load_detail_context(remittance_name, detail_row_name):
     if not row:
         frappe.throw(_("La fila no pertenece al detalle de este depósito."))
     clients = load_client_index()
-    complete_detail_clients([row], clients, doc.employer, allowed_employers(doc.employer))
-    client, reason = choose_detail_client(row, clients, doc.employer)
+    from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+    allowed = allowed_employers(doc.employer)
+    # The selector is corrective: identify the person independently of a wrong
+    # current credit, then offer only that person's verified portfolio credits.
+    identity = dict(row.as_dict() if hasattr(row, "as_dict") else row)
+    if any(identity.get(field) for field in ("client_number", "national_id", "employee_number", "client_name")):
+        identity.pop("loan_number", None)
+    loans = load_detail_loan_clients([identity], clients, allowed)
+    client, reason = choose_detail_client(identity, clients, doc.employer, allowed, loans)
     if not client:
         frappe.throw(_("Identifique primero al cliente de la fila: {0}.").format(reason))
     frappe.get_doc("CN Client", client["name"]).check_permission("read")

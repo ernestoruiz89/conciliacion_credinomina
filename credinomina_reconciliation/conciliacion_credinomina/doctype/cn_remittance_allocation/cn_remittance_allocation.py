@@ -9,6 +9,7 @@ from credinomina_reconciliation.parsers import (
     SourceFileError, clean_text, file_sha256, normalize_credit_number, parse_collection_file,
 )
 from credinomina_reconciliation.client_registry import load_client_index
+from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
 from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 from credinomina_reconciliation.reconciliation import remittance_fx_basis
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
@@ -90,9 +91,15 @@ class CNRemittanceAllocation(Document):
         if self.get("detail_rows"):
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
             for row in self.detail_rows:
+                if not any(clean_text(row.get(field)) for field in (
+                    "loan_number", "national_id", "client_number", "employee_number", "client_name",
+                )):
+                    frappe.throw(_("Fila {0}: indique al menos un identificador del cliente.").format(row.idx))
                 if row.get("employer") and row.employer not in allowed:
                     frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
-            complete_detail_clients(self.detail_rows, load_client_index(employers=allowed), self.employer, allowed)
+            clients = load_client_index(employers=allowed)
+            loans = load_detail_loan_clients(self.detail_rows, clients, allowed)
+            complete_detail_clients(self.detail_rows, clients, self.employer, allowed, loans)
         selected = [row.period for row in self.get("detail_periods") or []]
         if len(selected) != len(set(selected)):
             frappe.throw(_("No repita períodos en Períodos del detalle."))
@@ -465,7 +472,7 @@ def import_remittance_detail(remittance_name: str):
     try:
         records = parse_collection_file(
             file_doc.file_name, content,
-            require_deduction=True, keep_zero_rows=True, require_name=True,
+            require_deduction=True, keep_zero_rows=True, require_identity=True,
         )
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
@@ -489,12 +496,13 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     for target in document.targets or []:
         target.detail_row = ""
         target.detail_row_label = ""
-    clients = load_client_index()
     allowed = allowed_employers(document.employer)
+    clients = load_client_index(employers=allowed)
+    loans = load_detail_loan_clients(records, clients, allowed)
     rate = flt(document.get("fx_rate")) if remittance_fx_basis(document) else 0
     amounts = []
     for record in records:
-        client, identity_reason = choose_detail_client(record, clients, document.employer, allowed)
+        client, identity_reason = choose_detail_client(record, clients, document.employer, allowed, loans)
         amount, explanation = detail_amount_usd(record, rate)
         amounts.append(amount)
         document.append("detail_rows", {
@@ -509,13 +517,14 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "employer": client.get("employer") if client else record.get("employer") or "",
             "identity_reason": identity_reason,
             "client_number": record.get("client_number") or (client.get("client_number") if client else ""),
+            "client_name": record.get("client_name") or (client.get("client_name") if client else ""),
             # Calculate the imported value without assigning cash or reconciling.
             "amount_usd": amount,
             "linked_usd": 0,
             "client_credit_usd": 0,
             "pending_usd": amount,
-            "match_status": "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
-            "match_reason": explanation + ("; pendiente de conciliación" if amount else ""),
+            "match_status": "Revisar" if not client else "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
+            "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),
             "matched_targets": "[]",
         })
     document.detail_hash = file_sha256(content)

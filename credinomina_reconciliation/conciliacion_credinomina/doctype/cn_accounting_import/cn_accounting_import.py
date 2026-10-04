@@ -1383,6 +1383,12 @@ def _prepare_remittance_details(
     rows_by_parent = defaultdict(list)
     for row in detail_rows:
         rows_by_parent[row.parent].append(row)
+    detail_loan_clients = None
+    if client_catalog is not None:
+        from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+        allowed = {company for deposit in deposits
+                   for company in (deposit.get("allowed_groups") or [deposit.get("group")]) if company}
+        detail_loan_clients = load_detail_loan_clients(detail_rows, client_catalog, allowed)
     reserved = {
         (entry["deposit_id"], entry["claim_id"])
         for entry in prior_instructions
@@ -1400,7 +1406,7 @@ def _prepare_remittance_details(
         if client_catalog is not None:
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
             complete_detail_clients(rows, client_catalog, item.employer,
-                                    deposit.get("allowed_groups") or [item.employer])
+                                    deposit.get("allowed_groups") or [item.employer], detail_loan_clients)
         attached_detail = bool(item.detail_file or item.detail_hash)
         # A registered deposit is evidence of cash received, not of its
         # per-client split. Explicit targets (including a documented
@@ -1463,7 +1469,7 @@ def _prepare_remittance_details(
             if plan["client_credits"]:
                 people = {credit.credit_client for credit in plan["client_credits"]}
                 companies = {credit.employer for credit in plan["client_credits"]}
-                if len(people) == 1 and len(companies) == 1:
+                if len(people) == 1 and len(companies) == 1 and not clean_text(plan["row"].identity_reason).startswith("Conflicto"):
                     credit = plan["client_credits"][0]
                     plan["row"].client = credit.credit_client
                     plan["row"].client_number = credit.client_number

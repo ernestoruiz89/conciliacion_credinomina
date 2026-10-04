@@ -1,6 +1,5 @@
 """Explicit payer -> beneficiary authorizations; never aliases or transitive rights."""
 from credinomina_reconciliation.parsers import clean_text
-from credinomina_reconciliation.client_identity import choose_client
 from credinomina_reconciliation.remittance_periods import selected_periods
 
 
@@ -53,14 +52,15 @@ def permits_claim(deposit, claim, destination_group=None):
     return not group or not payer or group in set(deposit.get("allowed_groups") or [payer])
 
 
-def choose_detail_client(row, clients, payer, allowed=None):
+def choose_detail_client(row, clients, payer, allowed=None, loan_clients=None):
     allowed = allowed_employers(payer) if allowed is None else set(allowed)
     company = clean_text(row.get("employer"))
     if company and company not in allowed:
         return None, "Conflicto: empresa no autorizada para este depósito"
     scoped = [client for client in clients if clean_text(client.get("employer")) in allowed
               and (not company or clean_text(client.get("employer")) == company)]
-    return choose_client(row, scoped, company)
+    from credinomina_reconciliation.deposit_identity import resolve_detail_identity
+    return resolve_detail_identity(row, scoped, loan_clients)
 
 
 def validate_paying_for(document):
