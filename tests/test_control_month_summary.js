@@ -25,7 +25,7 @@ const periods = [
     {name: "P3", employer: "F", month: "2026-09", reconciliation_mode: "Historica", control_state: "historico_pendiente", applied_usd: 70},
     {name: "P4", employer: "E", month: "2026-10", reconciliation_mode: "Operativa", control_state: "en_transito", applied_usd: 80},
 ];
-const data = {year: 2026, periods, totals: {}};
+const data = {year: 2026, periods, totals: {}, cash_deposits: []};
 const context = vm.createContext({
     __: value => value, $: value => typeof value === "string" ? root : {attr: name => value[name]},
     frappe: {pages: {"control-credinomina": {}}, datetime: {str_to_user: value => value},
@@ -54,6 +54,15 @@ const mixed = renderMonthSummary([periods[0], periods[2]], '<Empresa>', '2026-09
 assert.ok(mixed.includes("Deducido operativo"));
 assert.ok(!mixed.includes("Remitido / deducido"));
 assert.ok(mixed.includes("&lt;Empresa&gt;"));
+for (const mode of ['Historica', 'Operativa']) {
+    const summary = renderMonthSummary([{...periods[0], reconciliation_mode: mode,
+        applied_usd: 530.35, remitted_usd: 471.74, deducted_usd: 999}], 'E', '2026-09');
+    assert.match(summary, /cn-cell-amount">[^<]*530\.35 \/ [^<]*471\.74<\/span>/);
+    assert.ok(summary.includes('Aplicado / Asignado'));
+    assert.ok(!summary.includes('Asignado / aplicado'));
+    assert.ok(!summary.includes('Asignado / deducido'));
+}
+assert.match(mixed, /cn-cell-amount">[^<]*80\.10 \/ [^<]*10\.10<\/span>/);
 const original = JSON.stringify(periods);
 (async () => {
     context.frappe.pages["control-credinomina"].on_page_load({});
@@ -61,13 +70,18 @@ const original = JSON.stringify(periods);
     assert.ok(html.includes("data-summary checked"));
     assert.equal((html.match(/data-month="/g) || []).length, 3); // Separate companies and months.
     assert.ok(!html.includes('data-period="P1"'));
-    assert.ok(html.includes("2 períodos"));
+    assert.ok(html.includes("Períodos registrados en el mes · 2"));
+    assert.ok(html.includes("Períodos registrados en el mes · 1"));
+    assert.ok(!html.includes("Mes completo"));
     handlers["[data-month]"].call({"data-employer": "E", "data-month": "2026-09"});
     assert.ok(dialog.shown);
     assert.ok(dialog.html.includes('data-month-period="P1"'));
     assert.ok(dialog.html.includes('data-month-period="P2"'));
     assert.ok(!dialog.html.includes('data-month-period="P3"'));
     assert.ok(dialog.html.includes('class="cn-period-cards"'));
+    assert.ok(dialog.html.indexOf("Períodos de cobranza del mes") < dialog.html.indexOf("Depósitos recibidos en el mes"));
+    assert.match(dialog.html, /Períodos de cobranza del mes · [^<]*30\.30<\/h4>/);
+    assert.ok(dialog.html.includes("Total aplicado en los períodos mostrados"));
     assert.equal((dialog.html.match(/class="cn-period-card /g) || []).length, 2);
     assert.ok(!dialog.html.includes("<table"));
     assert.ok(dialog.html.includes("Primera entrega\nPendiente &lt;soporte&gt; &amp; validación"));
@@ -115,6 +129,8 @@ const original = JSON.stringify(periods);
     handlers["[data-summary]"].call({checked: false});
     assert.ok(!html.includes("data-summary checked"));
     assert.ok(html.includes('data-period="P1"') && html.includes('data-period="P2"'));
+    assert.match(html, /Total del mes.*Aplicado \/ Asignado.*30\.30 \/ [^<]*10\.10/);
+    assert.match(html, /data-period="P2"[\s\S]*?cn-cell-amount">[^<]*20\.20 \/ [^<]*0\.00<\/span>/);
     refreshPage();
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(!html.includes("data-summary checked")); // Refresh preserves the user's choice.

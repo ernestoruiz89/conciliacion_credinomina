@@ -156,9 +156,28 @@ assert.ok(breakdown.includes("&lt;DEP&amp;1&gt;") && !breakdown.includes("<DEP&1
 assert.ok(breakdown.includes("NIO") && breakdown.includes("36,624.30"));
 assert.ok(breakdown.includes("no significa que ya fue reembolsado"));
 assert.ok(renderCashCard(deposit).includes("Distribuido entre varios períodos"));
-assert.ok(renderMonthSummary(data.periods, "E", "2025-04", []).includes("Asignado / aplicado"));
+assert.ok(renderMonthSummary(data.periods, "E", "2025-04", []).includes("Aplicado / Asignado"));
 assert.ok(!renderMonthSummary(data.periods, "E", "2025-04", []).includes("Depósitos recibidos en el mes"));
 assert.ok(renderMonthSummary([], "E", "2025-05", [deposit]).includes("Sin período de cobranza este mes"));
+const clientReceipt = {...deposit, name: 'CLIENT-DEP', employer: 'E', month: '2025-04',
+    credit_balance_usd: 22.15, client_credit_usd: 22.15, company_credit_usd: 0, undetailed_credit_usd: 0};
+const companyReceipt = {...deposit, name: 'COMPANY-DEP', employer: 'E', month: '2025-04',
+    credit_balance_usd: 1.29, client_credit_usd: 0, company_credit_usd: 1.29, undetailed_credit_usd: 0};
+const clientMonth = renderMonthSummary(data.periods, 'E', '2025-04', [clientReceipt]);
+assert.match(clientMonth, /Saldo a favor del cliente:.*22\.15/);
+assert.ok(!clientMonth.includes('Saldo a favor de la empresa:'));
+const companyMonth = renderMonthSummary(data.periods, 'E', '2025-04', [companyReceipt]);
+assert.match(companyMonth, /Saldo a favor de la empresa:.*1\.29/);
+assert.ok(!companyMonth.includes('Saldo a favor del cliente:'));
+const mixedMonth = renderMonthSummary(data.periods, 'E', '2025-04', [clientReceipt, companyReceipt, clientReceipt]);
+assert.match(mixedMonth, /Saldo a favor del cliente:.*22\.15/);
+assert.match(mixedMonth, /Saldo a favor de la empresa:.*1\.29/);
+assert.ok(!mixedMonth.includes('Saldo a favor:'));
+assert.ok(!mixedMonth.includes('Saldo a favor sin detalle:'));
+assert.equal(summarizeCash([clientReceipt, companyReceipt, clientReceipt]).client_credit_usd, 22.15);
+assert.equal(summarizeCash([clientReceipt, companyReceipt, clientReceipt]).company_credit_usd, 1.29);
+assert.equal(summarizeCash([{name: 'A', client_credit_usd: .1}, {name: 'B', client_credit_usd: .2}]).client_credit_usd, .3);
+assert.match(renderMonthSummary([], 'E', '2025-04', [deposit]), /Saldo a favor sin detalle:.*100\.00/);
 const original = JSON.stringify(data);
 (async () => {
     context.frappe.pages["control-credinomina"].on_page_load({});
@@ -181,6 +200,8 @@ const original = JSON.stringify(data);
     assert.ok(!month.html.includes('data-cash-deposit="D2"'));
     assert.ok(!month.html.includes('data-month-period="P-ABRIL"'));
     assert.ok(month.html.includes("No hay períodos de cobranza en este mes"));
+    assert.ok(month.html.indexOf("Períodos de cobranza del mes") < month.html.indexOf("Depósitos recibidos en el mes"));
+    assert.match(month.html, /Períodos de cobranza del mes · [^<]*0\.00<\/h4>/);
     month.events["[data-cash-deposit]"].call({"data-cash-deposit": "D1"});
     assert.equal(month.shown, false);
     assert.equal(dialog.options.title, "Distribución del depósito");

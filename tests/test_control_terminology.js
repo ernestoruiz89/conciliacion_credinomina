@@ -22,6 +22,6 @@ assert.equal(applicationStatusLabel("Remitido, aplicacion parcial"), "Depositado
 assert.equal(applicationStatusLabel("Depósito parcial"), "Depósito parcial");
 assert.ok(!source.includes('__("Remitido"'));
 assert.ok(!source.includes('__("Remitido / deducido"'));
-assert.match(renderMonthSummary([{reconciliation_mode: "Operativa", control_state: "conciliado"}], "E", "2026-09"), /Asignado \/ deducido/);
-assert.match(renderMonthSummary([{reconciliation_mode: "Historica", control_state: "historico_conciliado"}], "E", "2025-04"), /Asignado \/ aplicado/);
+assert.match(renderMonthSummary([{reconciliation_mode: "Operativa", control_state: "conciliado"}], "E", "2026-09"), /Aplicado \/ Asignado/);
+assert.match(renderMonthSummary([{reconciliation_mode: "Historica", control_state: "historico_conciliado"}], "E", "2025-04"), /Aplicado \/ Asignado/);
 console.log("OK: Depositado terminology and shared status labels/colors for both modalities without changing stored states.");

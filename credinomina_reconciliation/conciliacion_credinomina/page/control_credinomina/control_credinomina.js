@@ -170,20 +170,19 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                             : cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle)
                     );
                     if (summaryMode || !ordered.length) return renderMonthSummary(ordered, company.id, month.key, receipts);
-                    const monthRemitted = ordered.reduce((sum, item) => sum + Number(item.remitted_usd || 0), 0);
-                    const monthCompared = ordered.reduce((sum, item) => sum + Number(
-                        item.reconciliation_mode === "Historica" ? item.applied_usd || 0 : item.deducted_usd || 0
-                    ), 0);
+                    const monthTotals = summarizeMonth(ordered);
+                    const monthRemitted = monthTotals.remitted_usd;
+                    const monthApplied = monthTotals.applied_usd;
                     const monthState = ordered.every((item) => ["conciliado", "historico_conciliado"].includes(item.control_state)) ? "conciliado" :
                         ordered.some((item) => ["diferencia", "excedente", "historico_excedente", "historico_excepcion"].includes(item.control_state)) ? "diferencia" :
                         ordered.some((item) => ["parcial", "historico_parcial"].includes(item.control_state)) ? "parcial" : "en_transito";
                     return `<td class="cn-cell cn-${esc(ordered.length === 1 ? ordered[0].control_state : monthState)}">
                         ${receipts.length ? `<button type="button" class="cn-cell-button" data-month="${esc(month.key)}" data-employer="${esc(company.id)}">${renderCashSummary(receipts)}</button>` : ""}
-                        ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))}: ${money(monthRemitted)} / ${money(monthCompared)}</div>` : ""}
+                        ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))} · ${esc(__("Aplicado / Asignado"))}: ${money(monthApplied)} / ${money(monthRemitted)}</div>` : ""}
                         ${ordered.map((period) => `<button type="button" class="cn-cell-button" data-period="${esc(period.name)}">
                             <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
-                            <span class="cn-cell-amount">${money(period.remitted_usd)} / ${money(period.reconciliation_mode === "Historica" ? period.applied_usd : period.deducted_usd)}</span>
-                            <span class="cn-cell-sub">${esc(period.reconciliation_mode === "Historica" ? __("Asignado / aplicado") : __("Asignado / deducido"))}</span>
+                            <span class="cn-cell-amount">${money(period.applied_usd)} / ${money(period.remitted_usd)}</span>
+                            <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
                             ${(period.rounding_movement_count ?? (period.rounding_movements || []).length) ? `<span class="cn-cell-credit">${esc(__("Ajuste menor"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
@@ -552,10 +551,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             fields: [{fieldname: "periods", fieldtype: "HTML"}]});
         dialog.get_field("periods").$wrapper.html(`
             <p>${esc(periods[0]?.employer_name || employer)} · ${esc(month)}</p>
-            ${currentData.cash_deposits == null ? "" : renderCashPanel(receipts)}
-            <h4>${esc(__("Períodos de cobranza del mes"))}</h4>
-            <p>${esc(periods.length ? __("El resumen suma todos estos períodos; seleccione uno para ver su detalle.") : __("No hay períodos de cobranza en este mes. Los depósitos recibidos pueden cubrir meses anteriores."))}</p>
-            <div class="cn-period-cards">${periods.map(renderPeriodCard).join("")}</div>`);
+            <h4>${esc(__("Períodos de cobranza del mes"))} · ${money(summarizeMonth(periods).applied_usd)}</h4>
+            <p>${esc(periods.length ? __("Total aplicado en los períodos mostrados; seleccione uno para ver su detalle.") : __("No hay períodos de cobranza en este mes. Los depósitos recibidos pueden cubrir meses anteriores."))}</p>
+            <div class="cn-period-cards">${periods.map(renderPeriodCard).join("")}</div>
+            ${currentData.cash_deposits == null ? "" : renderCashPanel(receipts)}`);
         dialog.get_field("periods").$wrapper.on("click", "[data-cash-deposit]", async function () {
             const deposit = receipts.find(item => item.name === $(this).attr("data-cash-deposit"));
             if (!deposit) return;
@@ -769,14 +768,12 @@ function summarizeMonth(periods) {
 
 function renderMonthSummary(periods, employer, month, receipts = []) {
     const total = summarizeMonth(periods);
-    const compared = total.historical ? total.applied_usd : total.deducted_usd;
     if (!periods.length) return `<td class="cn-cell"><button type="button" class="cn-cell-button" data-employer="${esc(employer)}" data-month="${esc(month)}">${renderCashSummary(receipts)}<span class="cn-cell-sub">${esc(__("Sin período de cobranza este mes"))}</span><span class="cn-cell-sub">${esc(__("Ver depósitos"))} →</span></button></td>`;
     return `<td class="cn-cell cn-${esc(total.state)}"><button type="button" class="cn-cell-button" data-employer="${esc(employer)}" data-month="${esc(month)}">
-        <span class="cn-cell-cycle">${esc(__("Mes completo"))} · ${total.count} ${esc(__("períodos"))}</span>
-        <span class="cn-cell-amount">${money(total.remitted_usd)}${total.historical || total.operative ? ` / ${money(compared)}` : ""}</span>
-        <span class="cn-cell-sub">${esc(total.historical ? __("Asignado / aplicado") : total.operative ? __("Asignado / deducido") : __("Depósitos asignados"))}</span>
-        ${!total.historical ? `<span class="cn-cell-sub">${esc(__("Aplicado"))}: ${money(total.applied_usd)}</span>` : ""}
-        ${!total.historical && !total.operative ? `<span class="cn-cell-sub">${esc(__("Deducido operativo"))}: ${money(total.deducted_usd)}</span>` : ""}
+        <span class="cn-cell-cycle">${esc(__("Períodos registrados en el mes"))} · ${total.count}</span>
+        <span class="cn-cell-amount">${money(total.applied_usd)} / ${money(total.remitted_usd)}</span>
+        <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
+        ${!total.historical ? `<span class="cn-cell-sub">${esc(__("Deducido operativo"))}: ${money(total.deducted_usd)}</span>` : ""}
         <span class="cn-badge">${esc(stateLabel(total.state))}</span>
         ${total.inferred ? `<span class="cn-cell-sub">${esc(__("Incluye deducción inferida"))}</span>` : ""}
         ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("Cobranza no deducida")],
@@ -796,7 +793,7 @@ function summarizeCash(receipts) {
     return {count: unique.length, settled: unique.filter(d => d.settled).length,
         review: unique.filter(d => d.needs_review || !d.settled).length,
         creditCount: unique.filter(d => Number(d.credit_balance_usd) > MONEY_EPSILON).length,
-        ...Object.fromEntries(["total_usd", "credits_usd", "other_usd", "adjustments_usd", "credit_balance_usd", "unclassified_usd", "review_usd"].map(field => [field, sum(field)]))};
+        ...Object.fromEntries(["total_usd", "credits_usd", "other_usd", "adjustments_usd", "credit_balance_usd", "client_credit_usd", "company_credit_usd", "unclassified_usd", "review_usd"].map(field => [field, sum(field)]))};
 }
 
 function renderCashSummary(receipts) {
@@ -807,7 +804,7 @@ function renderCashSummary(receipts) {
         <strong class="cn-cell-amount">${money(total.total_usd)}</strong>
         <span class="cn-cell-sub">${total.settled} ${esc(__("conciliados"))}${total.review ? ` · <strong class="cn-cash-review">${total.review} ${esc(__("por revisar"))}</strong>` : ""}${total.creditCount ? ` · ${total.creditCount} ${esc(__("con saldo a favor"))}` : ""}</span>
         ${Math.abs(total.other_usd) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(total.other_usd)}</span>` : ""}
-        ${total.credit_balance_usd > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(total.credit_balance_usd)}</span>` : ""}
+        ${renderCashCreditBalances(total)}
         ${Math.abs(total.unclassified_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin identificar"))}: ${signedMoney(total.unclassified_usd)}</span>` : ""}
     </span>`;
 }
@@ -825,8 +822,7 @@ function renderCashPanel(receipts) {
     </section>`;
 }
 
-function renderCashCard(deposit) {
-    const state = deposit.needs_review || !deposit.settled ? "diferencia" : "conciliado";
+function renderCashCreditBalances(deposit) {
     const creditBalances = [
         ["Saldo a favor del cliente", deposit.client_credit_usd],
         ["Saldo a favor de la empresa", deposit.company_credit_usd],
@@ -836,6 +832,12 @@ function renderCashCard(deposit) {
                 - Math.round(Number(deposit.company_credit_usd || 0) * 100)) / 100
         )],
     ];
+    return creditBalances.filter(([, amount]) => Number(amount) > MONEY_EPSILON)
+        .map(([label, amount]) => `<span class="cn-cell-credit">${esc(__(label))}: ${money(amount)}</span>`).join("");
+}
+
+function renderCashCard(deposit) {
+    const state = deposit.needs_review || !deposit.settled ? "diferencia" : "conciliado";
     return `<button type="button" class="cn-period-card cn-${state}" data-cash-deposit="${esc(deposit.name)}">
         <span class="cn-period-card-name">${esc(deposit.reference || deposit.name)}</span>
         <span class="cn-cell-sub">${esc(displayDate(deposit.date))} · ${esc(deposit.name)}</span>
@@ -844,7 +846,7 @@ function renderCashCard(deposit) {
         <span class="cn-badge">${esc(cashStatus(deposit))}</span>
         <span class="cn-cell-sub">${esc(__("A créditos"))}: ${money(deposit.credits_usd)}</span>
         ${Math.abs(Number(deposit.other_usd)) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(deposit.other_usd)}</span>` : ""}
-        ${creditBalances.filter(([, amount]) => Number(amount) > MONEY_EPSILON).map(([label, amount]) => `<span class="cn-cell-credit">${esc(__(label))}: ${money(amount)}</span>`).join("")}
+        ${renderCashCreditBalances(deposit)}
         ${Number(deposit.credit_management_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Pendiente de gestión"))}: ${money(deposit.credit_management_pending_usd)}</span>` : ""}
         ${Math.abs(Number(deposit.unclassified_usd)) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin identificar"))}: ${signedMoney(deposit.unclassified_usd)}</span>` : ""}
         ${deposit.shared ? `<span class="cn-cell-sub">${esc(__("Distribuido entre varios períodos"))}</span>` : ""}
@@ -1179,7 +1181,7 @@ function styles() {
         .cn-period-card-name { font-size: 14px; font-weight: 700; margin-bottom: 5px; }
         .cn-cash-summary { display: block; width: 100%; border-top: 1px solid var(--border-color, #cbd5e1); margin-top: 9px; padding-top: 7px; }
         .cn-cash-review { color: #b45309; }
-        .cn-cash-panel { border-bottom: 1px solid var(--border-color, #e2e8f0); padding-bottom: 16px; margin-bottom: 16px; }
+        .cn-cash-panel { border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 16px; margin-top: 16px; }
         .cn-cash-cards { max-height: 40vh; }
         .cn-cash-distribution .cn-badge { padding: 4px 8px; background: var(--control-bg, #f1f5f9); }
         .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
