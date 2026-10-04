@@ -6,27 +6,34 @@ from credinomina_reconciliation.aging import collection_shortfall_usd, deduction
 from credinomina_reconciliation.reconciliation import AMOUNT_TOLERANCE
 from credinomina_reconciliation.rounding import MONEY_EPSILON, decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
-from credinomina_reconciliation.client_position import load_position, summary
+from credinomina_reconciliation.client_position import company_balance_rows, company_position, load_position, summary
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
     collection_columns, collections = _collection_report(filters)
     data = load_position(collections, filters)
-    message = _("Posición actual de conciliación, no saldo contractual del préstamo. "
-        "Cobranza muestra deducciones y cuotas no deducidas; Aplicación muestra aplicado neto y depósitos asignados; "
-        "Partida complementaria separa distribución, registro contable y gestión de saldos a favor. "
-        "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
-        "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
-        "No reste automáticamente los saldos a favor. "
-        "Las fechas filtran el mes de cobranza, la fecha de aplicación o la fecha de la partida, según el tipo; "
-        "no reconstruyen saldos históricos. Solo se incluyen documentos visibles para su usuario.")
-    return get_columns(filters), data, message, None, summary(data)
+    is_summary = filters.get('view_mode') != 'Detalle'
+    totals = summary(company_balance_rows(data) if is_summary else data)
+    if is_summary:
+        message = _("Resumen actual en US$, no saldo contractual del préstamo. "
+            "Pendiente: aplicado neto menos depósitos y compensaciones confirmadas, sin duplicar ajustes. "
+            "Saldos a favor: documentados y aún por gestionar, con signo negativo. "
+            "Saldo suma las tres columnas: es un neto informativo, no una compensación entre deudas o clientes. "
+            "Cobranza, saldos a favor sin confirmar y otras complementarias se consultan en Detalle; no integran este neto. ")
+    else:
+        message = _("Posición actual de conciliación, no saldo contractual del préstamo. "
+            "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
+            "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
+            "Las partidas complementarias separan distribución, registro contable y gestión de saldos a favor. ")
+    message += _("Los filtros se aplican a los movimientos antes de agrupar. Las fechas seleccionan movimientos, "
+                 "no reconstruyen saldos históricos. Solo se incluyen documentos visibles para su usuario.")
+    return get_columns(filters), company_position(data) if is_summary else data, message, None, totals
 
 
 def _collection_report(filters=None):
     filters = frappe._dict(filters or {})
-    columns = get_columns()
+    columns = get_collection_columns()
     periods = get_periods(filters)
     if not periods:
         return columns, []
@@ -225,6 +232,17 @@ def get_collection_columns():
 
 
 def get_columns(filters=None):
+    if (filters or {}).get('view_mode') != 'Detalle':
+        return [
+            {'fieldname': 'employer', 'label': _('Empresa'), 'fieldtype': 'Link', 'options': 'CN Employer', 'width': 240},
+            *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Currency',
+               'options': 'usd_currency', 'precision': 2, 'width': width}
+              for field, label, width in (
+                  ('pending_usd', 'Pendiente US$', 150),
+                  ('company_credit_usd', 'Saldo a favor empresa US$', 205),
+                  ('client_credit_usd', 'Saldo a favor clientes US$', 205),
+                  ('balance_usd', 'Saldo US$', 150))],
+        ]
     view = (filters or {}).get('position_type')
     columns = [
         {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},

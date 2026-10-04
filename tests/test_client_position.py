@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import frappe
-from credinomina_reconciliation.client_position import build_position, summary
+from credinomina_reconciliation.client_position import build_position, company_position, summary
 from credinomina_reconciliation.application_aging import application_balances
 from credinomina_reconciliation.complementary_balances import financial_balance
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_operativo import estado_de_cuenta_operativo as report
@@ -106,13 +106,69 @@ class ClientPositionTests(unittest.TestCase):
     def test_no_period_does_not_hide_apps_or_credits_and_columns_are_scoped(self):
         with patch.object(report, '_collection_report', return_value=([], [])), \
              patch.object(report, 'load_position', return_value=self.build()), patch.object(report, '_', side_effect=lambda x: x):
-            columns, data, message, _, totals = report.execute()
+            columns, data, message, _, totals = report.execute({'view_mode': 'Detalle'})
         self.assertEqual(len(data), 3)
         self.assertIn('no saldo contractual', message)
         self.assertEqual(next(c for c in columns if c['fieldname'] == 'source_document')['fieldtype'], 'Dynamic Link')
-        app_fields = {c['fieldname'] for c in report.get_columns({'position_type': 'Aplicación'})}
+        app_fields = {c['fieldname'] for c in report.get_columns({'view_mode': 'Detalle', 'position_type': 'Aplicación'})}
         self.assertIn('applied_pending_usd', app_fields)
         self.assertNotIn('employee_pending_usd', app_fields)
+
+    def test_summary_is_default_and_preserves_filtered_detail_and_kpis(self):
+        original = self.build()
+        with patch.object(report, '_collection_report', return_value=([], [])), \
+             patch.object(report, 'load_position', return_value=original) as load:
+            columns, data, message, _, totals = report.execute({'employer': 'E'})
+        self.assertEqual(load.call_args.args[1]['employer'], 'E')
+        self.assertEqual([c['fieldname'] for c in columns],
+            ['employer', 'pending_usd', 'company_credit_usd', 'client_credit_usd', 'balance_usd'])
+        self.assertEqual(data, [dict(employer='E', usd_currency='USD', pending_usd=20,
+            company_credit_usd=0, client_credit_usd=-6, balance_usd=14)])
+        self.assertEqual([entry['value'] for entry in totals], [20, 6])
+        self.assertIn('neto informativo', message)
+        self.assertEqual(original, self.build())  # No mutation or actual offset.
+        self.assertEqual(company_position(self.build({'position_type': 'Cobranza'})), [])
+        self.assertEqual(company_position(self.build({'operational_status': 'Documentado'}))[0]['balance_usd'], -6)
+        self.assertEqual(company_position(self.build({'position_type': 'Aplicación'}))[0]['balance_usd'], 20)
+
+    def test_airtec_example_uses_remaining_credits_and_not_original_amounts(self):
+        applications = [dict(employer='AIRTEC S A', amount_usd=value) for value in (11.90, 26.23, 0)]
+        items = [dict(name=str(index), employer='AIRTEC S A', docstatus=1,
+            category=category, amount_usd=value + 10, credit_resolved_usd=10,
+            credit_pending_usd=value, credit_management_status='Parcial', result='Saldo a favor documentado')
+            for index, (category, value) in enumerate([
+                ('Saldo a favor de la empresa', 1.29), ('Saldo a favor de la empresa', 1.29),
+                ('Saldo a favor de la empresa', 1.29), ('Saldo a favor de la empresa', 1.28),
+                ('Saldo a favor de la empresa', 0.01), ('Saldo a favor del cliente', 22.15),
+                ('Saldo a favor del cliente', 6.75)])]
+        balances = {item['name']: financial_balance(item) for item in items}
+        rows = build_position([], applications, items, balances, [], {})
+        self.assertEqual(company_position(rows), [dict(employer='AIRTEC S A', usd_currency='USD',
+            pending_usd=38.13, company_credit_usd=-5.16, client_credit_usd=-28.90, balance_usd=4.07)])
+
+    def test_summary_keeps_companies_separate_and_excludes_other_complementaries(self):
+        rows = [dict(employer='A', position_type='Aplicación', applied_pending_usd=20),
+            dict(employer='B', position_type='Partida complementaria', category='Saldo a favor del cliente',
+                 operational_status='Documentado', credit_pending_usd=30),
+            dict(employer='A', position_type='Partida complementaria', category='Saldo a favor de la empresa',
+                 operational_status='Pendiente', credit_pending_usd=100),
+            dict(employer='A', position_type='Partida complementaria', category='Ajuste de aplicación',
+                 operational_status='Conciliada', complementary_usd=100, complementary_used_usd=100),
+            dict(employer='A', position_type='Cobranza', employee_pending_usd=1000)]
+        grouped = company_position(rows)
+        self.assertEqual([row['employer'] for row in grouped], ['A', 'B'])
+        self.assertEqual([row['balance_usd'] for row in grouped], [20, -30])
+        self.assertEqual(company_position([]), [])
+
+    def test_summary_propagates_unknown_amount_and_keeps_zero(self):
+        rows = [dict(employer='A', position_type='Aplicación', applied_pending_usd=value)
+                for value in (None, 10)]
+        rows += [dict(employer='B', position_type='Aplicación', applied_pending_usd=0)]
+        grouped = company_position(rows)
+        self.assertIsNone(grouped[0]['pending_usd'])
+        self.assertIsNone(grouped[0]['balance_usd'])
+        self.assertEqual(grouped[1]['balance_usd'], 0)
+        self.assertIsNone(company_position(list(reversed(rows)))[0]['balance_usd'])
 
 
 if __name__ == '__main__':

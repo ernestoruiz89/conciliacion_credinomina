@@ -899,6 +899,19 @@ El estado de cuenta de esta app explica los **movimientos en tránsito**;
 acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
+**Estado de Cuenta Operativo** abre por defecto en **Vista → Resumen**: una
+fila por empresa con **Pendiente US$**, **Saldo a favor empresa US$**, **Saldo
+a favor clientes US$** y **Saldo US$**. Los saldos a favor documentados aún
+por gestionar aparecen negativos; el saldo es la suma de esas tres columnas.
+Por ejemplo, `38.13 − 5.16 − 28.90 = 4.07`. Este neto es informativo: no
+compensa deudas ni autoriza utilizar el saldo de un cliente para otro.
+La cobranza no genera CxC; tampoco se descuentan otra vez las partidas que
+ya ajustaron las aplicaciones. Los saldos a favor sin confirmar y las demás
+complementarias se consultan en **Vista → Detalle**, con sus documentos de
+origen. Los filtros se aplican antes de agrupar y la exportación corresponde
+a la vista elegida. Si falta conversión a US$, el pendiente y el neto de la
+empresa quedan sin determinar, no en cero.
+
 El reporte **Antigüedad de Saldos** consulta por defecto la CxC de aplicaciones:
 **aplicado en el core menos depósitos asignados y compensaciones confirmadas
 vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se

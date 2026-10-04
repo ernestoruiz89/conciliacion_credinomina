@@ -97,6 +97,48 @@ def load_position(collections, filters):
     return build_position(collections, applications, items, load_balances(items), clients, filters)
 
 
+def company_balance_rows(data):
+    """Only receivables and documented, outstanding credits enter the matrix.
+
+    Collection requests are not receivables. Other complementary items remain
+    visible in Detail, but must not be deducted again from net applications.
+    """
+    return [row for row in data if row.get('position_type') == 'Aplicación' or (
+        row.get('position_type') == 'Partida complementaria'
+        and row.get('category') in {'Saldo a favor de la empresa', 'Saldo a favor del cliente'}
+        and row.get('operational_status') == 'Documentado')]
+
+
+def company_position(data):
+    """Informational net per employer; never posts or offsets client balances."""
+    groups = {}
+    fields = ('pending_usd', 'company_credit_usd', 'client_credit_usd')
+    for row in company_balance_rows(data):
+        employer = row.get('employer') or ''
+        group = groups.setdefault(employer, dict(employer=employer, usd_currency='USD',
+            **{field: money(0) for field in fields}))
+        if row['position_type'] == 'Aplicación':
+            field, value = 'pending_usd', row.get('applied_pending_usd')
+        else:
+            field = ('company_credit_usd' if row['category'] == 'Saldo a favor de la empresa'
+                     else 'client_credit_usd')
+            value = row.get('credit_pending_usd')
+            if value is not None:
+                value = -money(value)
+        # Unknown conversion must not turn into a zero receivable or a net credit.
+        group[field] = None if value is None or group[field] is None else group[field] + money(value)
+    output = []
+    for employer in sorted(groups):
+        group = groups[employer]
+        group['balance_usd'] = (None if any(group[field] is None for field in fields)
+                                else sum_money(group[field] for field in fields))
+        for field in (*fields, 'balance_usd'):
+            if group[field] is not None:
+                group[field] = money_float(group[field])
+        output.append(group)
+    return output
+
+
 def summary(data):
     # These are separate dimensions. No grand total or netting with client credits.
     figures = [{'label': label, 'value': money_float(sum_money(row.get(field) for row in data)),
