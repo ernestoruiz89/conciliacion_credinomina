@@ -820,6 +820,10 @@ sin cambiar asignaciones, importes financieros ni reabrir períodos cerrados.
 En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
 si se seleccionó, la empresa filtrada. Incluye estas hojas:
 
+- **Resumen:** el mismo **Estado de Cuenta por Empresa** en vista Resumen,
+  con sus columnas, signos y saldos actuales; incluye movimientos sin período.
+  Respeta empresa y año (fecha de origen; **Todos** no limita fechas). No es un
+  corte histórico. Los importes sin determinar se muestran como **N/D**, no cero.
 - **Resumen mensual:** una fila por empresa y mes, agrupando todos sus períodos.
   Separa aplicado, asignado a créditos y pendiente por mes de cobranza de los
   depósitos completos por fecha de recepción. Incluye meses con depósitos aunque

@@ -106,7 +106,7 @@ class TestControlExport(unittest.TestCase):
         )
         book = load_workbook(io.BytesIO(payload), data_only=False)
         self.assertEqual(book.sheetnames, [
-            "Resumen mensual", "Períodos", "Detalle cliente", "Cruces", "Depósitos", "Distribución depósitos",
+            "Resumen", "Resumen mensual", "Períodos", "Detalle cliente", "Cruces", "Depósitos", "Distribución depósitos",
             "Aplicaciones sin período", "Partidas y excepciones", "Gestiones", "Guía",
         ])
         summary = book["Períodos"]

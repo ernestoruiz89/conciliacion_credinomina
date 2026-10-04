@@ -53,6 +53,15 @@ def export_control_excel(year=None, employer=None):
     data['core_complementary_items'] = load_core_items(cint(data['year']) or None, employer)
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
     data['adjustment_receivables'] = load_receivables(employer=employer, year=cint(data['year']) or None)
+    from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa.estado_de_cuenta_por_empresa import execute as company_statement
+    statement_filters = {"view_mode": "Resumen"}
+    if employer:
+        statement_filters["employer"] = employer
+    statement_year = cint(data["year"])
+    if statement_year:
+        statement_filters.update(from_date=f"{statement_year}-01-01", to_date=f"{statement_year}-12-31")
+    columns, rows, message = company_statement(statement_filters)
+    data["company_statement"] = {"columns": columns, "rows": rows, "message": message}
     period_names = [period["name"] for period in data["periods"]]
     exceptions = []
     exception_fields = [

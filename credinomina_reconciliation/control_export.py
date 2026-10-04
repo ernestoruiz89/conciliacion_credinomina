@@ -38,11 +38,12 @@ def build_control_workbook(
     """Return a read-only-in-practice, value-based audit snapshot as XLSX bytes."""
     book = Workbook()
     summary = book.active
-    summary.title = "Resumen mensual"
+    summary.title = "Resumen"
     periods = data["periods"]
     display_format = date_format.replace("yyyy", "%Y").replace("mm", "%m").replace("dd", "%d")
     scope = f"Año: {data.get('year') or 'Todos'}    Empresa: {employer_label}    Generado: {generated_at.strftime(display_format + ' %H:%M')}"
-    _write_monthly(summary, data, scope)
+    _write_company_statement(summary, data, scope)
+    _write_monthly(book.create_sheet("Resumen mensual"), data, scope)
     _write_summary(book.create_sheet("Períodos"), data, employer_label, generated_at)
 
     detail_rows = []
@@ -431,9 +432,36 @@ def _write_deposits(book, data, scope):
         cell.number_format = "yyyy-mm"
 
 
+def _write_company_statement(sheet, data, scope):
+    # Use the report's columns and values, not period totals: those omit entries
+    # without a period and cannot represent the current company position.
+    from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa.estado_de_cuenta_por_empresa import get_columns
+
+    statement = data.get("company_statement") or {}
+    columns = statement.get("columns") or get_columns()
+    money_columns = [index for index, column in enumerate(columns, 1)
+                     if column.get("fieldtype") == "Currency"]
+    rows = [[NA if index in money_columns and row.get(column["fieldname"]) is None
+             else row.get(column["fieldname"])
+             for index, column in enumerate(columns, 1)]
+            for row in statement.get("rows", [])]
+    _write_table(sheet, "Estado de Cuenta por Empresa", scope,
+                 [column["label"] for column in columns], rows,
+                 money_columns=money_columns)
+    note_row = len(rows) + 7
+    sheet.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=len(columns))
+    note = sheet.cell(note_row, 1, _safe_text(statement.get("message") or
+        "Saldos actuales en US$. El año filtra la fecha de origen, no la fecha de conciliación. "
+        "No es un corte histórico. N/D indica un importe sin determinar, no cero."))
+    note.font = Font(name="Arial", size=10, italic=True, color=TEXT)
+    note.alignment = Alignment(wrap_text=True, vertical="top")
+    sheet.row_dimensions[note_row].height = 100
+
+
 def _write_guide(book, scope):
     notes = [
         ("Naturaleza del informe", "Fotografía de la conciliación a la fecha de exportación. Descargue nuevamente para actualizar. No sustituye la balanza contable."),
+        ("Resumen", "Estado de Cuenta por Empresa en modalidad Resumen: mismas columnas y saldos actuales, incluidos movimientos sin período. El año filtra la fecha de origen; no es un corte histórico. Todos incluye todos los años. Los saldos a favor conservan signo negativo y N/D no equivale a cero."),
         ("Resumen mensual", "Una fila por empresa y mes. Agrupa todos los períodos del mes, aunque sean quincenales o por fecha exacta. Incluye meses con depósitos y sin períodos."),
         ("Dos bases de fecha", "Aplicaciones y asignaciones: mes de cobranza. Depósitos completos: fecha de recepción. No se calcula una diferencia entre ambos totales mensuales."),
         ("Empresa pagadora", "El depósito completo se cuenta una sola vez para quien paga. Distribución depósitos muestra la empresa destino, aunque sea diferente."),

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import frappe
 from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina import control_credinomina as page
+from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as statement
 
 
 class ExportScopeTests(unittest.TestCase):
@@ -17,8 +18,11 @@ class ExportScopeTests(unittest.TestCase):
              patch.object(frappe, 'local', SimpleNamespace(response=response, flags=frappe._dict(in_test=False))), \
              patch.object(page, 'now_datetime', return_value=datetime(2026, 10, 2)), \
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
-             patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook'):
+             patch.object(statement, 'execute', return_value=([], [], 'Nota')) as report, \
+             patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook') as workbook:
             page.export_control_excel('Todos', 'A')
+        report.assert_called_once_with({'view_mode': 'Resumen', 'employer': 'A'})
+        self.assertEqual(workbook.call_args.args[0]['company_statement'], {'columns': [], 'rows': [], 'message': 'Nota'})
         self.assertEqual(read.call_args.kwargs['filters'], [['period', 'is', 'not set'], ['employer', '=', 'A']])
         self.assertIn('Todos', response.filename)
 
@@ -34,8 +38,12 @@ class ExportScopeTests(unittest.TestCase):
              patch.object(frappe, 'local', SimpleNamespace(response=response, flags=frappe._dict(in_test=False))), \
              patch.object(page, 'now_datetime', return_value=datetime(2026, 10, 2)), \
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
-             patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook'):
+             patch.object(statement, 'execute', return_value=(statement.get_columns(), [{'employer': 'Empresa A', 'balance_usd': 1.5}], 'Nota')) as report, \
+             patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook') as workbook:
             page.export_control_excel(2025, 'Empresa A')
+        report.assert_called_once_with({'view_mode': 'Resumen', 'employer': 'Empresa A',
+                                       'from_date': '2025-01-01', 'to_date': '2025-12-31'})
+        self.assertEqual(workbook.call_args.args[0]['company_statement']['rows'], [{'employer': 'Empresa A', 'balance_usd': 1.5}])
         filters = next(kwargs['filters'] for doctype, kwargs in captured if doctype == 'CN Reconciliation Exception')
         self.assertIn(['creation', '>=', '2025-01-01'], filters)
         self.assertIn(['creation', '<', '2026-01-01'], filters)
