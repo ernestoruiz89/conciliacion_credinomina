@@ -481,6 +481,8 @@ def import_remittance_detail(remittance_name: str):
 
 def _apply_remittance_detail(document, records, content, source_url, origin="Archivo importado"):
     from credinomina_reconciliation.client_credit import guard_detail_replacement
+    from credinomina_reconciliation.remittance_detail import detail_amount_usd
+    from credinomina_reconciliation.rounding import sum_money
     guard_detail_replacement(document)
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
@@ -489,8 +491,12 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
         target.detail_row_label = ""
     clients = load_client_index()
     allowed = allowed_employers(document.employer)
+    rate = flt(document.get("fx_rate")) if remittance_fx_basis(document) else 0
+    amounts = []
     for record in records:
         client, identity_reason = choose_detail_client(record, clients, document.employer, allowed)
+        amount, explanation = detail_amount_usd(record, rate)
+        amounts.append(amount)
         document.append("detail_rows", {
             key: record.get(key) for key in (
                 "source_row", "row_key", "client_number", "employee_number", "client_name",
@@ -503,12 +509,21 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "employer": client.get("employer") if client else record.get("employer") or "",
             "identity_reason": identity_reason,
             "client_number": record.get("client_number") or (client.get("client_number") if client else ""),
+            # Calculate the imported value without assigning cash or reconciling.
+            "amount_usd": amount,
+            "linked_usd": 0,
+            "client_credit_usd": 0,
+            "pending_usd": amount,
+            "match_status": "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
+            "match_reason": explanation + ("; pendiente de conciliación" if amount else ""),
+            "matched_targets": "[]",
         })
     document.detail_hash = file_sha256(content)
     document.detail_source_file = source_url
     document.detail_origin = origin
     document.detail_imported_on = now_datetime()
     document.detail_count = len(records)
+    document.detail_total_usd = money_float(sum_money(amounts))
     document.detail_status = "Cargado; pendiente de conciliación"
     document.save()
 
