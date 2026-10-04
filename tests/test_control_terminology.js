@@ -20,6 +20,14 @@ for (const [operative, historical, label] of [
 assert.equal(applicationStatusLabel("Aplicado y remitido"), "Aplicado y depositado");
 assert.equal(applicationStatusLabel("Remitido, aplicacion parcial"), "Depositado, aplicación parcial");
 assert.equal(applicationStatusLabel("Depósito parcial"), "Depósito parcial");
+for (const mode of ["Historica", "Operativa"]) {
+    const card = renderPeriodCard({name: "P", reconciliation_mode: mode, applied_usd: 95.54,
+        remitted_usd: 50, complementary_usd: 10});
+    assert.ok(card.includes("Asignado<strong>"));
+    assert.ok(!card.includes("Depósitos asignados"));
+    assert.ok(!card.includes("Depósitos<strong>"));
+}
+assert.ok(!source.includes('__("Depósitos asignados")'));
 assert.ok(!source.includes('__("Remitido"'));
 assert.ok(!source.includes('__("Remitido / deducido"'));
 assert.match(renderMonthSummary([{reconciliation_mode: "Operativa", control_state: "conciliado"}], "E", "2026-09"), /Aplicado \/ Asignado/);

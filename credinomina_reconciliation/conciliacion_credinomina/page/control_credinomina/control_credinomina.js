@@ -132,7 +132,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             [__("Cobranza enviada"), totals.expected_usd],
             [__("Deducción registrada"), totals.deducted_usd],
             [__("Deducción inferida por depósito"), totals.inferred_deduction_usd],
-            [__("Depósitos asignados"), totals.remitted_usd],
+            [__("Asignado"), totals.remitted_usd],
             [__("Ajustes de tolerancia (valor absoluto)"), totals.rounding_movement_abs_usd],
             [__("Cobranza no deducida (informativo)"), totals.worker_gap_usd],
             [__("Deducido sin depósito asignado"), totals.employer_gap_usd],
@@ -398,7 +398,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <div class="cn-kpis cn-dialog-kpis">
                     ${historical ? `
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Depósitos asignados"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
+                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Asignado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Aplicaciones sin depósito"))}</div><div class="cn-kpi-value">${money(period.historical_pending_usd)}</div></div>
                     ` : `
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Enviado"))}</div><div class="cn-kpi-value">${money(period.expected_usd)}</div></div>
@@ -729,7 +729,7 @@ function renderPeriodCard(period) {
         ${renderPeriodRemark(period)}
         <span class="cn-period-card-amounts">
             <span>${esc(__("Aplicado"))}<strong>${money(period.applied_usd)}</strong></span>
-            <span>${esc(__("Depósitos asignados"))}<strong>${money(period.remitted_usd)}</strong></span>
+            <span>${esc(__("Asignado"))}<strong>${money(period.remitted_usd)}</strong></span>
             ${!historical ? `<span>${esc(__("Deducido"))}<strong>${money(period.deducted_usd)}</strong></span>` : ""}
         </span>
         ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("Cobranza no deducida")],
