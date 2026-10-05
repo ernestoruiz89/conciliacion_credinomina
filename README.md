@@ -207,6 +207,14 @@ sigue disponible. Confirmar y conciliar siguen siendo acciones separadas.
 
 ### Distribución por antigüedad (FIFO)
 
+**3. Cargar movimientos contables** actualiza las aplicaciones y sus saldos
+usando las distribuciones de depósitos ya guardadas; no vuelve a repartirlas ni
+recalcula sus detalles FIFO. Cargar junio no debe redistribuir un depósito que
+cubrió abril. Se mantienen los controles de cierre: si cambian realmente los
+importes o vínculos de un período cerrado, la operación se rechaza. Para cambiar
+una distribución use **Conciliar** en el depósito y reabra los períodos afectados
+solo cuando sea necesario corregir sus movimientos.
+
 En **Distribución de Depósito → Detalle por cliente → Períodos a conciliar**,
 seleccione los períodos y marque **Aplicar por antigüedad (FIFO)**. Guarde y pulse
 **Conciliar**. La opción viene desmarcada y no ejecuta conciliación al guardarla.

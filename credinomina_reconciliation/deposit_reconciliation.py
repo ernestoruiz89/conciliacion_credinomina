@@ -89,6 +89,43 @@ def affected_periods(deposit, allocation, periods, source_rows, complementary_it
     return {name for name in names if name}
 
 
+def stored_cash_context(deposits, periods, pairs=None):
+    """Read persisted distributions without matching details or writing cash.
+
+    Importing applications must not replay old FIFO decisions. Reuse the same
+    frozen-cash validation as an individual deposit reconciliation, including
+    signed complementary items and existing tolerance movements.
+    """
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
+
+    if pairs is None:
+        pairs, _ids = engine._registered_deposit_pairs([], deposits)
+    stored = {deposit.name: deposit for deposit in deposits}
+    meta = {}
+    for account, bank in pairs:
+        deposit = stored[account.name]
+        for row in (account, bank):
+            for field in ("allocated_usd", "unallocated_usd", "unclassified_usd", "justified_surplus_usd", "allocation_detail"):
+                row[field] = deposit.get(field)
+        meta[account.name] = {"account": account, "bank": bank, "employer": deposit.employer,
+            "amount_usd": deposit.amount_usd,
+            "nio_per_usd": deposit.deposit_amount / deposit.amount_usd
+            if deposit.deposit_currency == "NIO" and deposit.amount_usd else 0}
+    movements = []
+    if stored:
+        for item in frappe.get_all("CN Complementary Item", filters={
+            "category": engine.TOLERANCE_CATEGORY, "docstatus": 1, "status": "Vigente",
+            "deposit_source_row": ["in", list(stored)],
+        }, fields=["name", "period", "claim_id", "deposit_source_row", "application_source_row",
+                   "signed_amount_usd", "absorbed_cash_usd"], limit_page_length=0):
+            movements.append({"name": item.name, "period": item.period, "claim_id": item.claim_id,
+                "deposit_id": item.deposit_source_row, "application_id": item.application_source_row,
+                "signed_amount_usd": item.signed_amount_usd, "consumed_residual_usd": item.absorbed_cash_usd})
+    allocations, coverage = frozen_cash(deposits, periods, movements)
+    return {"allocations": allocations, "coverage": coverage, "deposit_meta": meta,
+            "rounding_movements": movements, "registered_ids": {name: name for name in stored}}
+
+
 def reconcile_deposit(document, progress=None):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
     from credinomina_reconciliation.paying_employers import reconciliation_companies

@@ -574,7 +574,7 @@ def import_source_file(import_name: str):
         document.save()
     finally:
         _source_import_refresh.reset(token)
-    result = _reconcile_sources(document.employer)
+    result = _reconcile_sources(document.employer, preserve_deposits=True)
     result["import_name"] = document.name
     return result
 
@@ -717,7 +717,7 @@ def _save_reconciled_document(document):
     return True
 
 
-def _reconcile_sources(employer=None, progress=None):
+def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False):
     if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
@@ -843,14 +843,38 @@ def _reconcile_sources(employer=None, progress=None):
     _match_applications(
         all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
     )
-    report(50, _("Distribuyendo depósitos y revisando sus detalles…"))
-    allocation = _distribute_deposits(
-        periods, all_rows, deposit_pairs, complementary_items,
-        complementary_by_target, manual_allocations, registered_ids,
-    )
+    if preserve_deposits:
+        report(50, _("Conservando las distribuciones de depósitos ya registradas…"))
+        from credinomina_reconciliation.deposit_reconciliation import stored_cash_context
+        stored = stored_cash_context(manual_allocations, periods, deposit_pairs)
+        # Build application/complement context without passing any deposits to
+        # the matcher. Stored cash is evidence, never a new allocation request.
+        allocation = _distribute_deposits(
+            periods, all_rows, [], complementary_items, complementary_by_target, [], {},
+        )
+        allocation["allocations"] = stored["allocations"]
+        allocation["rounding_movements"] = stored["rounding_movements"]
+        allocation["deposit_meta"] = stored["deposit_meta"]
+        allocation["balance_registered_ids"] = stored["registered_ids"]
+        rounding_by_application = defaultdict(list)
+        for item in stored["rounding_movements"]:
+            rounding_by_application[item.get("application_id")].append({
+                "movimiento": item["name"], "diferencia_usd": item["signed_amount_usd"], "periodo": item["period"],
+            })
+        for row in all_rows:
+            related = rounding_by_application[row.name]
+            row.rounding_adjustment_usd = money_float(sum_money(item["diferencia_usd"] for item in related))
+            row.rounding_movement_detail = json.dumps(related, ensure_ascii=False)
+    else:
+        report(50, _("Distribuyendo depósitos y revisando sus detalles…"))
+        allocation = _distribute_deposits(
+            periods, all_rows, deposit_pairs, complementary_items,
+            complementary_by_target, manual_allocations, registered_ids,
+        )
     report(75, _("Actualizando saldos y verificando períodos cerrados…"))
-    _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=scope_filter)
-    _classify_surplus(allocation, surplus_items)
+    if not preserve_deposits:
+        _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=scope_filter)
+        _classify_surplus(allocation, surplus_items)
     _rebuild_period_balances(
         [period for period in periods if period.reconciliation_mode != "Historica"],
         all_rows, deposit_pairs, allocation,
@@ -864,7 +888,8 @@ def _reconcile_sources(employer=None, progress=None):
             row.match_status = "Conciliado"
             row.deposit_match_status = "Aplicación compensada"
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
-    _sync_registered_deposit_detail(allocation)
+    if not preserve_deposits:
+        _sync_registered_deposit_detail(allocation)
 
     report(90, _("Guardando únicamente las importaciones modificadas…"))
     saved_imports = 0
@@ -883,6 +908,7 @@ def _reconcile_sources(employer=None, progress=None):
 
     return {
         "imports": len(imports),
+        "preserved_deposits": len(manual_allocations) if preserve_deposits else 0,
         "saved_imports": saved_imports,
         "rows": len(all_rows),
         "employer": employer,

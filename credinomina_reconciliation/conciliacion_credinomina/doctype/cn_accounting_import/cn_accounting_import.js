@@ -34,8 +34,12 @@ frappe.ui.form.on("CN Accounting Import", {
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.import_source_file",
                 args: { import_name: frm.doc.name },
                 freeze: true,
-                freeze_message: __("Cargando aplicaciones y actualizando conciliaciones..."),
+                freeze_message: __("Cargando aplicaciones y actualizando saldos sin redistribuir depósitos..."),
             }).then(response => {
+                frappe.show_alert({
+                    message: __("Movimientos cargados. Se conservaron las distribuciones de depósitos. Para cambiarlas, use Conciliar en el depósito."),
+                    indicator: "green",
+                }, 8);
                 const name = response.message?.import_name;
                 if (name && name !== frm.doc.name) {
                     return frappe.set_route("Form", frm.doctype, name);

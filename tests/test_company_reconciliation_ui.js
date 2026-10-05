@@ -23,6 +23,11 @@ const context = vm.createContext({
         utils: {escape_html: value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")},
         call: async args => {events.push("call"); assert.equal(args.args.import_name, "IA"); return {message: result};},
         msgprint: () => events.push("message"),
+        show_alert: options => {
+            assert.equal(options.indicator, "green");
+            assert.ok(options.message.includes("Se conservaron las distribuciones de depósitos"));
+            events.push("preserved-alert");
+        },
     },
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js"), "utf8"), context);
@@ -59,7 +64,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.equal(actions["Reprocesar CSV individual"], undefined);
     result.import_name = "CONTA-5111-9-2026-001";
     await actions["3. Cargar movimientos contables"]();
-    assert.deepEqual(events, ["save", "call", "navigate"]);
+    assert.deepEqual(events, ["save", "call", "preserved-alert", "navigate"]);
     events.length = 0;
     delete result.import_name;
     const exceptionRows = [

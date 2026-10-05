@@ -88,7 +88,56 @@ def run():
                 deposit.reload(); fixed.reload()
                 assert json.loads(deposit.allocation_detail) == detail, "Reconciliation duplicated or changed cash"
                 assert fixed_state == document_state(fixed)
+
+                # A later import must refresh applications without replaying
+                # FIFO against a now-closed older period, including a deposit
+                # shared between the closed period and an open period.
+                frappe.db.set_value(periods[0].doctype, periods[0].name, "status", "Cerrado")
+                periods[0].reload()
+                closed_state = document_state(periods[0])
+                deposit_state = document_state(deposit)
+                later_month = "2025-06" if mode == "Historica" else "2026-10"
+                later = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
+                    "payroll_month": later_month + "-01", "reconciliation_mode": mode,
+                    "collection_cycle": "Primera quincena", "historical_scope": "Fecha exacta",
+                    "historical_application_date": later_month + "-15"})
+                if mode == "Operativa":
+                    later.append("collection_rows", {"row_key": marker + "LATER", "client": client.name,
+                        "client_name": client.client_name, "client_number": marker, "loan_number": marker + "-1",
+                        "expected_usd": 25, "deducted_usd": 25, "deduction_status": "Deduccion total"})
+                later.insert()
+                imported = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
+                    "source_file": f"/private/files/{marker}-later.csv", "status": "Importado", "currency": "USD"})
+                imported.append("rows", {"source_key": marker + "LATER", "event_type": "Aplicacion",
+                    "event_date": later_month + "-15", "currency": "USD", "amount": 25,
+                    "amount_usd": 25, "effective": 1, "client": client.name, "client_number": marker,
+                    "client_name": client.client_name, "loan_number": marker + "-1",
+                    "historical_period": later.name if mode == "Historica" else "", "processing_route": mode})
+                imported.insert()
+                result = _reconcile_sources(employer.name, preserve_deposits=True)
+                assert result["preserved_deposits"] == 2
+                for doc in (deposit, fixed, periods[0], later, imported):
+                    doc.reload()
+                assert deposit_state == document_state(deposit), "Import redistributed an existing FIFO deposit"
+                assert fixed_state == document_state(fixed)
+                assert closed_state == document_state(periods[0]), "Import changed a closed period"
+                assert later.applied_usd == 25 and later.remitted_usd == 0
+                assert imported.rows[0].match_status == "Conciliado"
+
+                # Preserving cash does not disable the accounting close guard.
+                frappe.db.savepoint("fifo_closed_guard")
+                try:
+                    frappe.db.set_value("CN Source Row", sources[0].rows[0].name, "amount", 41)
+                    try:
+                        _reconcile_sources(employer.name, preserve_deposits=True)
+                    except frappe.ValidationError:
+                        pass
+                    else:
+                        raise AssertionError("Changed closed application was accepted")
+                finally:
+                    frappe.db.rollback(save_point="fifo_closed_guard")
             return {"historical_and_operative": True, "repeated_rows": True, "oldest_first": True,
-                    "other_deposit_preserved": True, "idempotent": True, "rolled_back": True}
+                    "other_deposit_preserved": True, "idempotent": True, "later_import_preserves_closed_period": True,
+                    "closed_changes_still_rejected": True, "rolled_back": True}
     finally:
         frappe.db.rollback()
