@@ -79,12 +79,34 @@ class AdjustmentReceivableTests(unittest.TestCase):
 
     def test_loader_filters_explicit_classification_and_uses_all_time_deposits(self):
         item = self.item()
-        with patch.object(receivables, 'records', return_value=[item]) as read, \
+        with patch.object(receivables, 'records', side_effect=[[item], []]) as read, \
              patch.object(receivables, 'load_balances', return_value={item.name: {'distributions': []}}) as balances:
             self.assertEqual(receivables.load_receivables('REPSA', 2025), [])
-        self.assertEqual(read.call_args.kwargs['filters']['subcategory_effect'], categories.RECEIVABLE)
-        self.assertNotIn('employer', read.call_args.kwargs['filters'])
+        original_read, settlements_read = read.call_args_list
+        self.assertEqual(original_read.kwargs['filters']['subcategory_effect'], categories.RECEIVABLE)
+        self.assertNotIn('employer', original_read.kwargs['filters'])
+        self.assertEqual(settlements_read.kwargs['filters']['receivable_origin'], ['in', [item.name]])
+        self.assertNotIn('posting_date', settlements_read.kwargs['filters'])
         balances.assert_called_once_with([item])
+
+    def test_loader_enriches_identity_only_from_readable_clients_of_the_company(self):
+        item = self.item(client_number='123', client_name='')
+        client = frappe._dict(name='123', client_number='123', client_name='Ana',
+                              employer='REPSA', national_id='ID-123')
+        values = {item.name: {'distributions': [dict(amount_usd=-.01, employer='REPSA')]}}
+        for company, allowed, expected in [('REPSA', True, 'ID-123'), ('OTHER', True, None),
+                                            ('REPSA', False, None)]:
+            client.employer = company
+            with self.subTest(company=company, allowed=allowed), \
+                 patch.object(receivables.frappe, 'has_permission', return_value=allowed), \
+                 patch.object(receivables, 'records', side_effect=[[item], [], [client]]) as read, \
+                 patch.object(receivables, 'load_balances', return_value=values):
+                result = receivables.load_receivables()[0]
+            self.assertEqual(result.get('national_id'), expected)
+            self.assertEqual(read.call_count, 3 if allowed else 2)
+            if expected:
+                self.assertEqual(result['client_name'], 'Ana')
+                self.assertEqual(result['client'], '123')
 
 
 class SubcategoryTests(unittest.TestCase):

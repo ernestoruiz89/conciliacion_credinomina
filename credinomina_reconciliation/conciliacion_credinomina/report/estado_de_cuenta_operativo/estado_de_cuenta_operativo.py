@@ -246,6 +246,8 @@ def get_columns(filters=None):
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
                         ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
                         ('credit_pending_usd', 'Saldo a favor por gestionar US$')])
+    if not view or view == 'CxC por ajuste':
+        metrics.append(('company_receivable_usd', 'CxC por ajuste pendiente US$'))
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Currency', 'options': 'usd_currency', 'width': 150}
                    for field, label in metrics)
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}

@@ -10,6 +10,7 @@ const payload = {as_of_date: "2026-10-02",
         without_date_usd: 10, missing_fx_count: 1},
     deposits: {received_usd: 1200, deposit_count: 2, unassigned_usd: 150, unassigned_count: 1, overallocated_count: 1},
     credits: {credit_pending_usd: 150, client_pending_usd: 100, company_documented_usd: 50},
+    receivables: {pending_usd: 10, overdue_usd: 3, without_date_usd: 7},
     exceptions: {count: 3, filters: {status: ["in", ["Abierta", "En revision"]], commitment_date: ["<=", "2026-10-01"]}},
 };
 const context = vm.createContext({__: value => value, $: value => typeof value === "string" ? root : {attr: key => value[key]},
@@ -41,7 +42,9 @@ const click = selector => handlers[`click:${selector}`].call({});
     click("[data-kpis-toggle]"); // Reopen; reuse request.
     assert.equal(requests.length, 1);
     requests[0].resolve({message: payload}); await first;
-    assert.equal((slot.match(/class="cn-kpi-label"/g) || []).length, 6);
+    assert.equal((slot.match(/class="cn-kpi-label"/g) || []).length, 7);
+    assert.match(slot, /CxC por ajustes US\$/);
+    assert.match(slot, /Sin fecha compromiso/);
     assert.match(slot, /USD\s*1,000\.00/);
     assert.match(slot, /aplicado y pendiente son parciales/);
     assert.match(slot, /No se incluye en el vencido/);
@@ -57,6 +60,9 @@ const click = selector => handlers[`click:${selector}`].call({});
     assert.deepEqual(route, ["query-report", "Antiguedad de Saldos"]);
     assert.equal(context.frappe.route_options.from_month, `${controls.year.value}-01-01`);
     assert.equal(context.frappe.route_options.as_of_date, "2026-10-02");
+    assert.equal(context.frappe.route_options.balance_type, "Aplicado pendiente de depósito");
+    handlers["click:[data-kpi-action]"].call({"data-kpi-action": "receivable-aging"});
+    assert.equal(context.frappe.route_options.balance_type, "CxC por ajustes");
     await refresh(); // Open figures reload.
     const stale = requests.at(-1);
     controls.year.value = "Todos"; controls.employer.value = "E";
@@ -75,8 +81,16 @@ const click = selector => handlers[`click:${selector}`].call({});
     assert.equal(context.frappe.route_options.from_month, "");
     assert.equal(context.frappe.route_options.to_month, "");
     assert.equal(context.frappe.route_options.employer, "E");
-    const denied = context.renderKpis({applications: null, deposits: null, credits: null, exceptions: null});
-    assert.equal((denied.match(/No disponible con sus permisos/g) || []).length, 6);
+    await refresh();
+    requests.at(-1).resolve({message: {...payload, applications: null}}); await tick();
+    handlers["click:[data-kpi-action]"].call({"data-kpi-action": "receivable-aging"});
+    assert.deepEqual(route, ["query-report", "Antiguedad de Saldos"]);
+    assert.equal(context.frappe.route_options.balance_type, "CxC por ajustes",
+        "Adjustment drill-down must not require application figures");
+    handlers["click:[data-kpi-action]"].call({"data-kpi-action": "aging"});
+    assert.equal(context.frappe.route_options.balance_type, "CxC por ajustes");
+    const denied = context.renderKpis({applications: null, deposits: null, credits: null, exceptions: null, receivables: null});
+    assert.equal((denied.match(/No disponible con sus permisos/g) || []).length, 7);
     assert.doesNotMatch(denied, /data-kpi-action|USD\s*0\.00/);
-    console.log("OK: six KPIs, on-demand loading, caching, stale response protection, permissions, warnings, retry and scoped actions.");
+    console.log("OK: seven KPIs including independent receivables, on-demand loading, caching, stale response protection, permissions, warnings, retry and scoped actions.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

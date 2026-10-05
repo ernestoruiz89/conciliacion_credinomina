@@ -9,7 +9,9 @@ from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
 from credinomina_reconciliation.aging import age_balance, operational_balances
-from credinomina_reconciliation.application_aging import APPLICATION_BALANCE, application_balances
+from credinomina_reconciliation.application_aging import (
+    APPLICATION_BALANCE, TOTAL_RECEIVABLE_BALANCE, ADJUSTMENT_BALANCE, application_balances,
+)
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.rounding import money_float, sum_money
 from credinomina_reconciliation.report_records import records, child_records
@@ -17,7 +19,7 @@ from credinomina_reconciliation.report_records import records, child_records
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    if not filters.get("balance_type") or filters.balance_type == APPLICATION_BALANCE:
+    if filters.get("balance_type") in (None, "", TOTAL_RECEIVABLE_BALANCE, APPLICATION_BALANCE, ADJUSTMENT_BALANCE):
         return _execute_applications(filters)
     return _execute_operational(filters)
 
@@ -28,9 +30,12 @@ def _execute_applications(filters):
     to_month = getdate(filters.to_month).replace(day=1) if filters.get("to_month") else None
     if from_month and to_month and from_month > to_month:
         frappe.throw(_("El mes inicial no puede ser posterior al mes final."))
-    sources, imports, periods, collections, employers = load_application_context()
+    include_applications = filters.get('balance_type') != ADJUSTMENT_BALANCE
+    include_adjustments = filters.get('balance_type') != APPLICATION_BALANCE
+    sources, imports, periods, collections, employers = load_application_context(
+        employer=filters.get('employer'), include_applications=include_applications)
     data = []
-    for row in application_balances(sources, imports, periods, collections, employers, as_of):
+    for row in application_balances(sources, imports, periods, collections, employers, as_of) if include_applications else ():
         if any(filters.get(field) and row.get(field) != filters[field]
                for field in ("employer", "reconciliation_mode", "client_number", "national_id", "loan_number")):
             continue
@@ -43,13 +48,32 @@ def _execute_applications(filters):
         elif from_month or to_month:
             continue
         data.append(row)
+    from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+    for item in load_receivables(employer=filters.get('employer')) if include_adjustments else ():
+        if any(filters.get(field) and item.get(field) != filters[field]
+               for field in ('client_number', 'national_id', 'loan_number')):
+            continue
+        when = getdate(item['posting_date']).replace(day=1)
+        if when > as_of or (from_month and when < from_month) or (to_month and when > to_month):
+            continue
+        period = periods.get(item.get('period'), {})
+        if filters.get('reconciliation_mode') and period.get('reconciliation_mode') != filters['reconciliation_mode']:
+            continue
+        due = item.get('credit_commitment_date')
+        data.append(dict(item, balance_type=ADJUSTMENT_BALANCE, amount_usd=item['receivable_usd'],
+            complementary_item=item['name'], payroll_month=period.get('payroll_month') or item['posting_date'],
+            due_date=due, usd_currency='USD', **age_balance(item['receivable_usd'], due, as_of),
+            payment_term_origin='Fecha compromiso del ajuste' if due else 'Sin fecha compromiso',
+            observation='CxC trasladada a la empresa; el registro contable no liquida el cobro.'))
     data.sort(key=lambda row: (row.get("employer") or "", str(row.get("due_date") or "9999"),
                               row.get("client_name") or "", row.get("loan_number") or ""))
+    total_label = ('CxC pendiente (aplicaciones y ajustes)' if include_applications and include_adjustments
+                   else 'Aplicaciones pendientes' if include_applications else ADJUSTMENT_BALANCE)
     summary = [
         {"label": _(label), "value": money_float(sum_money(row.get(field) for row in data)),
          "indicator": indicator, "datatype": "Currency", "currency": "USD"}
         for label, field, indicator in (
-            ("Aplicado pendiente de depósito", "amount_usd", "orange"),
+            (total_label, "amount_usd", "orange"),
             ("No vencido", "not_due", "blue"),
             ("Sin fecha / distribución pendiente", "without_date", "red"),
         )
@@ -58,8 +82,10 @@ def _execute_applications(filters):
     if missing_fx:
         summary.append({"label": _("Aplicaciones sin conversión US$"), "value": missing_fx,
                         "indicator": "red", "datatype": "Int"})
-    message = _(
-        "CxC actual = aplicado neto + ajuste de tolerancia − depósito asignado al crédito, en US$. "
+    help_text = _(
+        "CxC actual: aplicaciones pendientes de cubrir y CxC por ajustes de depósito, en US$. "
+        "Los ajustes usan su fecha compromiso; si falta, se muestran sin vencimiento. "
+        "Solo depósitos o compensaciones vinculados liquidan la CxC del ajuste. "
         "El aplicado neto ya descuenta las compensaciones confirmadas vinculadas a la aplicación; no se restan dos veces. "
         "La cobranza solicitada y las deducciones son controles de la primera conciliación, no crean esta CxC. "
         "Incluye histórico y operativo; no depende de haber recibido el detalle de deducción. "
@@ -71,8 +97,15 @@ def _execute_applications(filters):
         "Se conserva el vencimiento al cargar; cambiar el plazo de la empresa no modifica lo ya cargado. "
         "Origen del plazo identifica las estimaciones de datos migrados, que no acreditan el convenio histórico. "
         "La fecha elegida mide la antigüedad del saldo actual, "
-        "no reconstruye saldos pasados. Las cuotas no deducidas se consultan por separado en Tipo de saldo."
+        "no reconstruye saldos pasados. Las cuotas no deducidas se consultan por separado en Tipo de saldo. "
+        "Los filtros de mes usan el mes de cobranza de la aplicación (sin período, su fecha de aplicación) "
+        "y la fecha de partida de la CxC por ajuste, mostrada en Fecha de ajuste."
     )
+    message = (_("Saldo actual, no corte histórico. CxC total reúne aplicaciones pendientes y CxC por ajustes; "
+                 "puede consultar cada tipo por separado. Los depósitos sin asignar y los saldos a favor "
+                 "no se compensan automáticamente.") +
+               '<details><summary>' + _("Cómo se calculan los saldos y la antigüedad") +
+               '</summary><p>' + help_text + '</p></details>')
     return get_application_columns(), data, message, None, summary
 
 
@@ -207,7 +240,7 @@ def get_columns():
 
 def get_application_columns():
     columns = [column for column in get_columns() if column["fieldname"] not in {
-        "provision_review_usd", "balance_type", "due_date", "age_days",
+        "provision_review_usd", "due_date", "age_days",
     }]
     index = next(i for i, column in enumerate(columns) if column["fieldname"] == "amount_usd")
     columns[index:index] = [
@@ -221,5 +254,7 @@ def get_application_columns():
                                ("adjustment_usd", "Ajuste conciliación US$"), ("fx_variance_usd", "Diferencia cambiaria US$"))],
     ]
     columns.append({"fieldname": "observation", "label": _("Observación"), "fieldtype": "Data", "width": 360})
+    columns.append({"fieldname": "complementary_item", "label": _("Partida complementaria"), "fieldtype": "Link", "options": "CN Complementary Item", "width": 180})
+    columns.append({"fieldname": "posting_date", "label": _("Fecha de ajuste"), "fieldtype": "Date", "width": 130})
     columns.append({"fieldname": "payment_term_origin", "label": _("Origen del plazo"), "fieldtype": "Data", "width": 300})
     return columns

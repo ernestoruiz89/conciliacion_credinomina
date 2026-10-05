@@ -939,8 +939,17 @@ negativa realmente utilizada en depósitos confirmados, no por destinos seleccio
 Se muestra positiva en el estado por empresa, en **Partidas y excepciones** del Excel,
 en la partida y en **Qué falta hacer**, aunque el depósito esté conciliado. El asiento
 informado o verificado no elimina la deuda. No se ofrece un cierre manual sin evidencia.
-El cierre mediante un nuevo depósito o una compensación vinculada requiere su flujo
-específico de liquidación; esta clasificación y visualización no lo registran automáticamente.
+Use **Aplicar cobro / Compensar CxC** desde la partida original para liquidarla,
+total o parcialmente, con un depósito existente o una partida de crédito vinculada.
+El modal muestra el importe disponible por empresa y conserva el vínculo al ajuste.
+No permite condonaciones ni cerrar la deuda solamente por registrar su asiento.
+El resumen distingue CxC original, cobrada, compensada y pendiente; el historial
+conserva cobros cancelados y compensaciones revertidas, sin contarlos como liquidación.
+La liquidación no altera la aplicación ni la distribución del depósito original,
+ni agrega una segunda línea a los totales del core. Los reintentos no duplican cobros.
+Si se cancela un cobro, su destino queda señalado para revisión en el depósito.
+Retire o corrija ese destino antes de usar nuevamente su dinero sin distribuir;
+la partida cancelada y el historial de distribución permanecen consultables.
 
 El parche conserva los ajustes existentes como **Por clasificar**, salvo los ajustes
 manuales negativos cuya descripción es exactamente **CxC a la Empresa** (ignorando
@@ -956,12 +965,36 @@ solo de esta hoja; **Detalle cliente**, **Depósitos** y sus distribuciones cons
 la trazabilidad. Las excepciones documentadas se mantienen de forma independiente.
 Las alertas y excepciones pueden describir un mismo caso: no se suman como deudas.
 
-El reporte **Antigüedad de Saldos** consulta por defecto la CxC de aplicaciones:
+El reporte **Antigüedad de Saldos**, también en su resumen por empresa, abre
+en **CxC total**: aplicaciones pendientes más CxC por ajustes de depósito.
+**Aplicado pendiente de depósito** y **CxC por ajustes** permiten revisarlas
+separadamente. Las tarjetas de control abren el tipo de saldo correspondiente.
+La CxC de aplicaciones se determina por:
 **aplicado en el core menos depósitos asignados y compensaciones confirmadas
 vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se
-restan nuevamente. Conserva la tolerancia identificada por separado y no usa
+restan nuevamente. Conserva las partidas complementarias identificadas y no usa
 saldos a favor sin distribución como pagos. Es el saldo actual, no una
 reconstrucción contable histórica.
+
+Los filtros de mes usan el mes de cobranza de las aplicaciones (sin período,
+su fecha de aplicación) y la **Fecha de ajuste** de las CxC por ajustes. Estas
+últimas vencen en su fecha compromiso; sin fecha quedan visibles como tales,
+sin inventar vencimiento. La ayuda extensa está plegada bajo el reporte.
+
+Una aplicación con dinero asignado o destinos reservados no puede borrarse,
+desactivarse como fuente efectiva, marcarse **Ignorado** ni ocultarse al cambiar
+su importación a **Borrador**. La protección también se aplica en el servidor;
+para corregir el origen debe desconciliar y retirar primero sus destinos.
+Las transiciones normales entre **Importado** e **Importado con excepciones**
+y las observaciones no alteran esta protección ni requieren desconciliar.
+Los resultados calculados de una aplicación tampoco pueden sustituirse manualmente
+por valores cero: solo una conciliación validada los actualiza. Reprocesar un CSV
+sin dinero vinculado sigue permitido; el origen pagado o reservado debe liberarse primero.
+
+En **Trabajo de conciliación → Aplicaciones históricas sin período**, **Mostrar más**
+consulta únicamente la siguiente página de 100 filas, manteniendo el conteo completo
+y el alcance de las importaciones legibles por el usuario. Los importes totalmente
+compensados no aparecen como aplicaciones pendientes.
 
 Los otros tipos permiten consultar diferencias de cobranza, deducciones sin
 depósito asignado y detalle pendiente, únicamente como seguimiento de la

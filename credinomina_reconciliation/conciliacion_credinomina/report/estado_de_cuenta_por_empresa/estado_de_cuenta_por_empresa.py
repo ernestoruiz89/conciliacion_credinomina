@@ -7,7 +7,8 @@ def execute(filters=None):
     filters = filters or {}
     detail = load_detail(filters)
     data = detail if filters.get('view_mode') == 'Detalle' else summarize(detail)
-    message = _('Saldos actuales en US$, no un corte histórico ni el saldo contractual del crédito. '
+    message = _('Saldos actuales en US$. Saldo neto informativo suma las columnas; los importes sin vincular conservan su gestión pendiente. '
+        'Desde/Hasta filtran la fecha de origen. ') + '<details><summary>' + _('Cómo se calcula') + '</summary>' + _(''
         'Saldo suma las columnas con su signo; no ejecuta compensaciones. '
         'Las partidas pendientes del core incluyen Por clasificar: débito positivo y crédito negativo. '
         'Solo se resta el remanente, sin duplicar ajustes ya utilizados. '
@@ -16,7 +17,7 @@ def execute(filters=None):
         'Saldos a favor: documentados y aún por gestionar. Depósitos: importe sin asignar ni documentar como saldo a favor; '
         'incluye los importados del core sin confirmar, no los borradores manuales. '
         'Desde/Hasta filtran la fecha de origen, no la fecha de conciliación. '
-        'Solo se muestran registros pendientes visibles para su usuario.')
+        'Solo se muestran registros pendientes visibles para su usuario.') + '</details>'
     missing = sum(row['balance_usd'] is None for row in detail)
     if missing:
         message += _(' Hay {0} movimientos con importe o signo sin determinar: su saldo no se presenta como cero.').format(missing)
@@ -28,7 +29,7 @@ def get_columns(filters=None):
                 'options': 'CN Employer', 'width': 200}]
     columns += [{'fieldname': field, 'label': _(label), 'fieldtype': 'Currency',
                  'options': 'usd_currency', 'precision': 2, 'width': 180}
-                for field, label in (*METRICS, ('balance_usd', 'Saldo US$'))]
+                for field, label in (*METRICS, ('balance_usd', 'Saldo neto informativo US$'))]
     if (filters or {}).get('view_mode') == 'Detalle':
         columns += [
             {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},

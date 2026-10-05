@@ -9,7 +9,7 @@ def base_registration_status(item):
     subsequent financial classification. Explicit exception verification is
     applied separately and is the only route to `Registrada` for manual items.
     """
-    if item.get("category") == "Diferencia por tolerancia":
+    if item.get("category") == "Diferencia por tolerancia" or item.get('receivable_origin'):
         return "No requiere registro"
     required = ("accounting_source_key", "source_file", "source_file_hash", "source_row",
                 "source_account", "source_voucher", "source_date")

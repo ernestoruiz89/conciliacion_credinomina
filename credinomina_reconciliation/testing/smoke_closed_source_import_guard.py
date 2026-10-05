@@ -36,6 +36,7 @@ def run():
         first, second = periods
         source = frappe.get_doc({
             "doctype": "CN Accounting Import",
+            "employer": employer.name,
             "source_file": f"/private/files/{marker}.xlsx", "status": "Importado",
         })
         source.append("rows", {
@@ -45,15 +46,15 @@ def run():
             "loan_number": marker + "-L", "installment_number": "1",
             "currency": "USD", "amount": 100, "amount_usd": 100,
             "processing_route": "Operativa", "effective": 1,
-            "collection_period": first.name,
-            "application_allocation_detail": json.dumps([
-                {"period": first.name, "collection_row_id": first.collection_rows[0].name,
-                 "amount_usd": 50},
-                {"period": second.name, "collection_row_id": second.collection_rows[0].name,
-                 "amount_usd": 50},
-            ]),
         })
         source.insert(ignore_permissions=True)
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+        _reconcile_sources(employer.name)
+        source.reload()
+        links = json.loads(source.rows[0].application_allocation_detail or '[]')
+        assert {link['period'] for link in links} == {first.name, second.name}, links
+        first.reload()
+        second.reload()
         second.status = "Cerrado"
         with period_write_action("close"):
             second.save(ignore_permissions=True)
@@ -104,6 +105,7 @@ def run():
 
         fresh = frappe.get_doc({
             "doctype": "CN Accounting Import",
+            "employer": employer.name,
             "source_file": f"/private/files/{marker}-nuevo.xlsx", "status": "Importado",
         })
         fresh.append("rows", {
@@ -133,6 +135,7 @@ def run():
         }).insert(ignore_permissions=True)
         historical_source = frappe.get_doc({
             "doctype": "CN Accounting Import",
+            "employer": employer.name,
             "source_file": f"/private/files/{marker}-historico.xlsx",
             "historical_period": historical.name, "status": "Importado",
         })

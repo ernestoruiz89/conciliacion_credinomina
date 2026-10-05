@@ -4,6 +4,7 @@ from frappe.utils import getdate, nowdate
 
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.application_aging import application_balances
+from credinomina_reconciliation.complementary_balances import cached_balance_reads
 from credinomina_reconciliation.core_item_position import load_core_items
 from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
 from credinomina_reconciliation.report_records import records
@@ -144,6 +145,7 @@ def summarize(detail):
     return result
 
 
+@cached_balance_reads
 def load_detail(filters):
     required = ('CN Accounting Import', 'CN Reconciliation Period', 'CN Remittance Allocation',
                 'CN Complementary Item')
@@ -152,7 +154,7 @@ def load_detail(filters):
                      frappe.PermissionError)
     if filters.get('from_date') and filters.get('to_date') and getdate(filters['from_date']) > getdate(filters['to_date']):
         frappe.throw('La fecha Desde no puede ser posterior a Hasta.')
-    applications = application_balances(*load_application_context(), nowdate(), include_settled=True)
+    applications = application_balances(*load_application_context(employer=filters.get('employer')), nowdate(), include_settled=True)
     scope = {'employer': filters['employer']} if filters.get('employer') else {}
     core = load_core_items(employer=filters.get('employer'))
     credits = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,

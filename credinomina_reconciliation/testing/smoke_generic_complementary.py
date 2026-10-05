@@ -62,7 +62,9 @@ def run():
                 for index, (client, amount) in enumerate(portions):
                     document.append("detail_rows", {"source_row": index + 2, "employer": company,
                         "client_number": client.client_number, "client_name": client.client_name,
-                        "loan_number": marker + "-1" if core else client.client_number + "-1", "deducted_usd": amount})
+                        # Generic expense portions identify clients, not a
+                        # fictional loan absent from portfolio/core evidence.
+                        "loan_number": marker + "-1" if core else "", "deducted_usd": amount})
                 document.insert()
                 if core:
                     document.append("targets", {"historical_application": source.rows[0].name, "amount_usd": 63.73,
@@ -79,7 +81,10 @@ def run():
             first = deposit(a, [(clients[0], 100), (clients[1], 150)], generic, "-GEN1")
             second = deposit(b, [(clients[2], 250)], generic, "-GEN2")
             feedback = reconcile_deposit(first); first.reload()
-            assert feedback["detail_matched"] == 2 and feedback["detail_pending"] == 0, feedback
+            assert feedback["detail_matched"] == 2 and feedback["detail_pending"] == 0, {
+                **feedback, "rows": [(row.client_number, row.loan_number, row.identity_reason,
+                    row.match_status, row.match_reason) for row in first.detail_rows],
+                "targets": [(row.complementary_item, row.amount_usd, row.result) for row in first.targets]}
             snapshot = document_state(first)
             pending = get_pending_targets(second.name)
             generic_row = next(row for row in pending["rows"] if row.get("complementary_item") == generic.name) if pending["rows"] else None

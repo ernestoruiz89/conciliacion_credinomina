@@ -8,7 +8,7 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
     today = str(as_of or date.today())[:10]
     tasks = []
     def add(item, kind, summary, action, amount=None, *, exception=False):
-        related = (credit_periods or {}).get(item["name"], []) if kind == "credit_management" and not item.get("period") else []
+        related = (credit_periods or {}).get(item["name"], []) if not item.get("period") else []
         due = item.get("commitment_date") if exception else item.get("credit_commitment_date")
         responsible = item.get("assigned_to") if exception else item.get("credit_assigned_to")
         due = str(due)[:10] if due else None
@@ -23,7 +23,11 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
             "client_name": item.get("client_name") or "",
             "client_number": item.get("client_number") or "",
             "responsible": responsible or "", "target_doctype": "CN Reconciliation Exception" if exception else "CN Complementary Item",
-            "target_name": item["name"]})
+            "target_name": item["name"], "action_label": {
+                'company_receivable': 'Aplicar cobro / Compensar CxC', 'credit_management': 'Gestionar saldo',
+                'accounting_registration': 'Verificar asiento', 'complementary_balance': 'Revisar partida',
+                'adjustment_classification': 'Clasificar ajuste', 'open_exception': 'Gestionar excepción',
+            }.get(kind, 'Revisar caso')})
     for item in items:
         balance = balances[item["name"]]
         if item.get("docstatus") == 2:
@@ -137,6 +141,9 @@ def merge_follow_up(existing, additional):
 def filter_work(items, kind="", responsible="", due="", as_of=None):
     if not (kind or responsible or due):
         return items
+    grouped = any('actions' in item for item in items)
+    if grouped:
+        items = [action for item in items for action in item.get('actions', [item])]
     today = str(as_of or date.today())[:10]
     groups = {"credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification"},
               "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification"},
@@ -157,4 +164,28 @@ def filter_work(items, kind="", responsible="", due="", as_of=None):
         if due == "upcoming" and not (date_value and date_value >= today):
             continue
         result.append(item)
-    return result
+    return group_work_cases(result) if grouped else result
+
+
+def group_work_cases(tasks):
+    """Count documents once while retaining independent financial/accounting work."""
+    groups = {}
+    for task in tasks:
+        key = (task.get('target_doctype'), task.get('target_name'))
+        if not all(key):
+            key = (*key, task.get('kind'), task.get('employer'), task.get('period'))
+        groups.setdefault(key, []).extend(task.get('actions', [task]))
+    result = []
+    for actions in groups.values():
+        actions = sorted(actions, key=lambda item: (item.get('priority', 3), item.get('due_date') or '9999', item.get('kind') or ''))
+        first = actions[0]
+        group = dict(first, actions=actions, action_count=len(actions),
+            amount_usd=first.get('amount_usd') if len(actions) == 1 else None)
+        if len(actions) > 1:
+            group['summary'] = first.get('category') or first.get('target_name') or 'Caso pendiente'
+            group['next_action'] = 'Revise las acciones del caso; sus importes no se suman.'
+        related = sorted({period for task in actions for period in task.get('related_periods') or []})
+        if related and not group.get('period'):
+            group['period_label'] = ' · '.join(related)
+        result.append(group)
+    return sorted(result, key=lambda row: (row.get('priority', 3), row.get('due_date') or '9999', row.get('target_name') or ''))

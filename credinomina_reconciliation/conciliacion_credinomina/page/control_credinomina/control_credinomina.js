@@ -148,14 +148,14 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td><span class="cn-work-priority cn-work-priority-${Number(item.priority)}">${esc(item.priority === 0 ? __("Vencida") : item.priority <= 1 ? __("Revisar") : item.priority <= 2 ? __("Pendiente") : __("Seguimiento"))}</span></td>
                 <td>${esc(item.employer_name)}</td>
                 <td>${esc(item.period_label)}${item.period_context ? `<div class="cn-work-context">${esc(__(item.period_context))}</div>` : ""}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
-                <td>${esc(item.summary)}${renderWorkClient(item)}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
+                <td>${esc(item.summary)}${renderWorkClient(item)}${item.action_count > 1 ? `<br><strong>${Number(item.action_count)} ${esc(__("acciones pendientes"))}</strong>` : ""}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
                 <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
-                <td>${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}</td>
-                <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__("Abrir"))}</button></td>
+                <td>${item.action_count > 1 ? item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("") : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
+                <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__(item.action_count > 1 ? "Revisar caso" : item.action_label || "Revisar caso"))}</button></td>
             </tr>`).join("")}</tbody></table></div>
         ` : `<div class="cn-empty">${esc(__("No hay gestiones pendientes detectadas con la evidencia cargada."))}</div>`;
         const workFooter = workCount > visibleWork.length ? `
-            <div class="cn-work-more"><span>${visibleWork.length} ${esc(__("de"))} ${workCount} ${esc(__("gestiones"))}</span>
+            <div class="cn-work-more"><span>${visibleWork.length} ${esc(__("de"))} ${workCount} ${esc(__("casos"))}</span>
             <button type="button" class="btn btn-default btn-sm" data-more-work>${esc(__("Mostrar más"))}</button></div>` : "";
         const matrixRows = companies.map((company) => `
             <tr>
@@ -262,13 +262,13 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <div class="cn-tab-panel" role="tabpanel" id="cn-control-work-panel" aria-labelledby="cn-control-work-tab" data-control-panel="work" tabindex="0" ${activeView === "work" ? "" : "hidden"}>
                 <p class="text-muted">${esc(__("Pendientes de todos los años. El filtro Año se aplica al calendario, las cifras de control y el Excel; no oculta gestiones antiguas en esta pestaña."))}</p>
                 ${workReady ? `
-                <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("gestiones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("vencidas"))}` : ""}</span></div>
+                <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("casos"))} · ${data.work_action_count ?? workItems.reduce((count, item) => count + (item.action_count || 1), 0)} ${esc(__("acciones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("casos vencidos"))}` : ""}</span></div>
                     <div class="row" style="margin-bottom:16px">
                         <div class="col-sm-4"><label>${esc(__("Tipo de pendiente"))}<select class="form-control" data-work-filter="work_kind">${[["", "Todos"], ["credits", "Saldos a favor"], ["complements", "Partidas complementarias"], ["accounting", "Registro en el core"], ["exceptions", "Excepciones"], ["deposits", "Depósitos"], ["periods", "Aplicaciones y períodos"]].map(([value, label]) => `<option value="${value}" ${workFilters.work_kind === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                         <div class="col-sm-4"><label>${esc(__("Responsable contiene"))}<input class="form-control" data-work-filter="responsible" value="${esc(workFilters.responsible)}"></label></div>
                         <div class="col-sm-4"><label>${esc(__("Compromiso"))}<select class="form-control" data-work-filter="due">${[["", "Todos"], ["overdue", "Vencidos"], ["upcoming", "Hoy o futuros"], ["undated", "Sin fecha compromiso"]].map(([value, label]) => `<option value="${value}" ${workFilters.due === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                     </div>${workTable}${workFooter}</section>
-                ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones históricas sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
+                ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
                 ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible" data-section="open_deposits"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${depositCount}</summary>${depositTable}${moreRows("open_deposits", deposits.length, depositCount)}</details>`}
                 ` : `<section class="cn-panel"><p role="status">${esc(__(workOverviewError ? "No se pudieron cargar los pendientes de todos los años." : "Cargando pendientes de todos los años…"))}</p>${workOverviewError ? `<button type="button" class="btn btn-default" data-retry-work>${esc(__("Reintentar"))}</button>` : ""}</section>`}
             </div>
@@ -462,10 +462,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         if (action === "exceptions" && controlKpis.exceptions?.filters) {
             frappe.route_options = controlKpis.exceptions.filters;
             frappe.set_route("List", "CN Reconciliation Exception");
-        } else if (action === "aging" && controlKpis.applications) {
+        } else if ((action === "aging" && controlKpis.applications) ||
+                   (action === "receivable-aging" && controlKpis.receivables)) {
             const year = yearField.get_value();
             frappe.route_options = {as_of_date: controlKpis.as_of_date, employer: employerField.get_value() || "",
-                balance_type: "Aplicado pendiente de depósito", reconciliation_mode: "",
+                balance_type: action === "receivable-aging" ? "CxC por ajustes" : "Aplicado pendiente de depósito", reconciliation_mode: "",
                 from_month: year === "Todos" ? "" : `${year}-01-01`, to_month: year === "Todos" ? "" : `${year}-12-01`,
                 client_number: "", national_id: "", loan_number: ""};
             frappe.set_route("query-report", "Antiguedad de Saldos");
@@ -594,6 +595,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         if (sequence !== workFilterSequence || currentData !== dataAtRequest) return;
         currentData.work_items = message.rows || [];
         currentData.work_item_count = message.count;
+        currentData.work_action_count = message.action_count;
         currentData.overdue_count = message.overdue_count;
         workLimit = 100;
         render(currentData);
@@ -802,6 +804,7 @@ function renderCashSummary(receipts) {
         <span class="cn-cell-sub">${total.settled} ${esc(__("conciliados"))}${total.review ? ` · <strong class="cn-cash-review">${total.review} ${esc(__("por revisar"))}</strong>` : ""}${total.creditCount ? ` · ${total.creditCount} ${esc(__("con saldo a favor"))}` : ""}</span>
         ${Math.abs(total.other_usd) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(total.other_usd)}</span>` : ""}
         ${renderCashCreditBalances(total)}
+        ${renderCashReceivables(receipts)}
         ${Math.abs(total.unclassified_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin identificar"))}: ${signedMoney(total.unclassified_usd)}</span>` : ""}
     </span>`;
 }
@@ -811,10 +814,17 @@ function cashStatus(deposit) {
         : Number(deposit.credit_balance_usd) > MONEY_EPSILON ? __("Conciliado con saldo a favor") : __("Conciliado");
 }
 
+function renderCashReceivables(receipts) {
+    const rows = [...new Map(receipts.flatMap(deposit => deposit.receivable_entries || [])
+        .map(row => [`${row.name}|${row.employer}`, row])).values()];
+    const amount = rows.reduce((sum, row) => sum + Math.round(Number(row.amount_usd || 0) * 100), 0) / 100;
+    return amount > MONEY_EPSILON ? `<span class="cn-cell-gap cn-management-warning">${esc(__("Gestión: CxC pendiente"))} ${money(amount)}</span>` : "";
+}
+
 function renderCashPanel(receipts) {
     const unique = [...new Map(receipts.map(deposit => [deposit.name, deposit])).values()];
     return `<section class="cn-cash-panel"><h4>${esc(__("Depósitos recibidos en el mes"))} · ${money(summarizeCash(unique).total_usd)}</h4>
-        <p class="text-muted">${esc(__("Por fecha del depósito, aunque paguen períodos anteriores. No se suman a las asignaciones de cobranza mostradas abajo."))}</p>
+        <p class="text-muted">${esc(__("Por fecha del depósito, aunque paguen períodos anteriores. No se suman nuevamente al importe asignado de los períodos."))}</p>
         ${unique.length ? `<div class="cn-period-cards cn-cash-cards">${unique.map(renderCashCard).join("")}</div>` : `<p>${esc(__("No hay depósitos confirmados recibidos en este mes."))}</p>`}
     </section>`;
 }
@@ -844,6 +854,7 @@ function renderCashCard(deposit) {
         <span class="cn-cell-sub">${esc(__("A créditos"))}: ${money(deposit.credits_usd)}</span>
         ${Math.abs(Number(deposit.other_usd)) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(deposit.other_usd)}</span>` : ""}
         ${renderCashCreditBalances(deposit)}
+        ${renderCashReceivables([deposit])}
         ${Number(deposit.credit_management_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Pendiente de gestión"))}: ${money(deposit.credit_management_pending_usd)}</span>` : ""}
         ${Math.abs(Number(deposit.unclassified_usd)) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin identificar"))}: ${signedMoney(deposit.unclassified_usd)}</span>` : ""}
         ${deposit.shared ? `<span class="cn-cell-sub">${esc(__("Distribuido entre varios períodos"))}</span>` : ""}
@@ -884,6 +895,7 @@ function renderCashDistribution(deposit) {
             <div class="cn-kpi cn-kpi-remitted"><div class="cn-kpi-label">${esc(__("Depositado total USD"))}</div><div class="cn-kpi-value">${money(deposit.total_usd)}</div></div>
             <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(cashStatus(deposit))}</div><div class="cn-cash-kpi-note">${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</div></div>
         </div>
+        ${renderCashReceivables([deposit])}
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
             ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${renderCashCreditIdentity(item)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
@@ -925,7 +937,7 @@ function money(value) {
 }
 
 function renderWorkClient(item) {
-    if (item.kind !== "credit_management" || item.category !== "Saldo a favor del cliente") return "";
+    if (item.category !== "Saldo a favor del cliente") return "";
     return `<div class="cn-work-client"><strong>${esc(item.client_name || __("Nombre no informado"))}</strong>
         <div>${esc(__("Nro. Cliente"))}: ${esc(item.client_number || __("No informado"))}</div></div>`;
 }
@@ -1091,7 +1103,7 @@ function renderControlKpis(data, failed = false) {
     if (!data) return `<div class="cn-kpi-message" role="status">${esc(__(failed
         ? "No se pudieron cargar las cifras. No se muestran importes en cero para sustituir el error."
         : "Calculando cifras de control..."))}${failed ? ` <button type="button" class="btn btn-default btn-sm" data-kpis-retry>${esc(__("Reintentar"))}</button>` : ""}</div>`;
-    const a = data.applications, d = data.deposits, c = data.credits, e = data.exceptions;
+    const a = data.applications, d = data.deposits, c = data.credits, e = data.exceptions, r = data.receivables;
     const card = (label, value, note, kind, available, action = "", actionLabel = "") => `
         <div class="cn-kpi cn-kpi-${kind}"><div class="cn-kpi-label">${esc(__(label))}</div>
             <div class="cn-kpi-value">${available ? esc(value) : "—"}</div>
@@ -1106,6 +1118,7 @@ function renderControlKpis(data, failed = false) {
         ${card("Aplicado neto US$", money(a?.net_applied_usd), `${__("Sin período")}: ${money(a?.unlinked_usd)}. ${__("Incluye ajustes confirmados de aplicación.")}`, "applied", a)}
         ${card("Depósitos recibidos US$", money(d?.received_usd), `${d?.deposit_count || 0} ${__("depósitos confirmados, por su importe completo.")}`, "remitted", d)}
         ${card("Aplicado pendiente de conciliar US$", money(a?.pending_usd), `${__("Vencido")}: ${money(a?.overdue_usd)}. ${__("Solo descuenta distribuciones vinculadas.")}`, "gap", a, "aging", "Ver antigüedad")}
+        ${card("CxC por ajustes US$", money(r?.pending_usd), `${__("Vencido")}: ${money(r?.overdue_usd)} · ${__("Sin fecha compromiso")}: ${money(r?.without_date_usd)}. ${__("Pendiente de cobro o compensación vinculada.")}`, "gap", r, "receivable-aging", "Ver antigüedad de ajustes")}
         ${card("Depósitos sin asignar US$", money(d?.unassigned_usd), `${d?.unassigned_count || 0} ${__("depósitos con dinero sin destino identificado.")}`, "gap", d)}
         ${card("Saldos a favor por gestionar US$", money(c?.credit_pending_usd), `${__("Clientes pendientes")}: ${money(c?.client_pending_usd)} · ${__("Empresas pendientes")}: ${money(c?.company_documented_usd)}. ${__("Importes documentados que aún requieren devolución o aplicación futura.")}`, "surplus", c)}
         ${card("Excepciones vencidas", String(e?.count || 0), __("Abiertas o en revisión, con fecha compromiso vencida. Incluye casos sin período."), "gap", e,
@@ -1212,19 +1225,21 @@ function styles() {
         .cn-collapsible summary { cursor: pointer; padding: 13px 16px; color: #1e293b; font-size: 14px; font-weight: 700; }
         .cn-collapsible[open] summary { border-bottom: 1px solid #e2e8f0; }
         .cn-matrix-scroll, .cn-list-scroll { overflow-x: auto; }
-        .cn-matrix { width: 100%; min-width: 1500px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-        .cn-matrix th { background: #1e293b; color: white; padding: 10px 6px; font-size: 11px; text-transform: uppercase; text-align: center; }
+        .cn-matrix { width: 100%; min-width: 2480px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        .cn-matrix th { background: #1e293b; color: white; padding: 10px 6px; font-size: 12px; text-transform: uppercase; text-align: center; }
         .cn-matrix th.cn-company { width: 200px; text-align: left; position: sticky; left: 0; z-index: 2; }
         .cn-matrix tbody th.cn-company { background: white; color: #334155; border-right: 2px solid #cbd5e1; border-bottom: 1px solid #e2e8f0; text-transform: none; font-size: 12px; }
         .cn-matrix td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #f1f5f9; vertical-align: top; padding: 0; }
         .cn-cell-button { width: 100%; border: 0; background: transparent; text-align: left; padding: 9px 7px; min-height: 88px; overflow-wrap: anywhere; }
         .cn-cell-button + .cn-cell-button { border-top: 1px dashed #cbd5e1; }
-        .cn-cell-cycle { display: block; font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 3px; }
-        .cn-cell-summary { padding: 6px 7px; font-size: 10px; font-weight: 700; color: #1e293b; border-bottom: 1px solid #cbd5e1; }
-        .cn-cell-button:hover { filter: brightness(.97); } .cn-cell-amount { display: block; font-weight: 700; font-size: 11px; line-height: 1.25; }
-        .cn-cell-sub, .cn-cell-gap, .cn-cell-credit { display: block; font-size: 9px; margin-top: 3px; }
+        .cn-cell-cycle { display: block; font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 3px; }
+        .cn-cell-summary { padding: 6px 7px; font-size: 12px; font-weight: 700; color: #1e293b; border-bottom: 1px solid #cbd5e1; }
+        .cn-cell-button:hover { filter: brightness(.97); } .cn-cell-amount { display: block; font-weight: 700; font-size: 14px; line-height: 1.35; }
+        .cn-cell-sub, .cn-cell-gap, .cn-cell-credit { display: block; font-size: 12px; margin-top: 4px; }
         .cn-cell-gap { color: #b45309; font-weight: 700; } .cn-cell-credit { color: #7c3aed; font-weight: 700; }
-        .cn-badge { display: inline-block; margin-top: 5px; border-radius: 10px; padding: 2px 5px; background: #ffffffaa; font-size: 9px; font-weight: 700; }
+        .cn-badge { display: inline-block; margin-top: 5px; border-radius: 10px; padding: 3px 6px; background: #ffffffaa; font-size: 12px; font-weight: 700; }
+        .cn-management-warning { padding: 4px 6px; border-radius: 4px; background: #ffedd5; color: #9a3412; }
+        .cn-work-action + .cn-work-action { border-top: 1px solid #e2e8f0; margin-top: 8px; padding-top: 8px; }
         .cn-conciliado, .cn-historico_conciliado { background: #ecfdf5; border-left: 3px solid #16a34a !important; }
         .cn-parcial, .cn-historico_parcial { background: #eff6ff; border-left: 3px solid #2563eb !important; }
         .cn-diferencia, .cn-historico_excepcion { background: #fffbeb; border-left: 3px solid #d97706 !important; }
@@ -1233,8 +1248,8 @@ function styles() {
         .cn-pendiente_detalle { background: #f8fafc; border-left: 3px solid #64748b !important; }
         .cn-empty-cell { text-align: center; padding: 28px 4px !important; color: #cbd5e1; }
         .cn-empty, .cn-loading { padding: 24px; text-align: center; color: #94a3b8; font-size: 12px; }
-        .cn-detail-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        .cn-detail-table th { text-align: left; background: #f8fafc; color: #64748b; text-transform: uppercase; font-size: 9px; letter-spacing: .04em; }
+        .cn-detail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .cn-detail-table th { text-align: left; background: #f8fafc; color: #64748b; text-transform: uppercase; font-size: 12px; letter-spacing: .04em; }
         .cn-detail-table th, .cn-detail-table td { padding: 9px 10px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
         .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }

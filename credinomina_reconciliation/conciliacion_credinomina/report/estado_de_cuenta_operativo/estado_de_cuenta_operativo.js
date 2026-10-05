@@ -1,6 +1,6 @@
 frappe.query_reports["Estado de Cuenta Operativo"] = {
     filters: [
-        { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nPartida complementaria" },
+        { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nPartida complementaria\nCxC por ajuste" },
         { fieldname: "operational_status", label: __("Estado de conciliación"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto de la columna Estado de conciliación."),
             options: ["Conciliado", "Conciliada", "Parcial", "Pendiente", "Pendiente de confirmar", "Documentado",
@@ -10,7 +10,7 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
                 "Depositado por la empresa; aplicación parcial en core", "Depósito parcial",
                 "Aplicación parcial en core; depósito pendiente", "Aplicado en core; depósito pendiente",
                 "Deducido; pendiente de aplicar en core", "Pendiente de conciliacion",
-                "Registro contable verificado", "No conciliatoria", "Vigente", "Revertida"] },
+                "Registro contable verificado", "No conciliatoria", "Vigente", "Revertida", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros"] },
         { fieldname: "client_number", label: __("Nro. Cliente"), fieldtype: "Data" },
         { fieldname: "national_id", label: __("Nro Cedula"), fieldtype: "Data" },
         { fieldname: "loan_number", label: __("Nro. Credito"), fieldtype: "Data" },

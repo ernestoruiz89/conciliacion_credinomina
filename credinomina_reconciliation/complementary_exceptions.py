@@ -44,6 +44,8 @@ def get_item_exception(item_name):
 @frappe.whitelist()
 def create_item_exception(item_name, assigned_to, commitment_date):
     item = _item(item_name)
+    if item.get('receivable_origin'):
+        frappe.throw(_('El cobro de CxC conserva la evidencia del depósito o compensación. Gestione el registro contable desde la partida original.'))
     # Serialize double clicks; the unique Link is also a database constraint.
     frappe.db.get_value(ITEM, item.name, "name", for_update=True)
     existing = get_item_exception(item.name)

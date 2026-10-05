@@ -58,11 +58,11 @@ Normalmente el core registra una aplicación por quincena. Si registra **una sol
 
 El tablero agrega importes para la vista del mes y permite abrir cada quincena. En el estado de cuenta y los reportes se indica el ciclo para explicar cuándo se envió y dedujo cada importe. La fecha límite mensual se calcula con los días pactados para el mes siguiente. Para empresas quincenales se registra la fecha límite acordada en cada período, sin asumir que la primera y la segunda quincena se pagan juntas o el mes siguiente.
 
-### Reconocimiento provisional por depósito coincidente
+### Reconocer la cobranza como detalle de la empresa
 
-Si la empresa no remite el detalle de planilla pero un **depósito registrado** coincide inequívocamente con la cobranza completa del período y no tiene otras distribuciones, el operador puede elegir **Conciliación 1 → Reconocer cobranza por depósito** y justificarlo. La app compara en US$; si la cobranza y el depósito también están expresados en C$, exige coincidencia en C$ y una tasa documentada para el equivalente en US$. No se ofrece esta opción para depósitos parciales, ya usados, anteriores al cierre del ciclo o atribuibles a otra empresa identificada.
+Si la empresa confirmó la deducción completa, use **Más opciones → Reconocer cobranza como detalle de la empresa** en un período abierto. Indique la fecha de evidencia y confirme la deducción. La app copia los importes de cobranza a `Deducido US$` y `Deducido C$`, conservando quién lo reconoció y cuándo. No sobrescribe un detalle o deducciones ya registrados.
 
-El operador selecciona el depósito y escribe una justificación. La app registra quién lo reconoció, cuándo y qué depósito se usó; asigna el depósito a las filas de cobranza y muestra **Inferida por depósito** en lugar de presentar la deducción como confirmada por la empresa. El estado de cuenta y el tablero conservan esa advertencia. Este reconocimiento **no es prueba individual de descuento salarial** ni sustituye el detalle de planilla para investigar reclamaciones de trabajadores. Si llega el detalle real, se importa y reemplaza la inferencia; si fue un error, use **Revertir reconocimiento por depósito** antes del cierre.
+Esta acción no registra ni confirma un depósito y no sustituye la evidencia individual de descuento salarial. No reconozca una deducción solo porque llegó dinero. En el depósito, **Usar aplicaciones pendientes como detalle** permite preparar filas con las aplicaciones seleccionadas de sus períodos; revise los destinatarios e importes antes de conciliar. Un detalle generado por la herramienta no debe presentarse como archivo enviado por la empresa.
 
 ## Subsidio, suspension e ingreso insuficiente
 
@@ -84,10 +84,10 @@ El operador selecciona el depósito y escribe una justificación. La app registr
 ## Conciliacion 2: aplicaciones contra deposito
 
 1. Importar solo **Movimientos contables** para las aplicaciones. Antes de cargar, indicar la moneda reportada; si el archivo está en NIO, ingresar la tasa manual C$/US$. La conciliación se realiza en US$ y el monto original en C$ queda conservado. Cada importación debe tener una sola moneda; separar archivos mixtos. Las `DISPENSAS` no se tratan como efectivo.
-2. Registrar cada depósito de convenio en **Distribución de Depósito**, con su fecha real, empresa, referencia, importe y moneda. Un supervisor lo **confirma** para que participe en la conciliación; el borrador no tiene ese efecto. No cargar el Excel bancario mensual en **Importación de Fuente**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a ese mismo depósito e importarlo allí. Si el depósito es en C$, indicar la tasa C$/US$ y describir su fuente y fecha en **Justificación**; el soporte adjunto es adicional.
+2. Registrar cada depósito de convenio en **Distribución de Depósito**, con su fecha real, empresa, referencia, importe y moneda. Un supervisor lo **confirma** para que participe en la conciliación; el borrador no tiene ese efecto. **Confirmar depósito** y **Conciliar** son acciones separadas. No cargar el Excel bancario mensual como archivo de **Movimientos contables**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. La importación contable sí puede crear depósitos desde líneas identificadas como tales; revise esos borradores antes de confirmarlos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a ese mismo depósito e importarlo allí. Si el depósito es en C$, indicar una tasa C$/US$ positiva; la app calcula y redondea el equivalente a dos decimales. No exige una justificación de tasa.
 3. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
 4. El depósito registrado puede cotejarse con un movimiento contable de depósito por referencia e importe en su moneda original o equivalente documentado.
-5. El depósito se distribuye en US$ entre cobranzas y partidas complementarias. La conciliación banco-contabilidad puede quedar completa aunque la aplicación en el core o la distribución a la planilla sigan parciales; son controles separados.
+5. El depósito se distribuye en US$ entre aplicaciones y partidas complementarias. Seleccione los períodos que puede cubrir y use **Seleccionar partidas pendientes** para indicar destinos e importes. Cuando la selección manual corresponde a una fila del detalle, vincule esa fila con sus destinos: cuadrar el total del depósito no demuestra por sí solo que cada cliente esté conciliado. El botón **Conciliar** recalcula ese depósito y su conjunto financiero afectado, no toda la empresa indiscriminadamente.
 
 Un depósito puede cubrir parte de una cobranza, varias cobranzas o combinarse con otros depósitos para cubrir una misma cobranza. Cada depósito conserva su importe distribuido, su saldo sin distribuir y el detalle de destinos; cada fila de cobranza muestra los depósitos que la financiaron, lo remitido y lo pendiente de la empresa. Una aplicación parcial del core tampoco se confunde con el pago completo de la cuota.
 
@@ -103,15 +103,15 @@ Cuando la tasa de la planilla difiere de la tasa del depósito, la diferencia en
 
 ### Ajustes menores por tolerancia
 
-El supervisor puede definir por empresa una tolerancia de **0 a US$0.10**, inicialmente cero. Tras la distribución de un depósito en US$, si el depósito registrado y una única aplicación del core se enlazan sin ambigüedad, una diferencia absoluta no mayor que la tolerancia crea un **Movimiento de Conciliación** interno. La diferencia firmada es `depósito − aplicación`: US$46.53 depositados contra US$46.52 aplicados producen **+US$0.01**; US$46.52 depositados contra US$46.53 aplicados producen **−US$0.01**. Ambos se muestran en el período y el tablero sin cambiar el importe aplicado al préstamo ni el dinero recibido.
+El supervisor puede definir por empresa una tolerancia de **0 a US$0.10**, inicialmente cero. Tras la distribución de un depósito en US$, si el depósito registrado y una única aplicación del core se enlazan sin ambigüedad, una diferencia absoluta no mayor que la tolerancia crea una **Partida Complementaria**, categoría **Diferencia por tolerancia**. La diferencia firmada es `depósito − aplicación`: US$46.53 depositados contra US$46.52 aplicados producen **+US$0.01**; US$46.52 depositados contra US$46.53 aplicados producen **−US$0.01**. Ambos se muestran sin cambiar el importe aplicado al préstamo ni el dinero recibido.
 
-Este movimiento no es un asiento contable y no se exporta al core. El signo positivo puede clasificar únicamente el efectivo sobrante correspondiente; el negativo no representa un depósito ficticio. La tolerancia no resuelve diferencias cambiarias, varias asignaciones posibles, pagos parciales ni partidas administrativas. Si el origen cambia, el movimiento se revierte de forma trazable; no se recalcula un período cerrado para modificarlo.
+La partida automática es interna, de solo lectura y no se exporta al core. No la agregue manualmente a Destinos porque su efecto ya está incluido. Si necesita registrarla contablemente, use **Crear / Ver excepción** para dar seguimiento y verificar el asiento importado. El signo positivo puede clasificar únicamente el efectivo sobrante correspondiente; el negativo no representa un depósito ficticio. La tolerancia no resuelve diferencias cambiarias, varias asignaciones posibles, pagos parciales ni partidas administrativas. Si el origen cambia, la partida se revierte de forma trazable; no se recalcula un período cerrado para modificarlo.
 
 ## Depósitos mayores que la cobranza
 
 El depósito se registra en el depósito por su importe total, aunque supere las cobranzas informadas. Solo la porción identificada se distribuye a las cobranzas o partidas complementarias. El excedente nunca se aplica automáticamente a un crédito.
 
-- Si la empresa pagó de más por error o remitió una partida no informada, el supervisor crea un **Excedente de Depósito** con período, referencia, comprobante cuando sea necesario, importe en US$, motivo y explicación de su tratamiento.
+- Si la empresa pagó de más por error o remitió una partida no informada, use **Crear saldo a favor de la empresa** en el depósito. Se crea una **Partida Complementaria**, con importe, motivo, responsable y fecha compromiso. Si el exceso pertenece a una persona, use **Crear saldo a favor del cliente** desde su fila del detalle. Una aplicación sin identificar no es automáticamente un saldo a favor.
 - El sistema valida que el excedente documentado no supere el saldo sin distribuir del depósito. Esa porción se muestra como **saldo a favor documentado de la empresa**, separado de las cobranzas. No se considera conciliada con un crédito.
 - Lo que no tenga justificación queda como **sin distribuir ni justificar** y continúa siendo excepción. Una partida que posteriormente se identifique se debe conciliar mediante la distribución o partida complementaria correspondiente, corrigiendo/cancelando antes la clasificación de excedente para evitar doble uso.
 - Esta app no crea automáticamente el pasivo, devolución ni compensación contable en el core; esos movimientos requieren el procedimiento contable autorizado de la IMF.
@@ -137,23 +137,27 @@ La referencia sola no prueba que una partida pertenezca a un cliente. Conserve l
 
 ## Estado de cuenta al cliente
 
-**Estado de Cuenta Operativo** presenta la posición actual en tres tipos de fila:
+**Estado de Cuenta Operativo** presenta la posición actual por tipo de fila:
 
 - **Cobranza**: importe solicitado, deducido, cuota no deducida y pendiente de
   aplicación en el core. Son controles informativos, no deuda calculada.
 - **Aplicación**: aplicado neto de ajustes confirmados, depósito asignado,
-  tolerancia y pendiente. Incluye histórico, operativo y aplicaciones sin período;
+  partidas complementarias y pendiente. Incluye histórico, operativo y aplicaciones sin período;
   si varias aplicaciones comparten una cobranza, su efectivo se cuenta una vez.
 - **Partida complementaria**: importe original, utilizado, pendiente financiero,
   situación contable y saldo a favor pendiente de gestión. El documento enlazado
   conserva las gestiones y sus reversiones.
+- **CxC por ajuste**: faltante trasladado a una partida, con su pendiente después
+  de cobros o compensaciones vinculados. No se confunde con el saldo financiero
+  utilizado para cuadrar el depósito.
 
 Use **Tipo de posición** para reducir las columnas cuando revise una etapa.
 La cobranza solicitada y lo no deducido son datos informativos de la primera
 conciliación: **no generan una cuenta por cobrar**. La CxC de esta herramienta
 es el **aplicado en el core menos depósitos asignados y compensaciones confirmadas
 vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se
-restan dos veces. La tolerancia permanece identificada por separado.
+restan dos veces. Las diferencias por tolerancia se presentan como partidas
+complementarias, sin columnas adicionales de redondeo o efectivo de ajustes.
 Por ejemplo, aplicado US$100, ajuste confirmado US$20 y depósito US$30 dejan
 CxC US$50, sin importar cuánto se había solicitado cobrar.
 
@@ -237,3 +241,35 @@ Un detalle de empresa ausente o inconsistente se muestra como **Detalle de
 empresa pendiente** o **Detalle de empresa por aclarar**. Ni la solicitud de
 cobranza ni la deducción crean esta CxC, incluso cuando el detalle es válido.
 La CxC nace de las aplicaciones y su cobertura confirmada, en ambas modalidades.
+
+## Cobrar una CxC por ajuste
+
+Un ajuste negativo con subcategoría **CxC a la empresa** puede cuadrar un depósito
+sin liquidar la deuda trasladada. Por ejemplo, aplicación US$100, depósito US$90
+y ajuste −US$10 explican la distribución de US$90; siguen existiendo US$10 por cobrar.
+La antigüedad muestra **CxC total** por defecto y permite separar **Aplicado
+pendiente de depósito** de **CxC por ajustes**. No reste los saldos a favor ni el
+efectivo sin asignar sin una liquidación vinculada.
+
+Desde la partida original confirmada, use **Aplicar cobro / Compensar CxC**:
+
+1. Seleccione la empresa deudora. Si la partida es genérica, su deuda se separa
+   por las distribuciones reales de cada empresa, sin atribuirla a un cliente.
+2. Seleccione un depósito confirmado con saldo disponible, o una partida de la
+   misma empresa apta para compensar. Indique importe, fecha y motivo.
+3. Un supervisor confirma. La app crea un registro complementario vinculado al
+   origen y a la liquidación, sin duplicar un asiento del core. Solo el depósito
+   efectivamente distribuido o la compensación confirmada reduce la CxC.
+4. Revise **CxC original**, **Cobrado**, **Compensado** y **Pendiente**. Una
+   liquidación parcial US$3 del ejemplo deja US$7 por cobrar. Escribir o verificar
+   un comprobante no paga esa deuda. No se admite cerrarla por condonación.
+
+Las correcciones conservan el historial. Revierta la distribución o compensación
+equivocada antes de cancelar su registro; el pendiente vuelve a quedar abierto.
+Si un depósito conserva un destino hacia una partida cancelada o sin confirmar,
+retire o corrija ese destino expresamente antes de reutilizar el efectivo.
+
+Una aplicación con efectivo asignado o reservado no puede ocultarse como
+ignorada, desactivarse ni borrarse para corregirla. Primero corrija sus vínculos.
+Los resultados calculados no son campos para edición manual; un CSV sin
+asignaciones puede reprocesarse mediante la acción normal de carga.

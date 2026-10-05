@@ -42,11 +42,12 @@ def _children(doctype, names, fields, **filters):
 def load_application_figures(year, employer, today):
     if not frappe.has_permission("CN Accounting Import", "read"):
         return None
-    periods = {row.name: row for row in frappe.get_list("CN Reconciliation Period",
+    scope = {'employer': employer} if employer else {}
+    periods = {row.name: row for row in frappe.get_list("CN Reconciliation Period", filters=scope,
         fields=["name", "employer", "payroll_month", "collection_cycle", "reconciliation_mode"],
         limit_page_length=0)}
     imports = {row.name: row for row in frappe.get_list("CN Accounting Import",
-        filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
+        filters={**scope, "status": ["in", ["Importado", "Importado con excepciones"]]},
         fields=["name", "employer", "historical_backfill", "historical_period"], limit_page_length=0)}
     sources = _children("CN Source Row", imports, [
         "name", "parent", "event_type", "event_date", "effective", "match_status",
@@ -142,5 +143,14 @@ def get_figures(year, employer, today):
         # get_list preserves record-level permissions; db.count would not.
         exceptions = {"count": len(frappe.get_list("CN Reconciliation Exception", filters=filters,
             pluck="name", limit_page_length=0)) if filters is not None else 0, "filters": filters}
-    return {"applications": applications, "deposits": deposits, "credits": credits,
+    receivables = None
+    if frappe.has_permission('CN Complementary Item', 'read') and frappe.has_permission('CN Remittance Allocation', 'read'):
+        from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+        from credinomina_reconciliation.aging import age_balance
+        rows = load_receivables(employer, year)
+        receivables = dict(pending_usd=money_float(sum_money(row['receivable_usd'] for row in rows)),
+            overdue_usd=money_float(sum_money(row['receivable_usd'] for row in rows
+                if (age_balance(row['receivable_usd'], row.get('credit_commitment_date'), today)['age_days'] or 0) > 0)),
+            without_date_usd=money_float(sum_money(row['receivable_usd'] for row in rows if not row.get('credit_commitment_date'))))
+    return {"applications": applications, "deposits": deposits, "credits": credits, "receivables": receivables,
             "exceptions": exceptions, "as_of_date": str(today)}

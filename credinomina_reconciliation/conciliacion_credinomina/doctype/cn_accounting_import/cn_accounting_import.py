@@ -98,6 +98,7 @@ from credinomina_reconciliation.application_adjustments import net_amount, refre
 SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
 LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
 _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
+_source_import_refresh = ContextVar("cn_source_import_refresh", default=False)
 
 _SOURCE_EVIDENCE_FIELDS = (
     "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification",
@@ -167,6 +168,8 @@ class CNAccountingImport(Document):
 
     def on_trash(self):
         self._assert_no_closed_period_links(self.rows or [])
+        from credinomina_reconciliation.accounting_cash_guard import guard_cash_changes
+        guard_cash_changes(self, deleting=True)
         from credinomina_reconciliation.complementary_exceptions import guard_verified_import
         guard_verified_import(frappe._dict(rows=[]), self, _SOURCE_EVIDENCE_FIELDS)
         if self.rows and frappe.db.exists("CN Complementary Item", {"related_application": ["in", [row.name for row in self.rows]]}):
@@ -179,6 +182,9 @@ class CNAccountingImport(Document):
         self._validate_duplicate_file()
         self._validate_manual_rates()
         guard_source_changes(self)
+        from credinomina_reconciliation.accounting_cash_guard import guard_cash_changes
+        guard_cash_changes(self, verified_reconciliation=_source_reconcile_verified.get(),
+                           unpaid_refresh=_source_import_refresh.get())
         from credinomina_reconciliation.complementary_exceptions import guard_verified_import
         guard_verified_import(self, self.get_doc_before_save(), _SOURCE_EVIDENCE_FIELDS)
         refresh_rows(self.rows or [])
@@ -563,7 +569,11 @@ def import_source_file(import_name: str):
         document.notes += _(" {0} movimientos no son pagos nuevos: revise sus Partidas complementarias vinculadas; no afectan saldos mientras estén en borrador.").format(len(adjustments))
     if deposits:
         document.notes += _(" {0} depósitos vinculados. Revise sus registros y confirme los borradores; la fila contable no aplica efectivo por separado.").format(len(deposits))
-    document.save()
+    token = _source_import_refresh.set(True)
+    try:
+        document.save()
+    finally:
+        _source_import_refresh.reset(token)
     result = _reconcile_sources(document.employer)
     result["import_name"] = document.name
     return result
@@ -794,7 +804,7 @@ def _reconcile_sources(employer=None, progress=None):
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
-            "generic_distribution",
+            "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key",
         ],
     )
     complementary_by_target = _allocate_complementary_items(
@@ -1804,7 +1814,7 @@ def _distribute_deposits(
              "references": [clean_text(item.reference)], "hints": {},
             "group": item.employer or employer_by_period.get(item.period),
              "period": item.period,
-             "manual_only": bool(item.get("generic_distribution")),
+             "manual_only": bool(item.get("generic_distribution") or item.get('receivable_origin')),
              "groups": sorted(company_scope(item))}
         )
     for application in historical_applications.values():
@@ -2061,6 +2071,9 @@ def _distribute_deposits(
             "importe_usd": movement["consumed_residual_usd"],
             "origen": TOLERANCE,
         })
+    from credinomina_reconciliation.receivable_recovery import validate_deposit_distributions
+    validate_deposit_distributions(complementary_items, {
+        name: detail_by_deposit.get(name, []) for name in deposit_meta})
     for deposit_id, meta in deposit_meta.items():
         assigned = money_float(assigned_by_deposit[deposit_id])
         remaining = money_float(result["deposit_remaining"][deposit_id])

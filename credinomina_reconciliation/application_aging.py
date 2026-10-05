@@ -10,6 +10,8 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 APPLICATION_BALANCE = "Aplicado pendiente de depósito"
+TOTAL_RECEIVABLE_BALANCE = "CxC total"
+ADJUSTMENT_BALANCE = "CxC por ajustes"
 IDENTITY_FIELDS = (
     "client", "client_name", "client_number", "national_id", "loan_number",
     "installment_number",

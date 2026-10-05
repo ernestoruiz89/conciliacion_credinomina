@@ -4,7 +4,7 @@ from frappe.utils import getdate, nowdate
 
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.application_aging import application_balances
-from credinomina_reconciliation.complementary_balances import FIELDS, load_balances
+from credinomina_reconciliation.complementary_balances import FIELDS, load_balances, cached_balance_reads
 from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -21,7 +21,7 @@ def _matches(row, filters):
     return not filters.get('only_open') or row.get('is_open')
 
 
-def build_position(collections, applications, items, balances, clients, filters):
+def build_position(collections, applications, items, balances, clients, filters, *, adjustment_receivables=()):
     output = []
     for source in collections:
         row = dict(source, position_type='Cobranza', event_date=source.get('payroll_month'),
@@ -79,22 +79,34 @@ def build_position(collections, applications, items, balances, clients, filters)
             management_status=balance.get('management_status'), observation=item.get('description'),
             is_open=financial_pending or management_pending or accounting_pending,
             usd_currency='USD', nio_currency='NIO'))
+    for item in adjustment_receivables:
+        output.append(dict(position_type='CxC por ajuste', event_date=item.get('posting_date'),
+            source_doctype='CN Complementary Item', source_document=item['name'], employer=item.get('employer'),
+            period=item.get('period'), client_name=item.get('client_name'), client_number=item.get('client_number'),
+            loan_number=item.get('loan_number'), category=item.get('category'),
+            company_receivable_usd=item['receivable_usd'], operational_status=item['receivable_status'],
+            accounting_status=item.get('accounting_status'), management_status=item['receivable_status'],
+            observation=item.get('description'), is_open=True, usd_currency='USD'))
     view = filters.get('position_type')
     return sorted([row for row in output if (not view or row['position_type'] == view) and _matches(row, filters)],
                   key=lambda row: (str(row.get('event_date') or ''), row['position_type'],
                                    row.get('client_name') or '', row.get('source_document') or ''))
 
 
+@cached_balance_reads
 def load_position(collections, filters):
     if filters.get('from_month') and filters.get('to_month') and getdate(filters['from_month']) > getdate(filters['to_month']):
         frappe.throw('La fecha Desde no puede ser posterior a Hasta.')
-    inputs = load_application_context()
+    inputs = load_application_context(employer=filters.get('employer'))
     applications = application_balances(*inputs, nowdate(), include_settled=True)
     fields = list(dict.fromkeys([*FIELDS, 'client_number', 'loan_number', 'credit_client',
         'client_name', 'source_client_name', 'credit_resolved_usd']))
-    items = list(records('CN Complementary Item', fields=fields, filters={'docstatus': ['!=', 2]}))
-    clients = list(records('CN Client', fields=['name', 'client_number', 'client_name', 'national_id', 'employer']))
-    return build_position(collections, applications, items, load_balances(items), clients, filters)
+    scope = {'employer': filters['employer']} if filters.get('employer') else {}
+    items = list(records('CN Complementary Item', fields=fields, filters={**scope, 'docstatus': ['!=', 2]}))
+    clients = list(records('CN Client', filters=scope, fields=['name', 'client_number', 'client_name', 'national_id', 'employer']))
+    from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+    return build_position(collections, applications, items, load_balances(items), clients, filters,
+        adjustment_receivables=load_receivables(employer=filters.get('employer')))
 
 
 def summary(data):
@@ -110,4 +122,8 @@ def summary(data):
     ):
         if count:
             figures.append({'label': label, 'value': count, 'datatype': 'Int', 'indicator': 'red'})
+    receivables = sum_money(row.get('company_receivable_usd') for row in data)
+    if receivables:
+        figures.append({'label': 'CxC por ajustes US$', 'value': money_float(receivables),
+            'datatype': 'Currency', 'currency': 'USD', 'indicator': 'orange'})
     return figures

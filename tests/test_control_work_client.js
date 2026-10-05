@@ -13,7 +13,7 @@ assert.ok(html.includes('ANA &lt;script&gt; &amp; PEREZ'));
 assert.ok(html.includes('Nro. Cliente: 00123'));
 assert.ok(!html.includes('<script>'));
 assert.equal(context.renderWorkClient({...item, category: 'Saldo a favor de la empresa'}), '');
-assert.equal(context.renderWorkClient({...item, kind: 'accounting_registration'}), '');
+assert.equal(context.renderWorkClient({...item, kind: 'accounting_registration'}), html);
 assert.equal(context.renderWorkClient({kind: 'deposit_detail'}), '');
 const missing = context.renderWorkClient({...item, client_name: '', client_number: ''});
 assert.ok(missing.includes('Nombre no informado'));

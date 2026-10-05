@@ -97,6 +97,14 @@ class ControlWorkQueueTests(unittest.TestCase):
         self.assertEqual(next(item for item in items if item["kind"] == "historical_application")["amount_usd"], 20)
         self.assertIsNone(next(item for item in items if item["kind"] == "operational_application")["amount_usd"])
 
+    def test_unassigned_applications_keep_the_confirmed_import_employer(self):
+        items = _build_work_items([], [], [], [],
+            [frappe._dict(parent='CONTA-A', employer='A', amount=20, currency='USD')],
+            [frappe._dict(parent='CONTA-B', employer='B', amount=370, currency='NIO')],
+            {'A': 'Empresa A', 'B': 'Empresa B'}, as_of=date(2026, 9, 28))
+        self.assertEqual({row['target_name']: (row['employer'], row['employer_name']) for row in items},
+                         {'CONTA-A': ('A', 'Empresa A'), 'CONTA-B': ('B', 'Empresa B')})
+
     def test_unassigned_deposit_uses_allocation_periods_without_manual_targets(self):
         periods = [
             {"name": "P-DEC", "employer": "EMP", "employer_name": "Empresa A",

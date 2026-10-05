@@ -12,6 +12,7 @@ from frappe.utils import cint, flt, getdate, now_datetime
 from credinomina_reconciliation.aging import collection_shortfall_usd, unassigned_deduction_usd, deduction_pending_type
 from credinomina_reconciliation.control_exceptions import annotate_application_exceptions
 from credinomina_reconciliation.control_deposits import get_cash_deposits
+from credinomina_reconciliation.complementary_balances import cached_balance_reads
 from credinomina_reconciliation.control_summary import collection_summaries, historical_difference_counts, readable_imports
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
@@ -38,6 +39,7 @@ def _unassigned_application_is_historical(row, source_import):
 
 
 @frappe.whitelist(methods=["GET"])
+@cached_balance_reads
 def export_control_excel(year=None, employer=None):
     """Download a complete, permission-scoped snapshot of the control matrix."""
     required_reads = (
@@ -141,6 +143,7 @@ def get_work_overview(employer=None):
 
 
 @frappe.whitelist()
+@cached_balance_reads
 def get_control_kpis(year=None, employer=None):
     """Separate from calendar loading; does not execute reconciliation."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
@@ -181,6 +184,14 @@ def get_control_rows(section: str, year=None, employer=None, start=0, work_kind=
     if section not in {"open_deposits", "unassigned_historical_applications", "work_items"}:
         frappe.throw(_("Sección de control inválida."))
     start = max(cint(start), 0)
+    if section == "unassigned_historical_applications":
+        if not frappe.has_permission("CN Reconciliation Period", "read"):
+            frappe.throw(_("No tiene permiso para consultar la conciliacion."))
+        year = None if str(year).strip().casefold() in ("todos", "todo", "all") else cint(year or now_datetime().year)
+        if year is not None and not 2000 <= year <= 2100:
+            frappe.throw(_("Indique un año valido."))
+        from credinomina_reconciliation.control_application_pages import historical_page
+        return historical_page(year, employer, start)
     rows = _build_control_data(year, employer, summary_only=True, detail_section=section)[section]
     if section == "work_items" and (work_kind or responsible or due):
         from credinomina_reconciliation.follow_up_queue import filter_work
@@ -188,6 +199,7 @@ def get_control_rows(section: str, year=None, employer=None, start=0, work_kind=
     result = {"rows": rows[start:start + 100], "count": len(rows)}
     if section == "work_items":
         result["overdue_count"] = sum(item.get("priority") == 0 for item in rows)
+        result['action_count'] = sum(item.get('action_count', 1) for item in rows)
     return result
 
 
@@ -222,6 +234,7 @@ def _available_years(employer=None):
     return sorted(years, reverse=True)
 
 
+@cached_balance_reads
 def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False, detail_period=None, detail_section=None):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
@@ -516,6 +529,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             "CN Accounting Import",
             filters={
                 "status": ["in", ["Importado", "Importado con excepciones"]],
+                **({"employer": employer} if employer else {}),
             },
             fields=["name", "employer", "historical_backfill", "historical_period"],
             limit_page_length=_row_limit(3000, full_export),
@@ -791,11 +805,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         unassigned_historical_applications, unassigned_operational_applications,
         employer_names,
     )
-    from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up
+    from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up, group_work_cases
     if not detail_period and detail_section in (None, "work_items", "work_overview"):
         work_items = merge_follow_up(work_items, load_follow_up(year, employer))
+    work_items = group_work_cases(work_items)
     if detail_section == "work_overview":
         return {"work_scope": "Todos", "work_items": work_items[:100], "work_item_count": len(work_items),
+                "work_action_count": sum(item.get('action_count', 1) for item in work_items),
                 "overdue_count": sum(item["priority"] == 0 for item in work_items),
                 "open_deposits": deposits[:100], "open_deposit_count": len(deposits),
                 "unassigned_historical_applications": unassigned_historical_applications[:100],
@@ -823,6 +839,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         "open_deposit_count": len(deposits),
         "unassigned_historical_count": len(unassigned_historical_applications),
         "work_item_count": len(work_items),
+        "work_action_count": sum(item.get('action_count', 1) for item in work_items),
         "overdue_count": sum(item["priority"] == 0 for item in work_items),
         "open_deposits": deposits[:100] if summary_only else deposits,
         "unassigned_historical_applications": unassigned_historical_applications[:100] if summary_only else unassigned_historical_applications,
@@ -1054,12 +1071,15 @@ def _build_work_items(
         for row in rows:
             by_import[row.parent].append(row)
         for source, unmatched in by_import.items():
+            companies = {row.get('employer') for row in unmatched if row.get('employer')}
+            confirmed_employer = next(iter(companies)) if len(companies) == 1 else None
             known_usd = [
                 net_application_amount(row)
                 for row in unmatched if row.currency == "USD"
             ]
             add(1, label, "Aplicaciones sin período enlazado",
                 "Identificar empresa, cliente y período; revisar el cruce en la importación.",
+                employer=confirmed_employer,
                 count=len(unmatched),
                 amount_usd=sum(known_usd) if len(known_usd) == len(unmatched) else None,
                 target_doctype="CN Accounting Import", target_name=source)

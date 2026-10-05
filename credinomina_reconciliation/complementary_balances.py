@@ -1,16 +1,37 @@
 """Read-only financial position of complementary items; accounting is separate."""
 from collections import defaultdict
+from contextvars import ContextVar
+from functools import wraps
 import json
 import frappe
 from credinomina_reconciliation.rounding import money, money_float
 
 CREDIT_CATEGORIES = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
-CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"}
+CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Cobro de CxC"}
 FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
           "credit_pending_usd", "credit_management_status", "credit_assigned_to", "credit_commitment_date",
-          "registration_exception"]
+          "registration_exception", "subcategory_effect", "receivable_origin"]
+_read_scope = ContextVar('cn_complementary_balance_read_scope', default=None)
+
+
+def cached_balance_reads(function):
+    """Reuse journals only during an explicitly read-only report operation.
+
+    Never cache across requests or reconciliation commands: writes in those
+    commands must see their updated distributions immediately.
+    """
+    @wraps(function)
+    def read(*args, **kwargs):
+        if _read_scope.get() is not None:
+            return function(*args, **kwargs)
+        token = _read_scope.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _read_scope.reset(token)
+    return read
 
 
 def financial_balance(item, distributions=()):
@@ -34,6 +55,11 @@ def financial_balance(item, distributions=()):
         used = money(item.get("compensated_usd"))
         pending = abs(original) - used
         state = "Conciliada" if not pending else "Parcial" if used else "Pendiente"
+        if item.get('receivable_origin'):
+            # A reversed recovery reopens the ORIGINAL receivable; its receipt
+            # is historical evidence, not another obligation of the same amount.
+            pending = money(0)
+            state = 'Conciliada' if used == abs(original) else 'Parcialmente revertida' if used else 'Revertida'
     elif category == "Ajuste de aplicación":
         kind = "Ajuste aplicado"
         used = money(item.get("application_adjustment_usd")) if confirmed and item.get("related_application") else money(0)
@@ -61,39 +87,85 @@ def financial_balance(item, distributions=()):
             "distributions": list(distributions)}
 
 
-def load_balances(items):
-    names = sorted({item.get("name") for item in items if item.get("category") in CASH_CATEGORIES})
+def _distribution_index(wanted=None):
+    from credinomina_reconciliation.report_records import records
     distributions = defaultdict(list)
-    seen = set()
-    for offset in range(0, len(names), 100):
-        wanted = set(names[offset:offset + 100])
-        deposits = frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1},
-            or_filters=[["allocation_detail", "like", "%" + name + "%"] for name in wanted],
-            fields=["name", "allocation_detail", "deposit_date"], limit_page_length=0)
-        for deposit in deposits:
+    if wanted is not None and not wanted:
+        return distributions
+    names = sorted(wanted) if wanted is not None else []
+    # Narrow individual/form reads without a company or date restriction:
+    # shared deposits and later payments must still be included. Large report
+    # populations use one paged scan instead of hundreds of repeated LIKE scans.
+    batches = [None] if wanted is None or len(names) > 500 else [names[i:i + 100] for i in range(0, len(names), 100)]
+    visited = set()
+    for batch in batches:
+        kwargs = {}
+        if batch is not None:
+            tokens = {json.dumps(name, ensure_ascii=ascii_only) for name in batch for ascii_only in (True, False)}
+            patterns = sorted(token.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') for token in tokens)
+            kwargs['or_filters'] = [['allocation_detail', 'like', '%' + token + '%'] for token in patterns]
+        for deposit in records("CN Remittance Allocation", filters={"docstatus": 1,
+                "allocation_detail": ["like", '%"Partida complementaria"%']},
+                fields=["name", "allocation_detail", "deposit_date"], **kwargs):
+            if deposit.name in visited:
+                continue
+            visited.add(deposit.name)
             try:
                 entries = json.loads(deposit.allocation_detail or "[]")
             except (ValueError, TypeError):
                 frappe.throw("La distribución del depósito {0} no es legible; revise su evidencia.".format(deposit.name))
-            for index, entry in enumerate(entries if isinstance(entries, list) else []):
-                if not isinstance(entry, dict) or entry.get("partida") not in wanted or entry.get("tipo") != "Partida complementaria":
+            if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+                frappe.throw("La distribución del depósito {0} no es legible; revise su evidencia.".format(deposit.name))
+            for entry in entries:
+                if (not entry.get('partida') or entry.get("tipo") != "Partida complementaria"
+                        or (wanted is not None and entry['partida'] not in wanted)):
                     continue
-                key = (deposit.name, index)
-                if key not in seen:
-                    seen.add(key)
-                    distributions[entry["partida"]].append({"deposit": deposit.name, "date": str(deposit.deposit_date),
-                        "amount_usd": money_float(entry.get("importe_usd")), "period": entry.get("periodo") or "",
-                        "client": entry.get("cliente") or "", "employer": entry.get("empresa") or ""})
-    return {item.get("name"): financial_balance(item, distributions.get(item.get("name"), [])) for item in items}
+                distributions[entry["partida"]].append({"deposit": deposit.name, "date": str(deposit.deposit_date),
+                    "amount_usd": money_float(entry.get("importe_usd")), "period": entry.get("periodo") or "",
+                    "client": entry.get("cliente") or "", "employer": entry.get("empresa") or ""})
+    return distributions
+
+
+def load_balances(items):
+    items = list(items)
+    wanted = {item.get('name') for item in items if item.get('category') in CASH_CATEGORIES}
+    distributions = {}
+    if wanted:
+        scope = _read_scope.get()
+        if scope is None:
+            distributions = _distribution_index(wanted)
+        else:
+            distributions = scope.setdefault('distributions', {})
+            completed = scope.setdefault('distribution_names', set())
+            missing = wanted - completed
+            if missing:
+                distributions.update(_distribution_index(missing))
+                completed.update(missing)
+    # Return separate dictionaries; a consumer cannot mutate the cached index.
+    return {item.get('name'): financial_balance(item,
+        [dict(entry) for entry in distributions.get(item.get('name'), [])]) for item in items}
 
 
 @frappe.whitelist()
+@cached_balance_reads
 def get_balance(item_name):
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("read")
     balances = load_balances([item])
     from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables
-    receivables = build_receivables([item], balances)
+    from credinomina_reconciliation.receivable_recovery import is_receivable
+    receipts = []
+    if is_receivable(item):
+        from credinomina_reconciliation.deposit_adjustment_receivables import load_settlements
+        receipts = load_settlements([item], include_cancelled=True)
+        balances.update(load_balances(receipts))
+    receivables = build_receivables([item], balances, settlements=receipts, settlement_balances=balances, include_settled=True)
     value = balances[item.name]
     value['company_receivable_usd'] = money_float(sum((money(row['receivable_usd']) for row in receivables), money(0)))
+    value['receivable_companies'] = receivables
+    value['recoveries'] = [dict(receipt,
+        effective_usd=money_float(money(receipt.get('compensated_usd')) if receipt.get('docstatus') == 1
+            and receipt.get('category') == 'Compensación entre partidas'
+            else money(balances[receipt['name']]['used_usd']) if receipt.get('docstatus') == 1 else money(0)),
+        financial_status=balances[receipt['name']]['financial_status']) for receipt in receipts]
     return value

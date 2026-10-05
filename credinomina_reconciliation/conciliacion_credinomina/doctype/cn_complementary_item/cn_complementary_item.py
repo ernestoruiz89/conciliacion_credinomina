@@ -16,6 +16,8 @@ from credinomina_reconciliation.tolerance_items import (
 class CNComplementaryItem(Document):
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        from credinomina_reconciliation.receivable_recovery import guard_receipt
+        guard_receipt(self, previous)
         client_credit.guard_credit_category(self, previous)
         from credinomina_reconciliation.complementary_exceptions import guard_item_link, apply_registration_status
         guard_item_link(self, previous)
@@ -52,6 +54,7 @@ class CNComplementaryItem(Document):
             frappe.throw(_("El equivalente en US$ debe ser distinto de cero."))
         from credinomina_reconciliation.complementary_subcategories import validate_subcategory
         validate_subcategory(self, previous)
+        guard_receipt(self, previous)
         compensation.update_totals(self)
         if self.category == APPLICATION_ADJUSTMENT:
             validate_adjustment(self)
@@ -101,6 +104,8 @@ class CNComplementaryItem(Document):
             self._reconcile()
 
     def before_cancel(self):
+        from credinomina_reconciliation.receivable_recovery import guard_origin
+        guard_origin(self)
         client_credit.guard_cancel(self)
         from credinomina_reconciliation.complementary_exceptions import guard_item_delete
         guard_item_delete(self)
@@ -127,6 +132,8 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        from credinomina_reconciliation.receivable_recovery import guard_origin
+        guard_origin(self)
         client_credit.guard_cancel(self)
         from credinomina_reconciliation.complementary_exceptions import guard_item_delete
         guard_item_delete(self)
@@ -147,6 +154,10 @@ class CNComplementaryItem(Document):
         self.flags.cancellation_result = reconcile_cancellation(self, self.flags.cancellation_scope)
 
     def before_rename(self, old, new, merge=False):
+        from credinomina_reconciliation.receivable_recovery import guard_origin
+        guard_origin(self)
+        if self.get('receivable_origin'):
+            frappe.throw(_("Conserve el identificador del cobro de CxC y sus vínculos de seguimiento."))
         if self.category in client_credit.CREDIT_CATEGORIES and self.docstatus == 1:
             frappe.throw(_("No se puede renombrar o fusionar un saldo a favor confirmado; conserve su seguimiento."))
         from credinomina_reconciliation.complementary_exceptions import guard_item_delete

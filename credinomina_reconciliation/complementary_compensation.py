@@ -111,6 +111,16 @@ def _validate_pair(left, right):
 
 
 def _load_pair(item_name, counterpart, permission="write"):
+    # A recovery must share its origin's cash lock with new collections. Acquire
+    # it before the pair's row locks to preserve the global lock order.
+    from credinomina_reconciliation.receivable_recovery import lock_recovery_origins
+    preflight = []
+    for name in sorted({item_name, counterpart}):
+        doc = frappe.get_doc(DOCTYPE, name)
+        doc.check_permission("read")
+        doc.check_permission(permission)
+        preflight.append(doc)
+    lock_recovery_origins(preflight)
     # Stable parent lock order + current child reads prevent double consumption.
     docs = {}
     for name in sorted({item_name, counterpart}):
@@ -163,6 +173,8 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
             frappe.throw(_("El importe supera el saldo pendiente de {0}.").format(doc.name))
         if any(getdate(row.compensation_date) > date for row in doc.get("compensations", [])):
             frappe.throw(_("La fecha no puede preceder a una compensación ya registrada en esta partida."))
+    from credinomina_reconciliation.receivable_recovery import validate_compensation_recovery
+    validate_compensation_recovery((left, right), amount)
     # No explicit commit: both halves and their Version records share one transaction.
     for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
         other = right if doc.name == left.name else left

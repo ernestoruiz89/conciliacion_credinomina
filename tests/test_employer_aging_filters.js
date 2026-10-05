@@ -14,4 +14,8 @@ const detailed = JSON.parse(fs.readFileSync(path.join(root, "antiguedad_de_saldo
 const grouped = JSON.parse(fs.readFileSync(path.join(root, "antiguedad_de_saldos_por_empresa/antiguedad_de_saldos_por_empresa.json"), "utf8"));
 assert.deepEqual(grouped.roles, detailed.roles);
 assert.equal(grouped.ref_doctype, detailed.ref_doctype);
+const balance = context.frappe.query_reports["Antiguedad de Saldos"].filters.find(f => f.fieldname === "balance_type");
+assert.equal(balance.default, "CxC total");
+assert.equal(balance.options.split("\n").slice(0, 3).join("|"),
+    "CxC total|Aplicado pendiente de depósito|CxC por ajustes");
 console.log("OK: same aging filters, defaults and report roles.");

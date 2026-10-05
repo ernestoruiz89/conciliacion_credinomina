@@ -76,7 +76,8 @@ class ComplementaryTransactionsTests(unittest.TestCase):
             if doctype == "CN Complementary Item":
                 return [item]
             self.assertEqual(doctype, "CN Remittance Allocation")
-            self.assertEqual(kwargs["filters"], {"docstatus": 1})
+            self.assertEqual(kwargs["filters"], {"docstatus": 1,
+                "allocation_detail": ["like", '%"Partida complementaria"%']})
             self.assertNotIn("deposit_date", kwargs["filters"])
             return [deposit]
         with patch.object(frappe, "get_list", side_effect=get_list), patch.object(frappe, "has_permission", return_value=True):

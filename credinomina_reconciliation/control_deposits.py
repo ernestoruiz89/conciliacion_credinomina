@@ -49,7 +49,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
         for offset in range(0, len(item_ids), 500):
             for item in frappe.get_list(
                 "CN Complementary Item", filters={"name": ["in", item_ids[offset:offset + 500]], "docstatus": 1},
-                fields=["name", "period", "category", "employer"], limit_page_length=0,
+                fields=["name", "period", "category", "employer", "subcategory_effect"], limit_page_length=0,
             ):
                 items[item["name"]] = item
     period_ids = sorted({e.get("periodo") or items.get(e.get("partida"), {}).get("period")
@@ -62,10 +62,15 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
                 fields=["name", "payroll_month", "employer"], limit_page_length=0,
             ):
                 periods[period["name"]] = period
+    receivables = []
+    receivable_names = [name for name, item in items.items() if item.get('subcategory_effect') == 'CxC a la empresa']
+    if receivable_names:
+        from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+        receivables = load_receivables(item_names=receivable_names)
     if not include_details:
-        return build_cash_deposits(deposits, items, periods, include_details=False, client_credits=client_credits)
+        return build_cash_deposits(deposits, items, periods, include_details=False, client_credits=client_credits, receivables=receivables)
     people = _load_credit_people(deposits, periods)
-    return build_cash_deposits(deposits, items, periods, people, client_credits=client_credits)
+    return build_cash_deposits(deposits, items, periods, people, client_credits=client_credits, receivables=receivables)
 
 
 def _credit_key(entry):
@@ -108,7 +113,7 @@ def _load_credit_people(deposits, periods):
     return result
 
 
-def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True, client_credits=None):
+def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True, client_credits=None, receivables=()):
     """Actual allocations classify cash; planned/manual targets do not settle it."""
     items, periods, people = items or {}, periods or {}, people or {}
     output = []
@@ -197,6 +202,8 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "client_credit_usd": float(client_total), "client_credit_pending_usd": float(client_pending),
             "company_credit_usd": float(company_total), "company_credit_pending_usd": float(company_pending),
             "credit_management_pending_usd": float(client_pending + company_pending),
+            "receivable_entries": [dict(name=item['name'], employer=item.get('employer'), amount_usd=item['receivable_usd'])
+                for item in receivables if deposit['name'] in (item.get('related_deposits') or '').split(', ')],
             "undetailed_credit_usd": float(credit_balance - client_total - company_total),
             "unclassified_usd": float(unclassified), "review_usd": float(review),
             "result": result, "needs_review": needs_review,

@@ -82,7 +82,7 @@ class ControlLazyTests(unittest.TestCase):
         rows = [{"name": str(i), "priority": i % 3} for i in range(250)]
         with patch.object(control, "_build_control_data", return_value={"work_items": rows}) as build:
             page = control.get_control_rows("work_items", "Todos", "A", 100)
-        self.assertEqual(page, {"rows": rows[100:200], "count": 250, "overdue_count": 84})
+        self.assertEqual(page, {"rows": rows[100:200], "count": 250, "action_count": 250, "overdue_count": 84})
         build.assert_called_once_with("Todos", "A", summary_only=True, detail_section="work_items")
         with patch.object(control.frappe, "throw", side_effect=ValueError), patch.object(control, "_build_control_data") as build:
             with self.assertRaises(ValueError):

@@ -1,5 +1,10 @@
 # Ensayo funcional en WSL
 
+La revisión más reciente está en **Revisión del 4 de octubre de 2026**, al final
+de este documento, y en `docs/revision_sistema.md`. Las secciones anteriores
+conservan evidencia y pendientes de sus fechas; no describen todos los controles
+ni resultados del código actual.
+
 ## Revisión de preparación para producción — 3 de octubre de 2026
 
 Los cambios de endurecimiento se probaron sin modificar producción ni roles.
@@ -282,3 +287,47 @@ CxC US$50. La regresión verifica este resultado en ambas modalidades, aunque
 la cobranza sea distinta o su detalle sea inconsistente. No usa complementarias
 administrativas ajenas al vínculo para reducir el saldo ni descuenta dos veces
 el ajuste ya incluido en el aplicado neto.
+
+## Revisión del 4 de octubre de 2026
+
+Frappe exacto **15.111.1**, Python 3.12, MariaDB 10.11.14 y Redis propios por
+sockets, sin modificar producción, permisos ni servicios de otros benches.
+Se aprobaron **907 pruebas Python y 540 subcasos**, y **51 archivos JS**.
+La revisión visual utilizó el frontend compilado de esa versión en
+`localhost:8003`, no el demo v16.
+
+Se añadieron pruebas SQL de protección de evidencia y resultados calculados,
+cobro parcial y compensación de CxC por ajustes, cancelación y reintento,
+restricción por empresa de partidas genéricas, roles existentes, consultas
+acotadas de saldos y páginas reales de aplicaciones. Dos conexiones concurrentes
+intentaron cobrar una misma CxC; el segundo intento obsoleto fue rechazado y el
+reintento no sobrecobró. La bandeja, los reportes y KPI conservan la CxC por
+ajuste después de conciliar el depósito original.
+
+`smoke_accounting_batch_scale` importó 26,000 filas sintéticas en 260 documentos
+y 26 bloques, conservando empresas seleccionadas y CSV individuales. Tiempo
+108.4 s antes de limpieza; pico RSS 405.7 MiB. No hubo relecturas del original
+al crear cada bloque. La prueba hizo commits reales y eliminó únicamente sus
+registros identificados por su huella. No se ejecutó mediante workers RQ reales.
+
+La medición de lecturas de 100,000 aplicaciones sintéticas obtuvo calendario
+2.1325 s, bandeja 1.5639 s, primera página 0.5429 s y última 0.5919 s. Las páginas
+leen solo 100 filas y cuentan las 100,000; antes de corregir la paginación, cada
+petición reconstruía el tablero. Con 26,000 filas la página bajó aproximadamente
+de 0.38 s a 0.11 s. Estas cifras no incluyen una importación real de 100,000 líneas
+ni garantizan tiempos en producción. Depósitos y trabajos todavía reconstruyen
+sus conjuntos al paginar; no se afirma que todo el tablero tenga paginación SQL.
+
+El respaldo actual `20261004_210032` de base, públicos y privados se restauró en
+`cn-latest-restore.local`, con una nueva base y socket propios. Se comparó todo
+el contenido CN más Version/File: **25 tablas**, **272 versiones** y **dos archivos
+de evidencia** por SHA-256, idénticos antes y después de migrar; una segunda
+migración tampoco cambió los datos comparados. El ejemplo conservó CxC original
+US$10, cobro US$3 y pendiente US$7. Es un conjunto sintético con tablas vacías,
+no una copia de producción ni una prueba de credenciales cifradas.
+
+Se comprobó visualmente la posición de CxC, el modal de liquidación, filtros de
+antigüedad, calendario ampliado, retorno al mes y cifras coherentes con el
+ejemplo. Los roles reales de operador y supervisor se probaron en SQL sin editar
+DocPerm. El protocolo completo y los límites de autorización de despliegue están
+en `docs/revision_sistema.md` y `docs/production_acceptance_plan.json`.
