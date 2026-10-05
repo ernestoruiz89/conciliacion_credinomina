@@ -54,6 +54,7 @@ from credinomina_reconciliation.parsers import (
     parse_accounting_movements,
 )
 from credinomina_reconciliation.period_lock import period_write_action
+from credinomina_reconciliation.period_totals import PeriodTotalsContext, update_period_totals
 from credinomina_reconciliation.reconciliation_scope import document_state, load_scoped_imports
 from credinomina_reconciliation.reconciliation import (
     AMOUNT_TOLERANCE,
@@ -710,6 +711,8 @@ def _reconciliation_feedback(rows):
 
 
 def _save_reconciled_document(document):
+    if document.get("doctype") == "CN Reconciliation Period":
+        update_period_totals(document)
     original = document.get("_reconciliation_original_state")
     if original is not None and original == document_state(document):
         return False
@@ -2520,6 +2523,7 @@ def _rebuild_period_balances(
     periods, source_rows, deposit_pairs, allocation,
     closed_state, closed_links, complementary_items, source_status_collections=(), status_source_ids=None,
 ):
+    totals_context = PeriodTotalsContext(periods, source_rows)
     rows_by_name = {}
     for period in periods:
         for row in period.collection_rows:
@@ -2740,7 +2744,8 @@ def _rebuild_period_balances(
         if target and flt(account.unclassified_usd) > CASH_EPSILON:
             pending_deposits[target.parent][entry["deposit_id"]] = account.unclassified_usd
     for period in periods:
-        period.recalculate_totals()
+        with totals_context.use():
+            period.recalculate_totals()
         period.unassigned_deposit_usd = money_float(sum_money(pending_deposits[period.name].values()))
         if period.status != "Cerrado":
             period.status = _operative_period_status(period)
@@ -2768,7 +2773,8 @@ def _rebuild_period_balances(
 
     for period in periods:
         if period.status != "Cerrado":
-            _save_reconciled_document(period)
+            with totals_context.use():
+                _save_reconciled_document(period)
 
 
 def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation):
@@ -2869,6 +2875,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
     }
+    totals_context = PeriodTotalsContext(historical_periods.values(), source_rows)
     applications = {
         row.name: row for row in source_rows
         if row.event_type == "Aplicacion" and row.effective
@@ -2998,11 +3005,12 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
                 "Conciliado" if related and applied == 0 and all(row.get("application_adjustment_usd") for row in related)
                 else historical_status(applied + adjustment, remitted)
             )
-        if period.status == "Cerrado":
-            with period_write_action("reconcile"):
+        with totals_context.use():
+            if period.status == "Cerrado":
+                with period_write_action("reconcile"):
+                    _save_reconciled_document(period)
+            else:
                 _save_reconciled_document(period)
-        else:
-            _save_reconciled_document(period)
 
 
 def _equivalent_amount(target, source, amount_usd):

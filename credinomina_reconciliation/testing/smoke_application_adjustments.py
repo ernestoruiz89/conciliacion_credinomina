@@ -55,6 +55,7 @@ def run():
         hist.reload(); historical.reload()
         assert hist.rows[0].amount == 100 and hist.rows[0].application_adjustment_usd == 30
         assert hist.rows[0].net_applied_usd == historical.applied_usd == hist.rows[0].historical_balance_usd == 70
+        assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 30, 70)
         balances = aging({"employer": employer.name, "as_of_date": "2026-10-15"})[1]
         assert sum(row["amount_usd"] for row in balances) == 170, balances
         full = item(hist, 70)
@@ -63,6 +64,7 @@ def run():
         assert hist.rows[0].amount == 100 and hist.rows[0].net_applied_usd == 0
         assert hist.rows[0].deposit_match_status == "Aplicación compensada"
         assert historical.applied_usd == 0 and historical.remitted_usd == 0 and historical.status == "Conciliado"
+        assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 100, 0)
         assert hist.exception_count == 0
         assert all(row.get("source_import") != hist.name for row in aging({"employer": employer.name})[1])
         try:
@@ -75,12 +77,15 @@ def run():
         full.reload(); full.cancel()
         hist.reload()
         assert hist.rows[0].net_applied_usd == 70 and hist.rows[0].amount == 100
+        historical.reload()
+        assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 30, 70)
         # Operative partial reduction leaves the deduction intact and lowers applied.
         op_part = item(op, 25)
         confirm_adjustment(op_part.name)
         op.reload(); operative.reload()
         assert op.rows[0].net_applied_usd == 75
         assert operative.applied_usd == 75 and operative.deducted_usd == 100, operative.as_dict()
+        assert (operative.applied_total_usd, operative.remitted_total_usd, operative.pending_usd) == (100, 25, 75)
         deposit = frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": employer.name,
                     "deposit_reference": marker, "deposit_date": "2025-05-01",
                     "deposit_currency": "USD", "deposit_amount": 70}).insert()
@@ -111,6 +116,15 @@ def run():
         initialize(); initialize()
         hist.reload()
         assert hist.rows[0].amount == 100 and hist.rows[0].net_applied_usd == 70
+        # A confirmed offset plus the actual deposit cover the original 100 once.
+        deposit.reload()
+        deposit.set("targets", [])
+        deposit.append("targets", {"historical_application": hist.rows[0].name, "amount_usd": 70})
+        deposit.save(); deposit.submit()
+        from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
+        reconcile_deposit(deposit)
+        historical.reload()
+        assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 100, 0)
         # Closed periods cannot accept adjustments, including cancellation.
         frappe.db.set_value("CN Reconciliation Period", historical.name, "status", "Cerrado")
         blocked = item(hist, 10)
@@ -126,8 +140,19 @@ def run():
             pass
         else:
             raise AssertionError("Closed period accepted cancellation")
+        from credinomina_reconciliation.patches.v1_0.backfill_period_financial_totals import execute as backfill
+        historical.reload()
+        evidence = {field: historical.get(field) for field in ("status", "modified", "historical_fingerprint",
+                                                              "applied_usd", "remitted_usd")}
+        frappe.db.set_value("CN Reconciliation Period", historical.name,
+            dict(applied_total_usd=0, remitted_total_usd=0, pending_usd=99), update_modified=False)
+        backfill(); backfill()
+        historical.reload()
+        assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 100, 0)
+        assert evidence == {field: historical.get(field) for field in evidence}
         return {"historical_partial_and_full": "OK", "operative_partial": "OK", "aging": "OK",
                 "cancel_restores_net": "OK", "closed_period_and_overadjustment_guards": "OK",
-                "deposit_guards_and_net_picker": "OK", "idempotent_patch": "OK", "rolled_back": True}
+                "deposit_guards_and_net_picker": "OK", "idempotent_patch": "OK",
+                "gross_period_totals_and_closed_backfill": "OK", "rolled_back": True}
     finally:
         frappe.db.rollback()
