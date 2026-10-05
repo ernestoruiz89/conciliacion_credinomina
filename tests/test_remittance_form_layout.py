@@ -46,3 +46,7 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         self.assertEqual(button["fieldtype"], "Button")
         self.assertTrue(button["allow_on_submit"])
         self.assertNotIn("in_list_view", button)  # Preserve the existing ten-column grid.
+        target_picker = next(field for field in child_fields if field["fieldname"] == "select_pending_targets")
+        self.assertEqual(target_picker["fieldtype"], "Button")
+        self.assertTrue(target_picker["allow_on_submit"])
+        self.assertNotIn("in_list_view", target_picker)

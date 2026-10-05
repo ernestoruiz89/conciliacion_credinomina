@@ -3,6 +3,7 @@ import unittest
 from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.remittance_detail import (
     detail_amount_usd,
+    manual_detail_targets,
     suggest_detail_targets,
 )
 
@@ -87,6 +88,20 @@ class RemittanceDetailTests(unittest.TestCase):
         targets, reason = suggest_detail_targets(row, [destination], 1, "Empresa A")
         self.assertEqual(targets[0]["claim_id"], "H:1")
         self.assertIn("nombre/alias", reason)
+
+    def test_manual_destination_link_accepts_same_client_link_when_core_ids_are_missing(self):
+        destination = claim(1, 25)
+        destination.update({"client": "CLIENT-1", "client_number": "", "national_id": ""})
+        row = detail(1, client="CLIENT-1", client_number="123", national_id="")
+        targets, reason = manual_detail_targets(
+            row,
+            [destination],
+            [{"id": "TARGET-1", "claim_id": "H:1", "amount_usd": 25}],
+            25,
+            "Empresa A",
+        )
+        self.assertEqual(targets[0]["claim_id"], "H:1")
+        self.assertIn("vinculados y validados", reason)
 
     def test_name_only_can_cover_multiple_applications_for_one_client(self):
         first = claim(1, amount=40)

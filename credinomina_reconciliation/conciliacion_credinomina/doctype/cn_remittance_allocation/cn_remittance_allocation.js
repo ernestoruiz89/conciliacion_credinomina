@@ -309,10 +309,13 @@ async function useApplicationsAsDetail(frm) {
 
 frappe.ui.form.on("CN Remittance Detail", {
     create_client_credit: createClientCreditFromDetail,
+    select_pending_targets: selectPendingTargetsForDetail,
     form_render(frm, cdt, cdn) {
         const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
         const control = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_credit;
         control?.$wrapper.toggle(canCreateDetailClientCredit(frm, row));
+        const targetControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.select_pending_targets;
+        targetControl?.$wrapper.toggle(canSelectDetailPendingTargets(frm, row));
     },
     loan_number(frm) {
         frm.set_value("result", "Pendiente");
@@ -320,6 +323,47 @@ frappe.ui.form.on("CN Remittance Detail", {
         frappe.show_alert({message: __("Guarde y use Conciliar. Revise los destinos manuales si cambió el crédito."), indicator: "orange"});
     },
 });
+
+function canSelectDetailPendingTargets(frm, row) {
+    const identity = row && [row.client, row.client_number, row.employee_number, row.national_id,
+        row.client_name, row.loan_number].some(value => String(value || "").trim());
+    return !frm.is_new() && frm.doc.docstatus === 1 && !!frm.get_perm(0, "write") &&
+        !!row?.name && identity && Number(row.pending_usd) > 0;
+}
+
+async function selectPendingTargetsForDetail(frm, cdt, cdn) {
+    if (frm.detail_target_workflow) return;
+    if (frm.detail_target_picker) {
+        frappe.show_alert({message: __("Ya hay un selector de partidas abierto. Ciérrelo antes de abrir otro."), indicator: "orange"});
+        return;
+    }
+    let row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+    if (!canSelectDetailPendingTargets(frm, row)) {
+        frappe.msgprint(__("Seleccione una fila identificable con importe pendiente de un depósito confirmado."));
+        return;
+    }
+    if (frm.is_dirty()) {
+        const save = await new Promise(resolve => frappe.confirm(
+            __("Se guardarán los cambios del depósito antes de consultar las partidas de este cliente. Esto no concilia el depósito. ¿Continuar?"),
+            () => resolve(true), () => resolve(false)
+        ));
+        if (!save) return;
+        await frm.save();
+        row = (frm.doc.detail_rows || []).find(item => item.name === cdn);
+    }
+    if (!canSelectDetailPendingTargets(frm, row)) {
+        frappe.msgprint(__("La fila cambió al guardar. Revísela y vuelva a abrir el selector."));
+        return;
+    }
+    frm.detail_target_workflow = true;
+    try {
+        const data = await loadPendingRemittanceTargets(frm, row.name);
+        const picker = new RemittanceTargetPicker(frm, data, row);
+        frm.detail_target_picker = picker;
+    } finally {
+        frm.detail_target_workflow = false;
+    }
+}
 
 function canCreateDetailClientCredit(frm, row) {
     const pending = Number(row?.pending_usd);
@@ -945,10 +989,11 @@ async function renderRemittanceDistribution(frm) {
     }
 }
 
-async function loadPendingRemittanceTargets(frm) {
+async function loadPendingRemittanceTargets(frm, detailRowName = "") {
     const response = await frappe.call({
         method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.get_pending_targets",
-        args: { remittance_name: frm.doc.name, targets: JSON.stringify(frm.doc.targets || []) },
+        args: { remittance_name: frm.doc.name, targets: JSON.stringify(frm.doc.targets || []),
+            detail_row_name: detailRowName },
         freeze: true,
         freeze_message: __("Consultando partidas pendientes…"),
     });
@@ -956,15 +1001,21 @@ async function loadPendingRemittanceTargets(frm) {
 }
 
 class RemittanceTargetPicker {
-    constructor(frm, data) {
+    constructor(frm, data, detailRow = null) {
         this.frm = frm;
         this.data = data;
+        this.detailRow = detailRow;
+        this.detailRowName = detailRow?.name || data.detail_row || "";
         this.selected = new Map();
         this.page = 0;
         this.pageSize = 50;
+        this.available_cents = this.availableFor(data);
         this.detailPeriods = new Set((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
         this.dialog = new frappe.ui.Dialog({
-            title: __("Seleccionar partidas pendientes"), size: "extra-large",
+            title: this.detailRowName ? __("Seleccionar partidas pendientes del cliente") : __("Seleccionar partidas pendientes"), size: "extra-large",
+            onhide: () => {
+                if (this.frm.detail_target_picker === this) this.frm.detail_target_picker = null;
+            },
             minimizable: true,
             on_minimize_toggle(minimized) {
                 const label = minimized ? __("Restaurar selector de partidas") : __("Minimizar selector de partidas");
@@ -1008,7 +1059,13 @@ class RemittanceTargetPicker {
             title: __("Minimizar selector de partidas"),
             "aria-label": __("Minimizar selector de partidas"),
         });
+        const client = data.detail_client;
+        const detailIntro = this.detailRowName ? `<p class="alert alert-info"><strong>${this.escape(client?.client_name || detailRow?.client_name || __("Cliente de la fila"))}</strong>
+            ${client?.client_number ? `· ${__("Nro. Cliente")}: ${this.escape(client.client_number)}` : ""}
+            ${detailRow?.loan_number ? `· ${__("Crédito")}: ${this.escape(detailRow.loan_number)}` : ""}<br>
+            ${__("La lista muestra únicamente partidas pendientes de este cliente. Cada destino agregado quedará vinculado automáticamente a esta fila del detalle.")}</p>` : "";
         this.dialog.fields_dict.intro.$wrapper.html(`<p>Empresa pagadora: <strong>${this.escape(data.employer)}</strong> · US$</p>
+            ${detailIntro}
             <p class="text-muted">Seleccione partidas y ajuste los importes si el pago es parcial.
             Puede combinar períodos; no se limita por la fecha del depósito.
             Los saldos corresponden a la última conciliación; se excluyen períodos cerrados y destinos ya agregados.</p>`);
@@ -1044,13 +1101,27 @@ class RemittanceTargetPicker {
         this.render();
     }
 
+    availableFor(data) {
+        let available = Number(data.available_cents || 0);
+        if (!this.detailRowName) return available;
+        const detailRow = (this.frm.doc.detail_rows || []).find(row => row.name === this.detailRowName) || this.detailRow;
+        if (!detailRow) return 0;
+        const pending = Number.isFinite(Number(detailRow.pending_usd))
+            ? Number(toScaledInteger(detailRow.pending_usd, 2))
+            : Number(toScaledInteger(detailRow.amount_usd, 2));
+        const unprocessed = (this.frm.doc.targets || []).filter(target =>
+            target.detail_row === this.detailRowName && target.result !== "Aplicada")
+            .reduce((sum, target) => sum + Number(toScaledInteger(target.amount_usd, 2)), 0);
+        return Math.max(0, Math.min(available, pending - unprocessed));
+    }
+
     escape(value) { return frappe.utils.escape_html(String(value || "")); }
     currency(cents) {
         return (cents / 100).toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     total() { return [...this.selected.values()].reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0); }
     valid() {
-        return this.selected.size > 0 && this.total() <= this.data.available_cents &&
+        return this.selected.size > 0 && this.total() <= this.available_cents &&
             this.data.rows.every(row => !this.selected.has(row.id) || (
                 Number.isSafeInteger(this.selected.get(row.id)) && this.selected.get(row.id) > 0 &&
                 this.selected.get(row.id) <= row.pending_cents
@@ -1058,7 +1129,7 @@ class RemittanceTargetPicker {
     }
     select(row) {
         if (this.selected.has(row.id)) return;
-        const amount = Math.min(row.pending_cents, Math.max(0, this.data.available_cents - this.total()));
+        const amount = Math.min(row.pending_cents, Math.max(0, this.available_cents - this.total()));
         if (amount > 0) this.selected.set(row.id, amount);
     }
     filter() { this.page = 0; if (this.dialog && this.dialog.$wrapper.is(":visible")) this.render(); }
@@ -1072,16 +1143,16 @@ class RemittanceTargetPicker {
         this.filter();
     }
     summary() {
-        const remaining = this.data.available_cents - this.total();
+        const remaining = this.available_cents - this.total();
         const invalid = this.selected.size && !this.valid();
         this.dialog.fields_dict.summary.$wrapper.html(`<div class="alert ${invalid ? "alert-danger" : "alert-info"}" role="status" aria-live="polite">
             <div style="display:flex;flex-wrap:wrap;gap:12px 28px">
-                <span>Disponible: <strong>US$ ${this.currency(this.data.available_cents)}</strong></span>
+                <span>${this.detailRowName ? __("Pendiente de esta fila") : __("Disponible")}: <strong>US$ ${this.currency(this.available_cents)}</strong></span>
                 <span>Seleccionado (${this.selected.size}): <strong>US$ ${this.currency(this.total())}</strong></span>
                 <span>Restante: <strong>US$ ${this.currency(remaining)}</strong></span>
             </div>
             ${invalid ? "<div>Revise los importes: deben ser positivos, tener hasta dos decimales y no superar el pendiente ni el disponible.</div>" : ""}
-            ${!this.data.available_cents ? "<div>El depósito ya está distribuido o reservado en sus destinos. Revise los destinos existentes.</div>" : ""}
+            ${!this.available_cents ? `<div>${this.detailRowName ? __("La fila no tiene importe pendiente disponible para nuevos destinos.") : __("El depósito ya está distribuido o reservado en sus destinos. Revise los destinos existentes.")}</div>` : ""}
             <small>El disponible considera las asignaciones conciliadas y los destinos existentes, incluidos los ajustes complementarios negativos.</small>
         </div>`);
         this.dialog.get_primary_btn().prop("disabled", !this.valid());
@@ -1114,7 +1185,7 @@ class RemittanceTargetPicker {
                 .filter(([, value]) => value).map(([label, value]) => `${label}: ${value}`).join(" · ");
             return `<tr class="${selected ? "active" : ""}">
                 <td><input type="checkbox" data-select="${index}" aria-label="Seleccionar ${this.escape(row.client_name || row.loan_number)}"
-                    ${selected ? "checked" : ""} ${!selected && this.total() >= this.data.available_cents ? "disabled" : ""}></td>
+                    ${selected ? "checked" : ""} ${!selected && this.total() >= this.available_cents ? "disabled" : ""}></td>
                 <td><strong>${this.escape(row.client_name || "Sin nombre informado")}</strong>
                     <div class="small text-muted">${this.escape(identity)}</div>
                     <div>${row.loan_number ? `Crédito: ${this.escape(row.loan_number)}` : ""}</div></td>
@@ -1154,9 +1225,10 @@ class RemittanceTargetPicker {
         this.applying = true;
         try {
             // Re-read balances before adding; never silently truncate the user's selection.
-            const fresh = await loadPendingRemittanceTargets(this.frm);
+            const fresh = await loadPendingRemittanceTargets(this.frm, this.detailRowName);
             const byId = new Map(fresh.rows.map(row => [row.id, row]));
-            if (fresh.modified !== this.data.modified || this.total() > fresh.available_cents ||
+            const freshAvailable = this.availableFor(fresh);
+            if (fresh.modified !== this.data.modified || this.total() > freshAvailable ||
                 [...this.selected].some(([id, cents]) => !byId.has(id) || cents > byId.get(id).pending_cents)) {
                 frappe.msgprint(__("Los saldos o destinos cambiaron. Cierre el selector y vuelva a consultar las partidas antes de agregarlas."));
                 return;
@@ -1168,6 +1240,9 @@ class RemittanceTargetPicker {
                     historical_application: row.historical_application || "",
                     complementary_item: row.complementary_item || "", amount_usd: cents / 100,
                     employer: row.generic_distribution ? row.employer : "",
+                    detail_row: this.detailRowName,
+                    detail_row_label: this.detailRowName && this.detailRow
+                        ? `${__("Fila")} ${this.detailRow.source_row || this.detailRow.idx} · ${this.detailRow.client_name || this.data.detail_client?.client_name || ""}` : "",
                     notes: [row.employer, row.client_name, row.loan_number && `Crédito ${row.loan_number}`, row.period_label, row.reference].filter(Boolean).join(" · "),
                 });
             }
@@ -1175,7 +1250,9 @@ class RemittanceTargetPicker {
             this.frm.dirty();
             renderRemittanceOverview(this.frm);
             this.dialog.hide();
-            frappe.show_alert({ message: __("Destinos agregados. Guarde los cambios; la conciliación se ejecuta por separado."), indicator: "green" });
+            frappe.show_alert({ message: this.detailRowName
+                ? __("Destinos agregados y vinculados a la fila. Guarde los cambios y después use Conciliar.")
+                : __("Destinos agregados. Guarde los cambios; la conciliación se ejecuta por separado."), indicator: "green" });
         } finally {
             this.applying = false;
         }

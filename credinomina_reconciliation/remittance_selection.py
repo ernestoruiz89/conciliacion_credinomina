@@ -73,7 +73,7 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
             "reserved_cents": int(reserved * 100)}
 
 
-def get_pending_targets(remittance_name, targets=None):
+def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
     import frappe
     from frappe import _
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
@@ -95,6 +95,46 @@ def get_pending_targets(remittance_name, targets=None):
 
     # get_list applies user permissions; child tables are read through their parents.
     allowed = sorted(allowed_employers(doc.employer))
+    detail_row = None
+    detail_client = None
+    client_catalog = None
+    if detail_row_name:
+        detail_row = next((row for row in doc.detail_rows if row.name == detail_row_name), None)
+        if not detail_row:
+            frappe.throw(_("La fila del detalle no pertenece a este depósito."))
+        from credinomina_reconciliation.client_registry import load_client_index
+        from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+        from credinomina_reconciliation.paying_employers import choose_detail_client
+
+        client_catalog = load_client_index(employers=allowed)
+        row_identity = detail_row.as_dict()
+        linked_client = next((client for client in client_catalog
+                              if client["name"] == detail_row.get("client")), None)
+        if linked_client:
+            # Client links were established by the import/identity workflow and
+            # are authoritative; core and SIAF client numbers can differ.
+            detail_client, reason = linked_client, "Cliente vinculado en la fila"
+        else:
+            identity_fields = ("client_number", "national_id", "employee_number", "client_name")
+            if any(row_identity.get(field) for field in identity_fields):
+                # Match the customer independently of a credit number that may
+                # need correction on the deposit detail itself.
+                row_identity.pop("loan_number", None)
+            loan_clients = load_detail_loan_clients([row_identity], client_catalog, allowed)
+            detail_client, reason = choose_detail_client(
+                row_identity, client_catalog, doc.employer, allowed, loan_clients,
+            )
+        has_identity = any(row_identity.get(field) for field in (
+            "client_number", "national_id", "employee_number", "client_name", "loan_number",
+        ))
+        if not detail_client and has_identity:
+            frappe.throw(_("No se pudo verificar de forma única al cliente de esta fila: {0}.").format(reason))
+        if detail_row.get("client") and (not linked_client or linked_client.get("employer") not in allowed):
+            frappe.throw(_("La identidad guardada en esta fila no coincide con los datos del cliente. Revise el cliente y sus identificadores."))
+        detail_client = detail_client or linked_client
+        if not detail_client:
+            frappe.throw(_("No se pudo identificar de forma única al cliente de esta fila: {0}.").format(reason))
+        frappe.get_doc("CN Client", detail_client["name"]).check_permission("read")
     periods = [frappe.get_doc("CN Reconciliation Period", row.name) for row in frappe.get_list(
         "CN Reconciliation Period", filters={"employer": ["in", allowed]},
         fields=["name"], order_by="payroll_month asc, name asc", limit_page_length=0,
@@ -108,7 +148,8 @@ def get_pending_targets(remittance_name, targets=None):
     )
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", "Saldo a favor del cliente", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
-                "client_number", "loan_number", "installment_number", "description", "voucher", "generic_distribution"],
+                "client_number", "loan_number", "installment_number", "description", "source_client_name",
+                "credit_client", "voucher", "generic_distribution"],
         limit_page_length=0)
     linked_items = _allocate_complementary_items(items, periods)
     from credinomina_reconciliation.complementary_distribution import attach_company_scopes, company_scope
@@ -126,9 +167,12 @@ def get_pending_targets(remittance_name, targets=None):
         return f"{dates} · {period.name}"
 
     def identity(row):
-        return {key: row.get(key) or "" for key in (
-            "client_name", "client_number", "employee_number", "national_id", "loan_number",
-        )}
+        return {
+            **{key: row.get(key) or "" for key in (
+                "client_name", "client_number", "employee_number", "national_id", "loan_number",
+            )},
+            "client": row.get("client") or row.get("credit_client") or "",
+        }
 
     candidates = []
     for period in open_periods.values():
@@ -173,11 +217,52 @@ def get_pending_targets(remittance_name, targets=None):
         if not frappe.has_permission("CN Complementary Item", "read", doc=item.name):
             continue
         candidates.append({**identity(item), "employer": item.employer if item.employer in allowed else sorted(scope & set(allowed))[0], "kind": "Partida complementaria",
-            "client_name": item.description, "complementary_item": item.name,
+            "client_name": item.source_client_name or item.description,
+            "_client_identity_name": item.source_client_name or "",
+            "complementary_item": item.name,
             "generic_distribution": bool(item.get("generic_distribution")),
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
             "due_usd": float(money(item.amount_usd))})
+    if detail_row and detail_client:
+        from credinomina_reconciliation.paying_employers import choose_detail_client
+
+        identity_fields = ("client_number", "national_id", "employee_number", "client_name")
+        loan_only_candidates = [candidate for candidate in candidates
+                                if not candidate.get("client") and candidate.get("loan_number")
+                                and not any(candidate.get(field) for field in identity_fields)]
+        candidate_loan_clients = {}
+        if loan_only_candidates:
+            from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+            candidate_loan_clients = load_detail_loan_clients(loan_only_candidates, client_catalog, allowed)
+        scoped_candidates = []
+        clients_by_name = {client["name"]: client for client in client_catalog}
+        for candidate in candidates:
+            company = candidate.get("employer") or ""
+            if company != detail_client.get("employer"):
+                continue
+            candidate_identity = dict(candidate)
+            if "_client_identity_name" in candidate_identity:
+                candidate_identity["client_name"] = candidate_identity.pop("_client_identity_name")
+            linked = clients_by_name.get(candidate.get("client"))
+            if linked:
+                if linked.get("employer") != company:
+                    continue
+                resolved = linked
+            else:
+                if any(candidate_identity.get(field) for field in identity_fields):
+                    # Identifiers and registered aliases identify the person;
+                    # the credit can be corrected independently.
+                    candidate_identity.pop("loan_number", None)
+                resolved, _reason = choose_detail_client(
+                    candidate_identity, client_catalog, doc.employer, allowed, candidate_loan_clients,
+                )
+            if not resolved or resolved["name"] != detail_client["name"]:
+                continue
+            scoped_candidates.append({**candidate, "client": resolved["name"]})
+        candidates = scoped_candidates
+    for candidate in candidates:
+        candidate.pop("_client_identity_name", None)
     from credinomina_reconciliation.client_credit import load_credits
     reserved_credit = sum((money(item.amount_usd) for item in load_credits([doc.name])), money(0))
     result = pending_selection(candidates, deposits, doc.name, money(doc.amount_usd) - reserved_credit, targets)
@@ -185,4 +270,13 @@ def get_pending_targets(remittance_name, targets=None):
     result["employer"] = doc.employer
     result["allowed_employers"] = allowed
     result["modified"] = str(doc.modified)
+    if detail_row and detail_client:
+        result["detail_row"] = detail_row.name
+        result["detail_client"] = {
+            "name": detail_client["name"],
+            "client_name": detail_client.get("client_name") or detail_row.client_name,
+            "client_number": detail_client.get("client_number") or detail_row.client_number,
+            "employee_number": detail_client.get("employee_number") or detail_row.employee_number,
+            "employer": detail_client.get("employer") or detail_row.employer,
+        }
     return result
