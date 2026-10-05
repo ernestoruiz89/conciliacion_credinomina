@@ -114,7 +114,7 @@
     {"create": 1, "delete": 1, "email": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Supervisor Credinomina", "share": 1, "write": 1},
     {"create": 1, "export": 1, "print": 1, "read": 1, "report": 1, "role": "Operador Credinomina", "write": 1}
   ],
-  "search_fields": "employer,status,historical_scope,historical_application_date,historical_start_date,historical_end_date,applied_total_usd,remitted_total_usd,pending_usd",
+  "search_fields": "status,historical_application_date,historical_start_date,historical_end_date,applied_total_usd,remitted_total_usd,pending_usd",
   "sort_field": "payroll_month",
   "sort_order": "DESC",
   "states": [
