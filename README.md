@@ -205,6 +205,36 @@ pendientes e ignorados. Los contadores corresponden al grupo de empresas, no sol
 a las filas del depósito. Si falla la conexión de tiempo real, la respuesta final
 sigue disponible. Confirmar y conciliar siguen siendo acciones separadas.
 
+### Distribución por antigüedad (FIFO)
+
+En **Distribución de Depósito → Detalle por cliente → Períodos a conciliar**,
+seleccione los períodos y marque **Aplicar por antigüedad (FIFO)**. Guarde y pulse
+**Conciliar**. La opción viene desmarcada y no ejecuta conciliación al guardarla.
+
+Cada fila se distribuye entre aplicaciones pendientes del mismo cliente y
+crédito, por fecha real de aplicación, de la más antigua a la más reciente.
+Puede completar una aplicación y pagar parcialmente la siguiente. Las filas
+repetidas del mismo cliente/crédito se conservan, incluso si tienen igual
+importe: se procesan en el orden del archivo, descontando lo reservado por las
+anteriores y por los destinos manuales. Los importes asignados por otros depósitos
+también reducen la capacidad disponible.
+
+FIFO exige períodos seleccionados y una identidad de cliente/crédito única;
+no cruza empresas o créditos, no incluye partidas complementarias automáticamente
+ni utiliza períodos cerrados. Sin saldo suficiente o fechas válidas, la fila queda
+para revisión. No se completa una diferencia inventando efectivo ni se generan
+saldos a favor o ajustes de centavos automáticamente. Los destinos manuales
+vinculados a una fila conservan prioridad y se validan como hasta ahora.
+
+La distribución registrada identifica el origen **Automática FIFO**. El resumen
+de destinos de cada fila conserva las aplicaciones, fechas e importes utilizados;
+la bitácora del depósito conserva el cambio de distribución.
+
+En el detalle del depósito use **Deducido US$** o **Deducido C$** para el importe
+pagado, no **Monto de la cuota**. Se redondea cada fila con Decimal a dos decimales:
+por ejemplo, `31.355` pasa a `31.36`. La suma redondeada debe estar sustentada por
+el depósito y las partidas complementarias explícitas; FIFO no elimina diferencias.
+
 ## Archivos de entrada
 
 Se admiten archivos `.xlsx`, `.xls` y `.csv`. El archivo de cobranza que se

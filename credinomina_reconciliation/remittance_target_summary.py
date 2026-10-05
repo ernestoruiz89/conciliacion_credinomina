@@ -51,6 +51,10 @@ def describe_targets(raw, descriptions, *, date_formatter=display_date):
                 )
                 if text:
                     lines.append(text)
+        for application in target.get("fifo_applications") or []:
+            lines.append("FIFO · {0} · Aplicación {1} · US$ {2:,.2f}".format(
+                date_formatter(application.get("event_date")), application.get("application_id"),
+                money(application.get("amount_usd"))))
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 

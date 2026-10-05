@@ -11,7 +11,7 @@ from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
-from credinomina_reconciliation.allocation_origin import DETAIL, MANUAL, TOLERANCE
+from credinomina_reconciliation.allocation_origin import DETAIL, FIFO, MANUAL, TOLERANCE
 from credinomina_reconciliation.accounting_naming import (
     accounting_month, accounting_prefix, new_accounting_name, rename_accounting_import,
 )
@@ -820,7 +820,7 @@ def _reconcile_sources(employer=None, progress=None):
             "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
             "allocation_detail",
             "support_file", "detail_file", "detail_source_file", "detail_hash",
-            "detail_status", "detail_total_usd", "detail_count",
+            "detail_status", "detail_total_usd", "detail_count", "apply_fifo",
         ],
         order_by="creation asc",
     )
@@ -1403,6 +1403,9 @@ def _prepare_remittance_details(
         (entry["deposit_id"], entry["claim_id"])
         for entry in prior_instructions
     }
+    reserved_amounts = defaultdict(lambda: money(0))
+    for entry in prior_instructions:
+        reserved_amounts[entry["claim_id"]] += money(entry["amount_usd"])
     instructions = []
     blocked = set()
     rounding_eligible = set()
@@ -1412,6 +1415,7 @@ def _prepare_remittance_details(
         if deposit_id not in by_deposit:
             continue
         deposit = by_deposit[deposit_id]
+        apply_fifo = bool(getattr(item, "apply_fifo", 0))
         rows = rows_by_parent[item.name]
         if client_catalog is not None:
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
@@ -1468,7 +1472,8 @@ def _prepare_remittance_details(
         ))
         excessive = covered_total > flt(deposit["amount_usd"]) + CASH_EPSILON
         one_to_one_candidate = (
-            len([plan for plan in plans if plan["amount_usd"] > CASH_EPSILON]) == 1
+            not apply_fifo
+            and len([plan for plan in plans if plan["amount_usd"] > CASH_EPSILON]) == 1
             and abs(total_usd - flt(deposit["amount_usd"])) <= CASH_EPSILON
             and deposit.get("currency") == "USD"
             and deposit.get("bank_currency") == "USD"
@@ -1530,12 +1535,13 @@ def _prepare_remittance_details(
                 selected_periods(item),
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
                 allowed_groups=deposit.get("allowed_groups"),
+                apply_fifo=apply_fifo, reserved_amounts=reserved_amounts,
             )
             if not targets:
                 plan["status"] = "Revisar"
                 plan["reason"] = reason
                 continue
-            if any((deposit_id, target["claim_id"]) in reserved for target in targets):
+            if not apply_fifo and any((deposit_id, target["claim_id"]) in reserved for target in targets):
                 plan["status"] = "Revisar"
                 plan["reason"] = "Destino ya cubierto por una distribución manual o depósito coincidente"
                 continue
@@ -1547,9 +1553,12 @@ def _prepare_remittance_details(
                     "id": instruction_id, "deposit_id": deposit_id,
                     "claim_id": target["claim_id"],
                     "amount_usd": target["amount_usd"],
-                    "origin": DETAIL,
+                    "origin": FIFO if apply_fifo else DETAIL,
+                    **({"detail_row": plan["row"].name,
+                        "fifo_applications": target["fifo_applications"]} if apply_fifo else {}),
                 })
                 reserved.add((deposit_id, target["claim_id"]))
+                reserved_amounts[target["claim_id"]] += money(target["amount_usd"])
         contexts[item.name] = {
             "status": "Detalle supera depósito" if excessive else "",
             "rows": plans, "total_usd": total_usd, "covered_total_usd": covered_total,
@@ -1677,6 +1686,7 @@ def _distribute_deposits(
         row.name: row for period in periods for row in period.collection_rows
     }
     employer_by_period = {period.name: period.employer for period in periods}
+    closed_periods = {period.name for period in periods if period.status == "Cerrado"}
     from credinomina_reconciliation.complementary_distribution import attach_company_scopes, company_scope
     attach_company_scopes(complementary_items)
     historical_applications = {
@@ -1768,6 +1778,7 @@ def _distribute_deposits(
     hints_by_row = defaultdict(lambda: defaultdict(float))
     core_amount_by_row = defaultdict(float)
     application_ids_by_row = defaultdict(set)
+    fifo_applications_by_row = defaultdict(list)
     for source in source_rows:
         if (
             source.event_type == "Aplicacion" and source.effective
@@ -1778,6 +1789,10 @@ def _distribute_deposits(
                 row_id = link["collection_row_id"]
                 core_amount_by_row[row_id] += flt(link["amount_usd"])
                 application_ids_by_row[row_id].add(source.name)
+                fifo_applications_by_row[row_id].append({
+                    "id": source.name, "event_date": str(source.event_date or ""),
+                    "amount_usd": money_float(link["amount_usd"]),
+                })
                 if reference:
                     references_by_row[row_id].add(reference)
                     hints_by_row[row_id][reference] += flt(link["amount_usd"])
@@ -1803,7 +1818,9 @@ def _distribute_deposits(
              "group": employer_by_period.get(row.parent),
              "period": row.parent,
              "core_applied_usd": money_float(core_amount_by_row[row.name]),
-             "application_ids": sorted(application_ids_by_row[row.name])}
+             "application_ids": sorted(application_ids_by_row[row.name]),
+             "period_closed": row.parent in closed_periods,
+             "fifo_applications": fifo_applications_by_row[row.name]}
         )
     for item in complementary_items:
         claims.append(
@@ -1835,6 +1852,10 @@ def _distribute_deposits(
                 "period": application.historical_period,
                 "core_applied_usd": net_amount(application),
                 "application_ids": [application.name],
+                "period_closed": application.historical_period in closed_periods,
+                "fifo_applications": [{"id": application.name,
+                    "event_date": str(application.event_date or ""),
+                    "amount_usd": net_amount(application)}],
             }
         )
     # Keep global identifier conflict detection, but resolve each claim through
@@ -1855,6 +1876,7 @@ def _distribute_deposits(
     if fixed_coverage:
         for claim in claims:
             covered = money(fixed_coverage.get(claim["id"]))
+            claim["fifo_covered_usd"] = money_float(covered)
             original = money(claim["amount_usd"])
             remaining = original - covered
             claim["amount_usd"] = money_float(min(remaining, 0) if original < 0 else max(remaining, 0))
@@ -2058,7 +2080,9 @@ def _distribute_deposits(
                                     "nro_cliente": person.get("client_number") or "", "credito": person.get("loan_number") or ""})
         detail_by_deposit[entry["deposit_id"]].append(
             {**destination, "empresa": entry.get("group") or claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
-             "origen": entry["origin"]}
+             "origen": entry["origin"],
+             **({"fila_detalle": entry.get("detail_row"),
+                 "aplicaciones_fifo": entry["fifo_applications"]} if entry.get("fifo_applications") else {})}
         )
     for movement in movements:
         deposit_id = movement["deposit_id"]

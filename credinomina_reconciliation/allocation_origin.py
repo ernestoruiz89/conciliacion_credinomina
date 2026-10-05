@@ -2,6 +2,7 @@
 
 MANUAL = "Selección manual"
 DETAIL = "Automática por detalle"
+FIFO = "Automática FIFO"
 REFERENCE = "Automática por referencia"
 TOLERANCE = "Ajuste por tolerancia"
 UNRECORDED = "Origen no registrado"

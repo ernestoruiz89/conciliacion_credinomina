@@ -41,7 +41,7 @@ def allocate_cash(
     blocked_deposits = {str(value) for value in blocked_deposit_ids}
     instructions = list(instructions)
 
-    def book(deposit_id: str, claim_id: str, amount: float, origin: str, group=None, detail_row=None):
+    def book(deposit_id: str, claim_id: str, amount: float, origin: str, group=None, detail_row=None, fifo_applications=None):
         amount = money(amount)
         if abs(amount) <= CAPACITY_EPSILON:
             return
@@ -55,6 +55,7 @@ def allocate_cash(
                 "origin": origin,
                 **({"group": group} if group else {}),
                 **({"detail_row": detail_row} if detail_row else {}),
+                **({"fifo_applications": fifo_applications} if fifo_applications else {}),
             }
         )
 
@@ -93,7 +94,8 @@ def allocate_cash(
             instruction_results[str(row["id"])] = error or "Aplicada"
             if not error:
                 book(deposit_id, str(row["claim_id"]), row["amount_usd"], row.get("origin") or MANUAL, row.get("group"),
-                     row.get("detail_row") if claims[str(row["claim_id"])].get("manual_only") else None)
+                     row.get("detail_row") if claims[str(row["claim_id"])].get("manual_only") or row.get("fifo_applications") else None,
+                     row.get("fifo_applications"))
 
     for instruction in instructions:
         name = str(instruction["id"])
@@ -124,7 +126,8 @@ def allocate_cash(
             blocked_deposits.add(deposit_id)
             continue
         book(deposit_id, claim_id, amount, instruction.get("origin") or MANUAL, instruction.get("group"),
-             instruction.get("detail_row") if claims[claim_id].get("manual_only") else None)
+             instruction.get("detail_row") if claims[claim_id].get("manual_only") or instruction.get("fifo_applications") else None,
+             instruction.get("fifo_applications"))
         instruction_results[name] = "Aplicada"
 
     # Repeat because one deposit can settle several claims and several deposits

@@ -173,15 +173,19 @@ def suggest_detail_targets(
     amount_usd: float, employer: str, period: str | Iterable[str] = "",
     tolerance_usd: float = 0,
     allowed_groups=None,
+    apply_fifo=False, reserved_amounts=None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Suggest only exact, uniquely attributable claims; never fuzzy-match names."""
     periods = _period_scope(period)
+    if apply_fifo and not periods:
+        return [], "Seleccione los períodos a conciliar antes de aplicar FIFO"
     claims = [
         claim for claim in claims
         if not claim.get("manual_only")
         and clean_text(claim.get("group")) in set(allowed_groups or [employer])
         and (not periods or clean_text(claim.get("period")) in periods)
         and money(claim.get("amount_usd")) > 0
+        and (not apply_fifo or (claim.get("kind") in {"H", "C"} and not claim.get("period_closed")))
     ]
     name_only = not any(clean_text(row.get(field)) for field in (
         "loan_number", "client_number", "employee_number", "national_id",
@@ -206,6 +210,9 @@ def suggest_detail_targets(
         )
     if len({clean_text(claim.get("group")) for claim in matches}) > 1:
         return [], "Nombre o identificador ambiguo entre empresas; seleccione la empresa de la fila"
+    if apply_fifo:
+        from credinomina_reconciliation.remittance_fifo import fifo_targets
+        return fifo_targets(matches, amount_usd, reserved_amounts)
     if len(matches) == 1:
         claim = matches[0]
         identity_note = (

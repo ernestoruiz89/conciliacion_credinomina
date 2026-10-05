@@ -101,6 +101,8 @@ class CNRemittanceAllocation(Document):
             loans = load_detail_loan_clients(self.detail_rows, clients, allowed)
             complete_detail_clients(self.detail_rows, clients, self.employer, allowed, loans)
         selected = [row.period for row in self.get("detail_periods") or []]
+        if self.get("apply_fifo") and not any(selected):
+            frappe.throw(_("Seleccione al menos un período en Períodos a conciliar para aplicar FIFO."))
         if len(selected) != len(set(selected)):
             frappe.throw(_("No repita períodos en Períodos del detalle."))
         self.applied_usd = money(0)
