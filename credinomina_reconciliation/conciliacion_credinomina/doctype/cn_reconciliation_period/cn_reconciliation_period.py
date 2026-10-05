@@ -41,6 +41,7 @@ from credinomina_reconciliation.parsers import (
 )
 from credinomina_reconciliation.period_lock import current_period_write_action, period_write_action
 from credinomina_reconciliation.period_naming import new_period_name, rename_period_for_context_change
+from credinomina_reconciliation.period_totals import update_period_totals
 from credinomina_reconciliation.reconciliation import (
     classify_deduction,
     converted_amount,
@@ -256,6 +257,7 @@ class CNReconciliationPeriod(Document):
 
     def recalculate_totals(self):
         if self.reconciliation_mode == "Historica":
+            update_period_totals(self)
             return  # Rebuilt from linked core applications, never from payroll rows.
         rows = list(self.collection_rows or [])
         for fieldname in (
@@ -279,6 +281,7 @@ class CNReconciliationPeriod(Document):
             )
         else:
             self.exception_count = 0
+        update_period_totals(self)
 
 
 def _attached_file(document, file_url):
