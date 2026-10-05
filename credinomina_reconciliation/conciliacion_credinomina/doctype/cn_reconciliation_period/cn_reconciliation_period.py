@@ -1042,7 +1042,9 @@ def close_period(period_name: str, progress_id: str = ""):
     def reconcile_progress(percent, message):
         report(5 + int(percent * 0.65), message)
 
-    if _reconcile_if_sources(period.employer, progress=reconcile_progress) is not None:
+    if _reconcile_if_sources(
+        period.employer, progress=reconcile_progress, preserve_deposits=True,
+    ) is not None:
         period.reload()
     if period.status == "Cerrado":
         frappe.throw(_("Este período ya está cerrado."))
@@ -1246,7 +1248,7 @@ def export_collection(period_name: str):
     return {"file_url": file_doc.file_url, "file_name": file_name}
 
 
-def _reconcile_if_sources(employer, progress=None):
+def _reconcile_if_sources(employer, progress=None, preserve_deposits=False):
     if not employer:
         frappe.throw(_("Indique la empresa antes de actualizar sus conciliaciones."))
     from credinomina_reconciliation.paying_employers import reconciliation_companies
@@ -1265,6 +1267,10 @@ def _reconcile_if_sources(employer, progress=None):
     if not (imported_core or confirmed_cash or confirmed_complement):
         return None
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+    if preserve_deposits:
+        return _reconcile_sources(
+            employer, progress=progress, preserve_deposits=True,
+        )
     return _reconcile_sources(employer, progress=progress)
 
 
