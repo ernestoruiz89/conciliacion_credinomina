@@ -18,6 +18,7 @@ async function run() {
         { id: "b", historical_application: "MAY", pending_cents: 7000, client_name: "Luis" },
     ];
     picker.data = { rows, available_cents: 10000, modified: "version1" };
+    picker.available_cents = picker.data.available_cents;
     picker.selected = new Map();
     picker.select(rows[0]);
     picker.select(rows[1]);
@@ -55,6 +56,29 @@ async function run() {
     assert.equal(dirty, true);
     assert.equal(hidden, true);
     // No save/submit/reconciliation method is provided; selection must only edit the form.
+
+    const detailRow = {name: "DETAIL-1", source_row: 4, idx: 1, client_name: "Ana", pending_usd: 25, amount_usd: 25};
+    const rowTargets = [];
+    const rowPicker = Object.create(Picker.prototype);
+    rowPicker.frm = {doc: {name: "DEPOSIT", detail_rows: [detailRow], targets: rowTargets},
+        add_child(table, target) { assert.equal(table, "targets"); rowTargets.push(target); },
+        refresh_field() {}, dirty() { dirty = true; }};
+    rowPicker.detailRow = detailRow;
+    rowPicker.detailRowName = detailRow.name;
+    rowPicker.data = {rows: [{id: "app-ana", historical_application: "APP-ANA", pending_cents: 8000}],
+        available_cents: 8000, modified: "version1", detail_row: detailRow.name};
+    rowPicker.available_cents = rowPicker.availableFor(rowPicker.data);
+    rowPicker.selected = new Map([["app-ana", 2500]]);
+    rowPicker.dialog = {hide() { hidden = true; }};
+    context.frappe.call = async request => {
+        assert.equal(request.args.detail_row_name, "DETAIL-1");
+        return {message: rowPicker.data};
+    };
+    await rowPicker.apply();
+    assert.equal(rowTargets[0].detail_row, "DETAIL-1");
+    assert.equal(rowTargets[0].detail_row_label, "Fila 4 · Ana");
+    assert.equal(rowTargets[0].amount_usd, 25);
+    assert.equal(rowPicker.availableFor(rowPicker.data), 0); // Existing unprocessed linked targets reserve this row's remaining amount.
 
     const update = vm.runInContext("updateUsdEquivalent", context);
     let converted;

@@ -89,11 +89,15 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     // Row shortcut reuses the same creation API; only explicit confirmation writes.
     const row = {name:"R", idx:1, source_row:2, client:"123", client_number:"123", client_name:"<script>Ana", loan_number:"100-1", pending_usd:10};
     const deposit = {doc:{name:"DEP", employer:"INDENICSA", docstatus:1, modified:"stamp", deposit_date:"2025-05-10", detail_rows:[row]},
-        fields_dict:{detail_rows:{grid:{grid_rows_by_docname:{R:{grid_form:{fields_dict:{create_client_credit:{$wrapper:{toggle: value => {shown.rowButton = value;}}}}}}}}}},
+        fields_dict:{detail_rows:{grid:{grid_rows_by_docname:{R:{grid_form:{fields_dict:{
+            create_client_credit:{$wrapper:{toggle: value => {shown.rowButton = value;}}},
+            select_pending_targets:{$wrapper:{toggle: value => {shown.rowTargetButton = value;}}},
+        }}}}}}},
         is_new: () => false, is_dirty: () => false, get_perm: () => true, reload_doc: async () => {reloads++;}, paying_companies:["INDENICSA","CBC"]};
     const detailEvents = handlers["CN Remittance Detail"];
     detailEvents.form_render(deposit, "CN Remittance Detail", "R");
     assert.equal(shown.rowButton, true);
+    assert.equal(shown.rowTargetButton, true);
     const createsBefore = calls.filter(call => call.method?.endsWith("create_complementary_item")).length;
     await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
     const rowDialog = dialog, count = dialogCount;
@@ -131,6 +135,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
         row.pending_usd = pending;
         detailEvents.form_render(deposit, "CN Remittance Detail", "R");
         assert.equal(shown.rowButton, false);
+        assert.equal(shown.rowTargetButton, false);
         await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
         assert.equal(dialogCount, count);
     }

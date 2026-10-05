@@ -51,11 +51,11 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     employee = clean_text(row.get("employee_number"))
     national_id = clean_text(row.get("national_id"))
     has_identifier = any((loan, client, employee, national_id))
+    identity_match = bool(row.get("client") and claim.get("client") and row["client"] == claim["client"])
     if loan and not _same_id(loan, claim.get("loan_number")):
         return False
     if not has_identifier and not clean_text(row.get("client_name")):
         return False
-    identity_match = False
     if client and claim.get("client_number"):
         if not _same_id(client, claim["client_number"]):
             return False
