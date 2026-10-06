@@ -5,6 +5,13 @@ from credinomina_reconciliation.company_statement import METRICS, load_detail, s
 
 def execute(filters=None):
     filters = filters or {}
+    if filters.get('cutoff_date'):
+        from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
+        result = load_cutoff(filters)
+        data = result['detail'] if filters.get('view_mode') == 'Detalle' else result['summary']
+        # Keep the date and qualifications in native spreadsheet exports too.
+        data = [dict(row, cutoff_date=result['cutoff_date'], cutoff_warning='; '.join(result['warnings'])) for row in data]
+        return get_columns(filters), data, cutoff_message(result)
     detail = load_detail(filters)
     data = detail if filters.get('view_mode') == 'Detalle' else summarize(detail)
     message = _('Saldos actuales en US$. Saldo neto informativo suma las columnas; los importes sin vincular conservan su gestión pendiente. '
@@ -46,5 +53,10 @@ def get_columns(filters=None):
                   ('related_deposits', 'Depósitos relacionados', 195), ('accounting_status', 'Registro contable', 170),
                   ('reference', 'Referencia / asiento', 155), ('source_rows', 'Filas de origen', 120),
                   ('observation', 'Observaciones', 350)]],
+        ]
+    if (filters or {}).get('cutoff_date'):
+        columns += [
+            {'fieldname': 'cutoff_date', 'label': _('Fecha de corte histórico'), 'fieldtype': 'Date', 'width': 150},
+            {'fieldname': 'cutoff_warning', 'label': _('Advertencias del corte'), 'fieldtype': 'Data', 'width': 350},
         ]
     return columns

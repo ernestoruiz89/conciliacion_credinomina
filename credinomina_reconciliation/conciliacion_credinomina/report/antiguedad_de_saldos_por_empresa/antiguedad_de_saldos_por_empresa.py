@@ -12,7 +12,7 @@ def execute(filters=None):
     result = detailed.execute(filters)
     source_columns, source_rows = result[:2]
     columns = [dict(column) for column in source_columns
-               if column["fieldname"] in {"employer", "balance_type"} or column["fieldtype"] == "Currency"]
+               if column["fieldname"] in {"employer", "balance_type", "cutoff_date", "cutoff_warning"} or column["fieldtype"] == "Currency"]
     money_fields = [column["fieldname"] for column in columns if column["fieldtype"] == "Currency"]
     applications = "applied_usd" in money_fields
     if applications:
@@ -26,6 +26,8 @@ def execute(filters=None):
     data = []
     for (employer, balance_type), rows in sorted(groups.items()):
         item = {"employer": employer or None, "usd_currency": "USD"}
+        if rows[0].get('cutoff_date'):
+            item.update(cutoff_date=rows[0]['cutoff_date'], cutoff_warning=rows[0].get('cutoff_warning') or '')
         if any(column["fieldname"] == "balance_type" for column in columns):
             item["balance_type"] = balance_type
         for field in money_fields:

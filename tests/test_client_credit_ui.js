@@ -25,6 +25,7 @@ const reasonField = itemSchema.fields.find(field => field.fieldname === "reason_
 assert.equal(reasonField.allow_on_submit, 1);
 assert.ok(!reasonField.read_only);
 assert.ok(reasonField.options.split("\n").includes("Por refinanciamiento"));
+assert.ok(reasonField.options.split("\n").includes("Por cancelación"));
 assert.equal(itemSchema.track_changes, 1);
 for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
     vm.runInContext(fs.readFileSync(path.join(base, dt, `${dt}.js`), "utf8"), context);

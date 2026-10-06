@@ -47,7 +47,7 @@ class ApplicationAgingReportTests(unittest.TestCase):
         self.assertEqual(len(data), 1)
         self.assertEqual(data[0]["amount_usd"], 22.52)
         self.assertEqual(data[0]["age_days"], 1)
-        self.assertEqual(data[0]["days_1_30"], 22.52)
+        self.assertEqual(data[0]["days_1_15"], 22.52)
         self.assertEqual(summary[0]["value"], 22.52)
         self.assertIn("grace_days", message)
         self.assertIn("paid_usd", {column["fieldname"] for column in columns})

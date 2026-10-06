@@ -455,7 +455,7 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: companyCredit ? "Saldo a favor de la empresa" : sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow || companyCredit, reqd: 1},
             {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa o corresponde a otro ajuste.")},
             {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"),
-                options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nOtro por aclarar", default: "",
+                options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar", default: "",
                 depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)",
                 mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)",
                 description: __("Seleccione el motivo. Puede corregirlo posteriormente en la partida, incluso después de confirmarla.")},

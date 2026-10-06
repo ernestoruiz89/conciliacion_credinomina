@@ -7,6 +7,7 @@ const report = context.frappe.query_reports['Estado de Cuenta por Empresa'];
 assert.equal(report.filters[0].default, 'Resumen');
 assert.equal(report.filters[0].options, 'Resumen\nDetalle');
 assert.ok(report.filters.some(f => f.fieldname === 'employer' && f.options === 'CN Employer'));
+assert.ok(report.filters.some(f => f.fieldname === 'cutoff_date' && f.fieldtype === 'Date' && !f.reqd));
 const col = {fieldname: 'balance_usd', fieldtype: 'Currency'}, base = v => `formatted:${v}`;
 assert.match(report.formatter(null, null, col, {balance_usd: null}, base), /—/);
 assert.equal(report.formatter(0, null, col, {balance_usd: 0}, base), 'formatted:0');
