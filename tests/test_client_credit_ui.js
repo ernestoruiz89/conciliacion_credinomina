@@ -66,9 +66,10 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     assert.equal(buttons["Vincular a aplicación"], undefined);
     await events.record_credit_management(frm);
     const fields = dialog.options.fields;
-    for (const field of ["event_date", "amount_usd", "reference", "support_file", "treatment"]) assert.ok(fields.find(f => f.fieldname === field).reqd);
+    for (const field of ["event_date", "amount_usd", "reference", "treatment"]) assert.ok(fields.find(f => f.fieldname === field).reqd);
+    assert.ok(!fields.find(f => f.fieldname === "support_file").reqd);
     assert.equal(fields.find(f => f.fieldname === "support_file").options.docname, "CREDIT");
-    const task = dialog.options.primary_action({amount_usd:4, treatment:"Devolución", reference:"REC", event_date:"2025-05-10", support_file:"/private/files/proof.pdf"});
+    const task = dialog.options.primary_action({amount_usd:4, treatment:"Devolución", reference:"REC", event_date:"2025-05-10"});
     await dialog.options.primary_action({amount_usd:4});
     assert.equal(calls.filter(call => call.method?.endsWith("record_management")).length, 1);
     const request = calls.find(call => call.method?.endsWith("record_management"));

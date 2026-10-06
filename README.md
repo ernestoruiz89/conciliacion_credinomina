@@ -121,8 +121,8 @@ importes permiten un cruce único.
   con saldo a favor del cliente**; el importe se reserva y no puede asignarse
   también a otros destinos. Esto no significa que se haya devuelto.
   Use **Registrar gestión del saldo** para documentar devoluciones o aplicaciones
-  futuras realizadas fuera de la herramienta, con fecha, referencia y soporte
-  adjunto. Admite gestiones parciales y conserva un historial de importes,
+  futuras realizadas fuera de la herramienta, con fecha y referencia obligatorias;
+  el soporte adjunto es opcional. Admite gestiones parciales y conserva un historial de importes,
   usuarios y comprobantes. La lista **Saldos de clientes pendientes** permite
   darle seguimiento. Puede continuar la gestión después de cerrar el período,
   sin alterar su conciliación original. No genera pagos ni asientos en el core.
@@ -1184,7 +1184,7 @@ de devolución o aplicación externa. No es un nuevo pago del préstamo.
   período cerrado. Documentar una devolución no libera ese dinero de nuevo.
 - En las partidas de empresa, indique tratamiento, responsable y fecha
   compromiso. **Registrar gestión** admite importes parciales, fecha real,
-  referencia y soporte; conserva actor, fecha, importe y pendiente en el
+  referencia obligatoria y soporte opcional; conserva actor, fecha, importe y pendiente en el
   historial. Los registros antiguos se inicializan como pendientes sin
   inventar devoluciones, responsables ni fechas compromiso.
 - La cabecera de la **Partida Complementaria** muestra importe original,

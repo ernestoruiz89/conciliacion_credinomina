@@ -202,7 +202,7 @@ def guard_deposit_changes(deposit, previous):
 
 
 @frappe.whitelist(methods=["POST"])
-def record_management(item_name, modified, treatment, amount_usd, event_date, reference, support_file, notes=""):
+def record_management(item_name, modified, treatment, amount_usd, event_date, reference, support_file="", notes=""):
     """Document proven external management; never post GL, create a payment or reallocate cash."""
     item = frappe.get_doc("CN Complementary Item", item_name, for_update=True)
     item.check_permission("write")
@@ -215,15 +215,17 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
     pending = money(item.amount_usd) - money(item.get("credit_resolved_usd"))
     if amount <= 0 or amount > pending:
         frappe.throw(_("El importe de la gestión debe ser positivo y no superar el saldo pendiente."))
-    if treatment not in {"Devolución", "Aplicación futura"} or not clean_text(reference) or not support_file or not event_date:
-        frappe.throw(_("Indique devolución o aplicación, fecha, referencia del core/comprobante y soporte."))
+    if treatment not in {"Devolución", "Aplicación futura"} or not clean_text(reference) or not event_date:
+        frappe.throw(_("Indique devolución o aplicación, fecha y referencia del core/comprobante."))
     if getdate(event_date) < getdate(item.posting_date) or getdate(event_date) > getdate():
         frappe.throw(_("La fecha de gestión no puede ser futura ni anterior al saldo a favor."))
-    files = frappe.get_all("File", filters={"file_url": support_file, "attached_to_doctype": item.doctype,
-                                           "attached_to_name": item.name}, pluck="name", limit_page_length=1)
-    if not files:
-        frappe.throw(_("El soporte de la gestión debe estar adjunto a esta partida."))
-    frappe.get_doc("File", files[0]).check_permission("read")
+    support_file = clean_text(support_file)
+    if support_file:
+        files = frappe.get_all("File", filters={"file_url": support_file, "attached_to_doctype": item.doctype,
+                                               "attached_to_name": item.name}, pluck="name", limit_page_length=1)
+        if not files:
+            frappe.throw(_("El soporte de la gestión debe estar adjunto a esta partida."))
+        frappe.get_doc("File", files[0]).check_permission("read")
     history = json.loads(item.get("credit_history") or "[]")
     history.append({"operation_id": uuid4().hex, "tratamiento": treatment, "importe_usd": money_float(amount), "fecha": str(getdate(event_date)),
                     "referencia": clean_text(reference), "soporte": support_file, "observaciones": clean_text(notes),

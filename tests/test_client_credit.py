@@ -159,10 +159,25 @@ class ManagementTests(unittest.TestCase):
 
     def test_invalid_management_is_rejected(self):
         for changes in ({"amount_usd":7}, {"amount_usd":0}, {"amount_usd":-1}, {"modified":"old"}, {"reference":""},
-                        {"support_file":""}, {"event_date":"2025-05-09"}, {"event_date":"2999-01-01"}, {"treatment":"Unknown"}):
+                        {"event_date":""}, {"event_date":"2025-05-09"}, {"event_date":"2999-01-01"}, {"treatment":"Unknown"}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 credit.record_management(**(self.args | changes))
         self.db.set_value.assert_not_called()
+
+    def test_management_without_support_is_allowed(self):
+        for category in credit.CREDIT_CATEGORIES:
+            for treatment in ("Devolución", "Aplicación futura"):
+                for support in ({}, {"support_file": ""}, {"support_file": None}, {"support_file": "   "}):
+                    with self.subTest(category=category, treatment=treatment, support=support):
+                        self.item.category = category
+                        args = {key: value for key, value in self.args.items() if key != "support_file"}
+                        result = credit.record_management(**(args | {"treatment": treatment} | support))
+                        self.assertEqual((result["status"], result["pending_usd"]), ("Resuelto", 0))
+                        history = json.loads(self.db.set_value.call_args.args[2]["credit_history"])
+                        self.assertEqual(history[-1]["soporte"], "")
+                        self.assertEqual(history[-1]["referencia"], "REC")
+                        self.assertEqual(history[-1]["tratamiento"], treatment)
+        credit.frappe.get_all.assert_not_called()
 
     def test_support_must_belong_to_item(self):
         with patch.object(credit.frappe, "get_all", return_value=[]), self.assertRaises(ValueError):
