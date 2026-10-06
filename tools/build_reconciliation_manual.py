@@ -177,7 +177,14 @@ def configure(doc):
     doc.core_properties.language = "es-NI"
 
 
-def cover(doc):
+def cover(doc, source_text):
+    metadata = re.search(
+        r"Versión del manual: ([^.]+\.[^.]+)\. Fecha de revisión: ([^.]+)\. "
+        r"Referencia de plataforma: ([^.]+(?:\.[0-9]+)*)\.", source_text,
+    )
+    if not metadata:
+        raise ValueError("Faltan versión, fecha o plataforma en el procedimiento")
+    version, reviewed, platform = metadata.groups()
     paragraph = doc.add_paragraph("MIDESA")
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     paragraph.paragraph_format.space_before = Pt(85)
@@ -189,7 +196,7 @@ def cover(doc):
     subtitle = doc.add_paragraph("Aplicaciones y depósitos\nAjustes y saldos a favor\nControl de cuentas por cobrar", style="Subtitle")
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
     subtitle.paragraph_format.space_after = Pt(32)
-    table(doc, [["Control del documento", "Referencia"], ["Versión", "1.0"], ["Fecha de revisión", "4 de octubre de 2026"], ["Usuarios", "Operadores y supervisores de conciliación"], ["Plataforma", "Frappe Framework v15.111.1"], ["Alcance", "App independiente y core externo de la IMF"]])
+    table(doc, [["Control del documento", "Referencia"], ["Versión", version], ["Fecha de revisión", reviewed], ["Usuarios", "Operadores y supervisores de conciliación"], ["Plataforma", platform], ["Alcance", "App independiente y core externo de la IMF"]])
     doc.add_paragraph("Uso interno. Conserve archivos y datos personales con acceso restringido. Las autorizaciones institucionales deben obtenerse por el procedimiento de la IMF.")
     doc.add_page_break()
 
@@ -237,7 +244,7 @@ def build():
     headings = [line[3:] for line in lines if line.startswith("## ")]
     doc = Document()
     configure(doc)
-    cover(doc)
+    cover(doc, text)
     contents(doc, headings)
     index, chapter, ordered_id = 1, 0, None
     while index < len(lines):

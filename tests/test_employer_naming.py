@@ -75,6 +75,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.add_company_transactions_report",
                 "credinomina_reconciliation.patches.v1_0.add_company_statement_report",
                 "credinomina_reconciliation.patches.v1_0.add_complementary_subcategories",
+                "credinomina_reconciliation.patches.v1_0.backfill_period_financial_totals",
             ],
             list(patches["post_model_sync"]),
         )

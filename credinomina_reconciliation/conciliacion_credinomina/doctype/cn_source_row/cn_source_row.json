@@ -9,7 +9,7 @@
     "client_name", "client_number", "national_id", "client_column", "loan_number", "installment_number", "employee_number",
     "movement_section", "event_date", "event_type", "currency", "amount", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status", "movement_column", "accounting_entry", "receipt", "reference", "voucher",
     "classification_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "complementary_item", "remittance_allocation", "classification_column", "source_account", "source_currency", "source_debit", "source_credit", "accounting_reference", "source_classification", "accounting_source_key",
-    "matching_section", "match_status", "match_reason", "matching_column", "deposit_match_status", "deposit_match_reason",
+    "matching_section", "match_status", "match_reason", "quality_basis", "quality_status", "matching_column", "deposit_match_status", "deposit_match_reason",
     "routing_section", "processing_route", "historical_period", "routing_column", "collection_period",
     "payment_term_section", "payment_due_date", "payment_term_days", "payment_term_column", "payment_term_origin",
     "historical_section", "historical_remitted_usd", "historical_column", "historical_balance_usd",
@@ -28,6 +28,8 @@
     "rounding_trace_section", "rounding_movement_detail"
   ],
   "fields": [
+    {"fieldname": "quality_basis", "fieldtype": "Data", "label": "Comparado contra", "read_only": 1},
+    {"fieldname": "quality_status", "fieldtype": "Data", "label": "Control de aplicación", "read_only": 1, "description": "Control agregado de las cuotas vinculadas. No confirma deducción ni depósito; consulte sus estados por separado."},
     {"fieldname": "payment_term_section", "fieldtype": "Section Break", "label": "Vencimiento del pago de la empresa", "collapsible": 1, "depends_on": "eval:doc.event_type == 'Aplicacion'"},
     {"fieldname": "payment_due_date", "fieldtype": "Date", "label": "Vencimiento conservado", "read_only": 1, "no_copy": 1},
     {"fieldname": "payment_term_days", "fieldtype": "Int", "label": "Día desde el inicio del mes siguiente", "read_only": 1, "no_copy": 1},
@@ -123,7 +125,7 @@
     {"depends_on": "eval:doc.event_type == 'Aplicacion'", "description": "Solo para aplicaciones históricas. Seleccione el período de empresa, mes y fecha o rango que incluya la fecha de aplicación.", "fieldname": "historical_period", "fieldtype": "Link", "label": "Período histórico", "options": "CN Reconciliation Period"},
     {"fieldname": "historical_application_id", "fieldtype": "Data", "label": "ID para distribución histórica", "read_only": 1},
     {"default": "1", "fieldname": "effective", "fieldtype": "Check", "label": "Fuente efectiva", "read_only": 1},
-    {"fieldname": "match_status", "fieldtype": "Select", "in_list_view": 1, "columns": 2, "label": "Estado", "options": "Pendiente\nEnlace provisional\nConciliado\nAmbiguo\nSin coincidencia\nIgnorado", "read_only": 1},
+    {"fieldname": "match_status", "fieldtype": "Select", "in_list_view": 1, "columns": 2, "label": "Estado del vínculo", "options": "Pendiente\nEnlace provisional\nConciliado\nAmbiguo\nSin coincidencia\nIgnorado", "read_only": 1, "description": "Vínculo con la cobranza o período. Revise Control de aplicación para importes y el estado del depósito para cobertura financiera."},
     {"fieldname": "match_reason", "fieldtype": "Small Text", "label": "Resultado", "read_only": 1},
     {"description": "En una aplicación que cubre ambas quincenas, muestra el primer período; revise la distribución para ver los dos.", "fieldname": "collection_period", "fieldtype": "Link", "label": "Periodo", "options": "CN Reconciliation Period", "read_only": 1},
     {"fieldname": "collection_row_id", "fieldtype": "Data", "hidden": 1, "label": "Fila de cobranza", "read_only": 1},

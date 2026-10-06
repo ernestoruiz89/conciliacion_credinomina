@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextvars import ContextVar
 
 import frappe
+from credinomina_reconciliation.application_quality import source_quality, update_collection_quality
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, getdate, now_datetime
@@ -1124,6 +1125,8 @@ def _match_applications(
     for source in source_rows:
         if source.event_type != "Aplicacion" or not source.effective:
             continue
+        source.quality_basis = ""
+        source.quality_status = ""
         if source.get("_source_employer") == UNIDENTIFIED_EMPLOYER:
             source.match_status = "Sin coincidencia"
             source.match_reason = _("Empresa pendiente de identificar. Corrija la empresa de esta importación antes de conciliar.")
@@ -1263,9 +1266,7 @@ def _match_applications(
         if len(candidates) == 1:
             target, converted_match, _exact, detail_pending = candidates[0]
             applied_by_target[target.name] += net_amount(source)
-            source.match_status = (
-                PROVISIONAL_APPLICATION if detail_pending else "Conciliado"
-            )
+            source.match_status = "Conciliado"
             if converted_match:
                 source.match_reason = _(
                     "Aplicacion parcial o total en US$ enlazada a la deduccion en C$ con tasa documentada de {0} C$ por US$."
@@ -1280,7 +1281,7 @@ def _match_applications(
                 )
             if detail_pending:
                 source.match_reason += " " + _(
-                    "Enlace provisional: falta confirmar la deducción de la empresa; no es conciliación final."
+                    "Control de aplicación contra cobranza; deducción pendiente de confirmar. Este vínculo no acredita un depósito."
                 )
             source.collection_period = target.parent
             source.collection_row_id = target.name
@@ -1302,17 +1303,13 @@ def _match_applications(
                     "period": target.parent,
                     "amount_usd": amount,
                 })
-            source.match_status = (
-                PROVISIONAL_APPLICATION
-                if any(candidate["detail_pending"] for candidate in pair)
-                else "Conciliado"
-            )
+            source.match_status = "Conciliado"
             source.match_reason = _(
                 "Una aplicacion del core cubre las dos quincenas del mismo credito, empresa y mes; reparto completo por saldos disponibles."
             )
             if any(candidate["detail_pending"] for candidate in pair):
                 source.match_reason += " " + _(
-                    "Enlace provisional: falta confirmar la deducción de la empresa; no es conciliación final."
+                    "Control de aplicación contra cobranza; deducción pendiente de confirmar. Este vínculo no acredita un depósito."
                 )
             if any(candidate["converted_match"] for candidate in pair):
                 source.match_reason += " " + _(
@@ -2671,6 +2668,7 @@ def _rebuild_period_balances(
                 else "Aplicacion encontrada"
             )
 
+    update_collection_quality(rows_by_name.values())
     _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation)
 
     # Applications covering more than one period still use all their stored
@@ -2690,6 +2688,8 @@ def _rebuild_period_balances(
             for link in _application_allocations(source)
             if link["collection_row_id"] in status_rows
         ]
+        if not source.historical_period and not source.get("_historical_backfill"):
+            source.update(source_quality(targets))
         if not targets:
             source.deposit_match_status = (
                 "Ambiguo" if clean_text(source.reference) in paired_references
@@ -2699,14 +2699,14 @@ def _rebuild_period_balances(
                 "La aplicacion aun no se enlaza de forma unica con una cobranza."
             )
             continue
-        if source.match_status == PROVISIONAL_APPLICATION:
+        if any(target.deduction_status in {None, "", "Pendiente de detalle"} for target in targets):
             source.deposit_match_status = (
                 "Depósito parcial"
                 if any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets)
                 else "Pendiente"
             )
             source.deposit_match_reason = _(
-                "La aplicación está enlazada provisionalmente; confirme el detalle de deducción de la empresa antes de conciliar el depósito."
+                "El control de aplicación se realiza contra cobranza. Deducción pendiente de confirmar; la cobertura financiera se revisa por separado."
             )
             source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
             continue
