@@ -14,7 +14,7 @@ IDENTITY_FIELDS = ('event_type', 'event_date', 'source_key', 'accounting_source_
                    'effective', 'remittance_allocation', 'complementary_item',
                    'historical_period', 'processing_route')
 AMOUNT_FIELDS = ('amount', 'equivalent_amount', 'manual_fx_rate', 'fx_rate')
-DERIVED_FIELDS = ('match_status', 'collection_period', 'collection_row_id',
+DERIVED_FIELDS = ('match_status', 'quality_basis', 'quality_status', 'collection_period', 'collection_row_id',
                   'application_allocation_detail', 'historical_remitted_usd',
                   'historical_balance_usd', 'historical_detail')
 

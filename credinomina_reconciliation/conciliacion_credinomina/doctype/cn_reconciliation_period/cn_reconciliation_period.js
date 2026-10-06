@@ -4,6 +4,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
         setRemittanceDateEditing(frm);
         refreshPeriodExceptions(frm);
         refreshPeriodPending(frm);
+        refreshApplicationQuality(frm);
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
         frm.add_custom_button(__("Ver cortes registrados"), () => showRegisteredCuts(frm), __("Más opciones"));
@@ -91,6 +92,28 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+function refreshApplicationQuality(frm) {
+    const wrapper = frm.fields_dict?.quality_html?.$wrapper;
+    if (!wrapper) return;
+    if (frm.doc.reconciliation_mode === "Historica") { wrapper.empty(); return; }
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const rows = frm.doc.collection_rows || [];
+    const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
+    wrapper.html(`<h4>${esc(__("Control de calidad de la aplicación"))}</h4>
+        <p>${esc(__("Compara lo aplicado con la deducción informada o, si falta, con la cobranza. Conforme no significa depositado. Actualice desde Conciliar esta empresa en la importación contable y recargue el período."))}</p>
+        <div class="table-responsive"><table class="table table-bordered">
+        <thead><tr>${["Cliente", "Crédito", "Comparado contra", "A aplicar US$", "Aplicado US$", "Diferencia US$", "Control de aplicación", "Evidencia de deducción"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map(row => `<tr>
+            <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td>
+            <td>${esc(row.quality_basis || "—")}</td>
+            <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_expected_usd)}</td>
+            <td class="text-right">${money(row.applied_usd)}</td>
+            <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_difference_usd)}</td>
+            <td><span class="indicator-pill ${String(row.quality_status || "").startsWith("Conforme") ? "green" : "orange"}">${esc(__(row.quality_status || "Pendiente de actualizar"))}</span></td>
+            <td>${esc(__(row.deduction_status || "Pendiente de detalle"))}</td>
+        </tr>`).join("")}</tbody></table></div>`);
+}
 
 async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
     const wrapper = frm.fields_dict?.pending_html?.$wrapper;

@@ -24,6 +24,29 @@ importes permiten un cruce único.
 
 ## Qué permite conciliar
 
+### Control de calidad de la aplicación operativa
+
+La primera conciliación verifica lo aplicado contra el **detalle de deducción**
+informado o, si aún falta, contra la **cobranza**. Una coincidencia puede quedar
+**Conforme según cobranza** sin inventar deducciones ni depósitos. El período
+muestra una tabla de control en su detalle: base utilizada, importe a aplicar,
+aplicado y diferencia; cada fila contable también muestra el control de las
+cuotas vinculadas. Una aplicación parcial no vuelve conforme una cuota incompleta.
+
+Cargue la cobranza, importe los movimientos y use **Conciliar esta empresa**;
+recargue el período para revisar el control. Al llegar la respuesta de la empresa,
+importe el detalle y vuelva a conciliar: la base pasa a la deducción informada.
+Las diferencias de centavos no se ocultan con la tolerancia de depósitos. Una
+deducción inválida exige revisión, no se sustituye silenciosamente por cobranza.
+
+Este control es independiente de la cobertura financiera: **Conforme** no significa
+**depositado** ni confirma un descuento salarial. La evidencia pendiente sigue
+visible y no se relajan los controles de cierre. Después de actualizar la app,
+ejecute `bench --site <sitio> migrate` para los campos nuevos y recalcule las
+empresas que necesite revisar; no se redistribuye dinero mediante un parche masivo.
+
+### Distribución financiera y seguimiento
+
 - Pagos parciales, un depósito para varias cobranzas y varios depósitos para
   una cobranza. Cada **Distribución de Depósito** representa un depósito. Su
   detalle por cliente identifica automáticamente los destinos; la tabla de

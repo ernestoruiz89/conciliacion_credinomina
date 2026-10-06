@@ -9,6 +9,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import collection_shortfall_usd, operational_balances
+from credinomina_reconciliation.application_quality import update_collection_quality
 from credinomina_reconciliation.cadence import (
     MONTHLY,
     cycle_code,
@@ -260,6 +261,8 @@ class CNReconciliationPeriod(Document):
             update_period_totals(self)
             return  # Rebuilt from linked core applications, never from payroll rows.
         rows = list(self.collection_rows or [])
+        if self.status != "Cerrado":
+            update_collection_quality(rows)
         for fieldname in (
             "expected_usd",
             "expected_nio",

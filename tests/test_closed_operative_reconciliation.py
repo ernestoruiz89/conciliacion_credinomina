@@ -127,7 +127,9 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
         self.assertEqual(row.applied_usd, 50)
         self.assertEqual(row.application_status, "Aplicacion encontrada")
         self.assertEqual(application.deposit_match_status, "Pendiente")
-        self.assertIn("provisionalmente", application.deposit_match_reason)
+        self.assertIn("Deducción pendiente", application.deposit_match_reason)
+        self.assertEqual(application.quality_status, "Conforme según cobranza")
+        self.assertEqual(row.quality_status, "Conforme según cobranza")
         period.save.assert_called_once()
 
     def test_paid_row_does_not_clear_undeducted_or_pending_rows(self):
@@ -149,6 +151,26 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
                 self.assertFalse(source_module._operative_period_fully_reconciled(period))
         period.collection_rows = [paid]
         period.exception_count = 1
+        self.assertFalse(source_module._operative_period_fully_reconciled(period))
+
+    def test_quality_conformity_does_not_manufacture_deduction_or_deposit(self):
+        period, row = _closed_period(expected_usd=100)
+        period.status = "Pendiente"
+        application = frappe._dict({
+            "name": "APP-1", "event_type": "Aplicacion", "effective": 1,
+            "match_status": "Conciliado", "currency": "USD", "reference": "R-1",
+            "application_allocation_detail": json.dumps([{
+                "collection_row_id": row.name, "amount_usd": 100,
+            }]),
+        })
+        with patch.object(source_module, "_transfer_matching_exception_notes"):
+            source_module._rebuild_period_balances(
+                [period], [application], [], _allocation(), {}, {}, [],
+            )
+        self.assertEqual(application.quality_status, "Conforme según cobranza")
+        self.assertEqual(application.deposit_match_status, "Pendiente")
+        self.assertEqual(row.deduction_status, "Pendiente de detalle")
+        self.assertEqual((row.deducted_usd, row.remitted_usd), (0, 0))
         self.assertFalse(source_module._operative_period_fully_reconciled(period))
 
 
