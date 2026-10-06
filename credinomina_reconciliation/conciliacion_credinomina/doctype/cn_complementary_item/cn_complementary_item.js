@@ -359,7 +359,7 @@ async function cn_record_client_credit_management(frm) {
         {fieldname: "event_date", fieldtype: "Date", label: __("Fecha de gestión"), reqd: 1, default: frappe.datetime.get_today()},
         {fieldtype: "Column Break"},
         {fieldname: "reference", fieldtype: "Data", label: __("Referencia del core / comprobante"), reqd: 1},
-        {fieldname: "support_file", fieldtype: "Attach", label: __("Soporte adjunto a la partida"), reqd: 1,
+        {fieldname: "support_file", fieldtype: "Attach", label: __("Soporte adjunto a la partida (opcional)"),
             options: {doctype: frm.doctype || frm.doc.doctype, docname: frm.doc.name}},
         {fieldname: "notes", fieldtype: "Small Text", label: __("Observaciones")},
     ], primary_action_label: __("Registrar gestión"), async primary_action(values) {
