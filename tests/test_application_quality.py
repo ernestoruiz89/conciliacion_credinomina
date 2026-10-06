@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import frappe
 
-from credinomina_reconciliation.application_quality import collection_quality, source_quality
+from credinomina_reconciliation.application_quality import COLLECTION, EMPLOYER_DETAIL, collection_quality, source_quality
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
 
 
@@ -31,31 +31,32 @@ class ApplicationQualityTests(unittest.TestCase):
             self.assertFalse(result["quality_status"].startswith("Conforme"))
             self.assertEqual(result["quality_difference_usd"], expected)
 
-    def test_late_response_changes_basis_and_result(self):
+    def test_late_response_does_not_change_selected_basis(self):
         row = self.row()
         row.update(deduction_status="Deduccion parcial", deducted_usd=80)
-        self.assertEqual(collection_quality(row)["quality_difference_usd"], 20)
+        self.assertEqual(collection_quality(row, COLLECTION)["quality_difference_usd"], 0)
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_difference_usd"], 20)
         row.applied_usd = 80
-        self.assertEqual(collection_quality(row)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
 
     def test_invalid_deduction_does_not_fall_back_to_collection(self):
         row = self.row()
         row.deduction_status = "Importes inconsistentes"
-        result = collection_quality(row)
+        result = collection_quality(row, EMPLOYER_DETAIL)
         self.assertEqual(result["quality_status"], "Revisar base de comparación")
         self.assertIsNone(result["quality_difference_usd"])
 
     def test_nio_conversion_requires_basis(self):
         row = self.row()
         row.update(deduction_status="Deduccion total", deducted_nio=3662.43)
-        self.assertEqual(collection_quality(row)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
         row.expected_usd = 0
-        self.assertEqual(collection_quality(row)["quality_status"], "Revisar base de comparación")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Revisar base de comparación")
 
     def test_no_deduction_and_no_application_is_quality_conformity(self):
         row = self.row()
         row.update(deduction_status="No deducido", applied_usd=0)
-        self.assertEqual(collection_quality(row)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
 
     def test_identified_complement_not_counted_as_loan_application(self):
         row = self.row()
@@ -68,16 +69,18 @@ class ApplicationQualityTests(unittest.TestCase):
         self.assertEqual(source_quality([first, second])["quality_status"], "Con diferencias")
         self.assertEqual(source_quality([])["quality_status"], "Sin cobranza vinculada")
 
-    def match(self, amount=100, other=None, reference=None):
+    def match(self, amount=100, other=None, reference=None, basis=COLLECTION, deduction=None):
         row = self.row()
         row.update(name="C1", parent="P1", loan_number="109-1", client_number="1", applied_usd=0)
         row.application_reference = reference
+        if deduction is not None:
+            row.update(deducted_usd=deduction, deduction_status="Deduccion parcial")
         row.as_dict = lambda: dict(row)
         source = frappe._dict(name="A1", event_type="Aplicacion", effective=1,
             currency="USD", amount=amount, event_date="2026-09-15", loan_number="109-1", client_number="1")
         source.as_dict = lambda: dict(source)
         source.reference = reference
-        period = frappe._dict(name="P1", employer="E1", reconciliation_mode="Operativa")
+        period = frappe._dict(name="P1", employer="E1", reconciliation_mode="Operativa", application_basis=basis)
         resolver = Mock()
         resolver.resolve.return_value = ("E1", "")
         with patch.object(engine, "load_client_index", return_value=[]), \
@@ -90,11 +93,29 @@ class ApplicationQualityTests(unittest.TestCase):
     def test_engine_links_collection_without_provisional_status(self):
         source = self.match()
         self.assertEqual(source.match_status, "Conciliado")
-        self.assertIn("deducción pendiente", source.match_reason)
+        self.assertIn("cobranza seleccionada", source.match_reason)
         self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], 100)
 
     def test_engine_does_not_force_an_excess_into_collection(self):
         self.assertEqual(self.match(120).match_status, "Sin coincidencia")
+
+    def test_engine_uses_only_selected_base_when_both_details_exist(self):
+        self.assertEqual(self.match(100, deduction=80).match_status, "Conciliado")
+        self.assertEqual(self.match(100, deduction=80, basis=EMPLOYER_DETAIL).match_status, "Sin coincidencia")
+        self.assertEqual(self.match(80, deduction=80, basis=EMPLOYER_DETAIL).match_status, "Conciliado")
+
+    def test_selected_missing_detail_never_falls_back_even_with_reference(self):
+        self.assertEqual(self.match(basis=EMPLOYER_DETAIL, reference="R").match_status, "Sin coincidencia")
+        self.assertEqual(self.match(basis=None).match_status, "Sin coincidencia")
+
+    def test_one_period_does_not_mix_bases_per_row(self):
+        first, second = self.row(), self.row()
+        first.update(parent="P", deduction_status="Deduccion parcial", deducted_usd=80)
+        second.parent = "P"
+        self.assertEqual(source_quality([first, second], {"P": COLLECTION})["quality_status"], "Conforme según cobranza")
+        detail = source_quality([first, second], {"P": EMPLOYER_DETAIL})
+        self.assertEqual(detail["quality_basis"], EMPLOYER_DETAIL)
+        self.assertEqual(detail["quality_status"], "Revisar base de comparación")
 
     def test_explicit_reference_identifies_excess_for_quality_not_cash(self):
         source = self.match(120, reference="EXPLICIT")

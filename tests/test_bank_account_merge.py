@@ -72,6 +72,27 @@ class BankAccountMergeTest(unittest.TestCase):
         self.source.after_rename("Origen", "Nuevo")
         self.frappe.db.set_value.assert_called_once_with("CN Bank Account", "Nuevo", "account_name", "Nuevo", update_modified=False)
 
+    def test_placeholder_cannot_be_renamed_or_merged_into_a_real_account(self):
+        for old, new in [("NO IDENTIFICADA", "Real"), ("Real", "NO IDENTIFICADA")]:
+            for merge in (False, True):
+                with self.subTest(old=old, merge=merge), self.assertRaises(ValueError):
+                    self.source.before_rename(old, new, merge)
+
+    def test_only_placeholder_allows_missing_bank_number_and_currency(self):
+        self.source.get_doc_before_save = lambda: None
+        self.source.account_name = "NO IDENTIFICADA"
+        self.source.bank_name = self.source.account_number = self.source.currency = ""
+        self.source.validate()
+        self.source.account_name = "Cuenta real"
+        with self.assertRaisesRegex(ValueError, "banco"):
+            self.source.validate()
+        self.source.bank_name = "BAC"
+        with self.assertRaisesRegex(ValueError, "número"):
+            self.source.validate()
+        self.source.account_number = "001"
+        with self.assertRaisesRegex(ValueError, "moneda"):
+            self.source.validate()
+
 
 if __name__ == "__main__":
     unittest.main()

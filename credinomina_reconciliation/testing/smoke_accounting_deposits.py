@@ -16,6 +16,7 @@ def run():
     marker = "DEPSMOKE-" + frappe.generate_hash(length=10)
     try:
         employer = frappe.get_doc({"doctype": "CN Employer", "employer_name": marker, "employer_code": marker, "payroll_frequency": "Mensual"}).insert()
+        banks_before = set(frappe.get_all("CN Bank Account", pluck="name"))
         content = ("Fecha Aplica,Cuenta Contable,Descripcion,TMov,TDoc,No. Cmpte,No. Ref,Debito del Mes,Credito del Mes,Empresa\n"
             f"2025-04-04,1602,C$4394.92 DEPOSITO POR CONVENIO {marker} EN LA CUENTA BAC 987654321 C$ EL DIA 03/04/2025,02,12,{marker},{marker},0,3662.43,{marker}\n"
             f"2025-04-05,1602,U$25.00 DEPOSITO POR CONVENIO SIN IDENTIFICAR,02,12,{marker}B,{marker}B,0,915.61,NO REGISTRADA\n").encode()
@@ -26,9 +27,11 @@ def run():
         assert len(created) == 2
         first, unknown = created
         assert first.docstatus == 0 and first.deposit_amount == 4394.92 and first.amount_usd == 120
-        assert first.bank_account and first.source_credit == 3662.43
+        assert first.bank_account == "NO IDENTIFICADA" and first.source_credit == 3662.43
         assert str(first.deposit_date) == "2025-04-03" and str(first.source_date) == "2025-04-04"
-        assert not unknown.bank_account and unknown.employer == "NO IDENTIFICADA" and unknown.amount_usd == 25
+        assert unknown.bank_account == "NO IDENTIFICADA" and unknown.employer == "NO IDENTIFICADA" and unknown.amount_usd == 25
+        assert set(frappe.get_all("CN Bank Account", pluck="name")) == banks_before | {"NO IDENTIFICADA"}
+        assert not frappe.db.get_value("CN Bank Account", "NO IDENTIFICADA", "currency")
         assert not create_deposits(plan, file.file_url, file_sha256(content))
         assert plan[0]["remittance_allocation"] == first.name
         # A confirmed deposit may lack detail, but never lack a company.
@@ -81,7 +84,7 @@ def run():
         first.submit()
         _, data, *_ = execute({"month": "2025-04-01", "employer": employer.name})
         assert next(row for row in data if row["evidence_key"] == first.accounting_source_key)["state"] == "Pendiente"
-        return {"cash_vs_ledger": "OK", "bank_created": "OK", "unknown_bank_and_company": "OK",
+        return {"cash_vs_ledger": "OK", "only_holding_bank_created": "OK", "unknown_bank_and_company": "OK",
                 "idempotence": "OK", "individual_and_bulk": "OK", "no_duplicate_cash": "OK",
                 "report_mirror_once": "OK", "evidence_immutable": "OK", "rolled_back": True}
     finally:

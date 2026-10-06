@@ -55,6 +55,7 @@ def create_draft_period(import_name: str, values):
         elif scope == "Rango de fechas":
             fields.update({key: values.get(key) for key in ("historical_start_date", "historical_end_date")})
     else:
+        fields["application_basis"] = values.get("application_basis")
         fields["collection_cycle"] = values.get("collection_cycle") or (
             "Mensual" if employer.payroll_frequency != "Quincenal" else ""
         )

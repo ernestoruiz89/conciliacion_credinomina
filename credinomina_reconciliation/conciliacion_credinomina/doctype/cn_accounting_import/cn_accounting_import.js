@@ -168,6 +168,8 @@ async function createAccountingPeriod(frm) {
             }
             dialog.set_df_property("collection_cycle", "hidden", isHistorical);
             dialog.set_df_property("collection_cycle", "reqd", !isHistorical);
+            dialog.set_df_property("application_basis", "hidden", isHistorical);
+            dialog.set_df_property("application_basis", "reqd", !isHistorical);
         };
         let saving = false;
         dialog = new frappe.ui.Dialog({
@@ -176,6 +178,8 @@ async function createAccountingPeriod(frm) {
                 {fieldtype: "HTML", options: `<p>${__("Confirme el mes de cobranza: puede ser distinto del mes de aplicación. Se creará un período vacío en Borrador, sin conciliar ni reasignar movimientos.")}</p>`},
                 {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa"), read_only: 1, default: defaults.employer},
                 {fieldname: "payroll_month", fieldtype: "Date", label: __("Mes de cobranza"), reqd: 1, default: defaults.payroll_month, onchange: updateFields},
+                {fieldname: "application_basis", fieldtype: "Select", label: __("Base de la primera conciliación"),
+                    options: "\nCobranza\nDetalle de empresa", description: __("Elija una sola base contra la aplicación. Ambos archivos pueden conservarse en el período.")},
                 {fieldname: "collection_cycle", fieldtype: "Select", label: __("Ciclo de cobranza"),
                     options: defaults.payroll_frequency === "Quincenal" ? "\nPrimera quincena\nSegunda quincena" : "Mensual",
                     default: defaults.payroll_frequency === "Quincenal" ? "" : "Mensual"},

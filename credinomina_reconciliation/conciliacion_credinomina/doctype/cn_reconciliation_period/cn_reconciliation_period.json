@@ -6,7 +6,7 @@
   "engine": "InnoDB",
   "field_order": [
     "usd_currency", "nio_currency",
-    "main_tab", "period_section", "employer", "payroll_month", "period_column", "reconciliation_mode", "status", "status_before_close", "remark",
+    "main_tab", "period_section", "employer", "payroll_month", "period_column", "reconciliation_mode", "application_basis", "status", "status_before_close", "remark",
     "schedule_section", "collection_cycle", "schedule_column", "cutoff_date", "remittance_due_date",
     "historical_section", "historical_scope", "historical_column", "historical_application_date", "historical_start_date", "historical_end_date",
     "files_section", "collection_file", "collection_import_sha256", "files_column", "employer_response_file", "employer_response_import_key", "deduction_evidence_date", "deduction_basis",
@@ -20,6 +20,7 @@
     "recognition_section", "deduction_recognition_deposit", "deduction_recognition_reference", "deduction_recognition_note", "deduction_recognition_on", "deduction_recognition_by"
   ],
   "fields": [
+    {"fieldname":"application_basis","fieldtype":"Select","label":"Base de la primera conciliación","options":"\nCobranza\nDetalle de empresa","depends_on":"eval:doc.reconciliation_mode != 'Historica'","mandatory_depends_on":"eval:doc.reconciliation_mode != 'Historica'","description":"Elija una sola base contra la aplicación. Puede conservar ambos detalles cargados; el no elegido no participa en esta comparación. Cargar archivos no cambia esta selección."},
     {"fieldname":"provisional_tab","fieldtype":"Tab Break","label":"Ajustes provisionales","depends_on":"eval:doc.reconciliation_mode != 'Historica'"},
     {"fieldname":"provisional_adjustments","fieldtype":"Table","options":"CN Provisional Adjustment","label":"Diferencias para trasladar al depósito","no_copy":1,"description":"Genere las diferencias, clasifique cada fila y apruebe. No afectan saldos hasta usar Conciliación preparada en el depósito confirmado. Si cambia la base, genere y apruebe otra vez."},
     {"fieldname":"prepared_deposit","fieldtype":"Link","options":"CN Remittance Allocation","label":"Conciliación trasladada al depósito","read_only":1,"no_copy":1},

@@ -8,6 +8,7 @@ from credinomina_reconciliation.parsers import clean_text, SourceFileError
 from credinomina_reconciliation.rounding import decimal_value, money_float
 
 DOCTYPE = "CN Remittance Allocation"
+UNIDENTIFIED_BANK_ACCOUNT = "NO IDENTIFICADA"
 EVIDENCE_FIELDS = (
     "accounting_source_key", "source_account", "source_debit", "source_credit",
     "source_currency", "source_fx_rate", "source_date", "source_voucher",
@@ -34,7 +35,7 @@ def plan_deposits(records, employers, fallback=""):
                    deposit_currency=currency, deposit_amount=money_float(amount), deposit_fx_rate=rate,
                    deposit_usd=money_float(decimal_value(amount) / decimal_value(rate) if currency == "NIO" else amount))
     # Conflicting currencies for the same printed bank identifier in one file
-    # cannot establish a reliable new bank account, regardless of row order.
+    # cannot establish a reliable bank account, regardless of row order.
     currencies = {}
     for row in result:
         key = (row.get("bank_name_hint"), row.get("bank_number_hint"))
@@ -45,32 +46,54 @@ def plan_deposits(records, employers, fallback=""):
     return result
 
 
+def ensure_unidentified_bank_account():
+    """Provision only the fixed holding account inside an authorized import.
+
+    No bank, account number or currency is inferred. The caller owns the
+    transaction and creation_guard serializes accounting import jobs.
+    """
+    if not frappe.has_permission(DOCTYPE, "create"):
+        frappe.throw(_("Se requiere permiso para importar depósitos."), frappe.PermissionError)
+    if frappe.db.exists("CN Bank Account", UNIDENTIFIED_BANK_ACCOUNT):
+        frappe.get_doc("CN Bank Account", UNIDENTIFIED_BANK_ACCOUNT).check_permission("read")
+        return UNIDENTIFIED_BANK_ACCOUNT
+    account = frappe.get_doc({
+        "doctype": "CN Bank Account", "account_name": UNIDENTIFIED_BANK_ACCOUNT,
+        "bank_name": "", "account_number": "", "currency": "", "active": 1,
+        "notes": "Cuenta provisional para depósitos cuya cuenta bancaria está pendiente de identificar. No determina la moneda del depósito.",
+    })
+    try:
+        # Delegated import permission permits only this fixed placeholder, not
+        # arbitrary creation of bank master data. Never modify an existing one.
+        account.insert(ignore_permissions=True)
+    except frappe.DuplicateEntryError:
+        frappe.get_doc("CN Bank Account", UNIDENTIFIED_BANK_ACCOUNT).check_permission("read")
+    return UNIDENTIFIED_BANK_ACCOUNT
+
+
+def _unidentified_bank(reason):
+    return ensure_unidentified_bank_account(), reason + " Se asignó NO IDENTIFICADA; seleccione la cuenta correcta al revisar."
+
+
 def _bank_account(row):
     bank, number = row.get("bank_name_hint"), row.get("bank_number_hint")
     currency = row["deposit_currency"]
     if not bank or not number or row.get("bank_currency_hint") != currency:
-        return "", "Cuenta bancaria no identificada con certeza; complete manualmente."
+        return _unidentified_bank("Cuenta bancaria no identificada con certeza.")
     if not frappe.has_permission("CN Bank Account", "read"):
-        return "", "Sin permiso para identificar la cuenta bancaria."
+        return _unidentified_bank("Sin permiso para identificar la cuenta bancaria.")
     matches = frappe.get_list("CN Bank Account", filters={"bank_name": bank},
                               fields=["name", "account_number", "currency", "active"], limit_page_length=0)
     normalized = number.replace("-", "")
     # A short account identifier may be the suffix printed by accounting. Only
     # reuse it if it points to a single account, never create a second suffix copy.
-    matches = [account for account in matches if clean_text(account.account_number).replace("-", "").endswith(normalized)]
+    matches = [account for account in matches if account.name != UNIDENTIFIED_BANK_ACCOUNT
+               and clean_text(account.account_number).replace("-", "").endswith(normalized)]
     if len(matches) == 1 and matches[0].active and matches[0].currency == currency:
         return matches[0].name, "Cuenta identificada por banco, número y moneda."
     if matches:
-        return "", "Cuenta ambigua, inactiva o con otra moneda; seleccione manualmente."
-    if not frappe.has_permission("CN Bank Account", "create"):
-        return "", "Cuenta identificada pero sin permiso para crearla; complete manualmente."
-    name = f"{bank} {number} {'C$' if currency == 'NIO' else 'US$'}"
-    if frappe.db.exists("CN Bank Account", name):
-        return "", "Nombre de cuenta existente con datos diferentes; revise manualmente."
-    account = frappe.get_doc({"doctype": "CN Bank Account", "account_name": name,
-        "bank_name": bank, "account_number": number, "currency": currency,
-        "notes": "Creada desde identificación explícita en movimiento contable. Verifique si el número es un identificador abreviado."}).insert()
-    return account.name, "Cuenta creada desde banco, identificador y moneda explícitos."
+        return _unidentified_bank("Cuenta ambigua, inactiva o con otra moneda.")
+    return _unidentified_bank("No se encontró una cuenta bancaria registrada para los datos del movimiento.")
 
 
 def create_deposits(records, source_file, file_hash):

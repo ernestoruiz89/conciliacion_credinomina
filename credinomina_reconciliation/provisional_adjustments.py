@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from credinomina_reconciliation.application_quality import collection_quality, PENDING_DEDUCTION
+from credinomina_reconciliation.application_quality import collection_quality, PENDING_DEDUCTION, COLLECTION, EMPLOYER_DETAIL
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 _trusted = ContextVar("cn_provisional_write", default=False)
@@ -40,7 +40,7 @@ def row_basis(period, row):
     # base minus core applications, not an already adjusted/double-netted value.
     values = dict(row.as_dict()) if callable(getattr(row, "as_dict", None)) else dict(row)
     values["complementary_usd"] = 0
-    quality = collection_quality(values)
+    quality = collection_quality(values, period.get("application_basis"))
     if quality["quality_expected_usd"] is None:
         frappe.throw(_("Revise la moneda o el detalle de la fila {0} antes de preparar ajustes.").format(row.get("idx")))
     base, applied = money(quality["quality_expected_usd"]), money(row.get("applied_usd"))
@@ -51,15 +51,16 @@ def row_basis(period, row):
         "installment_number", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio",
         "deduction_status", "application_reference")}
     # Recognition is evidence of this deposit, not a new first-stage base.
-    if context["deduction_status"] in PENDING_DEDUCTION:
+    if period.get("application_basis") == COLLECTION:
         context.update(deduction_status="Cobranza", deducted_usd=0, deducted_nio=0)
     for field in ("expected_usd", "expected_nio", "deducted_usd", "deducted_nio"):
         context[field] = str(money(context[field]))
     for field in set(context) - {"expected_usd", "expected_nio", "deducted_usd", "deducted_nio"}:
         context[field] = str(context[field] or "")
     context.update(employer=period.get("employer"), base=str(base), applied=str(applied),
+                   application_basis=period.get("application_basis"),
                    collection_file=period.get("collection_import_sha256"),
-                   response_file=period.get("employer_response_import_key"))
+                   response_file=period.get("employer_response_import_key") if period.get("application_basis") == EMPLOYER_DETAIL else None)
     return {"collection_row": row.get("name"), "client_name": row.get("client_name"),
             "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
             "basis": quality["quality_basis"], "base_usd": money_float(base),
@@ -72,6 +73,9 @@ def guard_period(period):
     if _trusted.get():
         return
     previous = period.get_doc_before_save()
+    if (previous and previous.get("prepared_deposit") and
+        period.get("application_basis") != previous.get("application_basis")):
+        frappe.throw(_("La base ya fue trasladada a un depósito. Conserve esa evidencia y corrija mediante las partidas reales vinculadas."))
     if (period.get("prepared_deposit") or "") != (previous.get("prepared_deposit") or "" if previous else ""):
         frappe.throw(_("El depósito de la conciliación preparada solo se vincula desde su acción de traslado."))
     before = {row.name: row for row in (previous.get("provisional_adjustments") or [])} if previous else {}
@@ -87,7 +91,8 @@ def guard_period(period):
             frappe.throw(_("Use las acciones de ajustes provisionales para generar, aprobar o materializar filas."))
         changed = any(str(proposal.get(key) or "") != str(old.get(key) or "") for key in CLASSIFICATION)
         row = rows.get(proposal.collection_row)
-        stale = not row or row_basis(period, row)["fingerprint"] != proposal.fingerprint
+        stale = (not row or collection_quality(row, period.get("application_basis"))["quality_expected_usd"] is None
+                 or row_basis(period, row)["fingerprint"] != proposal.fingerprint)
         if old.state == "Materializado":
             if changed:
                 frappe.throw(_("Corrija la partida real vinculada; no reescriba un ajuste materializado."))
@@ -325,7 +330,7 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                 records.append({key: row.get(key) for key in ("client_number", "client_name", "national_id", "loan_number", "installment_number")}
                     | {"source_row": len(records) + 2, "row_key": row.row_key, "employer": period.employer,
                        "deducted_usd": money_float(detail_amount), "comments": f"Base preparada: {period.name} / {base['basis']}"})
-                if row.deduction_status in PENDING_DEDUCTION:
+                if period.get("application_basis") == COLLECTION and row.deduction_status in PENDING_DEDUCTION:
                     row.deducted_usd, row.deducted_nio = row.expected_usd, row.expected_nio
                     row.deduction_status, row.deduction_currency = "Inferida por depósito", ""
                     row.deduction_match_note = _("Inferida al trasladar la cobranza al depósito {0}; no es detalle recibido de la empresa.").format(document.name)

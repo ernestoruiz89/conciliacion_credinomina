@@ -7,6 +7,7 @@ from frappe.utils import cint
 
 from credinomina_reconciliation.control_summary import readable_imports
 from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.remittance_periods import selected_periods, attach_periods, deposit_names_for_periods
 
 
@@ -28,11 +29,11 @@ def application_issue(row):
     }
 
 
-def collection_issue(row):
+def collection_issue(row, basis=None):
     reasons = []
-    deduction = row.get("deduction_status")
-    if deduction not in {"Deduccion total", "Inferida por depósito"}:
-        reasons.append(row.get("deduction_match_note") or deduction or _("Pendiente de detalle de empresa"))
+    quality = collection_quality(row, basis)
+    if not quality["quality_status"].startswith("Conforme"):
+        reasons.append(_(quality["quality_status"]))
     applied, paid = money(row.get("applied_usd")), money(row.get("remitted_usd"))
     pending = max(applied + money(row.get("complementary_usd"))
                   + money(row.get("rounding_adjustment_usd")) - paid, money(0))
@@ -102,7 +103,7 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         else:
             restricted.append("CN Accounting Import")
     else:
-        issues.extend(issue for row in period.collection_rows if (issue := collection_issue(row)))
+        issues.extend(issue for row in period.collection_rows if (issue := collection_issue(row, period.get("application_basis"))))
 
     if frappe.has_permission("CN Remittance Allocation", "read"):
         # Narrow to this period, then verify the exact JSON link (LIKE is only a prefilter).

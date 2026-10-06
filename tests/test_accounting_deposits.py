@@ -1,7 +1,7 @@
 import csv
 import io
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import frappe
 
@@ -49,19 +49,57 @@ class DepositTests(unittest.TestCase):
         self.assertEqual(row["bank_deposit_amount"], 500)
         self.assertEqual(row["bank_deposit_reference"], "BANKREF")
         self.assertEqual(row["bank_name_hint"], "")
-        self.assertEqual(deposits._bank_account({**row, "deposit_currency": "NIO"})[0], "")
+        with patch.object(deposits, "ensure_unidentified_bank_account", return_value="NO IDENTIFICADA"):
+            self.assertEqual(deposits._bank_account({**row, "deposit_currency": "NIO"})[0], "NO IDENTIFICADA")
 
     def test_bank_unique_match_ambiguous_inactive_and_currency_conflict(self):
         row = {"bank_name_hint": "BAC", "bank_number_hint": "6906", "bank_currency_hint": "NIO", "deposit_currency": "NIO"}
         account = frappe._dict(name="BAC cuenta", account_number="123456906", active=1, currency="NIO")
-        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=[account]) as query:
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=[account]) as query, \
+             patch.object(deposits, "ensure_unidentified_bank_account", return_value="NO IDENTIFICADA") as fallback:
             self.assertEqual(deposits._bank_account(row)[0], "BAC cuenta")
+            fallback.assert_not_called()
             query.return_value = [account, account]
-            self.assertEqual(deposits._bank_account(row)[0], "")
+            self.assertEqual(deposits._bank_account(row)[0], "NO IDENTIFICADA")
             query.return_value = [frappe._dict(account, currency="USD")]
-            self.assertEqual(deposits._bank_account(row)[0], "")
+            self.assertEqual(deposits._bank_account(row)[0], "NO IDENTIFICADA")
             query.return_value = [frappe._dict(account, active=0)]
-            self.assertEqual(deposits._bank_account(row)[0], "")
+            self.assertEqual(deposits._bank_account(row)[0], "NO IDENTIFICADA")
+            query.return_value = []
+            with patch.object(frappe, "get_doc") as create:
+                self.assertEqual(deposits._bank_account(row)[0], "NO IDENTIFICADA")
+                create.assert_not_called()  # Explicit hints no longer create a bank account.
+
+    def test_holding_account_is_created_once_without_inventing_currency(self):
+        document = Mock()
+        db = Mock()
+        db.exists.side_effect = [False, True]
+        with patch.object(frappe, "has_permission", return_value=True), \
+             patch.object(frappe, "db", db), patch.object(frappe, "get_doc", return_value=document) as get:
+            self.assertEqual(deposits.ensure_unidentified_bank_account(), "NO IDENTIFICADA")
+            values = get.call_args.args[0]
+            self.assertEqual(values["account_name"], "NO IDENTIFICADA")
+            self.assertEqual((values["bank_name"], values["account_number"], values["currency"]), ("", "", ""))
+            self.assertEqual(deposits.ensure_unidentified_bank_account(), "NO IDENTIFICADA")
+            document.insert.assert_called_once_with(ignore_permissions=True)
+            document.check_permission.assert_called_once_with("read")
+            document.save.assert_not_called()
+
+    def test_concurrent_holding_account_creation_reuses_existing(self):
+        document = Mock()
+        document.insert.side_effect = frappe.DuplicateEntryError
+        with patch.object(frappe, "has_permission", return_value=True), \
+             patch.object(frappe, "db", Mock(exists=Mock(return_value=False))), \
+             patch.object(frappe, "get_doc", return_value=document):
+            self.assertEqual(deposits.ensure_unidentified_bank_account(), "NO IDENTIFICADA")
+            document.check_permission.assert_called_once_with("read")
+
+    def test_holding_account_requires_authorized_import(self):
+        with patch.object(frappe, "has_permission", return_value=False), \
+             patch.object(frappe, "throw", side_effect=PermissionError), patch.object(frappe, "get_doc") as get:
+            with self.assertRaises(PermissionError):
+                deposits.ensure_unidentified_bank_account()
+            get.assert_not_called()
 
     def test_report_deduplicates_mirror_and_uses_current_deposit_state(self):
         row = apply_accounting_currency_override(parse_accounting_movements("x.csv", ledger()), "NIO", 36.6243)[0]

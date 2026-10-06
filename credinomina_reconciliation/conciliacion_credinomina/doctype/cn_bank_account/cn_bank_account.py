@@ -19,6 +19,8 @@ class CNBankAccount(Document):
             and self.name != self.account_name
         ):
             frappe.throw(_("Para cambiar el nombre de la cuenta, use Renombrar."))
+        if self.account_name == "NO IDENTIFICADA":
+            return  # A holding account must not require fictitious bank data.
         if not self.bank_name:
             frappe.throw(_("Indique el nombre del banco."))
         if not self.account_number:
@@ -28,6 +30,8 @@ class CNBankAccount(Document):
 
     def before_rename(self, old, new, merge=False):
         new = (new or "").strip()
+        if old == "NO IDENTIFICADA" or new == "NO IDENTIFICADA":
+            frappe.throw(_("NO IDENTIFICADA es una cuenta provisional. Seleccione la cuenta correcta en cada depósito; no renombre ni fusione este marcador."))
         if merge:
             # A merge deletes the source. Check before Frappe moves any links.
             self.check_permission("write")

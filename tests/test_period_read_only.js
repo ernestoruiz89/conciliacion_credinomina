@@ -10,7 +10,7 @@ const context = vm.createContext({
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_reconciliation_period/cn_reconciliation_period.js"), "utf8"), context);
-const fields = ["employer", "payroll_month", "remark", "collection_file", "collection_rows", "remittance_due_date", "applied_usd"]
+const fields = ["employer", "payroll_month", "application_basis", "remark", "collection_file", "collection_rows", "remittance_due_date", "applied_usd"]
     .map(fieldname => ({df: {fieldname, read_only: fieldname === "applied_usd" ? 1 : 0}}));
 const frm = {fields, doc: {status: "Cerrado", reconciliation_mode: "Operativa", collection_cycle: "Primera quincena"},
     buttons: [], is_new: () => false, get_perm: () => true,
