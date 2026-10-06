@@ -173,7 +173,10 @@ class CNComplementaryItem(Document):
         guard_item_delete(self)
         compensation.guard_delete(self)
         guard_tolerance_item(self)
-        if self.category in {CATEGORY, client_credit.CATEGORY}:
+        # Cancellation already validated the periods and removed the financial
+        # effect. Deleting that canceled record must not reopen them again.
+        # Keep the history/evidence guards above and Frappe's link checks.
+        if self.docstatus != 2 and self.category in {CATEGORY, client_credit.CATEGORY}:
             ensure_related_periods_open(self)
 
     def before_update_after_submit(self):
