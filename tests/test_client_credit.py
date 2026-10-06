@@ -4,6 +4,7 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 from credinomina_reconciliation import client_credit as credit
+from credinomina_reconciliation.company_credit import validate_company_credit
 from credinomina_reconciliation.detail_balances import update_detail_balances
 from credinomina_reconciliation.control_deposits import build_cash_deposits
 from credinomina_reconciliation.complementary_compensation import _eligible
@@ -20,6 +21,31 @@ class Row(dict):
 
 
 class ClientCreditTests(unittest.TestCase):
+    def test_confirmed_credit_reason_can_change_without_changing_cash_or_follow_up(self):
+        for category in credit.CREDIT_CATEGORIES:
+            with self.subTest(category=category):
+                previous = Row(docstatus=1, category=category, amount_usd=10, amount=10, currency="USD",
+                               reason_type="Error de la empresa", registered_deposit="DEP", employer="EMP",
+                               credit_assigned_to="Operator", credit_commitment_date="2026-10-10",
+                               credit_treatment="Pendiente de decisión", credit_pending_usd=6,
+                               credit_resolved_usd=4, credit_management_status="Parcialmente resuelto",
+                               credit_history='[{"importe_usd":4}]')
+                doc = Row(previous, reason_type="Pago adicional no informado",
+                          get_doc_before_save=lambda: previous)
+                with patch.object(credit, "lock_credit_deposit") as lock:
+                    credit.guard_credit_category(doc, previous)
+                    if category == credit.CATEGORY:
+                        credit.validate_client_credit(doc, previous)
+                    else:
+                        validate_company_credit(doc)
+                    lock.assert_not_called()
+                self.assertEqual(doc.reason_type, "Pago adicional no informado")
+                for field in (*credit.FINANCIAL_FIELDS, *credit.MANAGED_FIELDS):
+                    self.assertEqual(doc.get(field), previous.get(field))
+                doc.amount_usd = 9
+                with patch.object(credit.frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                    credit._assert_financial_identity(doc, previous)
+
     def test_credit_reduces_row_pending_without_becoming_a_payment(self):
         row = Row(name="R", amount_usd=110, matched_targets='[{"claim_id":"H:A", "amount_usd":100}]', match_status="Conciliada")
         doc = Row(doctype="CN Remittance Allocation", name="D", docstatus=1, detail_rows=[row], targets=[])
