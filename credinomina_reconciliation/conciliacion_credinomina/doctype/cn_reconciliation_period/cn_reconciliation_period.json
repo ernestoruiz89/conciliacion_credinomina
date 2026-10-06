@@ -14,11 +14,15 @@
     "financial_totals_section", "applied_total_usd", "financial_totals_column", "remitted_total_usd", "financial_pending_column", "pending_usd",
     "remittance_summary_section", "applied_usd", "applied_nio", "complementary_usd", "remittance_summary_column", "remitted_usd", "remitted_nio", "fx_variance_usd", "rounding_adjustment_usd", "exception_count", "unassigned_deposit_usd",
     "detail_tab", "quality_html", "collection_detail_section", "collection_rows", "notes",
+    "provisional_tab", "provisional_adjustments", "prepared_deposit",
     "exceptions_tab", "pending_section", "pending_html", "exceptions_section", "exceptions_html",
     "tracking_tab", "tracking_section", "control_cut_on", "control_cut_by", "control_cut_note", "control_cut_summary", "tracking_column", "closed_on", "closed_by", "reopened_on", "reopened_by", "reopen_reason", "historical_fingerprint",
     "recognition_section", "deduction_recognition_deposit", "deduction_recognition_reference", "deduction_recognition_note", "deduction_recognition_on", "deduction_recognition_by"
   ],
   "fields": [
+    {"fieldname":"provisional_tab","fieldtype":"Tab Break","label":"Ajustes provisionales","depends_on":"eval:doc.reconciliation_mode != 'Historica'"},
+    {"fieldname":"provisional_adjustments","fieldtype":"Table","options":"CN Provisional Adjustment","label":"Diferencias para trasladar al depósito","no_copy":1,"description":"Genere las diferencias, clasifique cada fila y apruebe. No afectan saldos hasta usar Conciliación preparada en el depósito confirmado. Si cambia la base, genere y apruebe otra vez."},
+    {"fieldname":"prepared_deposit","fieldtype":"Link","options":"CN Remittance Allocation","label":"Conciliación trasladada al depósito","read_only":1,"no_copy":1},
     {"fieldname": "quality_html", "fieldtype": "HTML", "label": "Control de aplicación", "depends_on": "eval:doc.reconciliation_mode != 'Historica'"},
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},

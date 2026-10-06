@@ -1274,6 +1274,50 @@ de devolución o aplicación externa. No es un nuevo pago del préstamo.
   Si otra operación cambia los saldos durante el cálculo, la solicitud se
   rechaza y debe reintentarse tras recargar, evitando usar una lectura antigua.
 
+### Ajustes provisionales de la primera conciliación
+
+En períodos operativos puede preparar la distribución antes de recibir dinero:
+
+1. Cargue la cobranza, el detalle de deducción si lo tiene, y concilie las
+   aplicaciones de la empresa. La base será la deducción informada o, si falta,
+   la cobranza. Una diferencia no significa automáticamente saldo a favor.
+2. En **Más opciones → Generar ajustes provisionales**, revise la pestaña
+   **Ajustes provisionales**. Se genera una fila por diferencia de cliente/crédito:
+   base menos aplicado; positiva por exceso y negativa por faltante.
+3. Clasifique y justifique cada fila; seleccione subcategoría si es un ajuste.
+   Para saldos a favor indique motivo, responsable y fecha compromiso. Si ya
+   existe la partida del core, puede seleccionarla para reutilizarla: debe estar
+   confirmada, del mismo período/cliente/crédito e importe y sin uso previo.
+4. Use **Aprobar ajustes provisionales**. Generar y aprobar no crea partidas
+   reales ni cambia CxC, depósitos o saldos a favor. Cambiar la clasificación o
+   la base devuelve la propuesta a revisión; si cambian importes, vuelva a generar.
+5. En un depósito confirmado, seleccione los **Períodos a conciliar** y use
+   **Conciliación → Usar conciliación preparada**. Revise la vista previa y
+   confirme expresamente que el dinero corresponde a esas bases. Se genera un
+   detalle privado, se crean las partidas aprobadas y se vinculan automáticamente
+   detalle y destinos, conciliando únicamente ese depósito.
+
+Este traslado exige coincidencia exacta en US$ con la suma de las bases completas
+seleccionadas, períodos abiertos y un depósito sin detalle, destinos ni créditos
+previos. Para pagos parciales, diferencias adicionales o distribuciones ya
+iniciadas, use el flujo habitual de selección de partidas pendientes. Cuando se
+usa cobranza, queda como deducción **inferida por depósito**, no como detalle
+recibido de la empresa. El importe NIO del depósito conserva su conversión y tasa.
+
+Las propuestas materializadas conservan vínculos a la partida y al depósito;
+repetir el traslado no crea duplicados. Las correcciones posteriores se realizan
+en los registros reales y su flujo de desconciliación/cancelación, no sobrescribiendo
+la propuesta. Un saldo a favor o una CxC continúan pendientes de gestión aunque
+expliquen el depósito. El traslado no registra asientos en el core.
+
+Si una aplicación excede la base, el motor solo admite el vínculo de control de
+calidad por exceso cuando empresa, crédito y referencia explícita identifican una
+única fila. Ese vínculo no aumenta la capacidad de distribuir efectivo: la
+diferencia debe revisarse y, en su caso, aprobarse/materializarse.
+
+Ejecute `bench --site <sitio> migrate` para crear la tabla hija y sus campos antes
+de usar estas acciones; no se generan propuestas ni ajustes retroactivos.
+
 ### Trazabilidad, vencimientos y cortes
 
 El depósito ofrece **Historial de conciliación**: usuario, fecha, motivo,

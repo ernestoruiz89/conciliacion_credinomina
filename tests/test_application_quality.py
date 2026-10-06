@@ -68,13 +68,15 @@ class ApplicationQualityTests(unittest.TestCase):
         self.assertEqual(source_quality([first, second])["quality_status"], "Con diferencias")
         self.assertEqual(source_quality([])["quality_status"], "Sin cobranza vinculada")
 
-    def match(self, amount=100, other=None):
+    def match(self, amount=100, other=None, reference=None):
         row = self.row()
         row.update(name="C1", parent="P1", loan_number="109-1", client_number="1", applied_usd=0)
+        row.application_reference = reference
         row.as_dict = lambda: dict(row)
         source = frappe._dict(name="A1", event_type="Aplicacion", effective=1,
             currency="USD", amount=amount, event_date="2026-09-15", loan_number="109-1", client_number="1")
         source.as_dict = lambda: dict(source)
+        source.reference = reference
         period = frappe._dict(name="P1", employer="E1", reconciliation_mode="Operativa")
         resolver = Mock()
         resolver.resolve.return_value = ("E1", "")
@@ -93,6 +95,18 @@ class ApplicationQualityTests(unittest.TestCase):
 
     def test_engine_does_not_force_an_excess_into_collection(self):
         self.assertEqual(self.match(120).match_status, "Sin coincidencia")
+
+    def test_explicit_reference_identifies_excess_for_quality_not_cash(self):
+        source = self.match(120, reference="EXPLICIT")
+        self.assertEqual(source.match_status, "Conciliado")
+        self.assertIn("excede la base", source.match_reason)
+        self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], 120)
+
+    def test_repeated_explicit_reference_still_does_not_guess_excess_destination(self):
+        other = self.row()
+        other.update(name="C2", parent="P1", loan_number="109-1", client_number="1", application_reference="EXPLICIT")
+        other.as_dict = lambda: dict(other)
+        self.assertEqual(self.match(120, other, "EXPLICIT").match_status, "Sin coincidencia")
 
     def test_ambiguous_identity_is_not_forced_into_one_quota(self):
         other = self.row()
