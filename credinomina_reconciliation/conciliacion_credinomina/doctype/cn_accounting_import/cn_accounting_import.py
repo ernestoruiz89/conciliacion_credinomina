@@ -1060,8 +1060,14 @@ def _deducted_amount(row, currency):
 
 def _allocate_complementary_items(items, periods):
     """An optional customer allocation must identify exactly one collection row."""
+    from credinomina_reconciliation.provisional_adjustments import explicit_complement_rows
+    explicit = explicit_complement_rows(periods)
+    row_ids = {row.name for period in periods for row in period.collection_rows}
     allocations = defaultdict(list)
     for item in items:
+        if explicit.get(item.name) in row_ids:
+            allocations[(explicit[item.name], clean_text(item.reference))].append(item)
+            continue
         if item.get("generic_distribution") or not item.loan_number:
             continue
         candidates = [
@@ -1195,6 +1201,7 @@ def _match_applications(
             )
         candidates = []
         pair_candidates = []
+        quality_candidates = []
         application_values = source.as_dict()
         for target in collection_rows:
             target_period = period_by_name.get(target.parent)
@@ -1211,11 +1218,18 @@ def _match_applications(
                 target.installment_number
             ) != canonical_identifier(source.installment_number):
                 continue
-            if target.deduction_status == "No deducido":
-                continue
             if target.application_reference and clean_text(
                 target.application_reference
             ) != clean_text(source.reference):
+                continue
+            # Explicit credit + reference can identify an over-application for
+            # quality review. It is not cash coverage and grants no extra claim
+            # capacity until a real complementary adjustment is confirmed.
+            if (source_employer and source.loan_number and target.application_reference
+                and clean_text(target.application_reference) == clean_text(source.reference)
+                and target_period and target_period.reconciliation_mode != "Historica"):
+                quality_candidates.append(target)
+            if target.deduction_status == "No deducido":
                 continue
             complementary = sum(
                 flt(item.amount_usd)
@@ -1317,6 +1331,15 @@ def _match_applications(
                 ).format(payment_rate)
             source.collection_period = detail[0]["period"]
             source.application_allocation_detail = json.dumps(detail, ensure_ascii=False)
+        elif not candidates and len(quality_candidates) == 1:
+            target = quality_candidates[0]
+            applied_by_target[target.name] += net_amount(source)
+            source.match_status = "Conciliado"
+            source.match_reason = _("Aplicación identificada por empresa, crédito y referencia explícita; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito.")
+            source.collection_period, source.collection_row_id = target.parent, target.name
+            source.application_allocation_detail = json.dumps([{
+                "collection_row_id": target.name, "period": target.parent, "amount_usd": net_amount(source),
+            }], ensure_ascii=False)
         elif len(candidates) > 1:
             source.match_status = "Ambiguo"
             source.match_reason = _(
@@ -1919,6 +1942,7 @@ def _distribute_deposits(
         if (
             period.reconciliation_mode == "Historica"
             or period.deduction_basis != "Depósito coincidente"
+            or period.get("prepared_deposit")  # Exact targets already persist the prepared split.
             or not period.deduction_recognition_deposit
             or period.deduction_recognition_deposit not in deposit_meta
             or not period.collection_rows

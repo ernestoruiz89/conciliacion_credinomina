@@ -51,6 +51,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         if (!frm.is_new() && frm.doc.docstatus === 1 && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Corregir datos"), () => correctDepositData(frm));
             frm.add_custom_button(__("Conciliar"), () => reconcileRemittance(frm), __("Conciliación"));
+            frm.add_custom_button(__("Usar conciliación preparada"), () => usePreparedReconciliation(frm), __("Conciliación"));
         }
         const file = frm.doc.detail_file || frm.doc.support_file || "";
         if (frm.is_new() || frm.doc.docstatus === 2 || !/\.(xlsx|xls|csv)(\?|$)/i.test(file)) return;
@@ -104,6 +105,53 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+async function usePreparedReconciliation(frm) {
+    if (frm.is_dirty()) await frm.save();
+    const response = await frappe.call({
+        method: "credinomina_reconciliation.provisional_adjustments.preview_transfer",
+        args: {remittance_name: frm.doc.name}, freeze: true,
+        freeze_message: __("Verificando bases, aplicaciones y ajustes aprobados…"),
+    });
+    const plan = response.message;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const amount = value => esc(format_currency(value, "USD", 2));
+    const dialog = new frappe.ui.Dialog({
+        title: __("Trasladar conciliación preparada al depósito"), size: "extra-large",
+        fields: [
+            {fieldtype: "HTML", fieldname: "preview", options: `
+                <p>${esc(__("Se usará la cobranza cuando no exista detalle de deducción. Esa evidencia quedará identificada como inferida. Las partidas reales conservarán sus obligaciones de seguimiento."))}</p>
+                <p><b>${esc(__("Base / depósito"))}: ${amount(plan.total_usd)}</b> · ${esc(__("Aplicado"))}: ${amount(plan.applied_usd)} · ${esc(__("Ajustes"))}: ${amount(plan.adjustment_usd)}</p>
+                <div class="table-responsive" style="max-height:45vh;overflow:auto"><table class="table table-bordered">
+                <thead><tr>${["Período", "Cliente", "Crédito", "Base", "Base US$", "Aplicado US$", "Ajuste US$", "Clasificación"].map(x => `<th>${esc(__(x))}</th>`).join("")}</tr></thead>
+                <tbody>${plan.rows.map(row => {
+                    const adjustment = plan.adjustments.find(x => x.collection_row === row.collection_row);
+                    return `<tr><td>${esc(row.period)}</td><td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td><td>${esc(row.basis)}</td>
+                    <td class="text-right">${amount(row.base_usd)}</td><td class="text-right">${amount(row.applied_usd)}</td><td class="text-right">${amount(row.amount_usd)}</td><td>${esc(adjustment?.category || "Sin diferencia")}</td></tr>`;
+                }).join("")}</tbody></table></div>`},
+            {fieldname: "confirm_correspondence", fieldtype: "Check", reqd: 1,
+                label: __("Confirmo que este depósito corresponde a las cobranzas/deducciones mostradas, no solo que el monto coincide")},
+        ],
+        primary_action_label: __("Crear partidas y conciliar este depósito"),
+        async primary_action(values) {
+            if (dialog.transfer_in_progress || !values.confirm_correspondence) return;
+            dialog.transfer_in_progress = true;
+            dialog.disable_primary_action();
+            try {
+                const result = await frappe.call({
+                    method: "credinomina_reconciliation.provisional_adjustments.apply_transfer",
+                    args: {remittance_name: frm.doc.name, fingerprint: plan.fingerprint,
+                        confirm_correspondence: values.confirm_correspondence}, freeze: true,
+                    freeze_message: __("Creando partidas y aplicando la distribución…"),
+                });
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.msgprint(__("Resultado: {0}. Revise las partidas vinculadas para su seguimiento.", [result.message.result]));
+            } finally { dialog.transfer_in_progress = false; dialog.enable_primary_action(); }
+        },
+    });
+    dialog.show();
+}
 
 async function correctDepositData(frm) {
     if (frm.is_dirty()) await frm.save();

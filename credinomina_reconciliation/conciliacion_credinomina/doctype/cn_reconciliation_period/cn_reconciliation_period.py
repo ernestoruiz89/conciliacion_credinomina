@@ -85,6 +85,8 @@ class CNReconciliationPeriod(Document):
         self._set_due_date()
         self._validate_unique_period()
         self.recalculate_totals()
+        from credinomina_reconciliation.provisional_adjustments import guard_period
+        guard_period(self)
 
     def _validate_closed_transition(self):
         previous = self.get_doc_before_save()

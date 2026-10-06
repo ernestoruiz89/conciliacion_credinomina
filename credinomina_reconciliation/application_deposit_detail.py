@@ -126,15 +126,15 @@ def preview_application_detail(remittance_name):
     return _preview(*_load(remittance_name))
 
 
-def _workbook(rows):
+def _workbook(rows, amount_description=None):
     from openpyxl import load_workbook
     from openpyxl.comments import Comment
     workbook = load_workbook(io.BytesIO(build_template_xlsx("deposito", rows)))
     sheet = workbook.active
     amount_column = DEPOSIT_HEADERS.index("Deducido US$") + 1
     sheet.cell(1, amount_column).comment = Comment(
-        "Aplicación pendiente de cubrir con otros depósitos, expresada en US$. "
-        "Generado desde el core; no confirma una deducción informada por la empresa.", "Credinómina")
+        amount_description or ("Aplicación pendiente de cubrir con otros depósitos, expresada en US$. "
+        "Generado desde el core; no confirma una deducción informada por la empresa."), "Credinómina")
     for index, row in enumerate(rows, 2):
         sheet.cell(index, amount_column, row["deducted_usd"]).number_format = "0.00"
     # References and client names are text, never executable spreadsheet formulas.

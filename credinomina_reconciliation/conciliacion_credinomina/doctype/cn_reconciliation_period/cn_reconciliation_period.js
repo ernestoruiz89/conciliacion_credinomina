@@ -1,10 +1,24 @@
 frappe.ui.form.on("CN Reconciliation Period", {
+    setup(frm) {
+        frm.set_query("existing_item", "provisional_adjustments", (doc, cdt, cdn) => {
+            const row = locals[cdt][cdn];
+            return {filters: {docstatus: 1, accounting_source_key: ["is", "set"],
+                employer: frm.doc.employer, period: frm.doc.name,
+                client_number: row.client_number, loan_number: row.loan_number,
+                ...(row.category ? {category: row.category} : {})}};
+        });
+    },
     refresh(frm) {
         setPeriodEditing(frm);
         setRemittanceDateEditing(frm);
         refreshPeriodExceptions(frm);
         refreshPeriodPending(frm);
         refreshApplicationQuality(frm);
+        const proposals = frm.fields_dict?.provisional_adjustments?.grid;
+        if (proposals) {
+            proposals.df.cannot_add_rows = true;
+            proposals.df.cannot_delete_rows = true;
+        }
         if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
         if (frm.is_new()) return;
         frm.add_custom_button(__("Ver cortes registrados"), () => showRegisteredCuts(frm), __("Más opciones"));
@@ -22,6 +36,16 @@ frappe.ui.form.on("CN Reconciliation Period", {
         if (frm.doc.reconciliation_mode === "Historica") {
             frm.add_custom_button(__("Cerrar período histórico"), () => requestClose(frm));
             return;
+        }
+
+        if (!frm.doc.prepared_deposit) {
+            frm.add_custom_button(__("Generar ajustes provisionales"), () => updateProvisionalAdjustments(frm, "generate_proposals"), __("Más opciones"));
+            if ((frm.doc.provisional_adjustments || []).length) {
+                frm.add_custom_button(__("Aprobar ajustes provisionales"), () => frappe.confirm(
+                    __("¿Aprueba la clasificación de todas las diferencias? No se crearán partidas reales hasta trasladarlas a un depósito confirmado."),
+                    () => updateProvisionalAdjustments(frm, "approve_proposals")
+                ), __("Más opciones"));
+            }
         }
 
         frm.add_custom_button(__("1. Cargar cobranza"), async () => {
@@ -92,6 +116,17 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+async function updateProvisionalAdjustments(frm, action) {
+    if (frm.is_dirty()) await frm.save();
+    await frappe.call({
+        method: `credinomina_reconciliation.provisional_adjustments.${action}`,
+        args: {period_name: frm.doc.name}, freeze: true,
+        freeze_message: __("Revisando ajustes provisionales…"),
+    });
+    await frm.reload_doc();
+    frappe.show_alert({message: __("Tabla de ajustes actualizada. Los saldos no han cambiado."), indicator: "green"});
+}
 
 function refreshApplicationQuality(frm) {
     const wrapper = frm.fields_dict?.quality_html?.$wrapper;

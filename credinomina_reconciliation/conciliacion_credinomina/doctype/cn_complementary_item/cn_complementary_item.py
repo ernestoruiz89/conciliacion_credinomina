@@ -121,6 +121,9 @@ class CNComplementaryItem(Document):
 
     def on_submit(self):
         if self.category in client_credit.CREDIT_CATEGORIES:
+            from credinomina_reconciliation.provisional_adjustments import is_materializing
+            if self.flags.get("defer_reconciliation") and is_materializing():
+                return  # The atomic transfer reconciles all targets/credits together.
             from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
             reconcile_deposit(frappe.get_doc("CN Remittance Allocation", self.registered_deposit))
             self.reload()
