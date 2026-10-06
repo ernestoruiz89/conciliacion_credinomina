@@ -12,13 +12,15 @@ def run():
     try:
         from credinomina_reconciliation.complementary_subcategories import seed_subcategories
         seed_subcategories()
-        for category, base, applied, deduction, reuse in [
-            ('', 100, 100, False, False), ('Otros ingresos', 100, 90, False, False),
-            ('Otros ingresos', 100, 90, True, False),
-            ('Saldo a favor del cliente', 100, 90, False, False),
-            ('Saldo a favor de la empresa', 100, 90, True, False),
-            ('Ajuste de conciliación', 90, 100, True, False),
-            ('Otros ingresos', 100, 90, True, True),
+        for category, base, applied, deduction, reuse, other_detail in [
+            ('', 100, 100, False, False, None), ('Otros ingresos', 100, 90, False, False, None),
+            ('Otros ingresos', 100, 90, True, False, None),
+            ('Saldo a favor del cliente', 100, 90, False, False, None),
+            ('Saldo a favor de la empresa', 100, 90, True, False, None),
+            ('Ajuste de conciliación', 90, 100, True, False, None),
+            ('Otros ingresos', 100, 90, True, True, None),
+            ('Otros ingresos', 100, 90, False, False, 80),
+            ('Otros ingresos', 80, 70, True, False, 100),
         ]:
             marker = 'prep-' + frappe.generate_hash(length=8)
             employer = frappe.get_doc(dict(doctype='CN Employer', employer_name=marker,
@@ -27,11 +29,15 @@ def run():
                 client_name='Cliente preparado ' + marker, client_number=marker)).insert()
             period = frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=employer.name,
                 payroll_month='2026-09-01', reconciliation_mode='Operativa', collection_cycle='Mensual',
+                application_basis='Detalle de empresa' if deduction else 'Cobranza',
                 collection_rows=[dict(row_key=marker, source_row=2, client=client.name,
                     client_number=client.client_number, client_name=client.client_name, loan_number=marker+'-1',
-                    expected_usd=base, expected_nio=base*36.6243, application_reference=marker,
-                    deducted_usd=base if deduction else 0,
-                    deduction_status='Deduccion total' if deduction else 'Pendiente de detalle')])).insert()
+                    expected_usd=other_detail if deduction and other_detail is not None else base,
+                    expected_nio=(other_detail if deduction and other_detail is not None else base)*36.6243,
+                    application_reference=marker,
+                    deducted_usd=base if deduction else (other_detail or 0),
+                    deduction_status='Deduccion parcial' if other_detail is not None else (
+                        'Deduccion total' if deduction else 'Pendiente de detalle'))])).insert()
             imported = frappe.get_doc(dict(doctype='CN Accounting Import', employer=employer.name,
                 status='Importado', source_file='/private/files/'+marker+'.csv',
                 rows=[dict(source_row=2, source_key=marker, event_type='Aplicacion', event_date='2026-09-30',
@@ -105,6 +111,9 @@ def run():
             period.reload(); deposit.reload()
             assert period.applied_total_usd == applied and period.pending_usd == 0, period.as_dict()
             assert deposit.unclassified_usd == 0
+            if other_detail is not None:
+                assert period.collection_rows[0].expected_usd == (other_detail if deduction else base)
+                assert period.collection_rows[0].deducted_usd == (base if deduction else other_detail)
             results.append(dict(category=category or 'Sin diferencias', deduction=deduction,
                                 reused=reuse, result=deposit.result, detail=deposit.detail_status))
         return results

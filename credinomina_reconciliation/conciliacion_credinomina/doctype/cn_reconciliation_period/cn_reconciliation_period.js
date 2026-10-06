@@ -10,6 +10,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
     },
     refresh(frm) {
         setPeriodEditing(frm);
+        frm.set_df_property("application_basis", "read_only", frm.doc.status === "Cerrado" || !!frm.doc.prepared_deposit);
         setRemittanceDateEditing(frm);
         refreshPeriodExceptions(frm);
         refreshPeriodPending(frm);
@@ -136,7 +137,7 @@ function refreshApplicationQuality(frm) {
     const rows = frm.doc.collection_rows || [];
     const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     wrapper.html(`<h4>${esc(__("Control de calidad de la aplicación"))}</h4>
-        <p>${esc(__("Compara lo aplicado con la deducción informada o, si falta, con la cobranza. Conforme no significa depositado. Actualice desde Conciliar esta empresa en la importación contable y recargue el período."))}</p>
+        <p>${esc(__("Compara la aplicación únicamente contra la base elegida para este período: {0}. Ambos detalles se conservan; el no elegido no interviene en este control. Conforme no significa depositado. Guarde y actualice desde Conciliar esta empresa en la importación contable.", [frm.doc.application_basis || __("Sin elegir")]))}</p>
         <div class="table-responsive"><table class="table table-bordered">
         <thead><tr>${["Cliente", "Crédito", "Comparado contra", "A aplicar US$", "Aplicado US$", "Diferencia US$", "Control de aplicación", "Evidencia de deducción"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${rows.map(row => `<tr>

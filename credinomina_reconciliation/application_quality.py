@@ -3,15 +3,17 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 
 PENDING_DEDUCTION = {None, "", "Pendiente de detalle", "Inferida por depósito"}
 VALID_DEDUCTION = {"Deduccion total", "Deduccion parcial", "No deducido", "Deduccion en exceso"}
+COLLECTION = "Cobranza"
+EMPLOYER_DETAIL = "Detalle de empresa"
+BASES = {COLLECTION, EMPLOYER_DETAIL}
 
 
-def collection_quality(row):
+def collection_quality(row, basis=COLLECTION):
     status = row.get("deduction_status")
-    basis = "Cobranza" if status in PENDING_DEDUCTION else "Detalle de deducción"
     expected = money(row.get("expected_usd"))
     expected_nio = money(row.get("expected_nio"))
-    reference = expected
-    if status not in PENDING_DEDUCTION:
+    reference = expected if basis in BASES else None
+    if basis == EMPLOYER_DETAIL:
         if status not in VALID_DEDUCTION:
             reference = None
         else:
@@ -20,10 +22,10 @@ def collection_quality(row):
             if not reference and nio:
                 reference = (money(nio * expected / expected_nio)
                              if expected > 0 and expected_nio > 0 else None)
-    elif not expected and expected_nio:
+    elif basis == COLLECTION and not expected and expected_nio:
         reference = None  # Missing conversion is not a zero-valued collection.
     if reference is None:
-        return {"quality_basis": basis, "quality_status": "Revisar base de comparación",
+        return {"quality_basis": basis or "", "quality_status": "Revisar base de comparación",
                 "quality_expected_usd": None, "quality_difference_usd": None}
     reference = money(max(reference - money(row.get("complementary_usd")), 0))
     difference = money(money(row.get("applied_usd")) - reference)
@@ -35,18 +37,23 @@ def collection_quality(row):
             "quality_difference_usd": money_float(difference)}
 
 
-def update_collection_quality(rows):
+def update_collection_quality(rows, basis=COLLECTION):
     for row in rows:
-        row.update(collection_quality(row))
+        row.update(collection_quality(row, basis))
 
 
-def source_quality(targets):
+def quality_conforms(row, basis):
+    return collection_quality(row, basis)["quality_status"].startswith("Conforme")
+
+
+def source_quality(targets, period_bases=None):
     """A linked partial source is not proof that the complete quota was applied."""
-    results = [collection_quality(row) for row in targets]
+    results = [collection_quality(row, period_bases.get(row.get("parent"))
+               if period_bases is not None else COLLECTION) for row in targets]
     if not results:
         return {"quality_basis": "", "quality_status": "Sin cobranza vinculada"}
     bases = {row["quality_basis"] for row in results}
-    basis = next(iter(bases)) if len(bases) == 1 else "Cobranza y detalle de deducción"
+    basis = next(iter(bases)) if len(bases) == 1 else "Bases distintas por período"
     if any(row["quality_status"] == "Revisar base de comparación" for row in results):
         result = "Revisar base de comparación"
     elif any(decimal_value(row["quality_difference_usd"]) for row in results):

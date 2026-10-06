@@ -27,7 +27,9 @@ class BankAccountDocTypeTest(unittest.TestCase):
             "account_name", "bank_name", "account_number", "currency", "active",
         } <= fields.keys())
         self.assertNotIn("naming_series", fields)
-        self.assertEqual("USD\nNIO", fields["currency"]["options"])
+        self.assertEqual("\nUSD\nNIO", fields["currency"]["options"])
+        for name in ("currency", "bank_name", "account_number"):
+            self.assertEqual("eval:doc.account_name != 'NO IDENTIFICADA'", fields[name]["mandatory_depends_on"])
         self.assertEqual(
             {"System Manager", "Supervisor Credinomina", "Operador Credinomina"},
             {permission["role"] for permission in metadata["permissions"]},

@@ -11,7 +11,8 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_i
 
 class SharedPeriodStatusTests(unittest.TestCase):
     def period(self, paid=0, complete=False):
-        return frappe._dict(status="Pendiente", exception_count=0, collection_rows=[frappe._dict(
+        return frappe._dict(status="Pendiente", exception_count=0, application_basis="Cobranza", collection_rows=[frappe._dict(
+            expected_usd=100, applied_usd=100,
             remitted_usd=paid, deduction_status="Deduccion total",
             application_status="Aplicado y remitido" if complete else "Pendiente")])
 

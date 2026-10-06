@@ -15,7 +15,7 @@ class ProvisionalTests(unittest.TestCase):
             client_number='1', loan_number='109-1', expected_usd=100, expected_nio=3662.43,
             applied_usd=90, deduction_status='Pendiente de detalle', deducted_usd=0,
             deducted_nio=0, remitted_usd=0, remittance_detail='[]')
-        self.period = frappe._dict(name='P', employer='E', collection_rows=[self.row], provisional_adjustments=[])
+        self.period = frappe._dict(name='P', employer='E', application_basis=module.COLLECTION, collection_rows=[self.row], provisional_adjustments=[])
         self.deposit = frappe._dict(name='D', employer='E', amount_usd=100, targets=[], detail_rows=[], modified='now')
 
     def proposal(self, **kwargs):
@@ -35,6 +35,7 @@ class ProvisionalTests(unittest.TestCase):
         self.assertEqual(self.row.deducted_usd, 0)
 
     def test_deduction_in_nio_is_converted_and_invalid_detail_not_silently_replaced(self):
+        self.period.application_basis = module.EMPLOYER_DETAIL
         self.row.update(deduction_status='Deduccion parcial', deducted_nio=3296.187)
         self.assertEqual(module.row_basis(self.period, self.row)['base_usd'], 90)
         self.row.expected_usd = 0
@@ -45,6 +46,35 @@ class ProvisionalTests(unittest.TestCase):
         before = module.row_basis(self.period, self.row)
         self.row.update(deduction_status='Inferida por depósito', deducted_usd=100, deducted_nio=3662.43)
         self.assertEqual(module.row_basis(self.period, self.row)['fingerprint'], before['fingerprint'])
+
+    def test_nonselected_detail_is_preserved_and_does_not_change_proposal(self):
+        before = module.row_basis(self.period, self.row)
+        self.row.update(deduction_status='Deduccion parcial', deducted_usd=80)
+        self.period.employer_response_import_key = 'new-upload'
+        self.assertEqual(module.row_basis(self.period, self.row), before)
+        self.assertEqual(self.row.deducted_usd, 80)
+
+    def test_changing_choice_revokes_approval_even_with_equal_amounts(self):
+        self.row.update(deduction_status='Deduccion total', deducted_usd=100)
+        self.saved_period()
+        self.period.application_basis = module.EMPLOYER_DETAIL
+        module.guard_period(self.period)
+        self.assertEqual(self.period.provisional_adjustments[0].state, 'Pendiente de revisión')
+
+    def test_missing_selected_detail_does_not_fall_back_and_revokes_approval(self):
+        self.saved_period()
+        self.period.application_basis = module.EMPLOYER_DETAIL
+        module.guard_period(self.period)
+        self.assertEqual(self.period.provisional_adjustments[0].state, 'Pendiente de revisión')
+        with self.assertRaises(ValueError):
+            module.row_basis(self.period, self.row)
+
+    def test_materialized_choice_is_immutable(self):
+        self.period.prepared_deposit = 'D'
+        self.saved_period()
+        self.period.application_basis = module.EMPLOYER_DETAIL
+        with self.assertRaises(ValueError):
+            module.guard_period(self.period)
 
     def test_browser_numeric_serialization_does_not_invalidate_approval(self):
         self.saved_period()

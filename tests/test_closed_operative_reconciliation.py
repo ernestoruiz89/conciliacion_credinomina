@@ -26,6 +26,7 @@ def _closed_period(**row_values):
     row.update(row_values)
     period = frappe._dict({
         "name": "PER-1", "status": "Cerrado", "exception_count": 0,
+        "application_basis": "Cobranza",
         "deduction_basis": "", "deduction_recognition_deposit": "",
         "deduction_recognition_reference": "", "collection_rows": [row],
         "recalculate_totals": Mock(), "save": Mock(),

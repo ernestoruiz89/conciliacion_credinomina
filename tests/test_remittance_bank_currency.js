@@ -57,6 +57,11 @@ const frm = {
     assert.equal(frm.doc.deposit_currency, "USD");
     await events.bank_account(frm);
     assert.equal(pending.length, 0);
+    frm.doc.bank_account = "NO IDENTIFICADA";
+    const before = {...frm.doc};
+    await events.bank_account(frm);
+    assert.equal(pending.length, 0);
+    assert.deepEqual(frm.doc, before); // Preserve original currency, FX and amount.
     frm.doc.bank_account = "NIO account";
     for (const docstatus of [1, 2]) {
         frm.doc.docstatus = docstatus;

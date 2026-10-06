@@ -9,7 +9,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import collection_shortfall_usd, operational_balances
-from credinomina_reconciliation.application_quality import update_collection_quality
+from credinomina_reconciliation.application_quality import quality_conforms, update_collection_quality
 from credinomina_reconciliation.cadence import (
     MONTHLY,
     cycle_code,
@@ -82,6 +82,9 @@ class CNReconciliationPeriod(Document):
         if self.payroll_month:
             self.payroll_month = getdate(self.payroll_month).replace(day=1)
         self._validate_mode()
+        from credinomina_reconciliation.application_quality import BASES
+        if self.reconciliation_mode != "Historica" and self.get("application_basis") not in BASES:
+            frappe.throw(_("Elija la base de la primera conciliación: Cobranza o Detalle de empresa."))
         self._set_due_date()
         self._validate_unique_period()
         self.recalculate_totals()
@@ -264,7 +267,7 @@ class CNReconciliationPeriod(Document):
             return  # Rebuilt from linked core applications, never from payroll rows.
         rows = list(self.collection_rows or [])
         if self.status != "Cerrado":
-            update_collection_quality(rows)
+            update_collection_quality(rows, self.get("application_basis"))
         for fieldname in (
             "expected_usd",
             "expected_nio",
@@ -1140,12 +1143,11 @@ def close_period(period_name: str, progress_id: str = ""):
             _("Hay diferencias cambiarias pendientes de revisar y aplicar en el core.")
         )
     if any(
-        collection_shortfall_usd(row) is None
-        or collection_shortfall_usd(row) > CASH_EPSILON
+        not quality_conforms(row, period.get("application_basis"))
         for row in period.collection_rows
     ):
         frappe.throw(_(
-            "Hay diferencias de cobranza o deducciones sin confirmar en la primera conciliación; no representan CxC por sí mismas. "
+            "Hay diferencias o datos pendientes en la base elegida de la primera conciliación; no representan CxC por sí mismas. "
             "Registre un corte de control y mantenga abierto el período para su seguimiento."
         ))
     if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):

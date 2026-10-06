@@ -1155,11 +1155,14 @@ Contables** suma la evidencia contable original en C$ y US$, no el total bancari
 La fecha explícita «EL DIA dd/mm/aaaa» identifica la recepción; de no existir,
 se usa Fecha Aplica, conservada también como fecha contable original.
 
-La cuenta se busca por banco, identificador y moneda explícitos. Solo se crea
-si esos datos están identificados sin ambigüedad y el usuario tiene permiso
-para crear cuentas. Números abreviados se reutilizan únicamente si identifican
-una cuenta existente única. Si hay dudas o monedas contradictorias, se deja
-vacía y se explica en **Origen contable**. Una empresa desconocida también
+La cuenta se busca por banco, identificador y moneda explícitos entre las cuentas
+ya registradas. La importación no crea cuentas a partir del texto contable.
+Números abreviados se reutilizan únicamente si identifican una cuenta existente
+única, activa y de la misma moneda. Si no hay coincidencia fiable, se asigna
+**NO IDENTIFICADA**, creándola solo si aún no existe. Es una cuenta provisional
+sin moneda: conserva la moneda, tasa e importe del depósito. El motivo queda en
+**Origen contable** para seleccionar la cuenta correcta durante la revisión.
+Una empresa desconocida también
 puede quedar pendiente en el borrador, pero debe completarse antes de confirmar.
 
 Reprocesar conserva el vínculo por identidad contable, sin duplicar depósitos
@@ -1278,9 +1281,11 @@ de devolución o aplicación externa. No es un nuevo pago del préstamo.
 
 En períodos operativos puede preparar la distribución antes de recibir dinero:
 
-1. Cargue la cobranza, el detalle de deducción si lo tiene, y concilie las
-   aplicaciones de la empresa. La base será la deducción informada o, si falta,
-   la cobranza. Una diferencia no significa automáticamente saldo a favor.
+1. Elija **Base de la primera conciliación**: **Cobranza** o **Detalle de empresa**.
+   Puede mantener ambos archivos cargados; todas las filas se comparan contra
+   una sola base, sin combinar ni sustituir datos faltantes por la otra.
+   Concilie las aplicaciones de la empresa. Una diferencia no significa
+   automáticamente saldo a favor. Cargar el otro archivo no cambia la elección.
 2. En **Más opciones → Generar ajustes provisionales**, revise la pestaña
    **Ajustes provisionales**. Se genera una fila por diferencia de cliente/crédito:
    base menos aplicado; positiva por exceso y negativa por faltante.
@@ -1301,8 +1306,16 @@ Este traslado exige coincidencia exacta en US$ con la suma de las bases completa
 seleccionadas, períodos abiertos y un depósito sin detalle, destinos ni créditos
 previos. Para pagos parciales, diferencias adicionales o distribuciones ya
 iniciadas, use el flujo habitual de selección de partidas pendientes. Cuando se
-usa cobranza, queda como deducción **inferida por depósito**, no como detalle
-recibido de la empresa. El importe NIO del depósito conserva su conversión y tasa.
+usa cobranza y no existe detalle informado, queda como deducción **inferida por
+depósito**, no como detalle recibido de la empresa. Si existe detalle informado,
+se conserva intacto aunque difiera de la cobranza seleccionada. El importe NIO
+del depósito conserva su conversión y tasa.
+
+Antes del traslado puede cambiar la base y regenerar/reaprobar sus ajustes;
+después queda bloqueada para preservar la evidencia. Al migrar, los períodos
+operativos existentes reciben una base única según su detalle disponible o la
+base ya materializada. No se recalculan saldos ni se borran archivos. Los casos
+antiguos con bases materializadas mixtas requieren revisión explícita.
 
 Las propuestas materializadas conservan vínculos a la partida y al depósito;
 repetir el traslado no crea duplicados. Las correcciones posteriores se realizan

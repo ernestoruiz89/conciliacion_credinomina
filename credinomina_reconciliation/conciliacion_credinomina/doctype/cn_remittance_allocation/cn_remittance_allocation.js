@@ -78,7 +78,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
     async bank_account(frm) {
         const document = frm.doc;
         const account = document.bank_account;
-        if (!account || document.docstatus !== 0) return;
+        if (!account || account === "NO IDENTIFICADA" || document.docstatus !== 0) return;
         const response = await frappe.db.get_value("CN Bank Account", account, "currency");
         // A slow lookup must not overwrite a newer selection or another document.
         if (frm.doc !== document || frm.doc.bank_account !== account || frm.doc.docstatus !== 0) return;

@@ -15,20 +15,20 @@ class PeriodPendingTests(unittest.TestCase):
         for status in pending.SETTLED:
             self.assertIsNone(pending.application_issue({**row, "deposit_match_status": status}))
 
-    def test_operative_deduction_issue_survives_cash_settlement(self):
+    def test_only_selected_quality_issue_survives_cash_settlement(self):
         row = dict(parent="P", idx=1, expected_usd=100, deducted_usd=90,
                    applied_usd=90, remitted_usd=90, deduction_status="Deduccion parcial",
                    application_status="Aplicado y remitido")
-        result = pending.collection_issue(row)
+        result = pending.collection_issue(row, "Cobranza")
         self.assertEqual(result["pending"], 0)
-        self.assertIn("Deduccion parcial", result["reason"])
-        self.assertIsNone(pending.collection_issue({**row, "deduction_status": "Deduccion total"}))
-        self.assertEqual(pending.collection_issue({**row, "remitted_usd": 80})["pending"], 10)
+        self.assertIn("Aplicación insuficiente", result["reason"])
+        self.assertIsNone(pending.collection_issue(row, "Detalle de empresa"))
+        self.assertEqual(pending.collection_issue({**row, "remitted_usd": 80}, "Detalle de empresa")["pending"], 10)
 
     def test_signed_rounding_and_complementary_do_not_invent_a_shortfall(self):
-        row = dict(applied_usd=90, complementary_usd=10, remitted_usd=99.99,
+        row = dict(expected_usd=100, applied_usd=90, complementary_usd=10, remitted_usd=99.99,
                    rounding_adjustment_usd=-0.01, deduction_status="Deduccion total", application_status="Aplicado y remitido")
-        self.assertIsNone(pending.collection_issue(row))
+        self.assertIsNone(pending.collection_issue(row, "Cobranza"))
 
     def test_deposit_exact_link_and_separate_global_balance(self):
         deposit = dict(name="D", amount_usd=1601.63, unclassified_usd=118.99, result="Revisar detalle",

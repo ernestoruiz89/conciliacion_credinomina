@@ -15,8 +15,9 @@ from credinomina_reconciliation.period_closure import ClosureScope
 
 class PeriodControlCutTests(unittest.TestCase):
     def _period(self):
-        return SimpleNamespace(
+        return frappe._dict(
             name="PER-1", employer="EMP-1", status="Pendiente",
+            application_basis="Cobranza",
             reconciliation_mode="Operativa", collection_rows=[frappe._dict(
                 deduction_status="Deduccion parcial", application_status="Depósito parcial",
                 expected_usd=50, deducted_usd=30, applied_usd=30, remitted_usd=20,
