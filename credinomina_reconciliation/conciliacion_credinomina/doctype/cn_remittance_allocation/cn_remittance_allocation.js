@@ -1104,15 +1104,15 @@ class RemittanceTargetPicker {
     availableFor(data) {
         let available = Number(data.available_cents || 0);
         if (!this.detailRowName) return available;
+        // The live row balance already subtracts linked targets, including
+        // additions not reconciled yet. Recompute it; do not subtract twice.
+        updateDetailPendingAmounts(this.frm);
         const detailRow = (this.frm.doc.detail_rows || []).find(row => row.name === this.detailRowName) || this.detailRow;
         if (!detailRow) return 0;
         const pending = Number.isFinite(Number(detailRow.pending_usd))
             ? Number(toScaledInteger(detailRow.pending_usd, 2))
             : Number(toScaledInteger(detailRow.amount_usd, 2));
-        const unprocessed = (this.frm.doc.targets || []).filter(target =>
-            target.detail_row === this.detailRowName && target.result !== "Aplicada")
-            .reduce((sum, target) => sum + Number(toScaledInteger(target.amount_usd, 2)), 0);
-        return Math.max(0, Math.min(available, pending - unprocessed));
+        return Math.max(0, Math.min(available, pending));
     }
 
     escape(value) { return frappe.utils.escape_html(String(value || "")); }

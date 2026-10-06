@@ -8,6 +8,7 @@ from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
 from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.paying_employers import allowed_employers, reconciliation_companies
+from credinomina_reconciliation.allocation_origin import DETAIL, FIFO, REFERENCE
 
 
 def target_key(row):
@@ -29,6 +30,7 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
     """
     paid = defaultdict(lambda: money(0))
     current_paid = defaultdict(lambda: money(0))
+    automatic_current_cash = money(0)
     other_current_cash = money(0)
     for deposit in deposits:
         if deposit.get("docstatus") != 1:
@@ -42,7 +44,11 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
             if key:
                 paid[key] += amount
             if deposit["name"] == current_name:
-                if key:
+                if key and entry.get("origen") in {DETAIL, FIFO, REFERENCE}:
+                    # A new manual target can supplement this automatic payment.
+                    # Both consume cash, even when they address the same claim.
+                    automatic_current_cash += amount
+                elif key:
                     current_paid[key] += amount
                 else:
                     other_current_cash += amount
@@ -51,15 +57,18 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
         key = target_key(row)
         # Even an incomplete manual row consumes budget until the user edits it.
         manual[key] += money(row.get("amount_usd"))
-    reserved = other_current_cash + sum(
-        ((min if min(current_paid[key], manual[key]) < 0 else max)(current_paid[key], manual[key])
-         for key in current_paid.keys() | manual.keys()),
-        money(0),
-    )
+    reserved = other_current_cash + automatic_current_cash
+    for key in current_paid.keys() | manual.keys():
+        assigned = current_paid.get(key, money(0))
+        instructed = manual.get(key, money(0))
+        reserved += min(assigned, instructed) if min(assigned, instructed) < 0 else max(assigned, instructed)
     available = max(money(amount_usd) - reserved, money(0))
     rows = []
     for candidate in candidates:
         key = target_key(candidate)
+        # Only explicit form targets are already selected. Reading a missing
+        # defaultdict key while computing cash must not mark automatic claims
+        # as selected and hide their outstanding balance.
         if key in manual:
             continue
         pending = max(money(candidate["due_usd"]) - paid[key], money(0))
