@@ -8,12 +8,45 @@ from credinomina_reconciliation import complementary_compensation as compensatio
 from credinomina_reconciliation.application_adjustments import CATEGORY as APPLICATION_ADJUSTMENT, validate_adjustment, assert_adjustable
 from credinomina_reconciliation.company_credit import CATEGORY, ensure_related_periods_open, validate_company_credit
 from credinomina_reconciliation import client_credit
+from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.tolerance_items import (
     guard_tolerance_item, is_tolerance_item, validate_tolerance_item,
 )
 
 
+def _complete_client_name(doc, previous=None):
+    """Fill a descriptive name only; never infer or change financial identities."""
+    identity_changed = previous and any(
+        clean_text(doc.get(field)) != clean_text(previous.get(field))
+        for field in ("credit_client", "client_number", "employer")
+    )
+    if doc.get("client_name") and not identity_changed:
+        return  # Preserve the name already recorded, including confirmed balances.
+    if doc.get("generic_distribution") or doc.get("category") == CATEGORY:
+        if identity_changed:
+            doc.client_name = ""
+        return  # A company/generic balance must not be attributed to one person.
+    filters = {}
+    for field, key in (("credit_client", "name"), ("client_number", "client_number")):
+        if clean_text(doc.get(field)):
+            filters[key] = clean_text(doc.get(field))
+    name = ""
+    if filters:
+        if doc.get("employer"):
+            filters["employer"] = doc.employer
+        name = frappe.db.get_value("CN Client", filters, "client_name") or ""
+    if not name and not identity_changed:
+        source_name = clean_text(doc.get("source_client_name"))
+        if source_name.upper() not in {"0", "N/A", "NA"}:
+            name = source_name
+    doc.client_name = name
+
+
 class CNComplementaryItem(Document):
+    def onload(self):
+        # Display names for existing imports without saving or recalculating balances.
+        _complete_client_name(self)
+
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
         from credinomina_reconciliation.receivable_recovery import guard_receipt
@@ -62,6 +95,7 @@ class CNComplementaryItem(Document):
             validate_company_credit(self)
         elif self.category == client_credit.CATEGORY:
             client_credit.validate_client_credit(self, previous)
+        _complete_client_name(self, previous)
         duplicate = frappe.db.get_value(
             self.doctype,
             {
