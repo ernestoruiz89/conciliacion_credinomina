@@ -897,7 +897,7 @@ function renderCashDistribution(deposit) {
         </div>
         ${renderCashReceivables([deposit])}
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
-            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${renderCashCreditIdentity(item)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
+            ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${renderCreditManagementBadge(item)}${renderCashCreditIdentity(item)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
         ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
@@ -911,6 +911,13 @@ function renderCashCreditIdentity(destination) {
     const people = destination.people?.length ? destination.people : [{}];
     return people.map(person => `<div><strong>${esc(__("Cliente"))}: ${esc(person.client_name || __("No disponible"))}</strong></div>
         <div>${esc(__("Nro. Cliente"))}: ${esc(person.client_number || __("No disponible"))}</div>`).join("");
+}
+
+function renderCreditManagementBadge(destination) {
+    if (!["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(destination.type)) return "";
+    const status = destination.management_status || "Pendiente";
+    const stateClass = ({"Pendiente": "pending", "Parcialmente resuelto": "partial", "Resuelto": "resolved"})[status] || "other";
+    return `<span class="cn-badge cn-credit-management-${stateClass}">${esc(status)}</span>`;
 }
 
 function cashTableTotal(rows) {
@@ -1194,6 +1201,10 @@ function styles() {
         .cn-cash-panel { border-top: 1px solid var(--border-color, #e2e8f0); padding-top: 16px; margin-top: 16px; }
         .cn-cash-cards { max-height: 40vh; }
         .cn-cash-distribution .cn-badge { padding: 4px 8px; background: var(--control-bg, #f1f5f9); }
+        .cn-cash-distribution .cn-credit-management-pending { background: #fef3c7; color: #92400e; }
+        .cn-cash-distribution .cn-credit-management-partial { background: #dbeafe; color: #1e40af; }
+        .cn-cash-distribution .cn-credit-management-resolved { background: #dcfce7; color: #166534; }
+        .cn-cash-distribution .cn-credit-management-other { background: #e2e8f0; color: #334155; }
         .cn-cash-distribution .cn-cash-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
         .cn-cash-kpis .cn-kpi-value { white-space: normal; overflow-wrap: anywhere; }
         .cn-cash-kpi-note { margin-top: 6px; color: var(--text-muted, #64748b); font-size: 12px; overflow-wrap: anywhere; }
