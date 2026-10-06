@@ -379,6 +379,41 @@ class CNRemittanceAllocation(Document):
 
 
 @frappe.whitelist(methods=["POST"])
+def correct_deposit_data(remittance_name: str, modified: str, employer: str,
+                         deposit_date: str, deposit_reference: str, reason: str):
+    """Correct submitted identity through a validated, audited server action."""
+    from credinomina_reconciliation.client_credit import lock_credit_deposit
+    from frappe.utils import getdate
+
+    document = lock_credit_deposit(remittance_name)
+    document.check_permission("write")
+    if document.docstatus != 1:
+        frappe.throw(_("Solo se pueden corregir datos de un depósito enviado."))
+    if str(document.modified) != str(modified):
+        frappe.throw(_("El depósito cambió. Recárguelo antes de corregir sus datos."))
+    employer, deposit_reference, reason = map(clean_text, (employer, deposit_reference, reason))
+    if not all((employer, deposit_date, deposit_reference, reason)):
+        frappe.throw(_("Indique empresa, fecha, referencia y motivo de la corrección."))
+    frappe.get_doc("CN Employer", employer).check_permission("read")
+    values = {"employer": employer, "deposit_date": getdate(deposit_date),
+              "deposit_reference": deposit_reference}
+    changes = ["{0}: {1} → {2}".format(field, document.get(field), value)
+               for field, value in values.items()
+               if str(document.get(field) or "") != str(value)]
+    if not changes:
+        return {"name": document.name}
+    document.update(values)
+    # Only this endpoint may bypass Frappe's field lock. Save still runs the
+    # deposit validators, credit guards, pending-result hook and versioning.
+    document.flags.ignore_validate_update_after_submit = True
+    document.save()
+    document.add_comment("Comment", _("Corrección de datos del depósito: {0}. Motivo: {1}").format(
+        "; ".join(changes), reason,
+    ))
+    return {"name": document.name}
+
+
+@frappe.whitelist(methods=["POST"])
 def create_complementary_item(remittance_name: str, modified: str, values):
     """Create, confirm and attach a complement in one permission-checked transaction."""
     from credinomina_reconciliation.client_credit import lock_credit_deposit
