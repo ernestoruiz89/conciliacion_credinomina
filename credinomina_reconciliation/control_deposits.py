@@ -216,7 +216,8 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                              for (kind, label, month), amount in destinations.items()],
         })
         if include_details:
-            output[-1]["destinations"].extend({"type": item.get("category") or "Saldo a favor del cliente", "label": " · ".join(filter(None, [item.get("name"), item.get("credit_management_status")])),
+            output[-1]["destinations"].extend({"type": item.get("category") or "Saldo a favor del cliente", "label": item.get("name"),
+                "management_status": item.get("credit_management_status") or "Pendiente",
                 "month": "", "employer": item.get("employer"), "amount_usd": float(money(item.get("amount_usd"))),
                 "people": [{"client_name": item.get("client_name"), "client_number": item.get("client_number"), "loan_number": item.get("loan_number"),
                             "amount_usd": float(money(item.get("amount_usd")))}] if item in client_balances else []} for item in balances)
