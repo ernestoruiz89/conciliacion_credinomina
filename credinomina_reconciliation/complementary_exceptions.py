@@ -159,6 +159,10 @@ def _companies(item):
 
 
 def _evidence(kind, name, item, voucher):
+    from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES
+    from credinomina_reconciliation.complementary_compensation import balance
+    if item.category in CREDIT_CATEGORIES and money(balance(item)["compensated_usd"]):
+        frappe.throw(_("El saldo a favor ya tiene evidencia vinculada en Compensar con otra partida. No verifique el mismo saldo nuevamente como registro contable."))
     if kind not in {SOURCE, ITEM} or not name or not (voucher or "").strip():
         frappe.throw(_("Indique el asiento y seleccione un movimiento contable importado."))
     row = frappe.get_doc(kind, name)

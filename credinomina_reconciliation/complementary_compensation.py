@@ -7,13 +7,17 @@ from frappe import _
 from frappe.utils import getdate, get_datetime, nowdate, now_datetime
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
+from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT as CREDIT_RESULT
+from credinomina_reconciliation.client_identity import name_key
+from credinomina_reconciliation.parsers import canonical_identifier, clean_text, normalize_credit_number
 
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
 _WRITE_TOKEN = object()
 _ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key", "reverses_operation_id")
 _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period",
-                  "related_application", "related_import", "registered_deposit", "client_number", "loan_number", "description", "reference")
+                  "related_application", "related_import", "registered_deposit", "client_number", "loan_number", "description", "reference",
+                  "credit_client", "credit_detail_row")
 
 
 def balance(doc, as_of_date=None):
@@ -64,7 +68,7 @@ def update_totals(doc):
     doc.compensated_usd = values["compensated_usd"] if values else 0
     doc.compensation_pending_usd = values["pending_usd"] if values else 0
     doc.compensation_status = values["status"] if values else ""
-    if values:
+    if values and doc.category not in CREDIT_CATEGORIES:
         doc.review_status = values["status"]
 
 
@@ -74,8 +78,21 @@ def guard_delete(doc):
 
 
 def _eligible(doc):
-    if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Diferencia por tolerancia"}:
-        frappe.throw(_("Seleccione borradores o partidas en compensación, sin ajustes de aplicación, saldos a favor ni tolerancias."))
+    if doc.get("registration_exception"):
+        frappe.throw(_("La partida ya verifica un registro contable. No puede compensarse también."))
+    if doc.category in CREDIT_CATEGORIES:
+        if (doc.docstatus != 1 or doc.get("result") != CREDIT_RESULT or not doc.get("registered_deposit")
+                or money(doc.amount_usd) <= 0 or doc.get("related_application")):
+            frappe.throw(_("Seleccione un saldo a favor confirmado y documentado en un depósito."))
+        if doc.get("accounting_exception") and frappe.db.get_value(
+            "CN Reconciliation Exception", doc.accounting_exception, "core_evidence_key"
+        ):
+            frappe.throw(_("El saldo a favor ya tiene un asiento verificado en su excepción; no lo compense nuevamente."))
+        # This journal links accounting evidence only. The original deposit,
+        # closed collection periods and refund-management balance stay intact.
+        return
+    if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Diferencia por tolerancia"}:
+        frappe.throw(_("Seleccione un borrador, una partida en compensación o un saldo a favor confirmado; no ajustes de aplicación ni tolerancias."))
     if doc.related_application or doc.registered_deposit or doc.review_action in {"Ajuste de aplicación", "Partida de depósito", "Reversión identificada"}:
         frappe.throw(_("La partida está destinada a una aplicación o depósito; revise ese vínculo antes de compensarla."))
     if doc.period and frappe.db.get_value("CN Reconciliation Period", doc.period, "status") == "Cerrado":
@@ -85,6 +102,10 @@ def _eligible(doc):
 
 
 def _direction(doc):
+    if doc.category in CREDIT_CATEGORIES:
+        # Stored as a positive magnitude, but represents excess credited to the
+        # customer/company; only an original core debit can offset that excess.
+        return -1
     # Imports store magnitudes: derive direction from untouched original evidence.
     if doc.get("accounting_source_key"):
         debit, credit = money(doc.source_debit), money(doc.source_credit)
@@ -102,12 +123,53 @@ def _validate_pair(left, right):
         frappe.throw(_("Seleccione una partida diferente."))
     for doc in (left, right):
         _eligible(doc)
+    credits = [doc for doc in (left, right) if doc.category in CREDIT_CATEGORIES]
+    if credits:
+        if len(credits) != 1:
+            frappe.throw(_("Vincule el saldo a favor con un movimiento contable, no con otro saldo a favor."))
+        credit = credits[0]
+        _validate_credit_evidence(credit, right if credit.name == left.name else left)
     if left.employer and right.employer and left.employer != right.employer:
         frappe.throw(_("Las partidas pertenecen a empresas diferentes."))
     if left.source_account and right.source_account and left.source_account != right.source_account:
         frappe.throw(_("Las partidas corresponden a cuentas contables diferentes."))
     if not _direction(left) or _direction(left) == _direction(right):
         frappe.throw(_("Las partidas deben tener sentidos opuestos: débito y crédito, o importes manuales de signo contrario."))
+
+
+def _validate_credit_evidence(credit, evidence):
+    """An imported debit can explain excess cash, never consume it a second time."""
+    from credinomina_reconciliation.accounting_registration import base_registration_status
+    from credinomina_reconciliation.accounting_types import APPLICATION, DEBIT_NOTE
+    if (base_registration_status(evidence) != "Importada del core"
+            or evidence.get("accounting_classification") in {APPLICATION, DEBIT_NOTE, "Depósito"}
+            or evidence.get("receivable_origin") or evidence.get("generic_distribution")):
+        frappe.throw(_("Seleccione una partida del core con evidencia contable original; no una aplicación, depósito ni partida genérica."))
+    if not credit.employer or credit.employer == "NO IDENTIFICADA" or evidence.employer != credit.employer:
+        frappe.throw(_("El movimiento contable y el saldo a favor deben tener la misma empresa identificada."))
+    debit, original_credit = money(evidence.get("source_debit")), money(evidence.get("source_credit"))
+    if debit <= 0 or original_credit:
+        frappe.throw(_("El saldo a favor requiere un débito original del core como contrapartida."))
+    original = debit
+    if evidence.source_currency == "NIO":
+        rate = decimal_value(evidence.get("source_fx_rate"))
+        if rate <= 0:
+            frappe.throw(_("La evidencia en C$ requiere una tasa original válida."))
+        original = money(debit / rate)
+    if original != money(evidence.amount_usd):
+        frappe.throw(_("El importe de la partida no coincide con su débito original convertido a US$. Revise la evidencia."))
+    if credit.category == "Saldo a favor del cliente":
+        matched = False
+        for field, normalize in (("client_number", canonical_identifier), ("loan_number", normalize_credit_number)):
+            left, right = clean_text(credit.get(field)), clean_text(evidence.get(field))
+            if left and right:
+                if normalize(left) != normalize(right):
+                    frappe.throw(_("El cliente o crédito del movimiento no coincide con el saldo a favor."))
+                matched = True
+        if not matched:
+            source_name = clean_text(evidence.get("source_client_name")) or clean_text(evidence.get("client_name"))
+            if not source_name or name_key(source_name) != name_key(credit.get("client_name")):
+                frappe.throw(_("Identifique el mismo cliente en ambas partidas por número, crédito o nombre completo antes de compensar."))
 
 
 def _load_pair(item_name, counterpart, permission="write"):
@@ -141,7 +203,12 @@ def preview_compensation(item_name, counterpart):
 
 def _summary(doc, as_of_date=None):
     return {"name": doc.name, "posting_date": doc.posting_date, "employer": doc.employer,
-            "voucher": doc.voucher, "description": doc.description, **balance(doc, as_of_date)}
+            "voucher": doc.voucher, "description": doc.description,
+            "is_credit": doc.category in CREDIT_CATEGORIES,
+            "client_name": doc.get("client_name") or doc.get("source_client_name") or "",
+            "client_number": doc.get("client_number") or "",
+            "management_pending_usd": doc.get("credit_pending_usd") if doc.category in CREDIT_CATEGORIES else None,
+            **balance(doc, as_of_date)}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -178,7 +245,8 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
     # No explicit commit: both halves and their Version records share one transaction.
     for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
         other = right if doc.name == left.name else left
-        doc.category = doc.review_action = CATEGORY
+        if doc.category not in CREDIT_CATEGORIES:
+            doc.category = doc.review_action = CATEGORY
         doc.append("compensations", {"operation_id": request_key, "entry_key": f"{request_key}-{index}",
             "counterpart": other.name, "compensation_date": date, "amount_usd": money_float(amount),
             "reason": reason, "confirmed_by": frappe.session.user, "confirmed_on": now_datetime()})

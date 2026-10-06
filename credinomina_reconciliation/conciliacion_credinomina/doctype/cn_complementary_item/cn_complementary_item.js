@@ -201,6 +201,8 @@ frappe.ui.form.on("CN Complementary Item", {
         if (frm.doc.docstatus === 2) return;
         const compensated = (frm.doc.compensations || []).length > 0;
         const betweenItems = frm.doc.category === "Compensación entre partidas";
+        const documentedCredit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category)
+            && frm.doc.docstatus === 1 && frm.doc.result === "Saldo a favor documentado" && !!frm.doc.registered_deposit;
         for (const field of ["category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period", "client_number", "loan_number", "description"]) {
             frm.set_df_property(field, "read_only", compensated || frm.doc.receivable_origin ? 1 : 0);
         }
@@ -211,9 +213,10 @@ frappe.ui.form.on("CN Complementary Item", {
                 frm.add_custom_button(__("Revertir compensación"), () => cn_reverse_compensation(frm));
             }
         }
-        if ((frm.doc.docstatus === 0 || betweenItems) && !frm.is_new() && frm.get_perm(0, "submit")
+        if ((documentedCredit || ((frm.doc.docstatus === 0 || betweenItems)
             && !["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)
-            && !frm.doc.related_application && !frm.doc.registered_deposit
+            && !frm.doc.registered_deposit)) && !frm.is_new() && frm.get_perm(0, "submit") && frm.get_perm(0, "write")
+            && !frm.doc.related_application && !frm.doc.registration_exception
             && (!compensated || frm.doc.compensation_pending_usd > 0)) {
             frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
@@ -430,10 +433,18 @@ async function cn_compensate_items_dialog(frm) {
     const dialog = new frappe.ui.Dialog({
         title: __("Compensar con otra partida"), size: "large",
         fields: [
-            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales y se reducirá únicamente el saldo pendiente de ambas partidas.")}</p>`},
+            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales.")}</p><p>${__("Para un saldo a favor, seleccione su contrapartida importada del core. Solo se vincula la evidencia contable: no cambia la distribución del depósito ni el pendiente de devolución. Registre la devolución por separado y una excepción si requiere seguimiento adicional.")}</p>`},
             {fieldtype: "Link", fieldname: "counterpart", label: __("Partida a compensar"), options: "CN Complementary Item", reqd: 1,
-                get_query: () => ({filters: {name: ["!=", frm.doc.name], docstatus: ["!=", 2],
-                    category: ["not in", ["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Diferencia por tolerancia"]]}}),
+                get_query: () => {
+                    const credit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category);
+                    return {filters: {name: ["!=", frm.doc.name], docstatus: ["!=", 2],
+                        registration_exception: ["is", "not set"],
+                        category: ["not in", ["Ajuste de aplicación", "Diferencia por tolerancia",
+                            ...(credit ? ["Saldo a favor de la empresa", "Saldo a favor del cliente"] : [])]],
+                        ...(credit && frm.doc.employer ? {employer: frm.doc.employer} : {}),
+                        ...(credit ? {accounting_source_key: ["is", "set"], source_debit: [">", 0], source_credit: 0} : {}),
+                    }};
+                },
                 async onchange() {
                     const selected = dialog.get_value("counterpart");
                     preview = null;
@@ -448,9 +459,11 @@ async function cn_compensate_items_dialog(frm) {
                     const cards = [preview.left, preview.right].map(item => `<div class="col-sm-6"><div class="well">
                         <strong>${esc(item.name)}</strong><p>${esc(frappe.datetime.str_to_user(item.posting_date))}<br>
                         ${esc(item.employer || __("Empresa sin identificar"))}<br>${__("Asiento")}: ${esc(item.voucher || __("Pendiente"))}</p>
+                        ${item.client_name || item.client_number ? `<p>${esc(item.client_name)}${item.client_number ? ` · ${__("Nro. Cliente")}: ${esc(item.client_number)}` : ""}</p>` : ""}
                         <p>${esc(item.description)}</p><div>${__("Original US$")}: ${esc(format_currency(item.original_usd, "USD"))}</div>
                         <div>${__("Compensado US$")}: ${esc(format_currency(item.compensated_usd, "USD"))}</div>
-                        <strong>${__("Pendiente US$")}: ${esc(format_currency(item.pending_usd, "USD"))}</strong></div></div>`).join("");
+                        <strong>${__(item.is_credit ? "Sin vínculo contable US$" : "Pendiente US$")}: ${esc(format_currency(item.pending_usd, "USD"))}</strong>
+                        ${item.is_credit ? `<p class="mt-2">${__("Pendiente de gestión US$ (no cambia)")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");
                     dialog.fields_dict.summary.$wrapper.html(`<div class="row">${cards}</div>`);
                     await dialog.set_value("amount_usd", preview.suggested_usd);
                     dialog.get_primary_btn().prop("disabled", preview.suggested_usd <= 0);
@@ -458,8 +471,8 @@ async function cn_compensate_items_dialog(frm) {
             {fieldtype: "HTML", fieldname: "summary"},
             {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe a compensar US$"), options: "USD", precision: 2, reqd: 1},
             {fieldtype: "Date", fieldname: "compensation_date", label: __("Fecha de compensación"), default: frappe.datetime.get_today(), reqd: 1},
-            {fieldtype: "Small Text", fieldname: "reason", label: __("Motivo y referencia de la reversión"), reqd: 1},
-            {fieldtype: "Check", fieldname: "reviewed", label: __("Verifiqué que ambas partidas se compensan, incluso si no tienen empresa identificada"), reqd: 1},
+            {fieldtype: "Small Text", fieldname: "reason", label: __("Motivo y referencia de la compensación"), reqd: 1},
+            {fieldtype: "Check", fieldname: "reviewed", label: __("Verifiqué la contrapartida, empresa, cliente e importe; esta operación no registra una devolución"), reqd: 1},
         ],
         primary_action_label: __("Confirmar compensación"),
         async primary_action(values) {
@@ -471,7 +484,9 @@ async function cn_compensate_items_dialog(frm) {
                     freeze: true, freeze_message: __("Registrando compensación en ambas partidas…")});
                 dialog.hide();
                 await frm.reload_doc();
-                frappe.show_alert({message: __("Compensación registrada en ambas partidas."), indicator: "green"});
+                frappe.show_alert({message: __(preview.left.is_credit || preview.right.is_credit
+                    ? "Vínculo contable registrado. La distribución del depósito y la gestión del saldo a favor no cambiaron."
+                    : "Compensación registrada en ambas partidas."), indicator: "green"});
             } finally {
                 dialog.get_primary_btn().prop("disabled", false);
             }
