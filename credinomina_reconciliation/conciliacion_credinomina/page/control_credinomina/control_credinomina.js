@@ -658,6 +658,17 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         );
     }
     page.add_button(__("Registrar depósito"), () => frappe.new_doc("CN Remittance Allocation"));
+    page.add_button(__("Consultar corte histórico"), () => frappe.prompt([
+        {fieldname: "cutoff_date", fieldtype: "Date", label: __("Fecha de corte"), reqd: 1,
+            default: frappe.datetime.get_today(),
+            description: __("Consulta saldos por fecha efectiva con los vínculos vigentes. No modifica conciliaciones.")},
+        {fieldname: "employer", fieldtype: "Link", label: __("Empresa"), options: "CN Employer",
+            default: employerField.get_value() || ""},
+    ], values => {
+        frappe.route_options = {view_mode: "Resumen", cutoff_date: values.cutoff_date,
+            employer: values.employer || "", from_date: "", to_date: ""};
+        frappe.set_route("query-report", "Estado de Cuenta por Empresa");
+    }, __("Consultar corte histórico"), __("Consultar")));
     page.set_primary_action(__("Actualizar"), refresh);
     controlsReady = true;
     refresh();

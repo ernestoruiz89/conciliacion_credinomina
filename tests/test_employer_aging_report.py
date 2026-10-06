@@ -15,7 +15,7 @@ class EmployerAgingTests(unittest.TestCase):
 
     def test_aggregates_all_clients_periods_and_modes_without_reaging(self):
         rows = [dict(employer="E", client_name="Ana", period="P1", amount_usd=10.10, applied_usd=15.10,
-                     paid_usd=5, adjustment_usd=0, days_1_30=10.10, reconciliation_mode="Historica"),
+                     paid_usd=5, adjustment_usd=0, days_1_15=10.10, reconciliation_mode="Historica"),
                 dict(employer="E", client_name="Bea", period="P2", amount_usd=20.20, applied_usd=20.21,
                      paid_usd=0, adjustment_usd=-0.01, days_31_60=20.20, reconciliation_mode="Operativa"),
                 dict(employer="F", amount_usd=4, without_date=4)]
@@ -23,7 +23,7 @@ class EmployerAgingTests(unittest.TestCase):
         self.assertEqual(len(data), 2)
         self.assertEqual(data[0]["amount_usd"], 30.30)
         self.assertEqual(data[0]["applied_usd"], 35.31)
-        self.assertEqual(data[0]["days_1_30"], 10.10)
+        self.assertEqual(data[0]["days_1_15"], 10.10)
         self.assertEqual(data[0]["days_31_60"], 20.20)
         self.assertEqual(data[1]["without_date"], 4)
         for field in ("client_name", "client_number", "national_id", "loan_number", "period", "due_date", "age_days"):
@@ -40,6 +40,18 @@ class EmployerAgingTests(unittest.TestCase):
         self.assertEqual(by_company["F"]["amount_usd"], 20)
         self.assertIn("incompletos", by_company["F"]["observation"])
         self.assertIn("identificar", by_company[None]["observation"])
+
+    def test_first_month_is_split_without_double_counting(self):
+        columns, data, *_ = self.execute([
+            dict(employer="E", amount_usd=10, days_1_15=10, days_16_30=0),
+            dict(employer="E", amount_usd=20, days_1_15=0, days_16_30=20),
+        ])
+        self.assertEqual(data[0]['days_1_15'], 10)
+        self.assertEqual(data[0]['days_16_30'], 20)
+        self.assertEqual(data[0]['amount_usd'], 30)
+        fields = [column['fieldname'] for column in columns]
+        self.assertLess(fields.index('days_1_15'), fields.index('days_16_30'))
+        self.assertNotIn('days_1_30', fields)
 
     def test_operational_types_not_combined(self):
         _, data, *_ = self.execute([

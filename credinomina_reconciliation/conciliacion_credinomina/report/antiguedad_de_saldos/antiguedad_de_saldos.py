@@ -21,6 +21,8 @@ def execute(filters=None):
     filters = frappe._dict(filters or {})
     if filters.get("balance_type") in (None, "", TOTAL_RECEIVABLE_BALANCE, APPLICATION_BALANCE, ADJUSTMENT_BALANCE):
         return _execute_applications(filters)
+    if frappe.utils.cint(filters.get('historical_cutoff')):
+        frappe.throw(_('El corte histórico aplica a CxC total, aplicaciones pendientes o CxC por ajustes; no a controles de cobranza.'))
     return _execute_operational(filters)
 
 
@@ -32,10 +34,18 @@ def _execute_applications(filters):
         frappe.throw(_("El mes inicial no puede ser posterior al mes final."))
     include_applications = filters.get('balance_type') != ADJUSTMENT_BALANCE
     include_adjustments = filters.get('balance_type') != APPLICATION_BALANCE
-    sources, imports, periods, collections, employers = load_application_context(
-        employer=filters.get('employer'), include_applications=include_applications)
+    cutoff = None
+    if frappe.utils.cint(filters.get('historical_cutoff')):
+        from credinomina_reconciliation.historical_cutoff import load_cutoff
+        cutoff = load_cutoff(dict(cutoff_date=str(as_of), employer=filters.get('employer')))
+        periods = cutoff['periods']
+        applications = [row for row in cutoff['applications'] if row.get('amount_usd') is None or row['amount_usd'] > 0]
+    else:
+        sources, imports, periods, collections, employers = load_application_context(
+            employer=filters.get('employer'), include_applications=include_applications)
+        applications = application_balances(sources, imports, periods, collections, employers, as_of) if include_applications else []
     data = []
-    for row in application_balances(sources, imports, periods, collections, employers, as_of) if include_applications else ():
+    for row in applications if include_applications else ():
         if any(filters.get(field) and row.get(field) != filters[field]
                for field in ("employer", "reconciliation_mode", "client_number", "national_id", "loan_number")):
             continue
@@ -49,7 +59,10 @@ def _execute_applications(filters):
             continue
         data.append(row)
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
-    for item in load_receivables(employer=filters.get('employer')) if include_adjustments else ():
+    receivables = (cutoff['receivables'] if cutoff else load_receivables(employer=filters.get('employer'))) if include_adjustments else []
+    for item in receivables:
+        if filters.get('employer') and item.get('employer') != filters['employer']:
+            continue
         if any(filters.get(field) and item.get(field) != filters[field]
                for field in ('client_number', 'national_id', 'loan_number')):
             continue
@@ -106,7 +119,16 @@ def _execute_applications(filters):
                  "no se compensan automáticamente.") +
                '<details><summary>' + _("Cómo se calculan los saldos y la antigüedad") +
                '</summary><p>' + help_text + '</p></details>')
-    return get_application_columns(), data, message, None, summary
+    columns = get_application_columns()
+    if cutoff:
+        from credinomina_reconciliation.historical_cutoff import cutoff_message
+        message = cutoff_message(cutoff) + _(' La antigüedad usa el vencimiento conservado en cada aplicación; los plazos no conservados se estiman con la configuración vigente.')
+        data = [dict(row, cutoff_date=cutoff['cutoff_date'], cutoff_warning='; '.join(cutoff['warnings'])) for row in data]
+        columns += [
+            {'fieldname': 'cutoff_date', 'label': _('Fecha de corte histórico'), 'fieldtype': 'Date', 'width': 150},
+            {'fieldname': 'cutoff_warning', 'label': _('Advertencias del corte'), 'fieldtype': 'Data', 'width': 350},
+        ]
+    return columns, data, message, None, summary
 
 
 def _execute_operational(filters):
@@ -179,7 +201,8 @@ def _execute_operational(filters):
                 "amount_usd": balance["amount_usd"],
                 "provision_review_usd": balance["provision_review_usd"],
                 "not_due": aged["not_due"],
-                "days_1_30": aged["days_1_30"],
+                "days_1_15": aged["days_1_15"],
+                "days_16_30": aged["days_16_30"],
                 "days_31_60": aged["days_31_60"],
                 "days_61_90": aged["days_61_90"],
                 "days_over_90": aged["days_over_90"],
@@ -230,7 +253,8 @@ def get_columns():
         {"fieldname": "age_days", "label": _("Días transcurridos"), "fieldtype": "Int", "width": 110},
         {"fieldname": "amount_usd", "label": _("Saldo US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 110},
         {"fieldname": "not_due", "label": _("No vencido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
-        {"fieldname": "days_1_30", "label": _("1–30 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 120},
+        {"fieldname": "days_1_15", "label": _("1–15 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 120},
+        {"fieldname": "days_16_30", "label": _("16–30 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "days_31_60", "label": _("31–60 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "days_61_90", "label": _("61–90 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
         {"fieldname": "days_over_90", "label": _("Más de 90 días US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 from credinomina_reconciliation.rounding import money, money_float
 
 
-BUCKETS = ("not_due", "days_1_30", "days_31_60", "days_61_90", "days_over_90")
+BUCKETS = ("not_due", "days_1_15", "days_16_30", "days_31_60", "days_61_90", "days_over_90")
 VALID_DEDUCTION_STATUSES = (
     "Deduccion total", "Deduccion parcial", "No deducido",
     "Deduccion en exceso", "Inferida por depósito",
@@ -44,7 +44,8 @@ def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]
     bucket = (
         "without_date" if due is None else
         "not_due" if days == 0 else
-        "days_1_30" if days <= 30 else
+        "days_1_15" if days <= 15 else
+        "days_16_30" if days <= 30 else
         "days_31_60" if days <= 60 else
         "days_61_90" if days <= 90 else "days_over_90"
     )

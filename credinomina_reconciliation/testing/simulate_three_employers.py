@@ -299,7 +299,7 @@ def audit():
     assert totals["Deducido sin depósito asignado"] == 920.5, totals
     assert len(rows) == 37, len(rows)
     assert all(abs(sum(row[key] for key in (
-        "not_due", "days_1_30", "days_31_60", "days_61_90",
+        "not_due", "days_1_15", "days_16_30", "days_31_60", "days_61_90",
         "days_over_90", "without_date",
     )) - row["amount_usd"]) < 0.00005 for row in rows)
     company = [row for row in rows if row["balance_type"] == "Deducido sin depósito asignado"]

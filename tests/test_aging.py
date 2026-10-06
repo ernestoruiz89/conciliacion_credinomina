@@ -21,8 +21,10 @@ class AgingTests(unittest.TestCase):
     def test_age_bands_are_exclusive_at_boundaries(self):
         cases = [
             ("2026-10-10", "not_due", 0),
-            ("2026-10-11", "days_1_30", 1),
-            ("2026-11-09", "days_1_30", 30),
+            ("2026-10-11", "days_1_15", 1),
+            ("2026-10-25", "days_1_15", 15),
+            ("2026-10-26", "days_16_30", 16),
+            ("2026-11-09", "days_16_30", 30),
             ("2026-11-10", "days_31_60", 31),
             ("2026-12-09", "days_31_60", 60),
             ("2026-12-10", "days_61_90", 61),
@@ -35,7 +37,7 @@ class AgingTests(unittest.TestCase):
                 self.assertEqual(result["age_bucket"], expected)
                 self.assertEqual(result["age_days"], days)
                 self.assertEqual(sum(result[name] for name in (
-                    "not_due", "days_1_30", "days_31_60",
+                    "not_due", "days_1_15", "days_16_30", "days_31_60",
                     "days_61_90", "days_over_90", "without_date",
                 )), 23.5)
 

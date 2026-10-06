@@ -1,5 +1,7 @@
 frappe.query_reports["Antiguedad de Saldos"] = {
     filters: [
+        { fieldname: "historical_cutoff", label: __("Corte histórico"), fieldtype: "Check", default: 0,
+            description: __("Reconstruye la CxC a la fecha para antigüedad; no descuenta operaciones posteriores.") },
         { fieldname: "as_of_date", label: __("Fecha para antigüedad"), fieldtype: "Date", default: frappe.datetime.get_today(), reqd: 1 },
         { fieldname: "from_month", label: __("Mes desde"), fieldtype: "Date" },
         { fieldname: "to_month", label: __("Mes hasta"), fieldtype: "Date" },

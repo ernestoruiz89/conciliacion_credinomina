@@ -15,6 +15,9 @@ const grouped = JSON.parse(fs.readFileSync(path.join(root, "antiguedad_de_saldos
 assert.deepEqual(grouped.roles, detailed.roles);
 assert.equal(grouped.ref_doctype, detailed.ref_doctype);
 const balance = context.frappe.query_reports["Antiguedad de Saldos"].filters.find(f => f.fieldname === "balance_type");
+const cutoff = context.frappe.query_reports["Antiguedad de Saldos"].filters.find(f => f.fieldname === "historical_cutoff");
+assert.equal(cutoff.fieldtype, "Check");
+assert.equal(cutoff.default, 0);
 assert.equal(balance.default, "CxC total");
 assert.equal(balance.options.split("\n").slice(0, 3).join("|"),
     "CxC total|Aplicado pendiente de depósito|CxC por ajustes");

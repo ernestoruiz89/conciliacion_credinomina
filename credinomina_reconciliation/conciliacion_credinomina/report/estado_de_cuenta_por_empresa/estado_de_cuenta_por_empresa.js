@@ -2,6 +2,8 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
     filters: [
         {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
+        {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
+            description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
         {fieldname: "from_date", label: __("Desde"), fieldtype: "Date"},
         {fieldname: "to_date", label: __("Hasta"), fieldtype: "Date"},
     ],

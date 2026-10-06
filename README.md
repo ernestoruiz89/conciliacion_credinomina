@@ -876,6 +876,55 @@ solo está cubierto en parte. La migración corrige los antiguos estados
 **Con excedente** de períodos abiertos y completa los importes informativos,
 sin cambiar asignaciones, importes financieros ni reabrir períodos cerrados.
 
+### Corte histórico de saldos
+
+Desde **Control de Credinómina → Consultar corte histórico**, indique una fecha
+y, opcionalmente, una empresa. Se abre **Estado de Cuenta por Empresa** con
+**Corte histórico al** seleccionado. Puede alternar **Resumen / Detalle** y
+exportar mediante la opción estándar del reporte. La fecha de corte y sus
+advertencias también se incluyen en las columnas exportadas.
+
+- El corte es inclusivo: considera aplicaciones por fecha de aplicación,
+  depósitos por fecha de depósito y partidas por su fecha efectiva. Una
+  aplicación de agosto pagada en septiembre sigue pendiente al 31 de agosto.
+  Usa los importes y tipos de cambio registrados, sin revaluarlos al tipo de
+  cambio de la fecha de corte.
+- Reconstruye compensaciones, devoluciones y sus reversiones mediante el
+  historial fechado. Un saldo a favor ya devuelto puede seguir pendiente en un
+  corte anterior a la devolución. Devolverlo no libera otra vez dinero del depósito.
+- Incluye aplicaciones sin período, depósitos del core sin confirmar, partidas
+  del core pendientes, saldos a favor y CxC por ajustes con sus cobros vinculados.
+  No considera borradores manuales de depósitos ni registros actualmente cancelados.
+- La cobranza solicitada no crea CxC. Un depósito sin asignar no cubre de manera
+  arbitraria una aplicación: se muestran ambos componentes por separado.
+- **Antigüedad de Saldos** y **Antigüedad de Saldos por Empresa** permiten activar
+  **Corte histórico**, usando **Fecha para antigüedad** como corte. Aplica a
+  **CxC total**, **Aplicado pendiente de depósito** y **CxC por ajustes**.
+  Los vencimientos conservados se respetan; los no conservados se identifican
+  como estimados según el plazo vigente de la empresa.
+  Ambos reportes separan los rangos **1–15**, **16–30**, **31–60**, **61–90** y
+  **más de 90 días**, además de **No vencido** y **Sin fecha**, sin duplicar saldos.
+
+Es una reconstrucción por fecha efectiva con las clasificaciones y vínculos
+válidos **hoy**, no una reproducción de lo que se conocía en esa fecha. No
+guarda una versión inmutable ni sustituye los cortes de control registrados.
+Las correcciones actuales permanecen vigentes; para conservar la evidencia de
+la consulta, exporte el reporte. No modifica datos, no concilia ni reabre períodos.
+
+Si existe desglose FIFO por aplicación, se usa para separar las aplicaciones
+anteriores y posteriores al corte. Si una distribución operativa las agrupa
+sin poder separar su cobertura, se conserva el efectivo sin asignar y se
+advierte la limitación. Tampoco se inventa distribución si depende de un ajuste
+posterior al corte. Un historial ilegible, no fechado o inconsistente impide
+emitir el corte en lugar de presentar cifras falsas. Los importes sin conversión
+se mantienen sin determinar, nunca como cero. Los datos están limitados por los
+permisos de lectura del usuario; un vínculo necesario no accesible requiere revisión.
+
+Deje **Corte histórico al** vacío para volver al saldo actual. **Desde / Hasta**
+siguen filtrando fecha de origen; no generan saldo inicial. Para consultar la
+posición completa al corte, déjelos vacíos. El Excel habitual del tablero sigue
+mostrando saldos actuales; no cambia por consultar el corte en otro reporte.
+
 En **Control de Credinómina**, el botón **Exportar Excel** descarga el año y,
 si se seleccionó, la empresa filtrada. Incluye estas hojas:
 
