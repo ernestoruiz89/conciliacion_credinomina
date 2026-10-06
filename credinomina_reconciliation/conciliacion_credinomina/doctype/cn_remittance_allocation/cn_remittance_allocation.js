@@ -49,6 +49,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
             });
         }
         if (!frm.is_new() && frm.doc.docstatus === 1 && frm.get_perm(0, "write")) {
+            frm.add_custom_button(__("Corregir datos"), () => correctDepositData(frm));
             frm.add_custom_button(__("Conciliar"), () => reconcileRemittance(frm), __("Conciliación"));
         }
         const file = frm.doc.detail_file || frm.doc.support_file || "";
@@ -103,6 +104,37 @@ frappe.ui.form.on("CN Remittance Allocation", {
         new RemittanceTargetPicker(frm, response);
     },
 });
+
+async function correctDepositData(frm) {
+    if (frm.is_dirty()) await frm.save();
+    const modified = frm.doc.modified;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Corregir datos del depósito"),
+        fields: [
+            {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa pagadora"), reqd: 1, default: frm.doc.employer},
+            {fieldname: "deposit_date", fieldtype: "Date", label: __("Fecha del depósito"), reqd: 1, default: frm.doc.deposit_date},
+            {fieldname: "deposit_reference", fieldtype: "Data", label: __("Referencia del depósito"), reqd: 1, default: frm.doc.deposit_reference},
+            {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo de la corrección"), reqd: 1,
+                description: __("Los cambios quedan registrados. Use Conciliar después de corregir los datos.")},
+        ],
+        primary_action_label: __("Guardar corrección"),
+        async primary_action(values) {
+            dialog.disable_primary_action();
+            try {
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.correct_deposit_data",
+                    args: {remittance_name: frm.doc.name, modified, ...values},
+                    freeze: true, freeze_message: __("Guardando corrección…"),
+                });
+                dialog.hide();
+                await frm.reload_doc();
+            } finally {
+                dialog.enable_primary_action();
+            }
+        },
+    });
+    dialog.show();
+}
 
 async function reconcileRemittance(frm) {
     if (frm.reconciliation_running) return;
