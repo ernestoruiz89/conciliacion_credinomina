@@ -20,6 +20,11 @@ const context = vm.createContext({__: (text, values) => values ? text.replace("{
     }, msgprint: message => calls.push(message), show_alert: message => calls.push(message),
 }});
 const base = path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype");
+const itemSchema = JSON.parse(fs.readFileSync(path.join(base, "cn_complementary_item/cn_complementary_item.json"), "utf8"));
+const reasonField = itemSchema.fields.find(field => field.fieldname === "reason_type");
+assert.equal(reasonField.allow_on_submit, 1);
+assert.ok(!reasonField.read_only);
+assert.equal(itemSchema.track_changes, 1);
 for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
     vm.runInContext(fs.readFileSync(path.join(base, dt, `${dt}.js`), "utf8"), context);
 }
@@ -54,6 +59,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     events.refresh(frm);
     assert.equal(props.categoryread_only, 1);
     assert.equal(props.registered_depositread_only, 1);
+    assert.ok(!props.reason_typeread_only);
     assert.equal(shown.record_credit_management, true);
     assert.match(historyHTML, /display:2025-05-10/);
     assert.match(historyHTML, /&lt;script>/);
@@ -81,6 +87,15 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     await context.createRemittanceComplementary({doc:{name:"DEP", employer:"INDENICSA", detail_rows:[{name:"R", client:"123", client_name:"Ana", loan_number:"100-1"}]},
         is_new: () => false, is_dirty: () => false, reload_doc: async () => {reloads++;}, paying_companies:["INDENICSA","CBC"]});
     assert.ok(dialog.options.fields.find(f => f.fieldname === "category").options.includes("Saldo a favor del cliente"));
+    const reason = dialog.options.fields.find(f => f.fieldname === "reason_type");
+    assert.equal(reason.default, "");
+    assert.equal(reason.options.split("\n")[0], "");
+    for (const category of ["Saldo a favor del cliente", "Saldo a favor de la empresa", "Otros ingresos"]) {
+        context.doc = {category};
+        for (const condition of [reason.depends_on, reason.mandatory_depends_on]) {
+            assert.equal(vm.runInContext(condition.slice(5), context), category !== "Otros ingresos");
+        }
+    }
     dialog.values.credit_detail_row = "R";
     await dialog.options.fields.find(f => f.fieldname === "credit_detail_row").onchange();
     assert.equal(dialog.values.credit_client, "123");
@@ -116,7 +131,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     assert.equal(dialogCount, count); // Duplicate clicks cannot open a second creation modal.
     for (const amount of [-1, 0, 11, NaN]) await rowDialog.options.primary_action({amount});
     assert.equal(calls.filter(call => call.method?.endsWith("create_complementary_item")).length, createsBefore);
-    const values = {amount:10, category:"Cobranza administrativa", currency:"NIO", credit_client:"OTHER", credit_detail_row:"OTHER", client_number:"WRONG", loan_number:"OTHER"};
+    const values = {amount:10, category:"Cobranza administrativa", currency:"NIO", credit_client:"OTHER", credit_detail_row:"OTHER", client_number:"WRONG", loan_number:"OTHER", reason_type:"Pago adicional no informado"};
     const submit = rowDialog.options.primary_action(values);
     await rowDialog.options.primary_action(values);
     await submit;
@@ -127,6 +142,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     assert.equal(creation.args.values.credit_client, "123");
     assert.equal(creation.args.values.client_number, "123");
     assert.equal(creation.args.values.loan_number, "100-1");
+    assert.equal(creation.args.values.reason_type, "Pago adicional no informado");
     assert.equal(creation.args.modified, "stamp");
     assert.equal(calls.filter(call => call.method?.endsWith("create_complementary_item")).length, createsBefore + 1);
     assert.equal(deposit.detail_credit_workflow, false);
