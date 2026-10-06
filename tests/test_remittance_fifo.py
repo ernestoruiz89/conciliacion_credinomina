@@ -2,7 +2,7 @@ import copy
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import frappe
 
@@ -10,6 +10,7 @@ from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.allocation_origin import FIFO, MANUAL
 from credinomina_reconciliation.remittance_detail import suggest_detail_targets, detail_amount_usd
 from credinomina_reconciliation.remittance_target_summary import describe_targets
+from credinomina_reconciliation.remittance_selection import pending_selection
 from credinomina_reconciliation.rounding import money, sum_money
 from credinomina_reconciliation.parsers import parse_collection_file, normalize_credit_number
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
@@ -135,6 +136,45 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual([t["amount_usd"] for t in context["instructions"]], [17.98, 15.05])
         self.assertEqual(result["instruction_results"]["MANUAL"], "Aplicada")
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+
+    def test_picker_can_link_fifo_remainder_to_another_detail_row(self):
+        # Two detail rows of 18.67 cover applications of 18.66 and 18.67.
+        # FIFO uses one cent of the second application in the first detail row.
+        for row in self.rows:
+            row.deducted_usd = 18.67
+        self.claims = [application("A", "2025-04-15", 18.66), application("B", "2025-04-30", 18.67)]
+        self.deposit["amount_usd"] = 37.34
+        _, initial = self.run_engine()
+        self.assertEqual(initial["claim_remaining"]["H:B"], 18.66)
+        selection = pending_selection(
+            [{"historical_application": "B", "applied_usd": 18.67, "due_usd": 18.67}],
+            [{"name": "DEP", "docstatus": 1, "allocation_detail": [
+                {"aplicacion_id": entry["claim_id"][2:], "importe_usd": entry["amount_usd"],
+                 "origen": entry["origin"]} for entry in initial["allocations"]
+            ]}], "DEP", 37.34, [],
+        )
+        self.assertEqual(selection["rows"][0]["pending_cents"], 1866)
+        manual = [dict(id="MANUAL", deposit_id="DEP", claim_id="H:B", amount_usd=18.66,
+                       detail_row="ROW2", origin=MANUAL)]
+        context, result = self.run_engine(manual)
+        self.assertEqual(result["instruction_results"]["MANUAL"], "Aplicada")
+        self.assertEqual(result["claim_remaining"], {"H:A": 0, "H:B": 0})
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0.01)
+        self.assertEqual(sum_money(entry["amount_usd"] for entry in result["allocations"]), money(37.33))
+        self.assertEqual([(entry["claim_id"], entry["amount_usd"]) for entry in context["instructions"]],
+                         [("H:A", 18.66), ("H:B", 0.01)])
+        with patch.object(engine.frappe, "db", Mock()) as db, patch(
+            "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={},
+        ):
+            db.get_single_value.return_value = "dd-MM-yyyy"
+            engine._sync_remittance_details(context, result, self.claims)
+        saved = {call.args[1]: call.args[2] for call in db.set_value.call_args_list
+                 if call.args[0] == "CN Remittance Detail"}
+        self.assertEqual(saved["ROW1"]["match_status"], "Conciliada")
+        self.assertEqual(saved["ROW2"]["linked_usd"], 18.66)
+        self.assertEqual(saved["ROW2"]["pending_usd"], 0.01)
+        self.assertEqual(saved["ROW2"]["match_status"], "Revisar")
+        self.assertEqual(self.run_engine(manual)[1], result)
 
     def test_one_cent_excess_is_not_silently_written_off(self):
         self.deposit["amount_usd"] = 55.04

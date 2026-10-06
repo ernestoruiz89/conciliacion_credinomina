@@ -1,6 +1,7 @@
 import unittest
 
 from credinomina_reconciliation.remittance_selection import pending_selection
+from credinomina_reconciliation.allocation_origin import DETAIL, FIFO, MANUAL, REFERENCE
 
 
 class PendingRemittanceSelectionTests(unittest.TestCase):
@@ -27,6 +28,57 @@ class PendingRemittanceSelectionTests(unittest.TestCase):
         result = self.selection([{ "historical_application": "APP", "due_usd": 100}], [deposit], targets)
         self.assertEqual(result["available_cents"], 6000)
         self.assertEqual(result["rows"], [])
+
+    def test_same_deposit_partial_automatic_payment_keeps_pending_selectable(self):
+        for origin in (DETAIL, FIFO, REFERENCE, None):
+            with self.subTest(origin=origin):
+                row = {"historical_application": "APP", "due_usd": 18.67, "applied_usd": 18.67}
+                deposit = self.deposit("CURRENT", [
+                    {"aplicacion_id": "APP", "importe_usd": 0.01, "origen": origin},
+                ])
+                result = self.selection([row], [deposit], amount=18.68)
+                self.assertEqual(len(result["rows"]), 1)
+                self.assertEqual(result["rows"][0]["assigned_cents"], 1)
+                self.assertEqual(result["rows"][0]["pending_cents"], 1866)
+                self.assertEqual(result["available_cents"], 1867)
+
+    def test_supplementing_automatic_payment_reserves_both_amounts(self):
+        row = {"historical_application": "APP", "due_usd": 18.67}
+        target = {"historical_application": "APP", "amount_usd": 18.66, "detail_row": "SECOND"}
+        for manual_paid in (False, True):
+            with self.subTest(manual_paid=manual_paid):
+                detail = [{"aplicacion_id": "APP", "importe_usd": 0.01, "origen": FIFO}]
+                if manual_paid:
+                    detail.append({"aplicacion_id": "APP", "importe_usd": 18.66, "origen": MANUAL})
+                result = self.selection([row], [self.deposit("CURRENT", detail)], [target], amount=18.68)
+                self.assertEqual(result["reserved_cents"], 1867)
+                self.assertEqual(result["available_cents"], 1)
+                self.assertEqual(result["rows"], [])  # Already added to targets.
+
+    def test_automatic_collection_and_complement_keep_their_remaining_balance(self):
+        rows = [{"period": "APRIL", "row_key": "1", "due_usd": 90},
+                {"complementary_item": "FEE", "due_usd": 10}]
+        deposit = self.deposit("CURRENT", [
+            {"periodo": "APRIL", "fila_id": "1", "importe_usd": 30, "origen": DETAIL},
+            {"partida": "FEE", "importe_usd": 6, "origen": REFERENCE},
+        ])
+        result = self.selection(rows, [deposit])
+        self.assertEqual([row["pending_cents"] for row in result["rows"]], [6000, 400])
+        self.assertEqual(result["available_cents"], 6400)
+
+    def test_fully_paid_automatic_application_is_not_selectable(self):
+        row = {"historical_application": "APP", "due_usd": 18.67}
+        deposit = self.deposit("CURRENT", [{"aplicacion_id": "APP", "importe_usd": 18.67, "origen": FIFO}])
+        self.assertEqual(self.selection([row], [deposit])["rows"], [])
+
+    def test_negative_manual_complement_is_not_double_counted_with_automatic_cash(self):
+        deposit = self.deposit("CURRENT", [
+            {"aplicacion_id": "APP", "importe_usd": 110, "origen": FIFO},
+            {"partida": "SHORT", "importe_usd": -10, "origen": MANUAL},
+        ])
+        result = self.selection([], [deposit], [{"complementary_item": "SHORT", "amount_usd": -10}])
+        self.assertEqual(result["reserved_cents"], 10000)
+        self.assertEqual(result["available_cents"], 0)
 
     def test_automatic_allocations_and_rounding_also_consume_budget(self):
         deposit = self.deposit("CURRENT", [

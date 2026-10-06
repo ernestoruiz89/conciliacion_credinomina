@@ -80,6 +80,25 @@ async function run() {
     assert.equal(rowTargets[0].amount_usd, 25);
     assert.equal(rowPicker.availableFor(rowPicker.data), 0); // Existing unprocessed linked targets reserve this row's remaining amount.
 
+    // The same deposit already paid 0.01 of this application by FIFO on another
+    // detail row. Add only its 18.66 remainder, linked to the selected 18.67 row.
+    rowTargets.length = 0;
+    detailRow.pending_usd = detailRow.amount_usd = 18.67;
+    rowPicker.data = {rows: [{id: "app-ana", historical_application: "APP-ANA",
+        applied_cents: 1867, assigned_cents: 1, pending_cents: 1866}],
+        available_cents: 1867, modified: "version2", detail_row: detailRow.name};
+    rowPicker.available_cents = rowPicker.availableFor(rowPicker.data);
+    rowPicker.selected.clear();
+    rowPicker.select(rowPicker.data.rows[0]);
+    assert.equal(rowPicker.total(), 1866);
+    assert.equal(rowPicker.valid(), true);
+    await rowPicker.apply();
+    assert.equal(rowTargets.length, 1);
+    assert.equal(rowTargets[0].historical_application, "APP-ANA");
+    assert.equal(rowTargets[0].detail_row, "DETAIL-1");
+    assert.equal(rowTargets[0].amount_usd, 18.66);
+    assert.equal(rowPicker.availableFor(rowPicker.data), 1);
+
     const update = vm.runInContext("updateUsdEquivalent", context);
     let converted;
     update({ doc: { deposit_currency: "NIO", deposit_amount: 3653, fx_rate: 36.53 },
