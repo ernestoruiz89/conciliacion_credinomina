@@ -24,6 +24,7 @@ const itemSchema = JSON.parse(fs.readFileSync(path.join(base, "cn_complementary_
 const reasonField = itemSchema.fields.find(field => field.fieldname === "reason_type");
 assert.equal(reasonField.allow_on_submit, 1);
 assert.ok(!reasonField.read_only);
+assert.ok(reasonField.options.split("\n").includes("Por refinanciamiento"));
 assert.equal(itemSchema.track_changes, 1);
 for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
     vm.runInContext(fs.readFileSync(path.join(base, dt, `${dt}.js`), "utf8"), context);
@@ -90,6 +91,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     assert.ok(dialog.options.fields.find(f => f.fieldname === "category").options.includes("Saldo a favor del cliente"));
     const reason = dialog.options.fields.find(f => f.fieldname === "reason_type");
     assert.equal(reason.default, "");
+    assert.equal(reason.options, reasonField.options);
     assert.equal(reason.options.split("\n")[0], "");
     for (const category of ["Saldo a favor del cliente", "Saldo a favor de la empresa", "Otros ingresos"]) {
         context.doc = {category};
