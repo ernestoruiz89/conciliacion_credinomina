@@ -487,6 +487,27 @@ editarse, eliminarse ni cancelarse; sí puede completarse el asiento pendiente.
 No se compensan automáticamente registros existentes ni se modifican cortes previos.
 Para instalar los nuevos campos y la tabla de historial ejecute `migrate` y reinicie.
 
+#### Vincular un saldo a favor con su contrapartida del core
+
+**Compensar con otra partida** también admite un saldo a favor del cliente o de la
+empresa ya confirmado y documentado en un depósito. La contrapartida debe ser un
+débito importado del core, de la misma empresa, con importe original verificable.
+Para un cliente se comprueba el número de cliente/crédito o, si no están disponibles
+en ambas partidas, el nombre completo normalizado. No se aceptan identificadores
+contradictorios, partidas genéricas ni evidencia ya utilizada para verificar una excepción.
+
+Ejemplo: vincular el saldo a favor de US$19.25 con el movimiento de C$704.89 que lo
+traslada a la cuenta 3001, a tasa 36.6243. La partida del core queda compensada y
+ambas conservan un historial con importe, fecha, responsable y contraparte. El
+saldo a favor **conserva su categoría, cliente, depósito y distribución original**.
+El vínculo puede ser parcial, total o revertirse con **Revertir compensación**.
+
+Esta operación **no registra una devolución ni reduce su pendiente de gestión**.
+Use **Registrar gestión del saldo** para documentar la devolución real por separado;
+si ya la registró, el vínculo contable no vuelve a descontarla. Registre una excepción
+si hace falta seguimiento adicional. Los débitos y créditos originales siguen en
+**Control Mensual de Movimientos Contables**; no se duplican ni desaparecen al compensar.
+
 ### Control mensual de movimientos contables
 
 En el workspace, **Control mensual de movimientos contables** permite cotejar
