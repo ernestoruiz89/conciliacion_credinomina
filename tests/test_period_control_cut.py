@@ -239,7 +239,7 @@ class PeriodControlCutTests(unittest.TestCase):
              patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["EMP"]), \
              patch(path, return_value={"matched": 1}) as reconcile:
             self.assertEqual(period_module._reconcile_if_sources("EMP"), {"matched": 1})
-        reconcile.assert_called_once_with("EMP", progress=None)
+        reconcile.assert_called_once_with("EMP", progress=None, preserve_deposits=True)
 
     def test_reconciliation_runs_when_remittance_precedes_collection(self):
         path = (
@@ -251,7 +251,7 @@ class PeriodControlCutTests(unittest.TestCase):
              patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["EMP"]), \
              patch(path, return_value={"cash": 1}) as reconcile:
             self.assertEqual(period_module._reconcile_if_sources("EMP"), {"cash": 1})
-        reconcile.assert_called_once_with("EMP", progress=None)
+        reconcile.assert_called_once_with("EMP", progress=None, preserve_deposits=True)
 
     def test_comment_change_reconciles_even_with_only_confirmed_remittance(self):
         previous = SimpleNamespace(employer="EMP", collection_rows=[frappe._dict(

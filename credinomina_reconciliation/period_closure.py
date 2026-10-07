@@ -144,3 +144,25 @@ def pending_registered_targets(target_filters):
         }):
             return True
     return False
+
+
+def validate_direct_applications(period):
+    """Neither paid applications nor a matching payroll subset can bypass closure."""
+    from frappe import _
+    from credinomina_reconciliation.rounding import money, sum_money
+    from credinomina_reconciliation.reconciliation import net_application_amount
+    rows = {row.name for row in period.collection_rows}
+    for source in frappe.get_all("CN Source Row", filters={
+        "parenttype": "CN Accounting Import", "parentfield": "rows",
+        "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
+    }, fields=["name", "amount", "application_adjustment_usd", "match_status", "quality_status",
+               "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0):
+        links = entries(source.application_allocation_detail)
+        linked = sum_money(link.get("amount_usd") for link in links if link.get("collection_row_id") in rows)
+        if (source.match_status != "Conciliado" or linked != money(net_application_amount(source))
+                or not str(source.quality_status or "").startswith("Conforme")):
+            frappe.throw(_("Falta completar la conciliación 1 de la aplicación {0}. El depósito conciliado no sustituye la base de cobranza o detalle de empresa.").format(source.name))
+        if money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
+            "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste",
+        }:
+            frappe.throw(_("Falta completar la conciliación 2 de la aplicación {0} con depósitos o ajustes confirmados.").format(source.name))

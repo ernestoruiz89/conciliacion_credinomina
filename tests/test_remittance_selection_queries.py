@@ -6,9 +6,9 @@ from credinomina_reconciliation.remittance_selection import _historical_sources
 
 
 class PendingTargetQueryTests(unittest.TestCase):
-    def test_operational_only_or_unselected_history_does_not_load_imports(self):
+    def test_empty_periods_or_unselected_applications_do_not_load_imports(self):
         for periods, selected in [
-            ({"P": frappe._dict(reconciliation_mode="Operativa")}, None),
+            ({}, None),
             ({"H": frappe._dict(reconciliation_mode="Historica")}, {("C", "P", "ROW")}),
         ]:
             with patch.object(frappe, "has_permission", return_value=True), \
@@ -30,7 +30,7 @@ class PendingTargetQueryTests(unittest.TestCase):
              patch.object(frappe, "get_doc", side_effect=[allowed, denied]) as docs:
             self.assertEqual(list(_historical_sources(periods, {("H", "APP")})), [allowed])
         filters = rows.call_args.kwargs["filters"]
-        self.assertEqual(filters["historical_period"], ["in", ["H"]])
+        self.assertEqual(filters["historical_period"], ["in", ["H", "P"]])
         self.assertEqual(filters["name"], ["in", ["APP"]])
         self.assertEqual(filters["effective"], 1)
         self.assertEqual(filters["match_status"], "Conciliado")

@@ -142,7 +142,7 @@ class ApplicationDepositDetailTests(unittest.TestCase):
         period = SimpleNamespace(name="P", employer="E", reconciliation_mode="Operativa", applied_usd=30,
             collection_rows=[frappe._dict(name="C", row_key="R", client_name="Ana", applied_usd=30,
                                          expected_usd=100, deducted_usd=50)])
-        with patch.object(module.frappe, "get_all", return_value=[]), patch.object(module, "_", side_effect=lambda v: v):
+        with patch.object(module.frappe, "get_all", return_value=[]), patch.object(module.frappe, "get_list", return_value=[]), patch.object(module, "_", side_effect=lambda v: v):
             result = module._preview(document, [period])
         self.assertEqual(result["rows"][0]["deducted_usd"], 30)
         self.assertEqual(result["rows"][0]["row_key"], "R")

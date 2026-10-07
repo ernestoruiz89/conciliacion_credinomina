@@ -35,6 +35,15 @@ class ApplicationAgingTests(unittest.TestCase):
         self.assertTrue(all(row["due_date"] == date(2025, 5, 10) for row in rows))
         self.assertTrue(all(row["days_over_90"] == row["amount_usd"] for row in rows))
 
+    def test_direct_operative_cash_does_not_require_payroll_or_change_modality(self):
+        source = self.operative(historical_period="P", processing_route="Operativa", historical_remitted_usd=60,
+                                historical_detail='[{"importe_usd":60}]')
+        row = self.balances([source])[0]
+        self.assertEqual(row["amount_usd"], 40)
+        self.assertEqual(row["reconciliation_mode"], "Operativa")
+        source["historical_remitted_usd"] = 100
+        self.assertEqual(self.balances([source]), [])
+
     def test_due_date_is_application_month_not_payroll_or_import_month(self):
         row = self.balances([self.operative(event_date="2026-10-15")])[0]
         self.assertEqual(row["due_date"], date(2026, 11, 10))

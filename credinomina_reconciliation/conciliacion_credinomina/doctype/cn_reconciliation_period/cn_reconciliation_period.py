@@ -108,13 +108,13 @@ class CNReconciliationPeriod(Document):
             return
         previous = self.get_doc_before_save()
         linked_applications = bool(
-            previous and previous.reconciliation_mode == "Historica"
+            previous
             and frappe.db.exists(
                 "CN Source Row", {"historical_period": self.name, "event_type": "Aplicacion"}
             )
         )
-        if linked_applications and self.reconciliation_mode != "Historica":
-            frappe.throw(_("Reasigne primero las aplicaciones antes de cambiar la modalidad histórica."))
+        if linked_applications and previous and previous.reconciliation_mode != self.reconciliation_mode:
+            frappe.throw(_("Reasigne primero las aplicaciones antes de cambiar la modalidad del período."))
         if self.reconciliation_mode == "Historica":
             self.collection_cycle = ""
             if not is_historical_date(self.payroll_month):
@@ -159,7 +159,7 @@ class CNReconciliationPeriod(Document):
                 previous.employer != self.employer
                 or getdate(previous.payroll_month) != getdate(self.payroll_month)
             ) and (
-                previous.collection_rows or previous.status != "Borrador"
+                previous.collection_rows or previous.status != "Borrador" or linked_applications
                 or frappe.db.exists("CN Source Row", {"collection_period": self.name})
             ):
                 frappe.throw(_(
@@ -169,7 +169,7 @@ class CNReconciliationPeriod(Document):
             previous_cycle = (previous.collection_cycle or MONTHLY) if previous else None
             if (
                 previous and previous_cycle != (self.collection_cycle or MONTHLY)
-                and (previous.collection_rows or previous.status != "Borrador")
+                and (previous.collection_rows or previous.status != "Borrador" or linked_applications)
             ):
                 frappe.throw(_("No cambie el ciclo de una cobranza ya cargada."))
             if self.is_new() or (previous and previous_cycle != (self.collection_cycle or MONTHLY)):
@@ -1097,6 +1097,8 @@ def close_period(period_name: str, progress_id: str = ""):
         frappe.throw(_(
             "No se puede cerrar el período sin aplicaciones efectivas del core enlazadas a la cobranza."
         ))
+    from credinomina_reconciliation.period_closure import validate_direct_applications
+    validate_direct_applications(period)
     if _pending_registered_targets({"period": period.name}):
         frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para este período."))
     if frappe.db.count(
@@ -1258,7 +1260,18 @@ def export_collection(period_name: str):
     return {"file_url": file_doc.file_url, "file_name": file_name}
 
 
-def _reconcile_if_sources(employer, progress=None, preserve_deposits=False):
+@frappe.whitelist(methods=["POST"])
+def reconcile_first(period_name: str):
+    period = frappe.get_doc("CN Reconciliation Period", period_name)
+    period.check_permission("write")
+    _assert_editable(period)
+    if period.reconciliation_mode == "Historica" or not period.collection_rows:
+        frappe.throw(_("Cargue la base de la primera conciliación en un período operativo."))
+    frappe.has_permission("CN Accounting Import", "write", throw=True)
+    return _reconcile_if_sources(period.employer, preserve_deposits=True)
+
+
+def _reconcile_if_sources(employer, progress=None, preserve_deposits=True):
     if not employer:
         frappe.throw(_("Indique la empresa antes de actualizar sus conciliaciones."))
     from credinomina_reconciliation.paying_employers import reconciliation_companies

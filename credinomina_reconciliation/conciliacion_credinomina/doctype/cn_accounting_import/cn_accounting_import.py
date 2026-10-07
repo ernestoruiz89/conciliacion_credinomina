@@ -296,17 +296,12 @@ class CNAccountingImport(Document):
             row.historical_period and row.event_type != "Aplicacion"
             for row in self.rows or []
         ):
-            frappe.throw(_("Solo las filas de aplicación pueden tener período histórico."))
+            frappe.throw(_("Solo las filas de aplicación pueden tener un período asignado."))
         if any(
             row.processing_route and row.event_type != "Aplicacion"
             for row in self.rows or []
         ):
             frappe.throw(_("La ruta de aplicación no corresponde a un depósito."))
-        if any(
-            row.processing_route == "Operativa" and row.historical_period
-            for row in self.rows or []
-        ):
-            frappe.throw(_("Una aplicación marcada Operativa no puede tener período histórico."))
         if any(
             row.processing_route == "Operativa" and is_historical_date(row.event_date)
             for row in self.rows or []
@@ -330,17 +325,24 @@ class CNAccountingImport(Document):
             )
         } if selected else {}
         for name in selected:
-            if name not in periods or periods[name].reconciliation_mode != "Historica":
-                frappe.throw(_("{0} no es un período histórico.").format(name))
+            if name not in periods:
+                frappe.throw(_("El período {0} no existe.").format(name))
             if self.employer and periods[name].employer != self.employer:
-                frappe.throw(_("El período histórico {0} pertenece a otra empresa.").format(name))
+                frappe.throw(_("El período {0} pertenece a otra empresa.").format(name))
         for row in self.rows or []:
-            if row.event_type != "Aplicacion" or row.processing_route == "Operativa":
+            if row.event_type != "Aplicacion":
                 continue
             period_name = row.historical_period or self.historical_period
             if not period_name:
                 continue
             period = periods[period_name]
+            if row.processing_route and row.processing_route != period.reconciliation_mode:
+                frappe.throw(_("La modalidad de la fila {0} no coincide con el período asignado.").format(row.idx))
+            if period.reconciliation_mode != "Historica":
+                if is_historical_date(row.event_date):
+                    frappe.throw(_("Una aplicación histórica no puede asignarse a un período operativo."))
+                row.processing_route = "Operativa"
+                continue
             if not historical_scope_contains(
                 period.historical_scope, row.event_date,
                 period.historical_application_date, period.historical_start_date,
@@ -895,12 +897,12 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False)
     if not preserve_deposits:
         _sync_rounding_movements(allocation["rounding_movements"], allocation, all_rows, employer=scope_filter)
         _classify_surplus(allocation, surplus_items)
+    _rebuild_historical_balances(periods, all_rows, allocation)
     _rebuild_period_balances(
         [period for period in periods if period.reconciliation_mode != "Historica"],
         all_rows, deposit_pairs, allocation,
         closed_operative_state, closed_operative_links, complementary_items,
     )
-    _rebuild_historical_balances(periods, all_rows, allocation)
     from credinomina_reconciliation.application_adjustments import mark_mixed_settlements
     mark_mixed_settlements(all_rows, collection_rows)
     for row in all_rows:
@@ -1124,7 +1126,37 @@ def _application_allocations(source):
     return []
 
 
-def _match_applications(
+def _match_applications(source_rows, collection_rows, deposit_pairs, complementary_by_target, periods, fixed_sources=()):
+    """Direct period assignment funds core applications independently of payroll.
+
+    Keep the legacy storage/claim identifiers for existing cash links. Operative
+    assignments also run the first-stage matcher, restricted to their own period.
+    Payroll matching never replaces their application-level cash destination.
+    """
+    period_by_name = {period.name: period for period in periods}
+    direct = []
+    for source in source_rows:
+        period = period_by_name.get(source.historical_period)
+        if source.event_type == "Aplicacion" and period and period.reconciliation_mode == "Operativa":
+            direct.append((source, source.historical_period, source.get("_historical_backfill")))
+            source._assigned_operating_period = source.historical_period
+            source.historical_period = ""
+            source._historical_backfill = False
+    try:
+        _match_applications_by_basis(source_rows, collection_rows, deposit_pairs, complementary_by_target, periods, fixed_sources)
+    finally:
+        for source, period_name, backfill in direct:
+            source.historical_period = period_name
+            source._historical_backfill = backfill
+            source._assigned_operating_period = None
+    for source, period_name, _backfill in direct:
+        if source.effective and source.currency == "USD" and not is_historical_date(source.event_date):
+            source.collection_period = period_name
+            source.match_status = "Conciliado"
+            source.match_reason = _("Aplicación asignada al período operativo {0}. La conciliación con depósitos es independiente del control de la primera conciliación.").format(period_name)
+
+
+def _match_applications_by_basis(
     source_rows, collection_rows, deposit_pairs, complementary_by_target, periods,
     fixed_sources=(),
 ):
@@ -1232,6 +1264,8 @@ def _match_applications(
         quality_candidates = []
         application_values = source.as_dict()
         for target in collection_rows:
+            if source.get("_assigned_operating_period") and target.parent != source._assigned_operating_period:
+                continue
             target_period = period_by_name.get(target.parent)
             basis = target_period.get("application_basis") if target_period else None
             if basis not in {COLLECTION, EMPLOYER_DETAIL}:
@@ -1870,6 +1904,7 @@ def _distribute_deposits(
     references_by_row = defaultdict(set)
     hints_by_row = defaultdict(lambda: defaultdict(float))
     core_amount_by_row = defaultdict(float)
+    direct_amount_by_row = defaultdict(float)
     application_ids_by_row = defaultdict(set)
     fifo_applications_by_row = defaultdict(list)
     for source in source_rows:
@@ -1880,6 +1915,9 @@ def _distribute_deposits(
             reference = clean_text(source.reference)
             for link in _application_allocations(source):
                 row_id = link["collection_row_id"]
+                if source.historical_period:
+                    direct_amount_by_row[row_id] += flt(link["amount_usd"])
+                    continue
                 core_amount_by_row[row_id] += flt(link["amount_usd"])
                 application_ids_by_row[row_id].add(source.name)
                 fifo_applications_by_row[row_id].append({
@@ -1891,9 +1929,12 @@ def _distribute_deposits(
                     hints_by_row[row_id][reference] += flt(link["amount_usd"])
 
     claims = []
+    direct_periods = {row.historical_period for row in historical_applications.values()}
     for row in rows_by_name.values():
         deducted_usd = _cash_basis_amount(row, period_by_name.get(row.parent))
-        loan_amount = max(deducted_usd - complementary_totals[row.name], 0)
+        loan_amount = max(deducted_usd - complementary_totals[row.name] - direct_amount_by_row[row.name], 0)
+        if row.parent in direct_periods:
+            loan_amount = min(loan_amount, core_amount_by_row[row.name])
         if loan_amount <= CASH_EPSILON:
             continue
         references = set(references_by_row[row.name])
@@ -2566,7 +2607,7 @@ def _operative_links(periods, source_rows, registered_deposits, complementary_it
 def _operative_period_fully_reconciled(period):
     """A paid subset must not clear the entire payroll collection."""
     rows = list(period.collection_rows or [])
-    return bool(rows) and not period.exception_count and all(
+    return bool(rows) and not period.exception_count and not period.get("_direct_applications_incomplete") and all(
         quality_conforms(row, period.get("application_basis"))
         and row.application_status == "Aplicado y remitido"
         for row in rows
@@ -2577,7 +2618,7 @@ def _operative_period_status(period, has_unclassified_surplus=False):
     # Unassigned cash belongs to the deposit, not to this period's balance.
     if _operative_period_fully_reconciled(period):
         return "Conciliado"
-    if any(flt(row.remitted_usd) > CASH_EPSILON for row in period.collection_rows or []):
+    if flt(period.get("remitted_usd")) > CASH_EPSILON or any(flt(row.remitted_usd) > CASH_EPSILON for row in period.collection_rows or []):
         return "Parcial"
     if not period.collection_rows and period.status == "Borrador":
         return "Borrador"
@@ -2623,8 +2664,21 @@ def _rebuild_period_balances(
             if equivalent_currency == "NIO":
                 target.applied_nio = flt(target.applied_nio) + equivalent_amount
 
-    detail_by_target = defaultdict(list)
+    # Reflect direct application cash on its uniquely linked payroll row for
+    # first-stage review, without creating a second cash allocation.
+    direct_targets = {}
+    for source in source_rows:
+        if source.historical_period in period_by_name:
+            links = _application_allocations(source)
+            if len(links) == 1:
+                direct_targets[source.name] = links[0]["collection_row_id"]
+    projected = []
     for entry in allocation["allocations"]:
+        if entry["claim_id"].startswith("H:") and entry["claim_id"][2:] in direct_targets:
+            projected.append({**entry, "claim_id": "C:" + direct_targets[entry["claim_id"][2:]],
+                              "direct_application": entry["claim_id"][2:]})
+    detail_by_target = defaultdict(list)
+    for entry in [*allocation["allocations"], *projected]:
         claim_id = entry["claim_id"]
         target_name = (
             claim_id[2:] if claim_id.startswith("C:")
@@ -2643,6 +2697,7 @@ def _rebuild_period_balances(
                 "importe_usd": amount,
                 "destino": "Partida complementaria" if claim_id.startswith("X:") else "Cobranza",
                 "origen": entry["origin"],
+                **({"aplicacion_directa": entry["direct_application"]} if entry.get("direct_application") else {}),
             }
         )
         target.remitted_usd = flt(target.remitted_usd) + amount
@@ -2656,7 +2711,11 @@ def _rebuild_period_balances(
             + decimal_value(amount) * decimal_value(deposit_rate or collection_rate)
         )
 
-    for movement in allocation["rounding_movements"]:
+    projected_rounding = [{**movement, "claim_id": "C:" + direct_targets[movement["claim_id"][2:]],
+                           "direct_application": movement["claim_id"][2:]}
+                         for movement in allocation["rounding_movements"]
+                         if movement["claim_id"].startswith("H:") and movement["claim_id"][2:] in direct_targets]
+    for movement in [*allocation["rounding_movements"], *projected_rounding]:
         if not movement["claim_id"].startswith("C:"):
             continue
         target = rows_by_name.get(movement["claim_id"][2:])
@@ -2682,6 +2741,7 @@ def _rebuild_period_balances(
             "movimiento": movement["name"],
             "destino": "Movimiento de conciliación",
             "origen": TOLERANCE,
+            **({"aplicacion_directa": movement["direct_application"]} if movement.get("direct_application") else {}),
         })
 
     for target in rows_by_name.values():
@@ -2740,6 +2800,13 @@ def _rebuild_period_balances(
 
     for period in periods:
         update_collection_quality(period.collection_rows, period.get("application_basis"))
+    for target in rows_by_name.values():
+        if any(entry.get("aplicacion_directa") for entry in detail_by_target[target.name]):
+            paid = sum_money(entry["importe_usd"] for entry in detail_by_target[target.name]
+                             if entry.get("destino") != "Partida complementaria")
+            due = money(target.applied_usd) + money(target.rounding_adjustment_usd)
+            if due > 0 and paid == due and not flt(target.fx_variance_usd):
+                target.application_status = "Aplicado y remitido"
     _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocation)
 
     # Applications covering more than one period still use all their stored
@@ -2767,6 +2834,9 @@ def _rebuild_period_balances(
         ]
         if not source.historical_period and not source.get("_historical_backfill"):
             source.update(source_quality(targets, period_bases))
+        if source.historical_period in period_by_name:
+            source.update(source_quality(targets, period_bases))
+            continue  # Application-level cash was rebuilt independently.
         if not targets:
             source.deposit_match_status = (
                 "Ambiguo" if clean_text(source.reference) in paired_references
@@ -2824,6 +2894,11 @@ def _rebuild_period_balances(
     for period in periods:
         with totals_context.use():
             period.recalculate_totals()
+        direct = [row for row in source_rows if row.event_type == "Aplicacion" and row.effective
+                  and row.historical_period == period.name]
+        period._direct_applications_incomplete = any(
+            row.match_status != "Conciliado" or not str(row.get("quality_status") or "").startswith("Conforme")
+            or row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in direct)
         period.unassigned_deposit_usd = money_float(sum_money(pending_deposits[period.name].values()))
         if period.status != "Cerrado":
             period.status = _operative_period_status(period)
@@ -2954,10 +3029,11 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         if period.reconciliation_mode == "Historica"
     }
     totals_context = PeriodTotalsContext(historical_periods.values(), source_rows)
+    assigned_periods = {period.name: period for period in periods}
     applications = {
         row.name: row for row in source_rows
         if row.event_type == "Aplicacion" and row.effective
-        and row.historical_period in historical_periods
+        and row.historical_period in assigned_periods
         and row.match_status == "Conciliado"
     }
     deposits_by_application = defaultdict(list)
@@ -3017,7 +3093,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
             else "Sin deposito"
         )
         application.deposit_match_reason = _(
-            "Histórico: {0} US$ aplicados al crédito; ajuste {1} US$; {2} US$ vinculados a depósitos; {3} US$ pendientes de evidencia de depósito."
+            "Aplicación: {0} US$ aplicados al crédito; ajuste {1} US$; {2} US$ vinculados a depósitos; {3} US$ pendientes de evidencia de depósito."
         ).format(
             money_float(applied), adjustment, remitted, application.historical_balance_usd,
         )
