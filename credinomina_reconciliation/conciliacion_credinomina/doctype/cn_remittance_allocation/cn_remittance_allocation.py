@@ -535,7 +535,7 @@ def create_client_credit_items_bulk(remittance_name: str, modified: str, rows,
         row = row_by_name.get(row_name)
         if not row or row_name in seen:
             frappe.throw(_("Las filas seleccionadas cambiaron o están repetidas. Recargue el depósito."))
-        pending = money(row.amount_usd) - money(row.linked_usd) - money(row.client_credit_usd)
+        pending = money(row.amount_usd) - money(row.linked_usd) - money(row.client_credit_usd) - money(row.get("company_credit_usd"))
         if amount <= 0 or amount > pending:
             frappe.throw(_("El importe del saldo a favor de la fila {0} debe ser positivo y no superar su pendiente de US$ {1}.").format(
                 row.source_row or row.idx, max(pending, 0)))
@@ -679,6 +679,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "amount_usd": amount,
             "linked_usd": 0,
             "client_credit_usd": 0,
+            "company_credit_usd": 0,
             "pending_usd": amount,
             "match_status": "Revisar" if not client else "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
             "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),

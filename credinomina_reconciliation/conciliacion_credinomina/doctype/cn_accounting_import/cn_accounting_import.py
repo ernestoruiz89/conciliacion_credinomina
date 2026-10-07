@@ -1539,7 +1539,8 @@ def _prepare_remittance_details(
                 "row": row, "amount_usd": amount, "explanation": explanation,
                 "targets": [], "status": "", "reason": "",
                 "client_credits": credits_by_row[row.name],
-                "client_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name])),
+                "client_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name] if credit.category == CLIENT_CREDIT)),
+                "company_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name] if credit.category == COMPANY_CREDIT)),
             })
         # Administrative collections and other signed complements belong to
         # targets, not to fictitious client detail rows. Linked complements
@@ -1562,12 +1563,13 @@ def _prepare_remittance_details(
             and not any(entry["deposit_id"] == deposit_id for entry in prior_instructions)
         )
         for plan in plans:
-            amount = money_float(money(plan["amount_usd"]) - money(plan["client_credit_usd"]))
-            if plan["client_credits"]:
-                people = {credit.credit_client for credit in plan["client_credits"]}
-                companies = {credit.employer for credit in plan["client_credits"]}
+            amount = money_float(money(plan["amount_usd"]) - money(plan["client_credit_usd"]) - money(plan["company_credit_usd"]))
+            person_credits = [credit for credit in plan["client_credits"] if credit.category == CLIENT_CREDIT]
+            if person_credits:
+                people = {credit.credit_client for credit in person_credits}
+                companies = {credit.employer for credit in person_credits}
                 if len(people) == 1 and len(companies) == 1 and not clean_text(plan["row"].identity_reason).startswith("Conflicto"):
-                    credit = plan["client_credits"][0]
+                    credit = person_credits[0]
                     plan["row"].client = credit.credit_client
                     plan["row"].client_number = credit.client_number
                     plan["row"].employer = credit.employer
@@ -1587,9 +1589,9 @@ def _prepare_remittance_details(
                 plan["status"] = "Revisar"
                 plan["reason"] = "El saldo a favor supera el importe de la fila del detalle"
                 continue
-            if not amount and plan["client_credit_usd"] and not manual:
+            if not amount and plan["client_credits"] and not manual:
                 plan["status"] = "Conciliada"
-                plan["reason"] = "Importe documentado íntegramente como saldo a favor del cliente; no aplicado al crédito"
+                plan["reason"] = "Importe documentado íntegramente como saldo a favor; no aplicado al crédito"
                 continue
             if not amount:
                 plan["status"] = (
@@ -1709,13 +1711,16 @@ def _sync_remittance_details(context, allocation, claims=()):
                     "matched_targets": json.dumps(targets, ensure_ascii=False),
                     "matched_targets_summary": describe_targets(targets, descriptions),
                     "client_credit_usd": plan.get("client_credit_usd", 0),
+                    "company_credit_usd": plan.get("company_credit_usd", 0),
                 }
                 updates.update(linked_balance(plan["amount_usd"], plan.get("manual_targets", []), targets))
-                if plan.get("client_credit_usd"):
-                    updates["pending_usd"] = money_float(money(updates["pending_usd"]) - money(plan["client_credit_usd"]))
-                    summary = "; ".join(credit.name for credit in plan["client_credits"])
-                    updates["match_reason"] += "; Saldo a favor del cliente documentado: US$ {0} ({1}); gestión independiente".format(plan["client_credit_usd"], summary)
-                    updates["matched_targets_summary"] += "\nSaldo a favor del cliente: US$ {0} — {1}. No aplicado al crédito.".format(plan["client_credit_usd"], summary)
+                for field, category in (("client_credit_usd", CLIENT_CREDIT), ("company_credit_usd", COMPANY_CREDIT)):
+                    if not plan.get(field):
+                        continue
+                    updates["pending_usd"] = money_float(money(updates["pending_usd"]) - money(plan[field]))
+                    summary = "; ".join(credit.name for credit in plan["client_credits"] if credit.category == category)
+                    updates["match_reason"] += "; {0} documentado: US$ {1} ({2}); gestión independiente".format(category, plan[field], summary)
+                    updates["matched_targets_summary"] += "\n{0}: US$ {1} — {2}. No aplicado al crédito.".format(category, plan[field], summary)
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
                 if money(updates["pending_usd"]) > 0 and any(target.get("fifo_applications") for target in targets):
@@ -2283,7 +2288,7 @@ def _classify_surplus(allocation, surplus_items):
             credits = plan.get("client_credits", [])
             if credits and any(credit_results.get(credit.name) != "Saldo a favor documentado" for credit in credits):
                 frappe.db.set_value("CN Remittance Detail", plan["row"].name, {
-                    "client_credit_usd": 0, "match_status": "Revisar", "match_reason": "Saldo a favor no documentado; revise la partida complementaria",
+                    "client_credit_usd": 0, "company_credit_usd": 0, "match_status": "Revisar", "match_reason": "Saldo a favor no documentado; revise la partida complementaria",
                     "pending_usd": money_float(money(plan["amount_usd"]) - sum_money(target["amount_usd"] for target in plan["targets"])),
                 }, update_modified=False)
                 frappe.db.set_value("CN Remittance Allocation", parent, {"detail_status": "Revisar filas", "result": "Revisar detalle"}, update_modified=False)

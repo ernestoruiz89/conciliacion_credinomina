@@ -23,10 +23,12 @@ def linked_balance(amount, manual, matched):
 
 def update_detail_balances(document):
     credits = {}
+    company_credits = {}
     if document.get("doctype") == "CN Remittance Allocation" and document.get("name") and document.get("docstatus") == 1:
         from credinomina_reconciliation.client_credit import load_credits, row_credit_amounts, RESULT
-        credits = row_credit_amounts([item for item in load_credits([document.name]) if item.result == RESULT],
-                                    document.get("detail_rows") or [])
+        items = [item for item in load_credits([document.name]) if item.result == RESULT]
+        credits = row_credit_amounts([item for item in items if item.category == "Saldo a favor del cliente"], document.get("detail_rows") or [])
+        company_credits = row_credit_amounts([item for item in items if item.category == "Saldo a favor de la empresa"], document.get("detail_rows") or [])
     by_row = defaultdict(list)
     for target in document.get("targets") or []:
         if target.get("detail_row"):
@@ -34,4 +36,5 @@ def update_detail_balances(document):
     for row in document.get("detail_rows") or []:
         row.update(linked_balance(row.get("amount_usd"), by_row[row.get("name")], row.get("matched_targets")))
         row.client_credit_usd = credits.get(row.get("name"), 0)
-        row.pending_usd = money_float(money(row.pending_usd) - money(row.client_credit_usd))
+        row.company_credit_usd = company_credits.get(row.get("name"), 0)
+        row.pending_usd = money_float(money(row.pending_usd) - money(row.client_credit_usd) - money(row.company_credit_usd))

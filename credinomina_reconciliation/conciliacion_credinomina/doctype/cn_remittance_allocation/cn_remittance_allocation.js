@@ -416,11 +416,14 @@ async function useApplicationsAsDetail(frm) {
 
 frappe.ui.form.on("CN Remittance Detail", {
     create_client_credit: createClientCreditFromDetail,
+    create_company_credit: createCompanyCreditFromDetail,
     select_pending_targets: selectPendingTargetsForDetail,
     form_render(frm, cdt, cdn) {
         const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
         const control = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_credit;
         control?.$wrapper.toggle(canCreateDetailClientCredit(frm, row));
+        const companyControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_company_credit;
+        companyControl?.$wrapper.toggle(canCreateDetailClientCredit(frm, row) && canCreateCompanyCredit(frm));
         const targetControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.select_pending_targets;
         targetControl?.$wrapper.toggle(canSelectDetailPendingTargets(frm, row));
     },
@@ -590,6 +593,19 @@ async function createClientCreditFromDetail(frm, cdt, cdn) {
     }
 }
 
+async function createCompanyCreditFromDetail(frm, cdt, cdn) {
+    if (frm.company_credit_workflow || frm.detail_credit_workflow) return;
+    const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+    if (!canCreateDetailClientCredit(frm, row) || !canCreateCompanyCredit(frm)) return;
+    frm.company_credit_workflow = true;
+    try {
+        return await createRemittanceComplementary(frm, {companyCredit: true, detailRowName: row.name});
+    } catch (error) {
+        frm.company_credit_workflow = false;
+        throw error;
+    }
+}
+
 function canCreateCompanyCredit(frm) {
     const pending = Number(frm.doc.unclassified_usd);
     return !frm.is_new() && frm.doc.docstatus === 1 && Number.isFinite(pending) && pending > 0 &&
@@ -632,6 +648,7 @@ async function createRemittanceComplementary(frm, options = {}) {
     const sourceRow = options.detailRowName ? (frm.doc.detail_rows || []).find(row => row.name === options.detailRowName) : null;
     if (options.detailRowName && !canCreateDetailClientCredit(frm, sourceRow)) {
         frm.detail_credit_workflow = false;
+        if (companyCredit) frm.company_credit_workflow = false;
         frappe.msgprint(__("La fila cambió o ya no tiene importe pendiente. Revise el detalle antes de registrar un saldo a favor."));
         return;
     }
@@ -645,7 +662,7 @@ async function createRemittanceComplementary(frm, options = {}) {
         },
         fields: [
             {fieldtype: "HTML", options: companyCredit ? `<p><strong>${escape(frm.doc.employer)}</strong> · ${escape(depositName)}</p>
-                <p>${__("Se sugiere el saldo sin clasificar del depósito. Confirme que pertenece a la empresa y no a un cliente. No se aplica al crédito ni se agrega a Destinos; aparecerá en la distribución completa del depósito.")}</p>
+                <p>${sourceRow ? `${escape(sourceRow.client_name || "")} · ${escape(sourceRow.loan_number || "")} · ${escape(__("Fila"))} ${escape(sourceRow.source_row || sourceRow.idx)}<br>${__("La partida quedará vinculada a esta fila como evidencia del excedente. Su beneficiaria es la empresa; reducirá el pendiente de la fila sin aumentar el pago al crédito del cliente.")}` : __("Se sugiere el saldo sin clasificar del depósito. Confirme que pertenece a la empresa y no a un cliente. No se aplica al crédito ni se agrega a Destinos; aparecerá en la distribución completa del depósito.")}</p>
                 <p>${__("Si ya existe una partida importada de contabilidad para este saldo, vincule esa partida en lugar de crear otra. Registre justificación, responsable y fecha compromiso para su seguimiento.")}</p>` : sourceRow ? `<p><strong>${escape(sourceRow.client_name || sourceRow.client_number || "Cliente sin identificar")}</strong> · ${escape(sourceRow.loan_number || "Sin crédito")} · ${escape(__("Fila"))} ${escape(sourceRow.source_row || sourceRow.idx)}</p>
                 <p>${__("Se vinculará el saldo a favor a esta fila y al depósito. El importe pendiente se sugiere en US$; revíselo y confirme que sea un excedente del cliente, no una aplicación que falte identificar. No aumenta lo aplicado al crédito.")}</p>
                 <p>${__("Si el saldo ya fue importado de contabilidad, reclasifique esa partida existente para no duplicar su registro.")}</p>` : `<p>Use un importe positivo para un depósito mayor que la aplicación y negativo cuando falta depósito.
@@ -716,14 +733,14 @@ async function createRemittanceComplementary(frm, options = {}) {
                     return;
                 }
                 values = {...values, category: "Saldo a favor de la empresa", currency: "USD",
-                    credit_client: "", credit_detail_row: "", client_number: "", loan_number: "", installment_number: ""};
+                    credit_client: "", credit_detail_row: sourceRow?.name || "", client_number: "", loan_number: "", installment_number: ""};
             }
             if (sourceRow && (!Number.isFinite(Number(values.amount)) || Number(values.amount) <= 0 || Number(values.amount) > Number(sourceRow.pending_usd))) {
                 frappe.msgprint(__("Indique un importe positivo que no supere el pendiente de la fila en US$."));
                 return;
             }
             // The shortcut is explicitly bound to this saved child and customer.
-            if (sourceRow) values = {...values, category: "Saldo a favor del cliente", currency: "USD",
+            if (sourceRow && !companyCredit) values = {...values, category: "Saldo a favor del cliente", currency: "USD",
                 credit_detail_row: sourceRow.name, credit_client: sourceRow.client || values.credit_client,
                 client_number: sourceRow.client_number || "", loan_number: sourceRow.loan_number || ""};
             if (values.category === "Cuenta por Cobrar a la Empresa" &&
@@ -754,8 +771,9 @@ async function createRemittanceComplementary(frm, options = {}) {
         },
     });
     if (companyCredit) await dialog.set_values({category: "Saldo a favor de la empresa", currency: "USD",
-        amount: Math.round(companyPending * 100) / 100});
-    if (sourceRow) await dialog.set_values({category: "Saldo a favor del cliente", currency: "USD",
+        amount: Math.round(Math.min(companyPending, sourceRow ? Number(sourceRow.pending_usd) : companyPending) * 100) / 100,
+        credit_detail_row: sourceRow?.name || "", reason_type: sourceRow ? "Error de la empresa" : ""});
+    if (sourceRow && !companyCredit) await dialog.set_values({category: "Saldo a favor del cliente", currency: "USD",
         amount: Math.round(Number(sourceRow.pending_usd) * 100) / 100, credit_detail_row: sourceRow.name,
         credit_client: sourceRow.client || "", client_number: sourceRow.client_number || "", loan_number: sourceRow.loan_number || ""});
     dialog.show();
@@ -1049,7 +1067,7 @@ function updateDetailPendingAmounts(frm) {
         try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
         const entries = manual.get(row.name) || (Array.isArray(matched) ? matched.filter(entry => entry && !entry.instruction_id) : []);
         const linked = entries.reduce((sum, entry) => sum + cents(entry.amount_usd), 0);
-        const pending = cents(row.amount_usd) - linked - cents(row.client_credit_usd);
+        const pending = cents(row.amount_usd) - linked - cents(row.client_credit_usd) - cents(row.company_credit_usd);
         if (row.linked_usd !== linked / 100 || row.pending_usd !== pending / 100) {
             row.linked_usd = linked / 100;
             row.pending_usd = pending / 100;

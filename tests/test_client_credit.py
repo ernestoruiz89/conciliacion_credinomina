@@ -49,7 +49,7 @@ class ClientCreditTests(unittest.TestCase):
     def test_credit_reduces_row_pending_without_becoming_a_payment(self):
         row = Row(name="R", amount_usd=110, matched_targets='[{"claim_id":"H:A", "amount_usd":100}]', match_status="Conciliada")
         doc = Row(doctype="CN Remittance Allocation", name="D", docstatus=1, detail_rows=[row], targets=[])
-        credits = [Row(credit_detail_row="R", amount_usd=10, result=credit.RESULT)]
+        credits = [Row(category=credit.CATEGORY, credit_detail_row="R", amount_usd=10, result=credit.RESULT)]
         with patch.object(credit, "load_credits", return_value=credits):
             update_detail_balances(doc)
         self.assertEqual((row.linked_usd, row.client_credit_usd, row.pending_usd), (100, 10, 0))
@@ -62,6 +62,17 @@ class ClientCreditTests(unittest.TestCase):
         with patch.object(credit, "load_credits", return_value=[Row(credit_detail_row="R", amount_usd=10, result="Excede saldo sin distribuir")]):
             update_detail_balances(doc)
         self.assertEqual((row.client_credit_usd, row.pending_usd), (0, 10))
+
+    def test_company_and_client_row_credits_are_separate_and_reduce_pending_once(self):
+        row = Row(name="R", amount_usd=130, matched_targets='[{"amount_usd":100}]')
+        doc = Row(doctype="CN Remittance Allocation", name="D", docstatus=1, detail_rows=[row], targets=[])
+        items = [Row(category=credit.CATEGORY, credit_detail_row="R", amount_usd=10, result=credit.RESULT),
+                 Row(category="Saldo a favor de la empresa", credit_detail_row="R", amount_usd=15, result=credit.RESULT),
+                 Row(category="Saldo a favor de la empresa", credit_detail_row="", amount_usd=5, result=credit.RESULT)]
+        with patch.object(credit, "load_credits", return_value=items):
+            update_detail_balances(doc)
+            update_detail_balances(doc)
+        self.assertEqual((row.linked_usd, row.client_credit_usd, row.company_credit_usd, row.pending_usd), (100, 10, 15, 5))
 
     def test_client_credit_is_neither_target_nor_offset(self):
         item = Row(name="C", docstatus=1, category=credit.CATEGORY, amount_usd=10)

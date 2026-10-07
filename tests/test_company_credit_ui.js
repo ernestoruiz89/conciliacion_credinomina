@@ -144,5 +144,24 @@ for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
     await context.createCompanyCreditFromDeposit(deposit);
     assert.equal(dialogCount, beforeEmpty);
     assert.equal(deposit.company_credit_workflow, false);
-    console.log("OK: company credit modal, deposit identification, stale lookup protection and editable invalid identity.");
+    deposit.is_dirty = () => false;
+    deposit.doc.unclassified_usd = 400;
+    deposit.doc.detail_rows = [{name: "BISMARK", pending_usd: 309.12, client: "CLIENT", client_number: "5574",
+        client_name: "BISMARK", loan_number: "001102-1", source_row: 103}];
+    await handlers["CN Remittance Detail"].create_company_credit(deposit, "CN Remittance Detail", "BISMARK");
+    assert.equal(dialog.values.amount, 309.12);
+    assert.equal(dialog.values.category, "Saldo a favor de la empresa");
+    assert.equal(dialog.values.credit_detail_row, "BISMARK");
+    const createdBeforeRow = creations;
+    await dialog.options.primary_action({...values, amount: 310});
+    assert.equal(creations, createdBeforeRow);
+    await dialog.options.primary_action({...values, amount: 309.12});
+    assert.equal(request.args.values.category, "Saldo a favor de la empresa");
+    assert.equal(request.args.values.credit_detail_row, "BISMARK");
+    for (const field of ["credit_client", "client_number", "loan_number", "installment_number"]) assert.equal(request.args.values[field], "");
+    deposit.doc.detail_rows[0].amount_usd = 309.12;
+    deposit.doc.detail_rows[0].company_credit_usd = 309.12;
+    context.updateDetailPendingAmounts(deposit);
+    assert.equal(deposit.doc.detail_rows[0].pending_usd, 0);
+    console.log("OK: company credit modal, exact evidence row, amount limits and empty client beneficiary.");
 })().catch(error => {console.error(error); process.exitCode = 1;});
