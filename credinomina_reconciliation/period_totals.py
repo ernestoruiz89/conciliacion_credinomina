@@ -20,6 +20,17 @@ def entries(value):
     return result if isinstance(result, list) else []
 
 
+def direct_amounts_by_collection(sources):
+    result = defaultdict(lambda: money(0))
+    for source in sources:
+        links = entries(source.get("application_allocation_detail"))
+        if not links and source.get("collection_row_id"):
+            links = [{"collection_row_id": source.get("collection_row_id"), "amount_usd": converted_amount(source, "USD")}]
+        for link in links:
+            result[link.get("collection_row_id")] += money(link.get("amount_usd"))
+    return result
+
+
 def calculate_totals(period, historical_rows=(), application_adjustment_usd=0):
     """Keep cash to fees/credits separate from coverage of core applications.
 
@@ -38,13 +49,20 @@ def calculate_totals(period, historical_rows=(), application_adjustment_usd=0):
             for row in historical_rows
         ]
     else:
+        direct = direct_amounts_by_collection(historical_rows)
         claims = [
-            (money(row.get("applied_usd")), sum_money(
+            (max(money(row.get("applied_usd")) - direct[row.get("name")], 0), sum_money(
                 entry.get("importe_usd") for entry in entries(row.get("remittance_detail"))
-                if entry.get("destino") != "Partida complementaria"
-            ), row.get("rounding_adjustment_usd"))
+                if entry.get("destino") != "Partida complementaria" and not entry.get("aplicacion_directa")
+            ), money(row.get("rounding_adjustment_usd")) - sum_money(
+                entry.get("diferencia_usd") for entry in entries(row.get("remittance_detail")) if entry.get("aplicacion_directa")))
             for row in period.get("collection_rows") or []
         ]
+        claims.extend((converted_amount(row, "USD"), row.get("historical_remitted_usd"),
+                       sum_money(entry.get("diferencia_usd") for entry in entries(row.get("historical_detail"))))
+                      for row in historical_rows)
+        if historical_rows:
+            applied = sum_money(claim[0] for claim in claims) + reduction
     for net, cash, rounding in claims:
         if net is None:
             frappe.throw(_("No se puede calcular el resumen del período: falta la conversión de una aplicación a US$."))
@@ -79,15 +97,15 @@ class PeriodTotalsContext:
             return
         sources = self.source_rows
         if sources is None:
-            names = [name for name, period in self.periods.items()
-                     if period.get("reconciliation_mode") == "Historica"]
+            names = list(self.periods)
             sources = frappe.get_all("CN Source Row", filters={
                 "parenttype": "CN Accounting Import", "historical_period": ["in", names],
                 "event_type": "Aplicacion", "effective": 1, "match_status": "Conciliado",
             }, fields=["name", "historical_period", "event_type", "effective", "match_status",
                        "currency", "amount", "equivalent_currency", "equivalent_amount",
                        "manual_fx_rate", "fx_basis", "application_adjustment_usd",
-                       "historical_remitted_usd", "historical_detail"], limit_page_length=0) if names else []
+                       "historical_remitted_usd", "historical_detail", "collection_row_id",
+                       "application_allocation_detail"], limit_page_length=0) if names else []
         self.historical = defaultdict(list)
         by_name = {}
         for row in sources:
@@ -115,7 +133,16 @@ class PeriodTotalsContext:
 
     def values(self, period):
         self._load()
-        return calculate_totals(period, self.historical[period.name], self.reductions[period.name])
+        direct = self.historical[period.name]
+        result = calculate_totals(period, direct, self.reductions[period.name])
+        if period.get("reconciliation_mode") != "Historica" and direct:
+            projected_cash = sum_money(entry.get("importe_usd")
+                for row in period.get("collection_rows") or []
+                for entry in entries(row.get("remittance_detail")) if entry.get("aplicacion_directa"))
+            result["applied_usd"] = money_float(money(result["applied_total_usd"]) - self.reductions[period.name])
+            result["remitted_usd"] = money_float(sum_money(row.get("remitted_usd") for row in period.get("collection_rows") or [])
+                                                 - projected_cash + sum_money(row.get("historical_remitted_usd") for row in direct))
+        return result
 
 
 def update_period_totals(period):

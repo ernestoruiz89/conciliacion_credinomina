@@ -87,6 +87,8 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             "Historica" if historical or document.get("historical_backfill") else "Operativa"
         )
         period = periods.get(historical) if historical else None
+        if period:
+            mode = period.get("reconciliation_mode") or mode
         # A link to a period outside the caller's permissions must not become
         # an apparently unlinked, visible application.
         if historical and not period:
@@ -102,7 +104,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
                 item["observation"] = "Aplicación compensada por ajuste; no representa un depósito"
                 emit(item, applied)
             continue
-        if mode == "Historica":
+        if historical or mode == "Historica":
             linked = bool(historical and source.get("match_status") == "Conciliado")
             paid = source.get("historical_remitted_usd") if linked else 0
             adjustment = sum_money(
@@ -138,9 +140,10 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         # item may be paid partially or not paid; its face amount is not cash.
         paid = sum_money(
             entry.get("importe_usd") for entry in _details(collection.get("remittance_detail"))
-            if entry.get("destino") != "Partida complementaria"
+            if entry.get("destino") != "Partida complementaria" and not entry.get("aplicacion_directa")
         )
-        adjustment = money(collection.get("rounding_adjustment_usd"))
+        adjustment = money(collection.get("rounding_adjustment_usd")) - sum_money(
+            entry.get("diferencia_usd") for entry in _details(collection.get("remittance_detail")) if entry.get("aplicacion_directa"))
         applied = sum_money(part["applied_usd"] for part in parts)
         if max(applied + adjustment - paid, 0) <= 0 and not include_settled:
             continue

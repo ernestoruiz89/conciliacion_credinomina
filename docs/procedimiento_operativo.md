@@ -2,7 +2,7 @@
 
 Esta guía permite cargar evidencia del core, relacionarla con los depósitos y dar seguimiento a diferencias, ajustes y saldos a favor. Está dirigida a los operadores y supervisores de conciliación de MIDESA. La app funciona sobre Frappe Framework, sin depender de ERPNext ni de Loan Manager, y no sustituye el core de crédito ni registra asientos en él.
 
-Versión del manual: 1.1. Fecha de revisión: 6 de octubre de 2026. Referencia de plataforma: Frappe Framework v15.111.1. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
+Versión del manual: 1.2. Fecha de revisión: 7 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
 
 ## Cómo usar el manual
 
@@ -22,6 +22,8 @@ Los ejemplos numéricos son didácticos y están expresados en US$, salvo indica
 | Administrador del sitio | Asignar accesos, mantener workers, realizar respaldos y aplicar actualizaciones | Base de datos, Version, archivos privados y configuración de recuperación |
 
 La disponibilidad de botones depende de los permisos del usuario y del estado del documento. No comparta credenciales ni use una sesión de administrador para sustituir la revisión del supervisor. La separación entre preparación y aprobación es un control organizativo recomendado; la app no garantiza que dos personas distintas intervengan si se asignan todos los permisos a una misma persona.
+
+El rol adicional **Eliminar Mov. del Core** permite intentar la cancelación o eliminación de importaciones contables, depósitos y complementarias procedentes del archivo del core. Debe asignarse expresamente al usuario, incluso a Administrator; no se concede automáticamente a operadores ni supervisores. También se requieren los permisos normales de la operación y cumplir las restricciones de vínculos, efectivo y períodos cerrados. Para corregir la distribución de un depósito, use **Desconciliar** sin eliminar la evidencia contable.
 
 ## Preparar empresas clientes y cuentas
 
@@ -56,7 +58,15 @@ Ruta: **Conciliación Credinómina → Preparación → Corte de cartera** o `/a
 
 El corte se identifica como CARTERA-mes-año. La cartera sirve para identificar al cliente, validar empresa y consultar situación del crédito; no crea aplicaciones ni depósitos. Un crédito cancelado no elimina automáticamente una aplicación contable pendiente de conciliar.
 
-En la importación contable puede elegir **Corte de cartera para validar**. Si no elige uno, cada aplicación busca el corte de su mismo mes y, si falta, el más reciente de un mes anterior. Revise la antigüedad de esa evidencia al trabajar con meses históricos.
+En una importación contable individual puede elegir **Corte de cartera para validar**. Si no elige uno, cada aplicación busca un corte habilitado de su mismo mes y, si falta, el más reciente de un mes anterior. En **Carga masiva**, el **Corte de cartera** es obligatorio. Revise la antigüedad de esa evidencia al trabajar con meses históricos.
+
+### Guardar actualizar renombrar y desactivar un corte
+
+**Guardar** conserva los cambios permitidos de Archivo, Notas y Es Desactivar de un corte existente. No lee nuevamente el archivo, no reescribe los créditos ni recalcula sus contadores. Después de sustituir un archivo, use **Importar / actualizar corte** para procesarlo y actualizar filas y resumen. No intente corregir créditos editando resultados calculados y guardando.
+
+Use **Renombrar** en el menú del documento si necesita un nombre personalizado. Se conservan los vínculos y las siguientes importaciones respetan ese nombre. Renombrar no cambia la fecha del corte ni permite duplicar el corte importado de un mismo mes.
+
+Marque **Es Desactivar** para retirar un corte de las nuevas selecciones y búsquedas automáticas. En un documento existente, la casilla guarda su cambio automáticamente; espere el aviso. Los cambios pendientes de otros campos siguen sin guardar y debe guardarlos por separado. La casilla puede actualizarse incluso en un documento confirmado; conserva filas y referencias históricas. Desmarcarla vuelve a habilitar el corte. Desactivar no recalcula los depósitos que ya usaron esa evidencia.
 
 ## Cargar movimientos contables
 
@@ -81,14 +91,16 @@ El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-conse
 
 La acción **Carga masiva** está en la vista de lista, no en el formulario. Prepare primero el corte de cartera y los convenios para reducir los casos sin identificar.
 
-1. Abra la lista de importaciones y pulse **Carga masiva**. Adjunte el archivo, indique moneda y tasa cuando corresponda y analícelo antes de importar. El límite es 100,000 movimientos por carga.
+1. Abra la lista de importaciones y pulse **Carga masiva**. Adjunte el archivo, indique moneda y tasa cuando corresponda y seleccione un **Corte de cartera** importado y habilitado. Es obligatorio para analizar, confirmar o reanudar la carga. El límite es 100,000 movimientos por carga.
 2. Revise la tabla de empresas identificadas y la tabla separada de **NO IDENTIFICADA**. En estas últimas, consulte la descripción del asiento y cambie la empresa solo si tiene evidencia.
 3. Repita el análisis después de corregir empresas. Las elecciones se conservan y se consideran para agrupar; verifique el resultado antes de confirmar la selección.
 4. Seleccione las empresas a importar y confirme la carga. Las aplicaciones se agrupan por empresa y fecha de aplicación. Los casos NO IDENTIFICADA se registran por separado, aunque sean del mismo día, para corregir cada caso posteriormente.
-5. La carga conserva un CSV individual para cada importación y el archivo masivo original. Para reprocesar un grupo use su CSV en **3. Cargar movimientos contables**; no requiere otro botón.
+5. La carga conserva un CSV individual para cada importación y referencias al archivo masivo original compartido. Ver el mismo original en los adjuntos de varios documentos no significa que exista una copia física por documento. Los CSV de cada grupo sí son archivos distintos. Para reprocesar un grupo use su CSV en **3. Cargar movimientos contables**; no requiere otro botón.
 6. Si la carga se interrumpe, revise qué documentos se crearon antes de iniciar otra. Una nueva vista previa distingue lo ya importado. No ejecute cargas concurrentes ni borre bloqueos desde Redis sin comprobar primero el trabajo del servidor.
 
 El CSV individual conserva la empresa resuelta y CN_FILA_ORIGEN. No quite ni cambie esa columna. Líneas contables iguales en filas originales distintas se conservan; se señalan para revisión, no se eliminan por parecer duplicadas. La app protege la evidencia original y puede rechazar un CSV alterado que intente reutilizar la identidad de otra fila.
+
+Las empresas identificadas deben tener créditos en el corte seleccionado, incluso si se corrigieron manualmente en la vista previa. Los casos NO IDENTIFICADA mantienen su flujo de revisión. Una carga antigua preparada sin corte debe analizarse de nuevo seleccionando uno antes de continuar.
 
 ### Clasificar las líneas del core
 
@@ -127,6 +139,8 @@ El periodo siempre se identifica por el **mes de la planilla**, no por el mes en
 
 ## Primera conciliación de cobranza y deducción
 
+En un período **Operativo**, la conciliación 1 compara las aplicaciones del core con la **Base de la primera conciliación** elegida: **Cobranza** o **Detalle de empresa**. La conciliación 2 compara las aplicaciones con los depósitos. Pueden realizarse en cualquier orden; el período solo puede cerrarse cuando ambas están completas y no existen excepciones o vínculos pendientes.
+
 1. Revise la empresa y su frecuencia y plazo de depósito.
 2. Cree el Período de Conciliación con el primer día del mes de planilla, modalidad Operativa y ciclo correspondiente. Registre Observaciones que permitan identificar el envío.
 3. En Plantillas descargue la de cobranza. Prepare el archivo, adjúntelo y presione **1. Cargar cobranza**. La app carga las filas, identifica o crea clientes cuando la evidencia lo permite y normaliza los créditos; cargar la cobranza no registra efectivo.
@@ -146,6 +160,22 @@ Resultados posibles:
 - **Pendiente de detalle:** la empresa aun no envio evidencia. No equivale a pago ni a falta de pago definitiva.
 - **Ambigua o sin coincidencia:** revision humana obligatoria; nunca se asigna por similitud de nombre.
 
+### Ejecutar las conciliaciones en cualquier orden
+
+Para realizar primero la conciliación 1, cargue la base elegida y las aplicaciones del core. En el período pulse **Conciliación 1: validar aplicaciones**. Se actualiza el control contra esa base conservando la distribución de los depósitos existentes. Puede obtener un control Conforme aunque no haya recibido ningún depósito; el cierre permanece bloqueado mientras falte la conciliación 2.
+
+Para realizar primero la conciliación 2, incluso sin cobranza ni detalle de empresa:
+
+1. Cree el período operativo de la empresa y mes correspondientes. Seleccione la base que utilizará posteriormente en la conciliación 1.
+2. En **CN Accounting Import**, seleccione ese período en **Período predeterminado de aplicaciones**, o en **Período asignado de aplicación** de cada fila si la carga mezcla períodos. La modalidad debe coincidir con el período; no marque la carga como histórica para evitar la primera conciliación.
+3. Guarde y use **Conciliar esta empresa** para registrar los vínculos de las aplicaciones. La asignación del período no acredita que la conciliación 1 esté completa.
+4. En el depósito seleccione el período, cargue su detalle o use **Usar aplicaciones pendientes como detalle**, revise identidades e importes, confirme el depósito y pulse **Conciliar**. También puede elegir la **Aplicación del core** desde el selector de partidas pendientes. No se requiere haber cargado la base de la conciliación 1.
+5. Revise el saldo de la aplicación y del depósito. Cuando llegue la cobranza o el detalle de empresa, cárguelo en ese mismo período y ejecute **Conciliación 1: validar aplicaciones**. El sistema conserva el pago directo de la aplicación y lo refleja en la fila identificada sin volver a distribuir ese dinero.
+
+Si cambia la distribución bancaria, use **Conciliar** en el depósito correspondiente. Actualizar la base de la conciliación 1 no redistribuye depósitos automáticamente. Los destinos ya pagados siguen protegidos; no cambie el período de una aplicación con dinero vinculado sin corregir primero esa distribución mediante las acciones autorizadas.
+
+Ejemplo: una aplicación de US$100 y un depósito de US$100 pueden completar la conciliación 2 antes de recibir cobranza. El período queda abierto por falta de conciliación 1. Si después la base elegida también indica US$100 y el vínculo es único, ambas quedan completas y puede solicitarse el cierre. Si la base indica US$80, permanece una diferencia por revisar aunque el depósito ya esté conciliado. Una aplicación adicional sin comparar también impide el cierre; no basta con que un subconjunto de filas esté conforme.
+
 ## Implementación histórica y corte de septiembre de 2026
 
 De **abril de 2025 a agosto de 2026**, usar períodos de modalidad **Histórica**. No se importa la cobranza ni se ejecuta la conciliación de deducciones. Se enlazan aplicaciones reales del core en US$ con depósitos registrados en Distribución de Depósito (en US$ o C$ con tasa documentada). Cada aplicación histórica tiene empresa/mes y corte asignados explícitamente: mensual, fecha exacta de aplicación o rango inclusivo de fechas. Las fechas de aplicación pueden ser el 15, el 30 o cualquier otro día, incluso de un mes posterior al de cobranza. El depósito puede cubrir varias aplicaciones, una parte de una aplicación o combinarse con otros depósitos. Los repartos ambiguos requieren Distribución de Depósito confirmada.
@@ -158,7 +188,7 @@ El saldo de aplicaciones sin depósito o compensación vinculada constituye la C
 2. Elija el alcance **Mensual**, **Fecha exacta** o **Rango de fechas**. En fecha exacta registre el día real de aplicación; en rango registre ambos extremos inclusivos. Puede usar fechas diferentes al 15 o 30.
 3. Para separar aplicaciones de abril del 8, 23, 28 y 30, cree cuatro cortes por fecha exacta si esa es su evidencia. Para un archivo agregado de toda la empresa y mes puede usar alcance mensual. No cree un alcance mensual y cortes superpuestos para el mismo conjunto.
 4. Guarde y revise su identificador y Observaciones. El consecutivo distingue registros permitidos, pero no habilita duplicar una empresa y corte ya existentes ni mezclar modalidades para el mismo mes.
-5. En la importación contable, seleccione **Período histórico predeterminado** para un archivo uniforme. Si mezcla cortes, asigne el período a las filas correspondientes. Las aplicaciones sin período quedan visibles para completar el vínculo.
+5. En la importación contable, seleccione **Período predeterminado de aplicaciones** para un archivo uniforme. Si mezcla cortes, asigne el período a las filas correspondientes. Las aplicaciones sin período quedan visibles para completar el vínculo.
 6. Use **Conciliar esta empresa** y revise en el período sus aplicaciones y Pendientes detectados. No cargue una cobranza ficticia para llenar collection_rows: en histórico puede estar vacía mientras las aplicaciones enlazadas son la base del saldo.
 7. Registre o revise los depósitos de la empresa, seleccione esos períodos y cargue o genere el detalle. Concilie cada depósito y verifique cobertura y pendientes por aplicación.
 
@@ -226,7 +256,7 @@ Ruta: **Conciliación Credinómina → Depósitos → Distribución de Depósito
 3. Guarde. El supervisor usa **Confirmar depósito** cuando el dinero y la evidencia son correctos. Esta confirmación no ejecuta la conciliación ni crea pagos en el core.
 4. En **2. Detalle**, agregue en **Períodos del detalle** los períodos que espera cubrir. Puede seleccionar varios meses o cortes de la misma empresa o de sus beneficiarias autorizadas. Esta tabla restringe la búsqueda automática; no asigna dinero.
 5. Descargue la plantilla y cargue **Detalle de pago por cliente**. Pulse **Cargar detalle del depósito**. Adjuntar el Excel sin pulsar el botón no importa sus filas.
-6. Revise cada fila: identidad, crédito, Deducido C$ o Deducido US$, Importe US$, Vinculado y Pendiente. El importe convertido se calcula desde la carga; no espere a Conciliar para detectar una tasa o moneda errónea.
+6. Revise cada fila: identidad, crédito, Estado del crédito, Fecha de corte de cartera, Deducido C$ o Deducido US$, Importe US$, Vinculado, saldos a favor y Pendiente. El importe convertido se calcula desde la carga; no espere a Conciliar para detectar una tasa o moneda errónea.
 7. Use **Seleccionar crédito del cliente** si debe vincular un crédito concreto. La selección se limita a la cartera del cliente identificado. No seleccione otro préstamo para completar artificialmente la suma.
 8. En **Conciliación → Conciliar**, ejecute el cruce y revise el mensaje final y los motivos por fila. Compruebe en **3. Destinos** la distribución completa y el dinero sin asignar ni justificar.
 
@@ -234,11 +264,23 @@ La plantilla del depósito admite identidad por al menos uno de estos datos: Nro
 
 El nombre del documento se agrega al archivo de plantilla para identificarlo fácilmente. No confunda esta plantilla con la de cobranza o la del detalle de deducción de empresa.
 
+Al cargar el archivo de detalle devuelto por la empresa, los créditos numéricos con menos de seis dígitos, sin contar el sufijo -1, reciben exactamente dos ceros a la izquierda. Ejemplos: 1807 → 001807-1, 11 → 0011-1, 1122 → 001122-1 y 12230 → 0012230-1. No es un relleno hasta seis posiciones. Los números de seis o más dígitos, otros ciclos y códigos alfanuméricos conservan su normalización anterior. Esta regla no modifica los créditos del detalle generado desde aplicaciones pendientes.
+
+### Consultar el estado del crédito en la cartera
+
+Al cargar o generar el detalle se completan **Estado del crédito** y **Fecha de corte de cartera**, de solo lectura. La búsqueda parte del período seleccionado con la fecha de aplicación o cierre más reciente y del corte utilizado por sus importaciones contables; si estas usaron varios cortes, toma el más reciente. Cuando la selección de cartera fue automática, considera el corte registrado en las aplicaciones.
+
+El crédito se busca por número y empresa en ese corte habilitado. Si no aparece, se consulta únicamente el corte importado habilitado inmediatamente anterior, aunque no esté seleccionado. No se continúa buscando en todos los cortes antiguos. Sin coincidencia muestra **No Identificado** y deja la fecha vacía; una identidad ambigua requiere revisión. Sin períodos seleccionados no se presupone un corte global.
+
+La fila conserva el vínculo al corte realmente utilizado. El dato se actualiza al cargar el detalle o cambiar crédito o períodos; guardar una fila sin esos cambios no garantiza una nueva consulta. Un estado **Cancelado** describe la cartera consultada: no cancela la fila, no asigna efectivo y no demuestra por sí solo que deba crearse un saldo a favor.
+
 ### Generar detalle desde aplicaciones pendientes
 
 Si cuenta con evidencia suficiente para identificar los destinatarios y no tiene un archivo de detalle, seleccione los períodos y use **Usar aplicaciones pendientes como detalle**. Se presenta una vista previa con todas las aplicaciones seleccionadas por defecto. Desmarque las que no pertenecen a ese depósito y revise importes antes de generar.
 
-Se copian únicamente importes pendientes de cubrir, no el total original ya financiado por otros depósitos. Puede necesitar ajustar la selección cuando un depósito solo cubra parte del conjunto. Si ya hay detalle, la acción exige confirmar su reemplazo. La app conserva el origen como aplicaciones pendientes del período; esto no es una constancia de planilla enviada por la empresa y no concilia por sí solo.
+El **Importe del detalle US$** es editable en la vista previa y propone el pendiente de cubrir; el **Pendiente original** queda visible como referencia. Ajuste el importe cuando la evidencia del depósito sea distinta, usando un valor positivo con hasta dos decimales. El cambio queda documentado en los comentarios del detalle y no modifica la aplicación original. El total seleccionado y la advertencia de diferencia se actualizan al editar; un importe mayor que el pendiente no habilita sobrepagar la aplicación.
+
+Si ya hay detalle, la acción exige confirmar su reemplazo. Conserva archivos y destinos, pero retira los vínculos a las filas sustituidas; revise la nueva vinculación antes de conciliar. Las filas respaldadas por saldos a favor confirmados están protegidas contra reemplazos incompatibles. La app conserva el origen como aplicaciones pendientes del período; esto no es una constancia de planilla enviada por la empresa y no concilia por sí solo.
 
 ### Seleccionar destinos manuales y vincular el detalle
 
@@ -256,6 +298,8 @@ Para trabajar con una persona concreta, abra su fila en **2. Detalle** y pulse *
 
 No repita en Destinos una asignación que ya quedó conciliada automáticamente. La distribución completa incluye también saldos a favor, aunque estos no se agreguen como pagos a créditos en la tabla targets.
 
+Si necesita vincular explícitamente una fila a aplicaciones de otros períodos abiertos, active **Permitir vínculos manuales con períodos distintos a los seleccionados** en **Asignación manual (opcional)**. Guarde y concilie. El selector inicia entonces con **Usar períodos del detalle** desmarcado. Se conservan los controles de empresa, cliente, crédito, importe y disponibilidad; la búsqueda automática y FIFO siguen limitados a los períodos seleccionados. Ampliar solamente el filtro de búsqueda no sustituye esta autorización del vínculo.
+
 ### Conciliar varias aplicaciones de una persona
 
 Si una fila de Juan indica US$110.51 y existen dos aplicaciones pendientes del mismo cliente y crédito de US$50.25 y US$60.26, seleccione sus períodos y cargue el detalle. La suma exacta permite un cruce automático cuando el conjunto es único y pasa los controles de identidad. Revise que ambas aplicaciones aparezcan en la distribución.
@@ -270,13 +314,17 @@ Sin FIFO, si existen otras combinaciones posibles que también suman US$110.51, 
 4. Revise el resumen de cada fila y los destinos generados. Con aplicaciones pendientes de US$50.25 y US$60.26, un pago de US$70.00 cubre US$50.25 de la primera y US$19.75 de la segunda; quedan US$40.51 pendientes en esta última.
 5. Si el cliente aparece varias veces en el archivo, conserve sus filas cuando sean pagos reales distintos. El motor consume el pendiente restante a medida que distribuye cada línea, sin volver a utilizar lo ya asignado. No elimine filas únicamente por repetir nombre y crédito.
 
-FIFO no corrige identidades contradictorias, no inventa una aplicación faltante y no crea saldos a favor ni ajustes de diferencia. Si una fila supera el pendiente elegible, quedará para revisión: identifique otros destinos o documente el excedente por la vía correspondiente. Revise también los centavos resultantes del redondeo por fila; la tasa mantiene su precisión.
+FIFO admite una distribución parcial cuando el importe de la fila supera las aplicaciones elegibles. Por ejemplo, con detalle de **US$13.05** y aplicación disponible de **US$9.62**, distribuye **US$9.62** y conserva **US$3.43** pendientes en la fila, que queda para revisión. Volver a conciliar no duplica el pago.
+
+FIFO no corrige identidades contradictorias, no inventa una aplicación faltante y no crea saldos a favor ni ajustes de diferencia. Para el resto pendiente, identifique otros destinos o documente el excedente por la vía correspondiente. Revise también los centavos resultantes del redondeo por fila; la tasa mantiene su precisión.
 
 ### Corregir una distribución equivocada
 
 Conserve primero el detalle de la distribución actual y consulte **Conciliación → Historial de conciliación**. Revise qué períodos y partidas quedarían afectados y obtenga la autorización correspondiente.
 
 Para corregir, modifique o retire los destinos equivocados y los vínculos del detalle, guarde y vuelva a Conciliar. Al verificar o cambiar una distribución existente se solicita un motivo y se conserva su antes y después. Si el detalle sigue provocando el mismo cruce automático, corríjalo o restrinja sus períodos; borrar una instrucción manual no garantiza que la automatización deje de seleccionar la misma aplicación.
+
+Para retirar la conciliación vigente, use **Conciliación → Desconciliar**. Lea la advertencia, indique el motivo y confirme la acción. El depósito permanece confirmado y conserva su origen contable; revise los destinos antes de conciliar otra vez. Las restricciones por períodos cerrados, reservas de saldos a favor y otros vínculos siguen vigentes. Desconciliar no requiere el rol de eliminación del core porque no cancela ni elimina el documento.
 
 No edite los importes calculados ni cancele una aplicación para liberar efectivo. Si un período está cerrado, reábralo con motivo antes de alterar su distribución. Si existe saldo a favor confirmado, no puede usar esa reserva otra vez: corrija primero su clasificación por la vía permitida. Una partida con gestiones realizadas conserva su historial y no se cancela para borrarlo.
 
@@ -298,7 +346,7 @@ La partida automática es interna, de solo lectura y no se exporta al core. No l
 
 El depósito se registra en el depósito por su importe total, aunque supere las cobranzas informadas. Solo la porción identificada se distribuye a las cobranzas o partidas complementarias. El excedente nunca se aplica automáticamente a un crédito.
 
-- Si la empresa pagó de más por error o remitió una partida no informada, use **Crear saldo a favor de la empresa** en el depósito. Se crea una **Partida Complementaria**, con importe, motivo, responsable y fecha compromiso. Si el exceso pertenece a una persona, use **Crear saldo a favor del cliente** desde su fila del detalle. Una aplicación sin identificar no es automáticamente un saldo a favor.
+- Si la empresa pagó de más por error o remitió una partida no informada, use **Crear saldo a favor de la empresa**. Si el exceso está incluido en una fila del detalle, use el botón de esa fila para vincularlo y resolver su pendiente. Se crea una **Partida Complementaria**, con importe, motivo, responsable y fecha compromiso. Si el exceso pertenece a una persona, use **Crear saldo a favor del cliente** desde su fila. Una aplicación sin identificar no es automáticamente un saldo a favor.
 - El sistema valida que el excedente documentado no supere el saldo sin distribuir del depósito. Esa porción se muestra como **saldo a favor documentado de la empresa**, separado de las cobranzas. No se considera conciliada con un crédito.
 - Lo que no tenga justificación queda como **sin distribuir ni justificar** y continúa siendo excepción. Una partida que posteriormente se identifique se debe conciliar mediante la distribución o partida complementaria correspondiente, corrigiendo/cancelando antes la clasificación de excedente para evitar doble uso.
 - Esta app no crea automáticamente el pasivo, devolución ni compensación contable en el core; esos movimientos requieren el procedimiento contable autorizado de la IMF.
@@ -337,6 +385,8 @@ Ruta: **Conciliación Credinómina → Diferencias y seguimiento → Partida Com
 | Diferencia menor automática y única | Diferencia por tolerancia | Movimiento interno trazable, de solo lectura |
 
 Para crear una partida desde un depósito, pulse **Crear partida complementaria**. Seleccione concepto, importe y signo, fecha, justificación y referencias. Si es **Ajuste de conciliación**, la subcategoría es obligatoria. Guarde y confirme mediante la acción autorizada del modal, revise que la partida esté disponible y agréguela al destino adecuado. Una partida sin período puede utilizarse cuando su vínculo manual y evidencia explican el depósito; no invente un período para habilitarla.
+
+El concepto **Cuenta por Cobrar a la Empresa** prepara un ajuste con tratamiento CxC. Ingrese el faltante con signo negativo: aplicado US$100 y depositado US$90 requieren −US$10. Revise su distribución y seguimiento de cobro. Este concepto reconoce un faltante; **Saldo a favor de la empresa** reserva un excedente y usa importe positivo.
 
 La convención del depósito es: exceso US$10 sobre una aplicación US$90, partida **+US$10**; falta US$10 para cubrir una aplicación US$100, partida **−US$10**. En el segundo caso debe decidir qué significa el faltante. Elegir CxC conserva una deuda de US$10; elegir Otro ajuste sin CxC necesita un motivo respaldado. No use esa segunda subcategoría para condonar una CxC ya reconocida.
 
@@ -468,7 +518,7 @@ Respalde tanto la base (incluido Version) como los archivos privados.
 ### Documentar y gestionar un saldo a favor
 
 1. Compruebe que el importe excede realmente la aplicación neta identificada. Antes de crear un saldo a favor, busque aplicaciones faltantes o de otros períodos; dinero sin destinatario no equivale a un exceso del cliente.
-2. Desde el depósito confirmado use **Crear saldo a favor de la empresa**, o desde la fila identificada use **Crear saldo a favor del cliente**. Si la partida ya fue importada del core, reclasifíquela con su evidencia y vínculo en lugar de crear una copia.
+2. Desde el depósito confirmado use **Crear saldo a favor de la empresa**. Si el excedente está incluido en una fila, abra esa fila y use **Crear saldo a favor de la empresa** o **Crear saldo a favor del cliente**, según quién sea su propietario. Si la partida ya fue importada del core, reclasifíquela con su evidencia y vínculo en lugar de crear una copia.
 3. Indique importe positivo, beneficiario, motivo, tratamiento propuesto, responsable y fecha compromiso. Seleccione la fila que ya incluye el excedente, si corresponde; no agregue otra fila duplicada por ese dinero.
 4. Confirme mediante la acción autorizada y revise la distribución completa. El saldo aparece como reserva de la empresa o del cliente, no como otra aplicación al préstamo. **Ver saldos a favor** permite abrir las partidas del depósito.
 5. Cuando el core o banco ejecute la devolución o aplicación futura autorizada, abra la partida y use **Registrar gestión**. Indique importe parcial o total, fecha, referencia del core o comprobante y observaciones. El soporte adjunto es opcional; documentar la operación sigue siendo necesario.
@@ -477,6 +527,24 @@ Respalde tanto la base (incluido Version) como los archivos privados.
 **Aplicación futura** documenta una operación externa ya realizada; no crea automáticamente un pago futuro en el core. No registre una intención como gestión cumplida. Si el saldo era de otra persona o empresa, solicite autorización y corrija la clasificación de forma trazable antes de redistribuir.
 
 Seleccione **Motivo del saldo a favor** según la evidencia, no por el valor predeterminado. Entre las opciones están **Por refinanciamiento** y **Por cancelación**. El motivo puede corregirse después de confirmar la partida; cambiarlo no altera importes, beneficiarios ni gestiones realizadas.
+
+### Resolver una fila con saldo a favor de la empresa
+
+Esta opción sirve, por ejemplo, cuando la empresa remite dos veces el pago de una aplicación ya cubierta y el segundo importe pertenece a la empresa. Compruebe antes si hubo una segunda deducción al trabajador: eso puede requerir un saldo a favor del cliente.
+
+1. Abra la fila pendiente en **2. Detalle** de un depósito confirmado y pulse **Crear saldo a favor de la empresa**. Requiere permisos para escribir el depósito, crear y confirmar complementarias, y efectivo sin clasificar.
+2. Revise el importe positivo propuesto: el menor entre el pendiente de la fila y el efectivo sin clasificar del depósito. Puede registrar solo una parte del exceso.
+3. Verifique el motivo sugerido **Error de la empresa** y complete descripción, responsable, fecha compromiso y tratamiento propuesto. Registre fecha y referencias disponibles.
+4. Confirme. La partida queda vinculada al depósito y a la fila como evidencia; la beneficiaria es la empresa pagadora. No genera otro pago al crédito ni se agrega como destino de una aplicación.
+5. Revise **Saldo a favor de la empresa US$**, separado de **Saldo a favor del cliente US$**, el pendiente y el resumen de la fila. Al confirmar se recalcula la conciliación: si todo el importe queda explicado, la fila se resuelve; si el registro fue parcial, conserva el resto pendiente.
+
+Los saldos a favor de empresa y cliente comparten el límite disponible de la fila y del depósito. No cree ambos por el mismo dinero. Una reserva confirmada protege la fila frente a cambios o eliminaciones incompatibles. Si se cancela una reserva sin gestiones por la vía permitida, vuelve a quedar pendiente esa porción; si ya hubo devolución o aplicación futura, debe corregirse primero la gestión. El registro original y su historial permanecen como evidencia.
+
+### Crear saldos a favor de clientes seleccionados
+
+Cuando varias filas tienen el mismo motivo y comentario, marque al menos dos filas con pendiente positivo en **Pagos por cliente** de un depósito confirmado y pulse **Crear saldos a favor seleccionados**. Requiere permisos para escribir el depósito, crear y confirmar complementarias. Revise cada identidad e importe, complete los datos comunes y confirme. Esta acción crea una complementaria independiente por fila, con su propio vínculo y seguimiento; no reúne los beneficiarios en una sola partida.
+
+Los importes deben ser positivos y respetar el pendiente de cada fila y el efectivo disponible. Las reservas previas de cliente o empresa se descuentan para evitar duplicidades. Revise el resultado y los registros creados antes de repetir la operación. La acción masiva corresponde a saldos de clientes; para el excedente de la empresa use el botón específico de su fila.
 
 ### Vincular un saldo a favor con su reclasificación del core
 
@@ -671,7 +739,7 @@ Ruta: `/app/control-credinomina`. Abra **Calendario** para observar la empresa p
 
 1. Elija año y empresa. En Año, **Todos** permite consultar todos los años; el calendario dispone entonces de su propio selector de año, inicialmente el corriente.
 2. Mantenga **Resumen** para agrupar todos los períodos de una empresa y mes. La celda muestra **Aplicado / Asignado**, período registrado y estado financiero. No suma los depósitos completos otra vez a las asignaciones.
-3. Pulse la celda para abrir **Períodos del mes**. Primero revise los períodos de cobranza y después los depósitos recibidos en ese mes, aunque financien otros meses.
+3. Pulse la celda para abrir **Períodos del mes**. Primero revise los períodos de cobranza y después los depósitos recibidos en ese mes, aunque financien otros meses. En cada grupo las tarjetas se ordenan por fecha, de la más antigua a la izquierda a la más reciente.
 4. Abra la tarjeta de un período para consultar detalle, aplicado neto, asignado y pendiente. Las observaciones pueden explicar qué quincena o cobranza real corresponde al período.
 5. Abra la tarjeta de depósito para ver pagadora, referencia, fecha, cuenta bancaria, original, equivalente US$, resultado y distribución. El resumen distingue créditos, complementarias y saldos a favor del cliente o empresa; el detalle por persona se utiliza para destinos de créditos.
 6. Use **Volver al mes** para regresar. Puede abrir el calendario en pantalla completa y salir sin perder acceso a los modales.
@@ -715,6 +783,12 @@ El depósito es US$120 y la aplicación es US$100. Si los US$20 pertenecen al cl
 
 Al devolver US$8, registre gestión con fecha y referencia, adjuntando soporte si está disponible; quedan US$12 por gestionar. El depósito original sigue reservando US$20 y no puede utilizar esos US$8 otra vez. Si registró una devolución inexistente, revierta esa gestión con motivo; no elimine la partida.
 
+### Pago duplicado que pertenece a la empresa
+
+Una aplicación de US$309.12 quedó cubierta por el primer depósito. La empresa remite otros US$309.12 por error y el segundo depósito contiene una fila por ese mismo cliente. Compruebe que el dinero extra pertenece a la empresa y abra la fila del segundo depósito. Use **Crear saldo a favor de la empresa**, documente el error y confirme US$309.12.
+
+Resultado: el primer pago conserva su distribución; la segunda fila muestra US$309.12 de saldo a favor de la empresa y cero pendiente, sin un segundo pago al préstamo. La empresa conserva US$309.12 pendientes de gestión. Si solo documenta US$100, la fila mantiene US$209.12 pendientes hasta explicar el resto. Registrar o completar esa reserva no acredita una devolución ya realizada.
+
 ### Faltante trasladado a CxC de empresa
 
 La aplicación es US$100, el depósito US$90 y se confirma ajuste −US$10 con subcategoría CxC a la empresa. Distribuya el depósito con ese ajuste. Aunque el depósito quede explicado, los US$10 deben permanecer en la CxC por ajustes y en el seguimiento.
@@ -746,6 +820,22 @@ El período considera solo lo asignado a sus aplicaciones; el depósito puede cu
 ### No puedo cambiar un documento confirmado o cerrado
 
 Los importes calculados y datos de origen están protegidos. Corrija vínculos mediante acciones autorizadas; reabra un período cerrado con motivo. No fuerce valores desde la base de datos ni desactive una aplicación con efectivo asignado o reservado.
+
+### No puedo cancelar o eliminar un movimiento del core
+
+Compruebe si el registro proviene de un archivo contable. **CN Accounting Import**, **CN Complementary Item** y **CN Remittance Allocation** importados exigen la asignación explícita del rol **Eliminar Mov. del Core**, además del permiso normal. La restricción alcanza borradores importados y documentos cancelados que se intenten eliminar. Un borrador de importación sin filas ni evidencia de carga puede eliminarse con los permisos normales. **CN Accounting Import** conserva su flujo sin confirmación; esta protección no agrega un paso de cancelar al proceso habitual.
+
+Para corregir únicamente el reparto de un depósito, use **Desconciliar** y vuelva a conciliar con los destinos correctos. Tener el rol de eliminación no permite saltarse períodos cerrados ni vínculos financieros.
+
+### Recuperar un depósito histórico eliminado
+
+Solicite al administrador la restauración desde **Deleted Document**, conservando la copia original eliminada. Al restaurar un depósito histórico en borrador o cancelado, se conserva su evidencia de origen, detalle y destinos válidos, se retiran destinos de complementarias anuladas o eliminadas y se registra el retiro en el historial. El depósito queda en borrador con resultados pendientes; revise, confirme y concilie de nuevo.
+
+Verifique la pestaña **Origen contable** y sus datos. Crear una copia manual con los mismos importes no recupera la identidad contable ni equivale a restaurar el original. Si faltan los datos de origen, solicite revisión de la restauración antes de reutilizar el documento.
+
+### El estado del crédito muestra No Identificado
+
+Revise el número normalizado, la empresa, los períodos seleccionados y el corte vinculado a sus importaciones. Confirme que el corte esté habilitado y que el crédito aparezca en él o en el corte habilitado inmediatamente anterior. Un crédito presente en cualquier otro corte no satisface esa búsqueda. Cambiar notas y guardar no vuelve a consultar una fila sin cambios; revise el detalle mediante el flujo de carga o los vínculos de crédito y períodos, respetando sus reservas existentes.
 
 ### Los totales no coinciden con la balanza
 

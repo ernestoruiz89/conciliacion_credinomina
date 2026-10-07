@@ -236,6 +236,24 @@ pendientes e ignorados. Los contadores corresponden al grupo de empresas, no sol
 a las filas del depósito. Si falla la conexión de tiempo real, la respuesta final
 sigue disponible. Confirmar y conciliar siguen siendo acciones separadas.
 
+### Conciliaciones independientes en períodos operativos
+
+En modalidad **Operativa**, las conciliaciones 1 y 2 pueden realizarse en cualquier
+orden. Para conciliar aplicaciones directamente con depósitos antes de cargar la
+cobranza o el detalle de empresa, asigne el período en **CN Accounting Import →
+Período predeterminado de aplicaciones**, o en **Período asignado de aplicación**
+por fila. Guarde y use **Conciliar esta empresa**; después concilie el depósito.
+La asignación explícita conserva una única aplicación como destino financiero.
+Cuando llegue la base, sus vínculos de calidad se calculan sin duplicar la cobertura.
+
+El botón **Conciliación 1: validar aplicaciones** del período operativo actualiza
+el control contra la base elegida conservando las distribuciones guardadas. Las
+cargas de cobranza y detalle también conservan el efectivo ya distribuido. El
+cierre exige completar ambos controles, incluyendo todas las aplicaciones
+asignadas; un depósito pagado sin base o una base conforme sin pago no habilitan
+el cierre. Los identificadores técnicos existentes de asignación directa se
+conservan por compatibilidad; la modalidad del período sigue siendo Operativa.
+
 ### Distribución por antigüedad (FIFO)
 
 **3. Cargar movimientos contables** actualiza las aplicaciones y sus saldos
@@ -860,8 +878,11 @@ por otros depósitos confirmados y los ajustes vigentes por faltantes de centavo
 Todas las filas están seleccionadas inicialmente. Use las casillas de cada
 movimiento o **Todos** para importar solo los que correspondan a este depósito;
 el contador, el total seleccionado y la advertencia de diferencia se actualizan
-al cambiar la selección. Se copia el importe pendiente completo de cada fila
-marcada; las demás quedan disponibles para otros depósitos.
+al cambiar la selección. **Importe del detalle US$** propone el pendiente y puede
+editarse con un valor positivo de hasta dos decimales; **Pendiente original** queda
+como referencia y el ajuste se documenta en comentarios, sin cambiar la aplicación.
+Se copian las filas marcadas con sus importes revisados; las demás quedan disponibles
+para otros depósitos. Un importe mayor no autoriza sobrepagar sus aplicaciones.
 Las asignaciones del depósito actual se conservan para poder completar su detalle.
 Funciona en períodos históricos y operativos; no copia la cobranza ni supone que
 la empresa confirmó las deducciones. Si el total no coincide con el depósito, se
@@ -1473,4 +1494,7 @@ salarial: mantenga los adjuntos privados y restrinja el acceso a los roles
 autorizados.
 
 Para instrucciones detalladas, consulte la [guía de instalación y uso](docs/instalacion_y_uso.md)
-y el [procedimiento operativo](docs/procedimiento_operativo.md).
+y el [procedimiento operativo](docs/procedimiento_operativo.md), actualizado a la
+versión 1.2 del 7 de octubre de 2026. También está disponible el
+[manual operativo en Word](docs/Manual_Operativo_Conciliacion_Credinomina.docx),
+generado desde el mismo procedimiento con `tools/build_reconciliation_manual.py`.

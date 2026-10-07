@@ -10,10 +10,10 @@ frappe.ui.form.on("CN Accounting Import", {
         update_currency_fields(frm);
         frm.set_query("employer", () => ({filters: {active: 1}}));
         frm.set_query("historical_period", () => ({
-            filters: { reconciliation_mode: "Historica", employer: frm.doc.employer, status: ["!=", "Cerrado"] },
+            filters: { employer: frm.doc.employer, status: ["!=", "Cerrado"] },
         }));
         frm.set_query("historical_period", "rows", () => ({
-            filters: { reconciliation_mode: "Historica", employer: frm.doc.employer, status: ["!=", "Cerrado"] },
+            filters: { employer: frm.doc.employer, status: ["!=", "Cerrado"] },
         }));
         frm.set_query("portfolio_snapshot", () => ({
             query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.get_company_portfolio_snapshots",

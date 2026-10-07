@@ -90,8 +90,7 @@ def _historical_sources(open_periods, selected_keys=None):
     """
     import frappe
 
-    historical = [name for name, period in open_periods.items()
-                  if period.reconciliation_mode == "Historica"]
+    historical = list(open_periods)
     if not historical or not frappe.has_permission("CN Accounting Import", "read"):
         return
     filters = {"parenttype": "CN Accounting Import", "parentfield": "rows",
@@ -232,6 +231,11 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
             "client": row.get("client") or row.get("credit_client") or "",
         }
 
+    from credinomina_reconciliation.period_totals import direct_amounts_by_collection
+    direct_sources = list(_historical_sources(open_periods))
+    direct_amounts = direct_amounts_by_collection([row for source in direct_sources for row in source.rows
+        if row.historical_period in open_periods and row.effective and row.event_type == "Aplicacion" and row.match_status == "Conciliado"])
+    direct_periods = {row.historical_period for source in direct_sources for row in source.rows if row.historical_period}
     candidates = []
     for period in open_periods.values():
         if period.reconciliation_mode == "Historica":
@@ -242,18 +246,20 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
             candidates.append({**identity(row), "employer": period.employer, "kind": "Cobranza", "period": period.name,
                 "period_label": period_label(period), "filter_period": period.name,
                 "row_key": row.row_key, "reference": row.application_reference or "",
-                "applied_usd": float(money(row.applied_usd)),
-                "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name]
+                "applied_usd": float(max(money(row.applied_usd) - direct_amounts[row.name], 0)),
+                "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name] - direct_amounts[row.name]
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
-    for source in _historical_sources(open_periods, selected_keys):
+            if period.name in direct_periods:
+                candidates[-1]["due_usd"] = min(candidates[-1]["due_usd"], candidates[-1]["applied_usd"])
+    for source in direct_sources:
         for row in source.rows:
             period = open_periods.get(row.historical_period)
-            if (not period or period.reconciliation_mode != "Historica"
+            if (not period
                     or row.event_type != "Aplicacion" or not row.effective
                     or row.currency != "USD" or row.match_status != "Conciliado"
                     or not requested({"historical_application": row.name})):
                 continue
-            candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica",
+            candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica" if period.reconciliation_mode == "Historica" else "Aplicación del core",
                 "historical_application": row.name, "filter_period": period.name,
                 "period_label": period_label(period),
                 "applied_usd": net_application_amount(row),

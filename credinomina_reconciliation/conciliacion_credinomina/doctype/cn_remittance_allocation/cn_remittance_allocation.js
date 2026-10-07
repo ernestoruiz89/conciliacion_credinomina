@@ -1279,7 +1279,7 @@ class RemittanceTargetPicker {
                     } },
                 { fieldtype: "Column Break" },
                 { fieldname: "kind", fieldtype: "Select", label: __("Tipo de partida"),
-                    options: ["Todos", "Cobranza", "Aplicación histórica", "Partida complementaria"],
+                    options: ["Todos", "Cobranza", "Aplicación histórica", "Aplicación del core", "Partida complementaria"],
                     onchange: () => this.filter() },
                 { fieldtype: "Section Break" },
                 { fieldname: "beneficiary", fieldtype: "Select", label: __("Empresa beneficiaria"),

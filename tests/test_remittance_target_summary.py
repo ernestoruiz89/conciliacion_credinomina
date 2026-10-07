@@ -13,7 +13,7 @@ class RemittanceTargetSummaryTests(unittest.TestCase):
             "loan_number": "108331-1", "period": "CN-PER-2026-00004", "payroll_month": "2025-04",
             "accounting_entry": "001011446", "receipt": "1579", "event_date": "2025-04-23",
         }}, date_formatter=lambda value: "23/04/2025")
-        for expected in ("Aplicación histórica", "US$ 22.52", "JULIO CESAR GARCIA CENTENO",
+        for expected in ("Aplicación del core", "US$ 22.52", "JULIO CESAR GARCIA CENTENO",
                          "Nro. Cliente: 3538", "Crédito: 108331-1", "2025-04", "001011446", "1579"):
             self.assertIn(expected, text)
         self.assertNotIn("sp6qrrc95k", text)

@@ -240,10 +240,10 @@ def reconcile_deposit(document, progress=None, undo=False):
     report(75, _("Actualizando los saldos de los períodos afectados…"))
     active_closed_state = {name: state for name, state in closed_state.items() if name in affected}
     active_closed_links = {name: links for name, links in closed_links.items() if name in affected}
+    engine._rebuild_historical_balances(active_periods, active_sources, allocation)
     engine._rebuild_period_balances([period for period in active_periods if period.reconciliation_mode != "Historica"],
         source_rows, pairs, allocation, active_closed_state, active_closed_links, complements,
         source_status_collections=collections, status_source_ids={row.name for row in active_sources})
-    engine._rebuild_historical_balances(active_periods, active_sources, allocation)
     mark_mixed_settlements(active_sources, collections)
     for row in active_sources:
         if row.effective and row.application_adjustment_usd and engine.net_amount(row) == 0:

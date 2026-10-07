@@ -1,5 +1,7 @@
 # Instalacion y uso
 
+Actualizado el 7 de octubre de 2026. Para los pasos completos y ejemplos financieros, consulte [Manual operativo](procedimiento_operativo.md) y su [versión Word](Manual_Operativo_Conciliacion_Credinomina.docx).
+
 ## Requisitos
 
 - Frappe Framework 15 o superior.
@@ -24,8 +26,8 @@ hay que corregirlos antes de volver a ejecutar `bench migrate`. Para modificar
 el nombre después de migrar, utilice **Renombrar**; el código se edita por
 separado y sigue sirviendo para reconocer fuentes históricas.
 
-La instalacion crea los roles `Operador Credinomina` y `Supervisor Credinomina`.
-Asigne uno de ellos a cada usuario y configure el idioma del usuario como Espanol.
+La instalación crea los roles `Operador Credinomina`, `Supervisor Credinomina` y `Eliminar Mov. del Core`.
+Asigne `Operador Credinomina` o `Supervisor Credinomina` según las funciones del usuario y configure su idioma como Español.
 Verifique también la zona horaria de **System Settings** antes de operar; las
 fechas y horas de importación, corte y seguimiento usan la zona del sitio. Para
 la operación en Nicaragua corresponde `America/Managua`.
@@ -34,6 +36,35 @@ roles y para `System Manager` después de instalar la app o ejecutar
 `bench --site sitio.local migrate`. También puede abrirse en
 `/app/conciliacion-credinomina`; contiene accesos al tablero, períodos,
 importaciones, distribuciones, excepciones, movimientos internos y reportes.
+
+El rol `Eliminar Mov. del Core` es adicional: asígnelo explícitamente solo a quienes deban cancelar o eliminar `CN Accounting Import`, `CN Complementary Item` y `CN Remittance Allocation` importados del archivo contable del core. También Administrator requiere esa asignación. El rol no concede por sí solo permisos normales de cancelación/eliminación ni evita controles de vínculos o períodos cerrados. No cambia el flujo de `CN Accounting Import`, que no es confirmable.
+
+## Actualizar una instalación existente
+
+Desde el directorio de bench, respalde base de datos y archivos, actualice el repositorio de la app y ejecute:
+
+```bash
+bench --site sitio.local backup --with-files
+git -C apps/credinomina_reconciliation pull --ff-only
+bench --site sitio.local migrate
+bench build --app credinomina_reconciliation
+bench --site sitio.local clear-cache
+bench restart
+```
+
+Use el nombre real del sitio y la ruta instalada de la app. `bench restart` corresponde a instalaciones administradas por bench; en contenedores reinicie los servicios mediante su despliegue habitual. Recargue el navegador después de actualizar. La migración incorpora los campos nuevos del detalle, la disponibilidad de cartera y el rol de eliminación; no sustituya este paso por limpiar la caché.
+
+Compruebe en un sitio de ensayo la carga masiva con corte obligatorio, la desactivación de cartera y los botones de saldos a favor por fila antes de operar. En producción, conserve los respaldos y verifique los resultados con los permisos de cada usuario.
+
+## Administrar cortes de cartera
+
+Cree el corte, adjunte el archivo y pulse **Importar / actualizar corte**. En un corte existente, **Guardar** actualiza únicamente los campos de cabecera permitidos; no procesa el archivo ni reescribe los créditos o sus contadores. Para aplicar un archivo reemplazado es necesario volver a usar el botón de importación.
+
+El menú **Renombrar** conserva referencias y admite nombres personalizados que se respetan al reimportar. **Es Desactivar** retira el corte de nuevas selecciones y búsquedas automáticas sin borrar filas ni referencias históricas. En un documento existente, la casilla guarda automáticamente su cambio y se puede actualizar incluso si el documento está confirmado. Los cambios de otros campos siguen pendientes de guardar. Desmarcarla habilita nuevamente el corte; no permite duplicar el corte importado de un mismo mes.
+
+En **Carga masiva** de movimientos contables es obligatorio elegir un **Corte de cartera** importado y habilitado antes de analizar, confirmar o reanudar. Las empresas identificadas deben estar presentes en el corte; los casos NO IDENTIFICADA conservan su revisión separada. Las cargas antiguas preparadas sin corte deben analizarse nuevamente. En una importación individual, la selección sigue siendo opcional y, si falta, se busca el corte habilitado del mismo mes o de un mes anterior.
+
+La carga masiva mantiene referencias al archivo original compartido y genera un CSV específico para cada importación. Su aparición en múltiples listas de adjuntos no implica múltiples copias físicas del original. No elimine referencias a archivos como procedimiento de limpieza sin comprobar sus vínculos.
 
 ## Orden de uso
 
@@ -92,9 +123,21 @@ El botón **Conciliar** de **Distribución de Depósito** procesa únicamente el
 depósito abierto: su detalle, destinos y ajustes por tolerancia. Actualiza los
 saldos de los períodos afectados considerando las asignaciones ya guardadas de
 otros depósitos. Las aplicaciones deben estar vinculadas previamente a sus
-períodos/cobranzas desde **CN Accounting Import → Conciliar esta empresa**.
+períodos desde **CN Accounting Import → Conciliar esta empresa**. En operativo
+pueden asignarse directamente con **Período predeterminado de aplicaciones** o
+**Período asignado de aplicación** por fila, incluso sin cobranza ni detalle de
+empresa. Esa asignación habilita la conciliación 2 y conserva pendiente el control
+de la conciliación 1 hasta recibir su base.
 El resultado muestra las filas del detalle y los períodos afectados por ese
 depósito.
+
+Ambas conciliaciones pueden realizarse en cualquier orden. En el período,
+**Conciliación 1: validar aplicaciones** compara contra la base elegida y conserva
+los pagos existentes. Cargar o actualizar cobranza y detalle de empresa tampoco
+redistribuye depósitos automáticamente. **Cerrar período** exige ambas
+conciliaciones completas: no basta con que el depósito esté conciliado o con que
+la aplicación coincida con la base. Al llegar la base después del depósito, el
+pago directo se conserva y se refleja en su fila identificada sin duplicar cobertura.
 
 1. Configure la empresa y cree un período **Operativo** mensual o quincenal. Descargue **Plantillas → Plantilla de cobranza** desde el período, complete las filas, adjunte el archivo y pulse **1. Cargar cobranza**. Se crean los clientes no registrados, vinculados a esa empresa; la tabla guarda nombre, cédula, número de cliente, número de empleado (si viene), crédito y cuota. El número de empleado es interno de la empresa y puede repetirse en otra. En este paso no hay conciliación ni deducción confirmada.
 2. Cuando la empresa responda, adjunte en el mismo período el archivo con `Deducido C$` y/o `Deducido US$`, indique la fecha de esa evidencia y pulse **2. Cargar deducción de empresa**. Puede descargar **Plantilla de detalle empresa** con la cobranza y `Fila ID` precargadas. El nombre del cliente es obligatorio. El número de empleado identifica dentro de esa empresa; si faltan identificadores, solo un nombre normalizado o alias único de la misma empresa permite vincular la fila. Un error ortográfico requiere agregar un alias verificado en **Clientes y alias** y volver a importar. La `Fila ID` exportada también permite identificar con precisión una cuota.
@@ -156,6 +199,20 @@ Para la primera quincena el cierre de ciclo es el día 15; para la segunda, el �
 
 Una aplicación del core puede cubrir las dos quincenas. Si el importe en US$ coincide exactamente con los saldos disponibles de Q1 y Q2 del mismo crédito, empresa y mes, la app registra el reparto en la fila de origen y actualiza ambas conciliaciones. Si falta el dato que identifique el reparto o existen varias combinaciones válidas, queda pendiente de revisión.
 
-Cuando la empresa confirme la deducción completa, use **Más opciones → Reconocer cobranza como detalle de la empresa**, indique la fecha de evidencia y confirme. No registra un depósito y no sobrescribe deducciones existentes. En el depósito, **Usar aplicaciones pendientes como detalle** genera las filas seleccionadas de sus períodos; conserve el origen generado y no lo presente como evidencia remitida por la empresa.
+Cuando la empresa confirme la deducción completa, use **Más opciones → Reconocer cobranza como detalle de la empresa**, indique la fecha de evidencia y confirme. No registra un depósito y no sobrescribe deducciones existentes. En el depósito, **Usar aplicaciones pendientes como detalle** genera las filas seleccionadas de sus períodos; puede editar **Importe del detalle US$** en la vista previa, conservando el pendiente original como referencia y el ajuste en comentarios. Conserve el origen generado y no lo presente como evidencia remitida por la empresa.
+
+### Resolver diferencias en las filas del depósito
+
+Al importar el detalle devuelto por la empresa, los números de crédito de menos de seis dígitos reciben exactamente el prefijo `00`, sin contar el sufijo `-1`: `1807` pasa a `001807-1` y `12230` a `0012230-1`. La regla no afecta al detalle generado desde aplicaciones pendientes. Se muestran **Estado del crédito** y **Fecha de corte de cartera** según el corte del período seleccionado más reciente; si no aparece el crédito, se consulta solo el corte habilitado inmediatamente anterior. Sin coincidencia se muestra **No Identificado**.
+
+Con **Aplicar por antigüedad (FIFO)**, una fila de US$13.05 y aplicaciones disponibles de US$9.62 permite distribuir US$9.62, dejando US$3.43 por resolver. Para destinos manuales fuera de los períodos seleccionados, active **Permitir vínculos manuales con períodos distintos a los seleccionados**, guarde y concilie. Esto no amplía la búsqueda automática ni FIFO.
+
+Desde una fila de un depósito confirmado, **Crear saldo a favor de la empresa** registra el excedente de la pagadora y lo vincula a esa fila. Al confirmar, recalcula su conciliación y muestra el importe reservado por separado del saldo a favor del cliente. Una reserva parcial conserva el resto pendiente. No crea otra aplicación al préstamo ni se agrega a Destinos. Por ejemplo, si una aplicación ya se pagó con el primer depósito y la empresa la remitió otra vez, la segunda fila puede resolverse con este saldo, previa comprobación de quién es el beneficiario del exceso.
+
+Para varios excedentes de clientes con motivo y comentario comunes, seleccione las filas y use **Crear saldos a favor seleccionados**. Se crea una partida independiente por fila. Ambos tipos de saldo a favor comparten los límites de efectivo y de la fila; no se reserva dos veces el mismo dinero.
+
+**Crear partida complementaria → Cuenta por Cobrar a la Empresa** reconoce un faltante con signo negativo y seguimiento de cobro. No equivale al saldo a favor de la empresa, que reserva un excedente positivo.
+
+Para retirar la distribución vigente, use **Conciliación → Desconciliar**, indique el motivo y confirme la advertencia. El depósito permanece confirmado con su evidencia contable. Revise los destinos y concilie nuevamente; los períodos cerrados y las reservas vigentes siguen protegidos.
 
 Cada reejecución de la conciliación recalcula los enlaces a partir de las fuentes efectivas y de las partidas complementarias confirmadas. No genera asientos, recibos, pagos ni modificaciones en el core. Las aplicaciones y los saldos de préstamo se expresan en US$; los depósitos en C$ se convierten con la tasa ingresada. Para cobrar un faltante trasladado a una partida, use **Aplicar cobro / Compensar CxC** desde su origen: solo el depósito realmente distribuido o la compensación vinculada reduce la deuda. Consulte el procedimiento operativo para ejemplos, correcciones y seguimiento.

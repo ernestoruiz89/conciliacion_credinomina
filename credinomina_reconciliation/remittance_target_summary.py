@@ -24,7 +24,7 @@ def describe_targets(raw, descriptions, *, date_formatter=display_date):
         return "No se pudo interpretar el detalle. Revise los identificadores técnicos."
     if not targets:
         return "Sin destinos identificados. Consulte Estado y Motivo de esta fila."
-    kinds = {"H": "Aplicación histórica", "C": "Cuota de cobranza", "X": "Partida complementaria"}
+    kinds = {"H": "Aplicación del core", "C": "Cuota de cobranza", "X": "Partida complementaria"}
     blocks = []
     for target in targets:
         claim_id = clean_text(target.get("claim_id"))

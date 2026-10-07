@@ -159,7 +159,7 @@ class CloseProgressTests(unittest.TestCase):
              patch(module + "._reconcile_sources", return_value={"matched": 1}) as scoped, \
              patch(module + ".reconcile_all_sources") as global_reconcile:
             self.assertEqual(controller._reconcile_if_sources("A", progress), {"matched": 1})
-            scoped.assert_called_once_with("A", progress=progress)
+            scoped.assert_called_once_with("A", progress=progress, preserve_deposits=True)
             global_reconcile.assert_not_called()
 
     def test_historical_close_progress_is_private_and_keeps_result(self):

@@ -69,30 +69,31 @@ def _load(remittance_name):
 def _period_candidates(period):
     candidates = []
     identity = ("client_number", "employee_number", "client_name", "national_id", "loan_number", "installment_number")
-    if period.reconciliation_mode == "Historica":
-        parents = frappe.get_list("CN Accounting Import", filters={
-            "status": ["in", ["Importado", "Importado con excepciones"]],
-        }, pluck="name", limit_page_length=0)
-        rows = frappe.get_all("CN Source Row", filters={
-            "parent": ["in", parents], "parenttype": "CN Accounting Import", "parentfield": "rows",
-            "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
-            "match_status": "Conciliado", "currency": "USD",
-        }, fields=["name", "parent", "amount", "reference", "application_adjustment_usd", *identity],
-            order_by="event_date asc, name asc", limit_page_length=0) if parents else []
-        for row in rows:
-            candidates.append({**{field: row.get(field) for field in identity},
-                "claim_id": "H:" + row.name, "historical_application": row.name, "period": period.name,
-                "applied_usd": net_application_amount(row), "application_reference": row.reference,
-                "application_comment": f"{row.parent} / {row.name}", "row_key": ""})
-    else:
+    parents = frappe.get_list("CN Accounting Import", filters={
+        "status": ["in", ["Importado", "Importado con excepciones"]],
+    }, pluck="name", limit_page_length=0)
+    rows = frappe.get_all("CN Source Row", filters={
+        "parent": ["in", parents], "parenttype": "CN Accounting Import", "parentfield": "rows",
+        "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
+        "match_status": "Conciliado", "currency": "USD",
+    }, fields=["name", "parent", "amount", "reference", "application_adjustment_usd", "application_allocation_detail", "collection_row_id", *identity],
+        order_by="event_date asc, name asc", limit_page_length=0) if parents else []
+    for row in rows:
+        candidates.append({**{field: row.get(field) for field in identity},
+            "claim_id": "H:" + row.name, "historical_application": row.name, "period": period.name,
+            "applied_usd": net_application_amount(row), "application_reference": row.reference,
+            "application_comment": f"{row.parent} / {row.name}", "row_key": ""})
+    from credinomina_reconciliation.period_totals import direct_amounts_by_collection
+    direct = direct_amounts_by_collection(rows)
+    if period.reconciliation_mode != "Historica":
         for row in period.collection_rows:
-            if money(row.applied_usd) <= 0:
+            if money(row.applied_usd) - direct[row.name] <= 0:
                 continue
             if not row.row_key:
                 frappe.throw(_("Una fila aplicada no tiene Fila ID. Actualice la conciliación del período."))
             candidates.append({**{field: row.get(field) for field in identity},
                 "claim_id": "C:" + row.name, "period": period.name, "row_key": row.row_key,
-                "applied_usd": money_float(row.applied_usd),
+                "applied_usd": money_float(money(row.applied_usd) - direct[row.name]),
                 "application_reference": row.application_reference,
                 "application_comment": f"{period.name} / {row.name}"})
     for row in candidates:

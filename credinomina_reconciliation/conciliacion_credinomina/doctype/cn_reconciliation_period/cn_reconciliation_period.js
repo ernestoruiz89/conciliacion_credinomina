@@ -90,6 +90,17 @@ frappe.ui.form.on("CN Reconciliation Period", {
         }
 
         frm.add_custom_button(__("Cerrar período"), () => requestClose(frm));
+        if (frm.get_perm?.(0, "write") && (frm.doc.collection_rows || []).length) {
+            frm.add_custom_button(__("Conciliación 1: validar aplicaciones"), async () => {
+                if (frm.is_dirty()) await frm.save();
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.reconcile_first",
+                    args: {period_name: frm.doc.name}, freeze: true,
+                    freeze_message: __("Validando aplicaciones sin redistribuir depósitos…"),
+                });
+                await frm.reload_doc();
+            });
+        }
     },
     collection_cycle(frm) {
         setRemittanceDateEditing(frm);
@@ -137,7 +148,9 @@ function refreshApplicationQuality(frm) {
     const rows = frm.doc.collection_rows || [];
     const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     wrapper.html(`<h4>${esc(__("Control de calidad de la aplicación"))}</h4>
-        <p>${esc(__("Compara la aplicación únicamente contra la base elegida para este período: {0}. Ambos detalles se conservan; el no elegido no interviene en este control. Conforme no significa depositado. Guarde y actualice desde Conciliar esta empresa en la importación contable.", [frm.doc.application_basis || __("Sin elegir")]))}</p>
+        <p>${esc(__("Las conciliaciones 1 y 2 pueden realizarse en cualquier orden. Para conciliar depósitos sin esta base, asigne las aplicaciones del core a este período desde su importación. El cierre requiere completar ambas conciliaciones."))}</p>
+        ${!rows.length ? `<div class="alert alert-warning">${esc(__("Conciliación 1 pendiente: todavía no se ha cargado su base de comparación. Los depósitos pueden conciliarse, pero el período no puede cerrarse."))}</div>` : ""}
+        <p>${esc(__("Compara la aplicación únicamente contra la base elegida para este período: {0}. Ambos detalles se conservan; el no elegido no interviene en este control. Conforme no significa depositado. Guarde y use Conciliación 1: validar aplicaciones para actualizar este control sin redistribuir depósitos.", [frm.doc.application_basis || __("Sin elegir")]))}</p>
         <div class="table-responsive"><table class="table table-bordered">
         <thead><tr>${["Cliente", "Crédito", "Comparado contra", "A aplicar US$", "Aplicado US$", "Diferencia US$", "Control de aplicación", "Evidencia de deducción"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${rows.map(row => `<tr>

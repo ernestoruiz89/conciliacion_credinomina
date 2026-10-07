@@ -15,7 +15,9 @@ SETTLED = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depós
 
 
 def application_issue(row):
-    if row.get("deposit_match_status") in SETTLED:
+    first_pending = (row.get("processing_route") == "Operativa"
+                     and not str(row.get("quality_status") or "").startswith("Conforme"))
+    if row.get("deposit_match_status") in SETTLED and not first_pending:
         return None
     return {
         "kind": "Aplicación", "source": row.get("parent"), "doctype": "CN Accounting Import",
@@ -24,8 +26,8 @@ def application_issue(row):
         "applied": money_float(row.get("net_applied_usd")),
         "paid": money_float(row.get("historical_remitted_usd")),
         "pending": money_float(row.get("historical_balance_usd")),
-        "status": row.get("deposit_match_status") or "Pendiente",
-        "reason": row.get("deposit_match_reason") or row.get("match_reason") or _("Aplicación pendiente de conciliar."),
+        "status": "Conciliación 1 pendiente" if first_pending else row.get("deposit_match_status") or "Pendiente",
+        "reason": row.get("quality_status") if first_pending else row.get("deposit_match_reason") or row.get("match_reason") or _("Aplicación pendiente de conciliar."),
     }
 
 
@@ -88,21 +90,20 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("read")
     issues, restricted = [], []
-    if period.reconciliation_mode == "Historica":
-        if frappe.has_permission("CN Accounting Import", "read"):
-            rows = frappe.get_all("CN Source Row", filters={
-                "historical_period": period.name, "parenttype": "CN Accounting Import",
-                "event_type": "Aplicacion", "effective": 1,
-            }, fields=["parent", "idx", "client_name", "client_number", "loan_number", "net_applied_usd",
-                       "historical_remitted_usd", "historical_balance_usd", "deposit_match_status",
-                       "deposit_match_reason", "match_reason"], order_by="parent asc, idx asc", limit_page_length=0)
-            allowed = readable_imports({row.parent for row in rows})
-            if any(row.parent not in allowed for row in rows):
-                restricted.append("CN Accounting Import")
-            issues.extend(issue for row in rows if row.parent in allowed if (issue := application_issue(row)))
-        else:
+    if frappe.has_permission("CN Accounting Import", "read"):
+        rows = frappe.get_all("CN Source Row", filters={
+            "historical_period": period.name, "parenttype": "CN Accounting Import",
+            "event_type": "Aplicacion", "effective": 1,
+        }, fields=["parent", "idx", "client_name", "client_number", "loan_number", "net_applied_usd",
+                   "historical_remitted_usd", "historical_balance_usd", "deposit_match_status",
+                   "deposit_match_reason", "match_reason", "processing_route", "quality_status"], order_by="parent asc, idx asc", limit_page_length=0)
+        allowed = readable_imports({row.parent for row in rows})
+        if any(row.parent not in allowed for row in rows):
             restricted.append("CN Accounting Import")
+        issues.extend(issue for row in rows if row.parent in allowed if (issue := application_issue(row)))
     else:
+        restricted.append("CN Accounting Import")
+    if period.reconciliation_mode != "Historica":
         issues.extend(issue for row in period.collection_rows if (issue := collection_issue(row, period.get("application_basis"))))
 
     if frappe.has_permission("CN Remittance Allocation", "read"):
