@@ -1,7 +1,7 @@
 """Explicit, date-ordered application distribution; no cash or identity guesses."""
 from datetime import date
 
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 from credinomina_reconciliation.rounding import money, money_float
 
 
@@ -14,7 +14,7 @@ def fifo_targets(matches, amount_usd, reserved=None):
     and explicit instructions consume the oldest capacity before this plan.
     """
     reserved = reserved or {}
-    loans = {canonical_identifier(claim.get("loan_number")) for claim in matches}
+    loans = {canonical_credit_number(claim.get("loan_number")) for claim in matches}
     people = {clean_text(claim.get("client")) or canonical_identifier(claim.get("client_number"))
               for claim in matches}
     if len(loans) != 1 or "" in loans or len(people) != 1 or "" in people:

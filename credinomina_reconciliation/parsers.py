@@ -66,13 +66,30 @@ def normalize_credit_number(value: Any) -> str:
 
 
 def normalize_returned_credit_number(value: Any) -> str:
-    """Company-returned deposit files prefix short numeric credits with exactly 00.
+    """Preserve the supplied number; only add the existing default cycle."""
+    return normalize_credit_number(value)
 
-    Apply once to each raw file value, before client/portfolio identification.
-    This is not padding to six digits; other explicit cycles remain untouched.
-    """
-    number = normalize_credit_number(value)
-    return f"00{number}" if re.fullmatch(r"\d{1,5}-1", number) else number
+
+def canonical_credit_number(value: Any) -> str:
+    """Comparison key only: ignore leading zeros, retaining the exact cycle."""
+    number = normalize_credit_number(value).casefold()
+    match = re.fullmatch(r"(\d+)(-\d+)", number)
+    if match:
+        return (match[1].lstrip("0") or "0") + match[2]
+    return number
+
+
+def credit_number_pattern(values: Iterable[Any]) -> str:
+    """Anchored lookup pattern for existing padded/unpadded loan numbers."""
+    patterns = []
+    for key in sorted({canonical_credit_number(value) for value in values} - {""}):
+        match = re.fullmatch(r"(\d+)(-\d+)", key)
+        if match:
+            cycle = "(-1)?" if match[2] == "-1" else re.escape(match[2])
+            patterns.append("0*" + match[1] + cycle)
+        else:
+            patterns.append(re.escape(key))
+    return "^(" + "|".join(patterns) + ")$" if patterns else "a^"
 
 
 def has_legacy_numeric_credit_numbers(credit_numbers: Iterable[Any]) -> bool:
@@ -820,7 +837,7 @@ def parse_credit_portfolio(file_name: str, content: bytes) -> list[dict[str, Any
         if not credit_number and not client_name:
             continue
         if credit_number:
-            credit_key = canonical_identifier(credit_number)
+            credit_key = canonical_credit_number(credit_number)
             if credit_key in seen_credits:
                 raise SourceFileError(
                     f"El crédito {credit_number} aparece más de una vez en el archivo."

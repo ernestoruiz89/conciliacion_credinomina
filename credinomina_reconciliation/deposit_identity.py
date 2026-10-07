@@ -2,7 +2,8 @@
 from collections import defaultdict
 
 from credinomina_reconciliation.client_identity import ClientIdentityIndex, choose_client, matching_name
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text, normalize_credit_number
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
+from credinomina_reconciliation.credit_lookup import get_credit_rows
 
 
 IDENTIFIERS = {
@@ -14,7 +15,7 @@ IDENTIFIERS = {
 
 
 def credit_key(value):
-    return canonical_identifier(normalize_credit_number(value))
+    return canonical_credit_number(value)
 
 
 def resolve_detail_identity(row, clients, loan_clients=None):
@@ -53,10 +54,9 @@ def resolve_detail_identity(row, clients, loan_clients=None):
 def load_detail_loan_clients(rows, clients, allowed):
     """Batch-load only the requested loans; unknown/conflicting evidence blocks matching."""
     import frappe
-    loans = {normalize_credit_number(row.get("loan_number")) for row in rows if row.get("loan_number")}
+    loans = {credit_key(row.get("loan_number")) for row in rows if row.get("loan_number")}
     if not loans or not clients:
         return {}
-    variants = sorted(loans | {loan[:-2] for loan in loans if loan.endswith("-1")})
     result = defaultdict(set)
     by_name = {client["name"]: client for client in clients}
     company_clients = defaultdict(list)
@@ -85,21 +85,21 @@ def load_detail_loan_clients(rows, clients, allowed):
     snapshots = frappe.get_all("CN Credit Portfolio Snapshot",
         filters={"disabled": 0, "status": ["in", ["Importado", "Importado con alertas"]]}, pluck="name", limit_page_length=0)
     if snapshots:
-        for row in frappe.get_all("CN Credit Portfolio Row", filters={
+        for row in get_credit_rows("CN Credit Portfolio Row", filters={
                 "parent": ["in", snapshots], "parenttype": "CN Credit Portfolio Snapshot",
-                "employer": ["in", sorted(allowed)], "credit_number": ["in", variants]},
+                "employer": ["in", sorted(allowed)]},
                 fields=["credit_number", "matched_client", "client_number_core", "national_id", "client_name", "employer"],
-                limit_page_length=0):
+                loan_field="credit_number", loans=loans):
             add(row, row.get("credit_number"), row.get("matched_client"), row.get("client_number_core"))
     imports = frappe.get_all("CN Accounting Import", filters={"employer": ["in", sorted(allowed)],
         "docstatus": ["!=", 2]}, fields=["name", "employer"], limit_page_length=0)
     companies = {item["name"]: item["employer"] for item in imports}
     if companies:
-        for row in frappe.get_all("CN Source Row", filters={
+        for row in get_credit_rows("CN Source Row", filters={
                 "parenttype": "CN Accounting Import", "parent": ["in", list(companies)],
-                "docstatus": ["!=", 2], "event_type": "Aplicacion", "loan_number": ["in", variants]},
+                "docstatus": ["!=", 2], "event_type": "Aplicacion"},
                 fields=["parent", "loan_number", "client", "client_number", "national_id", "client_name"],
-                limit_page_length=0):
+                loan_field="loan_number", loans=loans):
             add({**row, "employer": companies[row["parent"]]}, row.get("loan_number"),
                 row.get("client"), row.get("client_number"))
     return dict(result)

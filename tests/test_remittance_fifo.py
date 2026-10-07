@@ -31,6 +31,18 @@ class FifoMatchingTests(unittest.TestCase):
         return suggest_detail_targets(self.row, self.claims, amount, "EMP", kwargs.pop("period", ["P1"]),
                                       apply_fifo=kwargs.pop("apply_fifo", True), **kwargs)
 
+    def test_fifo_ignores_padding_but_keeps_cycles_and_clients_distinct(self):
+        self.row["loan_number"] = "001807-1"
+        self.claims[0]["loan_number"] = "1807-1"
+        self.claims[1]["loan_number"] = "00001807-1"
+        self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in self.suggest()[0]],
+                         [("H:OLD", 40), ("H:NEW", 30)])
+        for changes in ({"loan_number": "1807-2"}, {"client": "OTHER", "client_number": "OTHER"}):
+            with self.subTest(changes=changes):
+                self.claims[1].update(loan_number="00001807-1", client="5464", client_number="5464")
+                self.claims[1].update(changes)
+                self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in self.suggest()[0]], [("H:NEW", 60)])
+
     def test_opt_in_splits_partial_by_application_date(self):
         self.assertEqual(self.suggest(apply_fifo=False)[0], [])
         targets, reason = self.suggest()

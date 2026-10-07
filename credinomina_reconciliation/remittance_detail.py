@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 from credinomina_reconciliation.client_identity import matching_name
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 
@@ -52,7 +52,7 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     national_id = clean_text(row.get("national_id"))
     has_identifier = any((loan, client, employee, national_id))
     identity_match = bool(row.get("client") and claim.get("client") and row["client"] == claim["client"])
-    if loan and not _same_id(loan, claim.get("loan_number")):
+    if loan and canonical_credit_number(loan) != canonical_credit_number(claim.get("loan_number")):
         return False
     if not has_identifier and not clean_text(row.get("client_name")):
         return False

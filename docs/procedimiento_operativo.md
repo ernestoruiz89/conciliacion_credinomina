@@ -64,9 +64,9 @@ En una importación contable individual puede elegir **Corte de cartera para val
 
 **Guardar** conserva los cambios permitidos de Archivo, Notas y Es Desactivar de un corte existente. No lee nuevamente el archivo, no reescribe los créditos ni recalcula sus contadores. Después de sustituir un archivo, use **Importar / actualizar corte** para procesarlo y actualizar filas y resumen. No intente corregir créditos editando resultados calculados y guardando.
 
-Use **Renombrar** en el menú del documento si necesita un nombre personalizado. Se conservan los vínculos y las siguientes importaciones respetan ese nombre. Renombrar no cambia la fecha del corte ni permite duplicar el corte importado de un mismo mes.
+Use **Renombrar** en el menú del documento si necesita un nombre personalizado. Se conservan los vínculos y las siguientes importaciones respetan ese nombre. Renombrar no cambia la fecha del corte. Puede cargar varios cortes del mismo mes y año con nombres distintos, siempre que solo uno esté activo. Desactive el anterior antes de cargar su reemplazo; el sistema agrega un sufijo al nombre mensual si ya existe.
 
-Marque **Es Desactivar** para retirar un corte de las nuevas selecciones y búsquedas automáticas. En un documento existente, la casilla guarda su cambio automáticamente; espere el aviso. Los cambios pendientes de otros campos siguen sin guardar y debe guardarlos por separado. La casilla puede actualizarse incluso en un documento confirmado; conserva filas y referencias históricas. Desmarcarla vuelve a habilitar el corte. Desactivar no recalcula los depósitos que ya usaron esa evidencia.
+Marque **Es Desactivar** para retirar un corte de las nuevas selecciones y búsquedas automáticas. En un documento existente, la casilla guarda su cambio automáticamente; espere el aviso. Los cambios pendientes de otros campos siguen sin guardar y debe guardarlos por separado. La casilla puede actualizarse incluso en un documento confirmado; conserva filas y referencias históricas. Desmarcarla vuelve a habilitar el corte si no existe otro activo del mismo mes y año. Desactivar no recalcula los depósitos que ya usaron esa evidencia.
 
 ## Cargar movimientos contables
 
@@ -264,7 +264,7 @@ La plantilla del depósito admite identidad por al menos uno de estos datos: Nro
 
 El nombre del documento se agrega al archivo de plantilla para identificarlo fácilmente. No confunda esta plantilla con la de cobranza o la del detalle de deducción de empresa.
 
-Al cargar el archivo de detalle devuelto por la empresa, los créditos numéricos con menos de seis dígitos, sin contar el sufijo -1, reciben exactamente dos ceros a la izquierda. Ejemplos: 1807 → 001807-1, 11 → 0011-1, 1122 → 001122-1 y 12230 → 0012230-1. No es un relleno hasta seis posiciones. Los números de seis o más dígitos, otros ciclos y códigos alfanuméricos conservan su normalización anterior. Esta regla no modifica los créditos del detalle generado desde aplicaciones pendientes.
+Al cargar el archivo de detalle devuelto por la empresa ya no se agregan ceros iniciales. Se conservan los dígitos recibidos y solo se incorpora el sufijo -1 cuando corresponde. La comparación interna ignora los ceros iniciales de los créditos en cartera, movimientos contables, cobranza y depósitos: 1807-1 y 001807-1 coinciden, pero 1807-2 es distinto. Los registros anteriores con ceros siguen siendo compatibles sin cambiar sus números guardados. Si hay varias filas de cartera equivalentes, deben revisarse como duplicadas antes de continuar.
 
 ### Consultar el estado del crédito en la cartera
 

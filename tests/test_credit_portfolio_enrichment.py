@@ -43,6 +43,19 @@ class FakeClientIndex:
 
 
 class CreditPortfolioEnrichmentTests(unittest.TestCase):
+    def test_unpadded_core_loan_matches_padded_portfolio_without_rewriting_either(self):
+        row = portfolio_row(credit_number="001807-1")
+        result = self.enrich({"event_type": "Aplicacion", "loan_number": "1807-1"}, [row])
+        self.assertEqual(result["portfolio_validation_status"], "Cliente y empresa validados")
+        self.assertEqual(result["client_number"], "7")
+        self.assertEqual(result["loan_number"], "1807-1")
+        self.assertEqual(row.credit_number, "001807-1")
+
+    def test_padding_does_not_resolve_duplicate_portfolio_evidence(self):
+        result = self.enrich({"event_type": "Aplicacion", "loan_number": "1807-1"},
+                            [portfolio_row(credit_number=loan) for loan in ("1807-1", "001807-1")])
+        self.assertEqual(result["portfolio_validation_status"], "Crédito duplicado en corte")
+
     def enrich(self, movement, rows, register_clients=True):
         with (
             patch.dict(

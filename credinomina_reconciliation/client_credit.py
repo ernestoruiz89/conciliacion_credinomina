@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
 
-from credinomina_reconciliation.parsers import clean_text, normalize_credit_number
+from credinomina_reconciliation.parsers import canonical_credit_number, clean_text, normalize_credit_number
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 
 CATEGORY = "Saldo a favor del cliente"
@@ -139,7 +139,7 @@ def validate_client_credit(doc, previous=None):
             row.get("client_number") and clean_text(row.client_number) != clean_text(client.client_number)
         ) or (row.get("employer") and row.employer != client.employer):
             frappe.throw(_("La fila del depósito pertenece a otro cliente o empresa."))
-        if doc.loan_number and row.loan_number and normalize_credit_number(row.loan_number) != doc.loan_number:
+        if doc.loan_number and row.loan_number and canonical_credit_number(row.loan_number) != canonical_credit_number(doc.loan_number):
             frappe.throw(_("El crédito no coincide con la fila del depósito."))
         doc.loan_number = doc.loan_number or normalize_credit_number(row.loan_number)
         from credinomina_reconciliation.remittance_detail import detail_amount_usd

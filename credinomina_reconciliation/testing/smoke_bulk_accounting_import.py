@@ -66,12 +66,20 @@ def run():
         with patch.object(bulk.frappe, "enqueue"):
             bulk.confirm_bulk_import(token)
         # Exercise creation and status delivery but keep all data rollback-only.
+        child_rewrites = []
+        original_sql = frappe.db.sql
+        def track_child_writes(query, *args, **kwargs):
+            statement = str(query)
+            if "tabCN Source Row" in statement and statement.lstrip().upper().startswith(("UPDATE", "DELETE")):
+                child_rewrites.append(statement)
+            return original_sql(query, *args, **kwargs)
         with patch.object(bulk.frappe.db, "commit"):
-            with patch.object(bulk.frappe, "enqueue"):
+            with patch.object(bulk.frappe, "enqueue"), patch.object(frappe.db, "sql", side_effect=track_child_writes):
                 for _attempt in range(10):
                     bulk.run_bulk_job(token, "Administrator")
                     if bulk._state(token)["status"] == "Completado":
                         break
+        assert not child_rewrites, "Creating a new import rewrote its just-inserted child rows"
         state = bulk.get_bulk_import_status(token)
         assert state["status"] == "Completado", state
         created = state["created"]
@@ -165,7 +173,7 @@ def run():
         return {"groups": 18, "applications": 36, "months": 3, "companies": 3,
                 "duplicate_retry": "OK", "individual_csv_and_reimport": "OK", "stable_row_ids": "OK",
                 "private_attachments": "OK", "preview_and_permissions": "OK", "storage": storage,
-                "rolled_back": True}
+                "child_rewrites_during_creation": 0, "rolled_back": True}
     finally:
         frappe.set_user("Administrator")
         if token:

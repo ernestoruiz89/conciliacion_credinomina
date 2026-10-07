@@ -4,7 +4,8 @@ from collections import defaultdict
 import frappe
 
 from credinomina_reconciliation.deposit_identity import credit_key
-from credinomina_reconciliation.parsers import clean_text, normalize_credit_number
+from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.paying_employers import allowed_employers
 from credinomina_reconciliation.remittance_periods import selected_periods
 
@@ -104,15 +105,13 @@ def update_detail_portfolio(document):
         return
     allowed = allowed_employers(document.employer)
     cuts = load_cuts(document, allowed)
-    loans = {normalize_credit_number(row.get("loan_number")) for row in details if row.get("loan_number")}
-    variants = sorted(loans | {loan[:-2] for loan in loans if loan.endswith("-1")})
+    loans = sorted({credit_key(row.get("loan_number")) for row in details if row.get("loan_number")})
     rows = []
     if cuts:
-        for offset in range(0, len(variants), 500):
-            rows.extend(frappe.get_all("CN Credit Portfolio Row", filters={
+        for offset in range(0, len(loans), 500):
+            rows.extend(get_credit_rows("CN Credit Portfolio Row", filters={
                 "parent": ["in", [cut.name for cut in cuts]], "parenttype": "CN Credit Portfolio Snapshot",
-                "parentfield": "rows", "employer": ["in", sorted(allowed)],
-                "credit_number": ["in", variants[offset:offset + 500]]},
+                "parentfield": "rows", "employer": ["in", sorted(allowed)]},
                 fields=["parent", "credit_number", "credit_status", "employer", "matched_client"],
-                limit_page_length=0))
+                loan_field="credit_number", loans=loans[offset:offset + 500]))
     apply_credit_states(details, cuts, rows, allowed)

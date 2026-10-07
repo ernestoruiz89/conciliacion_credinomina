@@ -407,6 +407,12 @@ completados. Si los datos cambiaron antes de confirmar el plan, use **Nuevo
 análisis**: conserva las selecciones ligadas al mismo archivo y excluye sus filas
 ya importadas. No se permite reanudar mientras el trabajo siga activo/en cola.
 
+Cada importación valida e inserta sus filas una sola vez. Al terminar de generar
+su CSV se actualizan únicamente la referencia al archivo y su huella, manteniendo
+la comprobación de duplicados. La identificación de clientes reutiliza las
+consultas de empresa dentro del bloque y evita recargar fichas sin cambios;
+los bloques sin aplicaciones no cargan el catálogo de clientes.
+
 El original se comparte mediante referencias de archivo, sin cargar/copiar su
 contenido por cada documento. Aunque aparezca como adjunto en 500 registros,
 todos apuntan a una sola copia física del original. Cada CSV individual contiene
@@ -830,13 +836,15 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    documentado. Un detalle solo en C$ requiere tasa C$/US$ para convertirlo;
   las observaciones y el **Soporte del depósito** son opcionales.
 
-Al importar el archivo de detalle devuelto por la empresa, un crédito numérico
-con menos de seis dígitos (sin contar `-1`) recibe exactamente el prefijo `00`.
-Por ejemplo: `1807` → `001807-1`, `11` → `0011-1`, `1122` → `001122-1` y
-`12230` → `0012230-1`. Se conserva `-1` si ya existe; los números de seis o más
-dígitos, otros ciclos y códigos alfanuméricos mantienen la normalización previa.
-La regla se aplica al archivo antes de identificar clientes y consultar cartera;
-no cambia los créditos del detalle generado desde aplicaciones pendientes.
+Al importar el archivo de detalle devuelto por la empresa ya no se agrega el
+prefijo `00`. Se conservan los dígitos recibidos y la normalización habitual del
+sufijo `-1` cuando falta. Para comparar créditos entre movimientos contables,
+cartera, cobranza y depósitos se ignoran únicamente los ceros iniciales del
+número: `1807`, `1807-1` y `001807-1` representan el mismo crédito. El ciclo se
+conserva: `1807-2` es distinto. Los registros anteriores con ceros siguen siendo
+compatibles, sin renombrar ni reescribir los números almacenados. Si un corte
+contiene variantes que representan el mismo crédito, se mantiene la revisión
+por duplicidad; no se elige una fila arbitrariamente.
 
 Al cargar el detalle se completan **Estado del crédito** y **Fecha de corte de
 cartera**, de solo lectura. Se toma el período seleccionado con la fecha de

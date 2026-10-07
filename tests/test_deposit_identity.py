@@ -129,12 +129,12 @@ class DepositIdentityTests(unittest.TestCase):
         with patch.object(remittance.frappe, "get_doc", side_effect=lambda dt, name: document if dt == document.doctype else file_doc), \
                 patch.object(remittance.frappe, "get_all", return_value=["FILE"]), \
                 patch.object(remittance, "load_client_index", return_value=self.clients), \
-                patch.object(remittance, "load_detail_loan_clients", return_value={"0013375-1": {"1"}}), \
+                patch.object(remittance, "load_detail_loan_clients", return_value={"13375-1": {"1"}}), \
                 patch.object(remittance, "allowed_employers", return_value={"EMP"}), \
                 patch.object(remittance, "now_datetime", return_value="2026-10-04 10:00:00"):
             remittance.import_remittance_detail("DEP")
         row = document.detail_rows[0]
-        self.assertEqual((row.client, row.client_name, row.client_number, row.loan_number), ("1", "Ana María Pérez", "001", "0013375-1"))
+        self.assertEqual((row.client, row.client_name, row.client_number, row.loan_number), ("1", "Ana María Pérez", "001", "13375-1"))
         self.assertEqual((row.amount_usd, row.match_status, document.detail_total_usd), (20, "Pendiente", 20))
         self.assertEqual(document.targets, [])
 
@@ -149,7 +149,8 @@ class DepositIdentityTests(unittest.TestCase):
                 "CN Accounting Import": [Row(name="IMPORT", employer="EMP")],
                 "CN Source Row": [Row(parent="IMPORT", loan_number="13376-1", client="2", client_number="2")],
             }[doctype]
-        with patch.object(frappe, "get_all", side_effect=get_all):
+        with patch.object(frappe, "get_all", side_effect=get_all), \
+             patch("credinomina_reconciliation.deposit_identity.get_credit_rows", side_effect=get_all):
             result = load_detail_loan_clients([{"loan_number": "13375"}, {"loan_number": "13376-1"}], self.clients, {"EMP"})
         self.assertEqual(result, self.loans)
         self.assertEqual(len(calls), 4)
@@ -160,8 +161,9 @@ class DepositIdentityTests(unittest.TestCase):
     def test_conflicting_portfolio_link_is_not_trusted(self):
         import frappe
         with patch.object(frappe, "get_all", side_effect=[
-            ["CUT"], [Row(credit_number="13375-1", matched_client="1", client_number_core="2", employer="EMP")], [],
-        ]):
+            ["CUT"], [],
+        ]), patch("credinomina_reconciliation.deposit_identity.get_credit_rows", return_value=[
+            Row(credit_number="13375-1", matched_client="1", client_number_core="2", employer="EMP")]):
             loans = load_detail_loan_clients([{"loan_number": "13375"}], self.clients, {"EMP"})
         self.assertIsNone(self.resolve({"loan_number": "13375"}, loans=loans)[0])
 
