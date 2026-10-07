@@ -1,6 +1,7 @@
 """Real database/file smoke test; all synthetic records are rolled back."""
 
 import io
+from pathlib import Path
 from unittest.mock import patch
 
 import frappe
@@ -19,6 +20,7 @@ def run():
     frappe.set_user("Administrator")
     marker = "bulk-" + frappe.generate_hash(length=8)
     token = None
+    individual_paths = set()
     commit_patch = patch.object(frappe.db, "commit")
     commit_patch.start()
     try:
@@ -40,6 +42,8 @@ def run():
         stream = io.BytesIO()
         workbook.save(stream)
         source = save_file(f"{marker}.xlsx", stream.getvalue(), None, None, is_private=1)
+        source_path = Path(source.get_full_path()).resolve()
+        files_before = set(source_path.parent.iterdir())
         options = {"source_file": source.file_url, "currency": "NIO", "manual_fx_rate": "36.6243"}
         count_before = frappe.db.count("CN Client")
         plan = bulk._plan(options)
@@ -67,6 +71,7 @@ def run():
         assert state["status"] == "Completado", state
         created = state["created"]
         assert len(created) == 18
+        original_paths = set()
         for result in created:
             document = frappe.get_doc("CN Accounting Import", result["name"])
             assert len(document.rows) == 2
@@ -76,6 +81,7 @@ def run():
             assert document.bulk_source_file == source.file_url
             assert document.source_file != source.file_url
             individual_file = frappe.get_doc("File", {"file_url": document.source_file})
+            individual_paths.add(Path(individual_file.get_full_path()).resolve())
             assert individual_file.is_private
             # Frappe may add a content suffix to the physical filename.
             assert individual_file.file_name.startswith(document.name) and individual_file.file_name.endswith(".csv")
@@ -89,6 +95,20 @@ def run():
             assert all(row["employer_text"] == document.employer for row in individual_rows)
             assert frappe.db.exists("File", {"attached_to_doctype": document.doctype,
                                              "attached_to_name": document.name, "file_url": source.file_url})
+            original = frappe.get_doc("File", {"attached_to_doctype": document.doctype,
+                "attached_to_name": document.name, "attached_to_field": "bulk_source_file"})
+            original_paths.add(Path(original.get_full_path()).resolve())
+            assert original.content_hash == source.content_hash
+        assert original_paths == {source_path}, "Original report was physically copied"
+        assert source_path.read_bytes() == stream.getvalue(), "Original report changed"
+        added_paths = {path.resolve() for path in set(source_path.parent.iterdir()) - files_before}
+        assert added_paths == individual_paths, {
+            "unexpected": [str(path) for path in added_paths - individual_paths],
+            "missing": [str(path) for path in individual_paths - added_paths],
+        }
+        storage = {"original_references": len(created), "original_physical_files": len(original_paths),
+                   "original_bytes": source_path.stat().st_size, "individual_csv_files": len(individual_paths),
+                   "individual_csv_bytes": sum(path.stat().st_size for path in individual_paths)}
         reprocessed = frappe.get_doc("CN Accounting Import", created[0]["name"])
         old_row_ids = [row.name for row in reprocessed.rows]
         old_original_rows = [row.source_row for row in reprocessed.rows]
@@ -96,7 +116,7 @@ def run():
         other_modified = frappe.db.get_value("CN Accounting Import", created[1]["name"], "modified")
         with patch.object(accounting, "_reconcile_sources", return_value={}) as reconcile:
             import_source_file(reprocessed.name)
-            reconcile.assert_called_once_with(reprocessed.employer)
+            reconcile.assert_called_once_with(reprocessed.employer, preserve_deposits=True)
             import_source_file(reprocessed.name)
         reprocessed.reload()
         assert [row.name for row in reprocessed.rows] == old_row_ids
@@ -138,10 +158,12 @@ def run():
             frappe.cache.delete_value(bulk._key(token))
         return {"groups": 18, "applications": 36, "months": 3, "companies": 3,
                 "duplicate_retry": "OK", "individual_csv_and_reimport": "OK", "stable_row_ids": "OK",
-                "private_attachments": "OK", "preview_and_permissions": "OK", "rolled_back": True}
+                "private_attachments": "OK", "preview_and_permissions": "OK", "storage": storage,
+                "rolled_back": True}
     finally:
         frappe.set_user("Administrator")
         if token:
             frappe.cache.delete_value(bulk._key(token))
         frappe.db.rollback()
         commit_patch.stop()
+        assert not any(path.exists() for path in individual_paths), "Rollback left generated CSVs on disk"

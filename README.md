@@ -373,8 +373,12 @@ análisis**: conserva las selecciones ligadas al mismo archivo y excluye sus fil
 ya importadas. No se permite reanudar mientras el trabajo siga activo/en cola.
 
 El original se comparte mediante referencias de archivo, sin cargar/copiar su
-contenido por cada documento. Los CSV individuales se preparan una vez y se
-guardan con cada bloque. El historial técnico (`CN Accounting Batch` y
+contenido por cada documento. Aunque aparezca como adjunto en 500 registros,
+todos apuntan a una sola copia física del original. Cada CSV individual contiene
+solo las filas de su empresa y fecha y se escribe una sola vez, sin dejar una
+copia adicional sin referencia; una reversión del bloque elimina su archivo nuevo.
+Los CSV individuales se preparan una vez y se guardan con cada bloque.
+El historial técnico (`CN Accounting Batch` y
 `CN Accounting Batch Block`) no añade pasos al flujo ni permite edición manual.
 La ventana muestra hasta 100 grupos de la vista previa y 200 documentos finales;
 los contadores incluyen todos y los documentos completos están en sus listas.
