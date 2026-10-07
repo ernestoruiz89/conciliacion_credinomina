@@ -1707,6 +1707,10 @@ def _sync_remittance_details(context, allocation, claims=()):
                     updates["matched_targets_summary"] += "\nSaldo a favor del cliente: US$ {0} — {1}. No aplicado al crédito.".format(plan["client_credit_usd"], summary)
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
+                if money(updates["pending_usd"]) > 0 and any(target.get("fifo_applications") for target in targets):
+                    # Applying every FIFO instruction does not settle a row
+                    # whose amount exceeds the available application balance.
+                    plan["status"] = updates["match_status"] = "Revisar"
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))

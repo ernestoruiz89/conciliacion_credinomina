@@ -244,7 +244,12 @@ seleccione los períodos y marque **Aplicar por antigüedad (FIFO)**. Guarde y p
 
 Cada fila se distribuye entre aplicaciones pendientes del mismo cliente y
 crédito, por fecha real de aplicación, de la más antigua a la más reciente.
-Puede completar una aplicación y pagar parcialmente la siguiente. Las filas
+Puede completar una aplicación y pagar parcialmente la siguiente. Si la fila
+supera las aplicaciones pendientes, distribuye hasta agotarlas y deja la diferencia
+pendiente en el detalle y en el depósito. Por ejemplo, de US$13.05 distribuye
+US$9.62 disponibles y conserva US$3.43 pendientes. La fila queda para revisión
+con el motivo de distribución parcial, sin marcarla completamente conciliada.
+Las filas
 repetidas del mismo cliente/crédito se conservan, incluso si tienen igual
 importe: se procesan en el orden del archivo, descontando lo reservado por las
 anteriores y por los destinos manuales. Los importes asignados por otros depósitos
@@ -252,8 +257,8 @@ también reducen la capacidad disponible.
 
 FIFO exige períodos seleccionados y una identidad de cliente/crédito única;
 no cruza empresas o créditos, no incluye partidas complementarias automáticamente
-ni utiliza períodos cerrados. Sin saldo suficiente o fechas válidas, la fila queda
-para revisión. No se completa una diferencia inventando efectivo ni se generan
+ni utiliza períodos cerrados. Sin saldo disponible o fechas válidas, la fila queda
+para revisión sin asignación automática. No se completa una diferencia inventando efectivo ni se generan
 saldos a favor o ajustes de centavos automáticamente. Los destinos manuales
 vinculados a una fila conservan prioridad y se validan como hasta ahora.
 
