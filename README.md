@@ -696,6 +696,8 @@ renombra los cortes existentes y actualiza sus referencias.
 Los cortes permiten **Renombrar** desde el menú del documento, conservando sus
 vínculos; una nueva importación respeta el nombre personalizado. El check
 **Es Desactivar** puede actualizarse incluso en documentos confirmados. Al
+marcarlo o desmarcarlo, el cambio se guarda automáticamente con permisos,
+control de concurrencia e historial, sin enviar ni reescribir las filas de cartera. Al
 marcarlo, el corte deja de ofrecerse en selectores y búsquedas automáticas de
 cartera, y el servidor rechaza nuevas selecciones o cargas que intenten usarlo.
 Los vínculos históricos se conservan. Desmarcarlo vuelve a habilitar el corte.

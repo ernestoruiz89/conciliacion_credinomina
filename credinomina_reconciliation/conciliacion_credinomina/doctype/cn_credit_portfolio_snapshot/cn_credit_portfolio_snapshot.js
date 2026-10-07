@@ -1,10 +1,53 @@
 frappe.ui.form.on("CN Credit Portfolio Snapshot", {
     refresh(frm) {
         if (frm.is_new()) return;
+        if (!frm.is_dirty() && !frm._cn_saving_availability) {
+            frm._cn_portfolio_saved = portfolioHeaderState(frm);
+        }
 
         frm.add_custom_button(__("Importar / actualizar corte"), () => importPortfolioSnapshot(frm));
     },
+    disabled(frm) {
+        return savePortfolioAvailability(frm);
+    },
 });
+
+function portfolioHeaderState(frm) {
+    return Object.fromEntries(Object.entries(frm.doc).filter(([key, value]) =>
+        !key.startsWith("_") && key !== "disabled" && key !== "modified" && key !== "modified_by"
+        && (value === null || typeof value !== "object")));
+}
+
+async function savePortfolioAvailability(frm) {
+    if (frm.is_new() || frm._cn_saving_availability || !frm._cn_portfolio_saved
+        || frm._cn_portfolio_saved.name !== frm.doc.name) return;
+    const desired = Number(frm.doc.disabled) ? 1 : 0;
+    const modified = frm.doc.modified;
+    frm._cn_saving_availability = true;
+    frm.set_df_property("disabled", "read_only", 1);
+    frm.disable_save(true);
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_credit_portfolio_snapshot.cn_credit_portfolio_snapshot.set_portfolio_disabled",
+            args: {snapshot_name: frm.doc.name, disabled: desired, modified},
+            freeze: true, freeze_message: __("Actualizando disponibilidad del corte..."),
+        });
+        if (!response.message || response.exc) throw new Error("missing_availability_result");
+        Object.assign(frm.doc, response.message);
+        frm.doc.__unsaved = JSON.stringify(portfolioHeaderState(frm)) === JSON.stringify(frm._cn_portfolio_saved) ? 0 : 1;
+        frm.refresh_field("disabled");
+        frappe.show_alert({message: desired ? __("Corte desactivado") : __("Corte activado"), indicator: "green"});
+    } catch (error) {
+        // A lost response may still have committed. Keep the form dirty and
+        // require a reload to learn the authoritative state before retrying.
+        frappe.msgprint(__("No se pudo confirmar el cambio de disponibilidad. Recargue el corte para verificar su estado antes de volver a intentarlo."));
+    } finally {
+        frm._cn_saving_availability = false;
+        frm.set_df_property("disabled", "read_only", 0);
+        frm.enable_save();
+        frm.refresh_header();
+    }
+}
 
 async function importPortfolioSnapshot(frm) {
     if (frm._cn_importing_portfolio) return;
