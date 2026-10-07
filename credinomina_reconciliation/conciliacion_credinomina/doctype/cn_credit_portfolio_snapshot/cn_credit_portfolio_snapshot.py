@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.model.naming import make_autoname
-from frappe.utils import getdate, now_datetime
+from frappe.utils import getdate, get_datetime, now_datetime
 
 from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows, has_portfolio_employer
 from credinomina_reconciliation.parsers import (
@@ -64,6 +64,41 @@ class CNCreditPortfolioSnapshot(Document):
         self.active_count = sum(row.credit_lifecycle == "Activo" for row in rows)
         self.canceled_count = sum(row.credit_lifecycle == "Cancelado" for row in rows)
         self.saneado_count = sum(row.credit_lifecycle == "Saneado" for row in rows)
+
+
+@frappe.whitelist(methods=["POST"])
+def set_portfolio_disabled(snapshot_name: str, disabled: int, modified: str):
+    """Change availability without loading, validating or rewriting portfolio rows."""
+    if str(disabled) not in {"0", "1"} or not modified:
+        frappe.throw(_("Indique el estado del corte y su fecha de modificación."))
+    doctype = "CN Credit Portfolio Snapshot"
+    saved = frappe.db.get_value(doctype, snapshot_name, "*", as_dict=True, for_update=True)
+    if not saved:
+        frappe.throw(_("El corte de cartera no existe."), frappe.DoesNotExistError)
+    # Construct only the parent to enforce document/user permissions without
+    # get_doc(doctype, name), which also loads the entire child table.
+    document = frappe.get_doc(dict(saved, doctype=doctype))
+    document.check_permission("write")
+    document.check_if_locked()
+    if document.docstatus == 2:
+        frappe.throw(_("No se puede modificar un corte cancelado."))
+    if get_datetime(saved.modified) != get_datetime(modified):
+        frappe.throw(_("El corte cambió. Recargue el formulario antes de activar o desactivar."),
+                     frappe.TimestampMismatchError)
+    value = int(disabled)
+    previous = int(saved.disabled or 0)
+    if previous != value:
+        document.disabled = value
+        document.modified = now_datetime()
+        document.modified_by = frappe.session.user
+        frappe.db.set_value(doctype, snapshot_name, {
+            "disabled": value, "modified": document.modified, "modified_by": document.modified_by,
+        }, update_modified=False)
+        frappe.get_doc({"doctype": "Version", "ref_doctype": doctype, "docname": snapshot_name,
+            "data": frappe.as_json({"changed": [["disabled", previous, value]]})}).insert(ignore_permissions=True)
+        frappe.clear_document_cache(doctype, snapshot_name)
+        document.notify_update()
+    return {"disabled": value, "modified": str(document.modified), "modified_by": document.modified_by}
 
 
 def _attached_file(document):
