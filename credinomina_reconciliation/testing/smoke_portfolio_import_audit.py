@@ -38,6 +38,9 @@ def run():
                        side_effect=AssertionError("Bulk import must not serialize Version")):
                 result = importer.import_portfolio_snapshot(snapshot.name)
                 assert result["row_count"] == count, result
+                snapshot = frappe.get_doc(snapshot.doctype, result["snapshot_name"])
+                filters["reference_name"] = snapshot.name
+                version_filters["docname"] = snapshot.name
                 unchanged = importer.import_portfolio_snapshot(snapshot.name)
                 assert unchanged["unchanged"] and unchanged["row_count"] == count
             saved = frappe.get_doc(snapshot.doctype, snapshot.name)

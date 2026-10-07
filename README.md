@@ -702,6 +702,11 @@ marcarlo, el corte deja de ofrecerse en selectores y búsquedas automáticas de
 cartera, y el servidor rechaza nuevas selecciones o cargas que intenten usarlo.
 Los vínculos históricos se conservan. Desmarcarlo vuelve a habilitar el corte.
 
+**Guardar** actualiza únicamente Archivo, Notas y Es Desactivar de un corte
+existente, con permisos, control de concurrencia e historial. No recalcula el
+resumen ni escribe los créditos. Para leer el archivo y reemplazar o actualizar
+el detalle y sus contadores, use **Importar / actualizar corte**.
+
 Los depósitos se nombran `DEP-mes-año-####` según su fecha real, por ejemplo
 `DEP-9-2026-0001`, con consecutivo por mes y año. El identificador asignado
 se conserva al editar posteriormente la fecha. Al migrar, un parche renombra

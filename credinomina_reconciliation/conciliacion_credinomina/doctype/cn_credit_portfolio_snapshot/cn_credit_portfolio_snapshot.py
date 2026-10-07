@@ -1,4 +1,5 @@
 from calendar import monthrange
+from contextvars import ContextVar
 from html import escape
 
 import frappe
@@ -16,12 +17,35 @@ from credinomina_reconciliation.parsers import (
 )
 from credinomina_reconciliation.portfolio_naming import rename_snapshot_for_date
 
+_importing_portfolio = ContextVar("cn_importing_portfolio", default=False)
+HEADER_FIELDS = ("source_file", "notes", "disabled")
+
+
+def _save_import(snapshot, **kwargs):
+    """Only the import operation may replace and recalculate existing credits."""
+    token = _importing_portfolio.set(True)
+    try:
+        return snapshot.save(**kwargs)
+    finally:
+        _importing_portfolio.reset(token)
+
 
 class CNCreditPortfolioSnapshot(Document):
     def autoname(self):
         # The report date lives inside the attached workbook, so an unsaved
         # draft needs a temporary name until its first successful import.
         self.name = make_autoname("CARTERA-BORRADOR-.YYYY.-.#####")
+
+    def _save(self, ignore_permissions=None, ignore_version=None):
+        if self.is_new() or _importing_portfolio.get():
+            return super()._save(ignore_permissions=ignore_permissions, ignore_version=ignore_version)
+        saved = _update_portfolio_header(self.name, {field: self.get(field) for field in HEADER_FIELDS},
+                                         self.modified, docstatus=self.docstatus)
+        # Restore authoritative derived header values; ordinary saves cannot
+        # change the imported results, hash, counters or child table.
+        self.update(saved)
+        self.__dict__.pop("__unsaved", None)
+        return self
 
     def validate(self):
         if self.report_date:
@@ -69,7 +93,12 @@ class CNCreditPortfolioSnapshot(Document):
 @frappe.whitelist(methods=["POST"])
 def set_portfolio_disabled(snapshot_name: str, disabled: int, modified: str):
     """Change availability without loading, validating or rewriting portfolio rows."""
-    if str(disabled) not in {"0", "1"} or not modified:
+    saved = _update_portfolio_header(snapshot_name, {"disabled": disabled}, modified)
+    return {"disabled": saved.disabled, "modified": str(saved.modified), "modified_by": saved.modified_by}
+
+
+def _update_portfolio_header(snapshot_name, changes, modified, docstatus=None):
+    if str(changes.get("disabled")) not in {"0", "1"} or not modified:
         frappe.throw(_("Indique el estado del corte y su fecha de modificación."))
     doctype = "CN Credit Portfolio Snapshot"
     saved = frappe.db.get_value(doctype, snapshot_name, "*", as_dict=True, for_update=True)
@@ -82,23 +111,33 @@ def set_portfolio_disabled(snapshot_name: str, disabled: int, modified: str):
     document.check_if_locked()
     if document.docstatus == 2:
         frappe.throw(_("No se puede modificar un corte cancelado."))
+    if docstatus is not None and int(docstatus) != int(saved.docstatus):
+        frappe.throw(_("No se puede cambiar el estado de confirmación del corte al guardar su encabezado."))
     if get_datetime(saved.modified) != get_datetime(modified):
-        frappe.throw(_("El corte cambió. Recargue el formulario antes de activar o desactivar."),
+        frappe.throw(_("El corte cambió. Recargue el formulario antes de guardar."),
                      frappe.TimestampMismatchError)
-    value = int(disabled)
-    previous = int(saved.disabled or 0)
-    if previous != value:
-        document.disabled = value
+    values = {field: value for field, value in changes.items() if field in HEADER_FIELDS}
+    values["disabled"] = int(values["disabled"])
+    changed = [[field, saved.get(field), value] for field, value in values.items()
+               if (saved.get(field) or "") != (value or "")]
+    if "source_file" in values and not values["source_file"]:
+        frappe.throw(_("Adjunte el archivo del corte de cartera."), frappe.MandatoryError)
+    for field, _previous_value, _value in changed:
+        if saved.docstatus == 1 and not document.meta.get_field(field).allow_on_submit:
+            frappe.throw(_("El campo {0} no se puede modificar después de confirmar.").format(
+                document.meta.get_field(field).label), frappe.UpdateAfterSubmitError)
+    if changed:
+        document.update(values)
         document.modified = now_datetime()
         document.modified_by = frappe.session.user
-        frappe.db.set_value(doctype, snapshot_name, {
-            "disabled": value, "modified": document.modified, "modified_by": document.modified_by,
-        }, update_modified=False)
+        values.update(modified=document.modified, modified_by=document.modified_by)
+        frappe.db.set_value(doctype, snapshot_name, values, update_modified=False)
         frappe.get_doc({"doctype": "Version", "ref_doctype": doctype, "docname": snapshot_name,
-            "data": frappe.as_json({"changed": [["disabled", previous, value]]})}).insert(ignore_permissions=True)
+            "data": frappe.as_json({"changed": changed})}).insert(ignore_permissions=True)
         frappe.clear_document_cache(doctype, snapshot_name)
         document.notify_update()
-    return {"disabled": value, "modified": str(document.modified), "modified_by": document.modified_by}
+        saved.update(values)
+    return saved
 
 
 def _attached_file(document):
@@ -160,7 +199,7 @@ def import_portfolio_snapshot(snapshot_name: str):
     except SourceFileError as exc:
         snapshot.status = "Fallido"
         snapshot.notes = str(exc)
-        snapshot.save()
+        _save_import(snapshot)
         frappe.throw(str(exc), title=_("No se pudo importar el corte"))
 
     created = {}
@@ -173,7 +212,6 @@ def import_portfolio_snapshot(snapshot_name: str):
     snapshot.set("rows", [])
     for record in parsed:
         snapshot.append("rows", record)
-    snapshot.recalculate_summary()
     has_alerts = any(
         not row.credit_number
         or row.credit_lifecycle == "Por revisar"
@@ -197,7 +235,7 @@ def import_portfolio_snapshot(snapshot_name: str):
     # Version serializes all added/removed child rows into one SQL value. A
     # monthly cut can exceed MariaDB's packet limit even though every row is
     # valid. Keep normal validation/transactions and audit the import compactly.
-    snapshot.save(ignore_version=True)
+    _save_import(snapshot, ignore_version=True)
     snapshot_name = rename_snapshot_for_date(snapshot, parsed[0]["report_date"], previous_report_date)
     snapshot.add_comment("Comment", _portfolio_import_audit(
         snapshot, file_doc.file_name, previous_hash, previous_count, created,
