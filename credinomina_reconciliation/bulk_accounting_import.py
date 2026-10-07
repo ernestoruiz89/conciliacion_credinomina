@@ -5,7 +5,6 @@ import json
 import frappe
 from frappe import _
 from frappe.utils import cint, now_datetime
-from frappe.utils.file_manager import save_file
 
 from credinomina_reconciliation.accounting_batch import accounting_group_csv, accounting_source_records, group_applications, movement_key
 from credinomina_reconciliation.accounting_identity import identify_lines
@@ -393,12 +392,16 @@ def _create_imports(plan, options, progress=None):
             "rows": [{**record, "effective": 1, "match_status": "Pendiente", "deposit_match_status": "Pendiente"}
                      for record in records],
         }).insert()
-        csv_file = save_file(
-            f"{document.name}.csv", csv_content, DOCTYPE, document.name,
-            is_private=1, df="source_file",
-        )
+        # Let File own the single write and rollback cleanup. The legacy
+        # save_file utility prewrites the blob before File.insert writes again,
+        # leaving an unreferenced CSV (especially when its UTF-8 BOM is decoded).
+        csv_file = frappe.get_doc({
+            "doctype": "File", "file_name": f"{document.name}.csv", "content": csv_content,
+            "attached_to_doctype": DOCTYPE, "attached_to_name": document.name,
+            "attached_to_field": "source_file", "is_private": 1,
+        }).insert(ignore_permissions=True)
         document.source_file = csv_file.file_url
-        stored_content = csv_file.get_content()
+        stored_content = frappe.get_doc("File", csv_file.name).get_content()
         if isinstance(stored_content, str):
             stored_content = stored_content.encode("utf-8")
         # File.get_content may strip the UTF-8 BOM; use the exact same input
