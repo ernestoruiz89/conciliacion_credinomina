@@ -338,7 +338,7 @@ class CNRemittanceAllocation(Document):
         fields = (
             "employer", "deposit_reference", "deposit_voucher", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate",
-            "detail_file", "detail_hash",
+            "detail_file", "detail_hash", "allow_manual_other_periods",
         )
         if any(
             input_value(self, fieldname) != input_value(previous, fieldname)

@@ -125,12 +125,14 @@ def _unidentified_complement_link(row, claim, instruction):
     return True
 
 
-def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None):
+def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None,
+                          allow_other_periods=False):
     """Validate explicit row links; reuse their instruction IDs without booking twice."""
     by_id = {claim["id"]: claim for claim in claims}
     periods = _period_scope(period)
     targets = []
     unidentified_complements = []
+    other_periods = set()
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
         allowed = set(allowed_groups or [employer])
@@ -140,7 +142,11 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
             return [], "Destino manual inexistente o de otra empresa"
         claim_period = clean_text(claim.get("period"))
         if periods and claim_period not in periods and not (claim.get("kind") == "X" and not claim_period):
-            return [], "El destino manual no pertenece a los períodos del detalle"
+            if not allow_other_periods:
+                return [], "El destino manual no pertenece a los períodos del detalle"
+            if not claim_period or claim.get("period_closed"):
+                return [], "El destino manual debe pertenecer a un período abierto"
+            other_periods.add(claim_period)
         if generic:
             company = clean_text(row.get("employer")) or (next(iter(groups & allowed)) if len(groups & allowed) == 1 else "")
             if not company or company not in groups & allowed:
@@ -161,6 +167,8 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
         return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
     reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+    if other_periods:
+        reason += "; vínculo autorizado con otros períodos: " + ", ".join(sorted(other_periods))
     if unidentified_complements:
         reason += "; complementarias sin cliente/crédito atribuidas por vínculo manual explícito: " + ", ".join(
             dict.fromkeys(unidentified_complements)

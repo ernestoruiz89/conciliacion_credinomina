@@ -137,6 +137,29 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual(result["instruction_results"]["MANUAL"], "Aplicada")
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
 
+    def test_other_period_opt_in_only_changes_explicit_manual_row_links(self):
+        self.claims[0]["period"] = "OUTSIDE"
+        manual = [dict(id="MANUAL", deposit_id="DEP", claim_id="H:A", amount_usd=22.02,
+                       detail_row="ROW2", origin=MANUAL)]
+        context, _ = self.run_engine(manual)
+        self.assertEqual(context["contexts"]["DEP"]["rows"][1]["status"], "Revisar")
+        self.doc.allow_manual_other_periods = 1
+        context, result = self.run_engine(manual)
+        self.assertEqual(context["contexts"]["DEP"]["rows"][1]["targets"][0]["claim_id"], "H:A")
+        self.assertIn("otros períodos: OUTSIDE", context["contexts"]["DEP"]["rows"][1]["reason"])
+        self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in context["instructions"]], [("H:B", 33.03)])
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        self.assertEqual(len(result["allocations"]), 2)
+        self.assertEqual(self.run_engine(manual)[1], result)
+        # No explicit links: even with the check enabled, FIFO stays in P1.
+        context, _ = self.run_engine()
+        self.assertEqual({t["claim_id"] for t in context["instructions"]}, {"H:B"})
+        self.doc.apply_fifo = 0
+        self.rows = self.rows[:1]
+        self.rows[0].deducted_usd = self.deposit["amount_usd"] = 40
+        context, _ = self.run_engine()
+        self.assertEqual({t["claim_id"] for t in context["instructions"]}, {"H:B"})
+
     def test_picker_can_link_fifo_remainder_to_another_detail_row(self):
         # Two detail rows of 18.67 cover applications of 18.66 and 18.67.
         # FIFO uses one cent of the second application in the first detail row.

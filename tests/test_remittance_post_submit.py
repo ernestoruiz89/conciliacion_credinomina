@@ -96,6 +96,14 @@ class RemittancePostSubmitTests(unittest.TestCase):
         self.assertEqual(doc.result, "Pendiente")
         self.check_frappe_guard(doc)
 
+    def test_manual_period_opt_in_can_be_changed_after_submit_and_marks_pending(self):
+        for old, new in ((0, 1), (1, 0)):
+            self.previous["allow_manual_other_periods"] = old
+            doc = self.current(allow_manual_other_periods=new)
+            CNRemittanceAllocation.before_update_after_submit(doc)
+            self.assertEqual(doc.result, "Pendiente")
+            self.check_frappe_guard(doc)
+
     def test_detail_credit_selection_marks_pending_after_confirmation(self):
         self.previous["detail_rows"] = [{"name": "ROW-1", "client": "3538", "loan_number": ""}]
         doc = self.current(detail_rows=[{"name": "ROW-1", "client": "3538", "client_number": "3538", "loan_number": "108331-1"}])
