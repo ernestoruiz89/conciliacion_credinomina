@@ -41,20 +41,25 @@ def run():
                 result="Pendiente")
             preview = preview_application_detail(deposit.name)
             assert preview["total_usd"] == 80, preview
-            result = use_application_detail(deposit.name, preview["fingerprint"], selected_claim_ids=["H:" + application.name])
+            amount = 55.25 if status == 0 else 65.25
+            result = use_application_detail(deposit.name, preview["fingerprint"], selected_claim_ids=["H:" + application.name],
+                                            selected_amounts={"H:" + application.name: amount})
             deposit.reload()
             assert deposit.docstatus == status
             assert deposit.result == "Pendiente"
             assert deposit.applied_usd == 120
-            assert deposit.detail_total_usd == 60
+            assert deposit.detail_total_usd == amount
             assert len(deposit.detail_rows) == 1
-            assert deposit.detail_rows[0].deducted_usd == 60
+            assert deposit.detail_rows[0].deducted_usd == amount
+            assert "pendiente original US$ 60.00" in deposit.detail_rows[0].comments
+            application.reload()
+            assert application.amount == 100
             assert not deposit.targets and not deposit.allocation_detail
             file = frappe.get_doc("File", {"file_url": result["file_url"]})
             assert file.is_private
             rows = parse_collection_file(file.file_name, file.get_content(), require_deduction=True, require_name=True)
-            assert rows[0]["deducted_usd"] == 60
-        return "OK: partial payments, private workbook, real saves in draft and submitted deposits; no auto-reconciliation"
+            assert rows[0]["deducted_usd"] == amount
+        return "OK: adjusted detail amounts, unchanged applications, private workbook, real draft/submitted saves; no auto-reconciliation"
     finally:
         frappe.db.rollback()
         assert not frappe.db.exists("CN Employer", prefix + "E")

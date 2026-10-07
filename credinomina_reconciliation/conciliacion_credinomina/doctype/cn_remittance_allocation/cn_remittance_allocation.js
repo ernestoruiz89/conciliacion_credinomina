@@ -319,6 +319,13 @@ async function useApplicationsAsDetail(frm) {
     }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const selected = new Set(preview.rows.map(row => row.claim_id));
+    const amounts = new Map(preview.rows.map(row => [row.claim_id, Number(row.deducted_usd).toFixed(2)]));
+    function amountCents(row) {
+        const value = amounts.get(row.claim_id).trim();
+        const cents = Math.round(Number(value) * 100);
+        return /^\d+(?:\.\d{1,2})?$/.test(value) && Number.isSafeInteger(cents) && cents > 0 ? cents : null;
+    }
+    const invalidAmounts = () => preview.rows.some(row => selected.has(row.claim_id) && amountCents(row) === null);
     let busy = false;
     const dialog = new frappe.ui.Dialog({
         title: __("Usar aplicaciones pendientes como detalle"), size: "extra-large",
@@ -329,12 +336,16 @@ async function useApplicationsAsDetail(frm) {
                 ${__("Depósito")}: US$ ${remittanceMoney(preview.deposit_usd)}</strong></p>
             <p class="text-warning" data-selection-warning>${__("El total seleccionado no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>
             <p>${__("Este detalle procede del core, no de una confirmación de deducción de la empresa. Generarlo no confirma ni concilia el depósito.")}</p>
-            <p>${__("Marque solo los movimientos de este depósito. Se copiará el importe pendiente completo de cada fila seleccionada.")}</p>
+            <p>${__("Marque los movimientos de este depósito y ajuste sus importes si son distintos. El pendiente original se muestra como referencia; los ajustes se registrarán en los comentarios del detalle.")}</p>
+            <p class="text-danger" data-amount-error>${__("Ingrese importes mayores que cero con un máximo de dos decimales en las filas seleccionadas.")}</p>
             <p data-selection-count aria-live="polite"></p>
             <div style="max-height:40vh;overflow:auto"><table class="table table-bordered"><thead>
-                <tr><th><label><input type="checkbox" data-select-all checked> ${__("Todos")}</label></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Período")}</th><th>${__("Referencia")}</th><th>${__("Pendiente US$")}</th></tr></thead>
+                <tr><th><label><input type="checkbox" data-select-all checked> ${__("Todos")}</label></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Período")}</th><th>${__("Referencia")}</th><th>${__("Importe del detalle US$")}</th></tr></thead>
                 <tbody>${preview.rows.map((row, index) => `<tr><td><input type="checkbox" data-application-index="${index}" checked aria-label="${esc(__("Seleccionar movimiento {0}", [index + 1]))}"></td><td>${esc(row.client_name)}<br>${esc(row.client_number)}</td>
-                    <td>${esc(row.loan_number)}</td><td>${esc(row.period)}</td><td>${esc(row.application_reference)}</td><td>${remittanceMoney(row.deducted_usd)}</td></tr>`).join("")}</tbody></table></div>
+                    <td>${esc(row.loan_number)}</td><td>${esc(row.period)}</td><td>${esc(row.application_reference)}</td><td>
+                        <input type="number" class="form-control input-sm" style="min-width:120px" min="0.01" step="0.01" data-application-amount="${index}"
+                            value="${esc(amounts.get(row.claim_id))}" aria-label="${esc(__("Importe del movimiento {0} en US$", [index + 1]))}">
+                        <small class="text-muted">${__("Pendiente original")}: ${remittanceMoney(row.deducted_usd)}</small></td></tr>`).join("")}</tbody></table></div>
             ${preview.replaces_detail ? `<p class="text-warning">${__("Se reemplazarán las filas del detalle actual y se quitarán sus vínculos a destinos. Los destinos y archivos anteriores se conservarán para revisión.")}</p>` : ""}
         `}, ...(preview.replaces_detail ? [{fieldname: "replace_detail", fieldtype: "Check", reqd: 1,
             label: __("Confirmo reemplazar el detalle actual")}] : [])],
@@ -345,13 +356,18 @@ async function useApplicationsAsDetail(frm) {
                 frappe.msgprint(__("Seleccione al menos un movimiento para generar el detalle."));
                 return;
             }
+            if (invalidAmounts()) {
+                frappe.msgprint(__("Revise los importes de las filas seleccionadas."));
+                return;
+            }
             busy = true;
             dialog.get_primary_btn().prop("disabled", true);
             try {
                 await frappe.call({method: method + "use_application_detail",
                     args: {remittance_name: frm.doc.name, fingerprint: preview.fingerprint,
                         replace_detail: values.replace_detail || 0,
-                        selected_claim_ids: JSON.stringify([...selected])}, freeze: true,
+                        selected_claim_ids: JSON.stringify([...selected]),
+                        selected_amounts: JSON.stringify(Object.fromEntries([...selected].map(key => [key, amounts.get(key)])))}, freeze: true,
                     freeze_message: __("Generando detalle desde aplicaciones…")});
                 dialog.hide();
                 await frm.reload_doc();
@@ -364,15 +380,24 @@ async function useApplicationsAsDetail(frm) {
     });
     const wrapper = dialog.fields_dict.selection_preview.$wrapper;
     function updateSelection() {
+        const invalid = invalidAmounts();
         const cents = preview.rows.filter(row => selected.has(row.claim_id))
-            .reduce((sum, row) => sum + Math.round(Number(row.deducted_usd) * 100), 0);
-        wrapper.find("[data-selected-total]").text(remittanceMoney(cents / 100));
+            .reduce((sum, row) => sum + (amountCents(row) || 0), 0);
+        wrapper.find("[data-selected-total]").text(invalid ? "—" : remittanceMoney(cents / 100));
+        wrapper.find("[data-amount-error]").toggle(invalid);
         wrapper.find("[data-selection-count]").text(__("{0} de {1} movimientos seleccionados", [selected.size, preview.rows.length]));
-        wrapper.find("[data-selection-warning]").toggle(cents !== Math.round(preview.deposit_usd * 100));
+        wrapper.find("[data-selection-warning]").toggle(!invalid && cents !== Math.round(preview.deposit_usd * 100));
         wrapper.find("[data-select-all]").prop("checked", selected.size === preview.rows.length)
             .prop("indeterminate", selected.size > 0 && selected.size < preview.rows.length);
-        dialog.get_primary_btn().prop("disabled", busy || !selected.size);
+        preview.rows.forEach((row, index) => wrapper.find(`[data-application-amount="${index}"]`)
+            .prop("disabled", busy || !selected.has(row.claim_id)));
+        dialog.get_primary_btn().prop("disabled", busy || !selected.size || invalid);
     }
+    wrapper.on("input change", "[data-application-amount]", event => {
+        const row = preview.rows[Number(event.target.dataset.applicationAmount)];
+        amounts.set(row.claim_id, event.target.value);
+        updateSelection();
+    });
     wrapper.on("change", "[data-application-index]", event => {
         const row = preview.rows[Number(event.target.dataset.applicationIndex)];
         if (event.target.checked) selected.add(row.claim_id);

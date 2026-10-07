@@ -67,11 +67,31 @@ const frm = {doc: {name: "D", detail_periods: [{period: "P"}]}, is_new: () => fa
     assert.equal(wrapper.elements["[data-selected-total]"].value, "50.00");
     assert.equal(wrapper.elements["[data-select-all]"].props.indeterminate, true);
     assert.equal(wrapper.elements["[data-selection-warning]"].visible, false);
+    const editAmount = (index, value) => wrapper.handlers["[data-application-amount]"]({
+        target: {dataset: {applicationAmount: String(index)}, value},
+    });
+    for (const value of ["", "0", "-1", "1.001", "NaN", "Infinity"]) {
+        editAmount(0, value);
+        assert.equal(dialog.button.disabled, true);
+        assert.equal(wrapper.elements["[data-amount-error]"].visible, true);
+        await dialog.options.primary_action({replace_detail: 1});
+        assert.equal(calls.length, 1);
+    }
+    editAmount(0, "45.25");
+    assert.equal(dialog.button.disabled, false);
+    assert.equal(wrapper.elements["[data-selected-total]"].value, "45.25");
+    assert.equal(wrapper.elements["[data-selection-warning]"].visible, true);
+    editAmount(0, "55.15"); // Also allow a detail larger than the original pending amount.
+    editAmount(1, ""); // Invalid unselected rows do not block generation.
+    assert.equal(dialog.button.disabled, false);
+    assert.equal(wrapper.elements["[data-selected-total]"].value, "55.15");
+    assert.equal(preview.rows[0].deducted_usd, 50);
     await dialog.options.primary_action({replace_detail: 1});
     assert.ok(calls[1].method.endsWith(".use_application_detail"));
     assert.equal(calls[1].args.fingerprint, "F");
     assert.equal(calls[1].args.replace_detail, 1);
     assert.deepEqual(JSON.parse(calls[1].args.selected_claim_ids), ["H:A"]);
+    assert.deepEqual(JSON.parse(calls[1].args.selected_amounts), {"H:A": "55.15"});
     assert.equal(order.at(-1), "reload");
     assert.equal(dialog.shown, false);
     assert.ok(!calls.some(call => /reconcile|submit/.test(call.method)));
