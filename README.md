@@ -726,7 +726,12 @@ marcarlo o desmarcarlo, el cambio se guarda automáticamente con permisos,
 control de concurrencia e historial, sin enviar ni reescribir las filas de cartera. Al
 marcarlo, el corte deja de ofrecerse en selectores y búsquedas automáticas de
 cartera, y el servidor rechaza nuevas selecciones o cargas que intenten usarlo.
-Los vínculos históricos se conservan. Desmarcarlo vuelve a habilitar el corte.
+Los vínculos históricos se conservan. Puede cargar varios cortes del mismo mes
+y año con nombres distintos, manteniendo solo uno activo. Desactive el anterior
+antes de importar su reemplazo, incluso si vuelve a cargar el mismo archivo.
+Si el nombre mensual ya existe, el nuevo corte recibe un sufijo, por ejemplo
+`CARTERA-9-2026-2`. Para reactivar un corte anterior, primero desactive el actual;
+esta validación también aplica a documentos confirmados.
 
 **Guardar** actualiza únicamente Archivo, Notas y Es Desactivar de un corte
 existente, con permisos, control de concurrencia e historial. No recalcula el
