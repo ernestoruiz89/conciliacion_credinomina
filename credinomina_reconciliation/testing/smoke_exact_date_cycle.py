@@ -46,8 +46,24 @@ def run():
                 rejected(lambda: period("Fecha exacta"))
                 rejected(lambda: period("Fecha exacta", "2026-10-05"))
                 rejected(lambda: period("Fecha exacta", "2026-09-22", "2026-09-21"))
+                second.status = "Pendiente"
+                second.save()
+                second.reload()
+                assert second.status == "Pendiente"
                 second.cutoff_date = "2026-09-21"
-                second.save()  # An empty draft may change date.
+                second.save()  # Empty pending periods may change date too.
+                editable = frappe.get_doc({"doctype": "CN Reconciliation Period",
+                    "employer": employer.name, "payroll_month": "2026-10-01",
+                    "reconciliation_mode": "Operativa", "application_basis": "Cobranza",
+                    "collection_cycle": "Mensual" if frequency == "Mensual" else "Segunda quincena",
+                    "status": "Pendiente"}).insert()
+                editable.reload()
+                editable.collection_cycle = "Fecha exacta" if frequency == "Mensual" else "Primera quincena"
+                editable.cutoff_date = "2026-10-15"
+                editable.save()
+                editable.reload()
+                assert str(editable.cutoff_date) == "2026-10-15"
+                created.append(editable.name)
                 row = frappe.get_doc({"doctype": "CN Source Row", "name": marker + frequency,
                     "parent": marker, "parenttype": "CN Accounting Import", "parentfield": "rows",
                     "event_type": "Aplicacion", "historical_period": second.name})
@@ -66,6 +82,7 @@ def run():
                 created.append(draft.name)
             assert len(created) == len(set(created))
             return {"periods_created": len(created), "coexistence": True,
+                    "empty_pending_cycle_and_date_editable": True,
                     "invalid_and_duplicate_dates_blocked": True, "linked_cut_protected": True,
                     "accounting_dialog_creation": True, "rolled_back": True}
     finally:
