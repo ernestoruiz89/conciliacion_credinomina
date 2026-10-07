@@ -36,6 +36,15 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
     assert.equal(dialog.properties.historical_application_date.reqd, false);
     assert.equal(dialog.properties.collection_cycle.reqd, true);
     assert.equal(fields.collection_cycle.default, "", "Do not guess a quincena");
+    assert.ok(fields.collection_cycle.options.includes("Fecha exacta"));
+    dialog.values.collection_cycle = "Fecha exacta";
+    fields.collection_cycle.onchange();
+    assert.equal(dialog.properties.cutoff_date.hidden, false);
+    assert.equal(dialog.properties.cutoff_date.reqd, true);
+    dialog.values.collection_cycle = "Primera quincena";
+    fields.collection_cycle.onchange();
+    assert.equal(dialog.properties.cutoff_date.reqd, false);
+    assert.equal(dialog.properties.cutoff_date.hidden, true);
     const values = {payroll_month: "2026-09-01", collection_cycle: "Primera quincena"};
     const creating = dialog.options.primary_action(values);
     await dialog.options.primary_action(values);

@@ -64,8 +64,51 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     function companyChoice(row) {
         previewRows.set(String(row.row), row);
         const label = choices[String(row.row)] || "NO IDENTIFICADA";
-        return `<span tabindex="0" title="${attr(row.description || __("Sin descripción del asiento"))}" style="cursor:help;border-bottom:1px dotted currentColor">${esc(label)}</span><br><button type="button" class="btn btn-xs btn-default cn-change-employer" data-source-row="${attr(row.row)}">${__("Cambiar empresa")}</button>`;
+        return `<span tabindex="0" title="${attr(row.description || __("Sin descripción del asiento"))}" style="cursor:help;border-bottom:1px dotted currentColor">${esc(label)}</span><br><button type="button" class="btn btn-xs btn-default cn-change-employer" data-source-row="${attr(row.row)}">${__("Cambiar empresa")}</button> <button type="button" class="btn btn-xs btn-default cn-add-employer-alias" data-source-row="${attr(row.row)}">${__("Agregar alias")}</button>`;
     }
+    result.on("click", ".cn-add-employer-alias", function () {
+        if (running || currentPhase === "create") return;
+        const number = this.getAttribute("data-source-row");
+        const row = previewRows.get(number);
+        let saving = false;
+        const picker = new frappe.ui.Dialog({
+            title: __("Agregar alias a una empresa"),
+            fields: [
+                {fieldtype: "HTML", options: `<p>${__("Busque la empresa a la que pertenece el nombre del archivo. El alias se usará también en próximas cargas.")}</p>${row ? `<div style="white-space:pre-wrap;max-height:180px;overflow:auto">${esc(row.description || "")}</div>` : ""}`},
+                {fieldtype: "Link", fieldname: "employer", label: __("Empresa"), options: "CN Employer", reqd: 1,
+                    get_query: () => ({filters: {name: ["!=", "NO IDENTIFICADA"]}})},
+                {fieldtype: "Data", fieldname: "alias_name", label: __("Alias / nombre en el archivo"), reqd: 1,
+                    default: row?.employer_text || ""},
+            ],
+            primary_action_label: __("Guardar alias y volver a analizar"),
+            async primary_action(values) {
+                if (saving || running || !values.employer || !values.alias_name?.trim()) return;
+                saving = true;
+                running = true;
+                picker.get_primary_btn().prop("disabled", true);
+                dialog.get_primary_btn().prop("disabled", true);
+                try {
+                    await frappe.call({
+                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_employer.cn_employer.add_employer_alias",
+                        args: {employer: values.employer, alias_name: values.alias_name},
+                    });
+                    choicesDirty = true;
+                    saveChoices();
+                    picker.hide();
+                    frappe.show_alert({message: __("Alias guardado. Actualizando el análisis del archivo."), indicator: "green"});
+                    running = false;
+                    if (!closed) await preview();
+                } catch (_) {
+                    running = false;
+                    dialog.get_primary_btn().prop("disabled", choicesDirty || !lastSummary?.sections || !!lastSummary?.issues_count);
+                } finally {
+                    saving = false;
+                    picker.get_primary_btn().prop("disabled", false);
+                }
+            },
+        });
+        picker.show();
+    });
     result.on("click", ".cn-change-employer", function () {
         if (running) return;
         const number = this.getAttribute("data-source-row");
@@ -152,7 +195,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         const title = unidentified ? __("Casos no identificados") : __("Empresas identificadas");
         let html = `<section data-identification="${unidentified ? "unidentified" : "identified"}" class="mb-4"><h4>${title} · ${esc(count)} ${__("movimientos")}</h4>`;
         if (!count) return html + `<p class="text-muted">${__("No hay movimientos en este grupo.")}</p></section>`;
-        if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p>`;
+        if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p><p><button type="button" class="btn btn-sm btn-default cn-add-employer-alias">${__("Agregar alias")}</button></p>`;
         html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.group_count ?? section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
         if (section.rows && unidentified) {
             html += table([__("Fila"), __("Empresa asignada"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [

@@ -180,7 +180,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                         ${receipts.length ? `<button type="button" class="cn-cell-button" data-month="${esc(month.key)}" data-employer="${esc(company.id)}">${renderCashSummary(receipts)}</button>` : ""}
                         ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))} · ${esc(__("Aplicado / Asignado"))}: ${money(monthApplied)} / ${money(monthRemitted)}</div>` : ""}
                         ${ordered.map((period) => `<button type="button" class="cn-cell-button" data-period="${esc(period.name)}">
-                            <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
+                            <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : operativeCycleLabel(period))}</span>
                             <span class="cn-cell-amount">${money(period.applied_usd)} / ${money(period.remitted_usd)}</span>
                             <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
                             <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
@@ -369,7 +369,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td class="cn-number">${signedMoney(item.signed_amount_usd)}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin partidas complementarias automáticas."))}</div>`;
         const dialog = new frappe.ui.Dialog({
-            title: `${esc(period.employer_name || period.employer)} · ${esc(period.month)} · ${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}`,
+            title: `${esc(period.employer_name || period.employer)} · ${esc(period.month)} · ${esc(historical ? historicalLabel(period) : operativeCycleLabel(period))}`,
             size: "extra-large",
             animate: false,
             fields: [{ fieldname: "detail", fieldtype: "HTML" }],
@@ -734,7 +734,7 @@ function renderPeriodCard(period) {
     const historical = period.reconciliation_mode === "Historica";
     return `<button type="button" class="cn-period-card cn-${esc(period.control_state || "en_transito")}" data-month-period="${esc(period.name)}">
         <span class="cn-period-card-name">${esc(period.name)}</span>
-        <span class="cn-cell-cycle">${esc(historical ? historicalLabel(period) : period.collection_cycle || __("Mensual"))}</span>
+        <span class="cn-cell-cycle">${esc(historical ? historicalLabel(period) : operativeCycleLabel(period))}</span>
         <span class="cn-badge">${esc(stateLabel(period.control_state))}</span>
         ${renderPeriodRemark(period)}
         <span class="cn-period-card-amounts">
@@ -993,6 +993,12 @@ function applicationStatusLabel(status) {
         "Aplicado y remitido": __("Aplicado y depositado"),
         "Remitido, aplicacion parcial": __("Depositado, aplicación parcial"),
     })[status] || status;
+}
+
+function operativeCycleLabel(period) {
+    return period.collection_cycle === "Fecha exacta"
+        ? `${__("Fecha exacta")} · ${displayDate(period.cutoff_date)}`
+        : period.collection_cycle || __("Mensual");
 }
 
 function cycleOrder(cycle) {

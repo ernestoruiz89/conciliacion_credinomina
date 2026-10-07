@@ -2,7 +2,7 @@ frappe.query_reports["Resumen de Conciliacion"] = {
     filters: [
         { fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer" },
         { fieldname: "reconciliation_mode", label: __("Modalidad"), fieldtype: "Select", options: "\nOperativa\nHistorica" },
-        { fieldname: "collection_cycle", label: __("Ciclo"), fieldtype: "Select", options: "\nMensual\nPrimera quincena\nSegunda quincena" },
+        { fieldname: "collection_cycle", label: __("Ciclo"), fieldtype: "Select", options: "\nMensual\nPrimera quincena\nSegunda quincena\nFecha exacta" },
         { fieldname: "historical_scope", label: __("Corte histórico"), fieldtype: "Select", options: "\nMensual\nFecha exacta\nRango de fechas" },
         { fieldname: "from_month", label: __("Desde"), fieldtype: "Date" },
         { fieldname: "to_month", label: __("Hasta"), fieldtype: "Date" },

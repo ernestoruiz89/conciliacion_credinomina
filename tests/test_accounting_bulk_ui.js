@@ -37,7 +37,7 @@ const context = vm.createContext({
         session: {user: "tester"},
         utils: {escape_html: value => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")},
         datetime: {str_to_user: value => `fecha:${value}`},
-        msgprint() {},
+        msgprint() {}, show_alert() {},
         call: async args => {
             calls.push(args);
             if (args.method.endsWith("preview_bulk_import")) state.options = {...args.args,
@@ -90,6 +90,26 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(!unidentified.includes("&lt;Empresa&gt;"));
     assert.ok(unidentified.includes('title="Asiento completo &quot;cobranza&quot; &lt;script&gt; &amp; detalle"'));
     const main = dialog;
+    assert.ok(unidentified.includes("cn-add-employer-alias"));
+    assert.ok(!identified.includes("cn-add-employer-alias"));
+    handlers[".cn-add-employer-alias"].call({getAttribute: () => "8"});
+    const aliasDialog = dialog;
+    const aliasFields = Object.fromEntries(aliasDialog.opts.fields.map(field => [field.fieldname, field]));
+    assert.equal(aliasFields.employer.options, "CN Employer");
+    assert.equal(aliasFields.employer.reqd, 1);
+    assert.equal(aliasFields.employer.default, undefined, "User must choose the company explicitly");
+    assert.equal(aliasFields.alias_name.default, "<Empresa original>");
+    assert.ok(aliasDialog.opts.fields[0].options.includes("&lt;script&gt;"));
+    const aliasSave = aliasDialog.primary({employer: "Empresa elegida", alias_name: "Alias de archivo"});
+    await aliasDialog.primary({employer: "Empresa elegida", alias_name: "Alias de archivo"});
+    await aliasSave;
+    assert.equal(calls.filter(call => call.method.endsWith("add_employer_alias")).length, 1);
+    const aliasCallIndex = calls.findIndex(call => call.method.endsWith("add_employer_alias"));
+    assert.equal(calls[aliasCallIndex].args.employer, "Empresa elegida");
+    assert.equal(calls[aliasCallIndex].args.alias_name, "Alias de archivo");
+    assert.ok(calls.slice(aliasCallIndex + 1).some(call => call.method.endsWith("preview_bulk_import")), "Refresh preview after adding alias");
+    assert.ok(!calls.some(call => call.method.endsWith("confirm_bulk_import")), "Saving an alias must not create imports");
+    dialog = main;
     handlers[".cn-change-employer"].call({getAttribute: () => "8"});
     assert.equal(dialog.opts.fields[1].options, "CN Employer");
     await dialog.primary({employer: "Empresa elegida"});

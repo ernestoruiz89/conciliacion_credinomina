@@ -59,6 +59,8 @@ def create_draft_period(import_name: str, values):
         fields["collection_cycle"] = values.get("collection_cycle") or (
             "Mensual" if employer.payroll_frequency != "Quincenal" else ""
         )
+        if fields["collection_cycle"] == "Fecha exacta":
+            fields["cutoff_date"] = values.get("cutoff_date")
     # Normal insertion enforces permissions, valid dates/cycles and duplicate cuts.
     # Do not copy accounting rows into payroll, reassign applications or reconcile.
     period = frappe.get_doc(fields).insert()

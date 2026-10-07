@@ -11,6 +11,7 @@ from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 from credinomina_reconciliation.aging import collection_shortfall_usd, operational_balances
 from credinomina_reconciliation.application_quality import quality_conforms, update_collection_quality
 from credinomina_reconciliation.cadence import (
+    EXACT_DATE,
     MONTHLY,
     cycle_code,
     cycle_cutoff,
@@ -167,11 +168,16 @@ class CNReconciliationPeriod(Document):
                     "Cree un período nuevo para el contexto correcto."
                 ))
             previous_cycle = (previous.collection_cycle or MONTHLY) if previous else None
+            exact_date_changed = (
+                previous and previous_cycle == self.collection_cycle == EXACT_DATE
+                and str(previous.cutoff_date or "")[:10] != str(self.cutoff_date or "")[:10]
+            )
             if (
-                previous and previous_cycle != (self.collection_cycle or MONTHLY)
-                and (previous.collection_rows or previous.status != "Borrador" or linked_applications)
+                previous and (previous_cycle != (self.collection_cycle or MONTHLY) or exact_date_changed)
+                and (previous.collection_rows or previous.status != "Borrador" or linked_applications
+                     or frappe.db.exists("CN Source Row", {"collection_period": self.name}))
             ):
-                frappe.throw(_("No cambie el ciclo de una cobranza ya cargada."))
+                frappe.throw(_("No cambie el ciclo ni su fecha de corte después de cargar cobranza o enlazar aplicaciones."))
             if self.is_new() or (previous and previous_cycle != (self.collection_cycle or MONTHLY)):
                 frequency = frappe.db.get_value(
                     "CN Employer", self.employer, "payroll_frequency"
@@ -212,10 +218,16 @@ class CNReconciliationPeriod(Document):
             return
         if not self.payroll_month or not self.employer:
             return
-        self.cutoff_date = cycle_cutoff(getdate(self.payroll_month), self.collection_cycle)
+        try:
+            self.cutoff_date = cycle_cutoff(
+                getdate(self.payroll_month), self.collection_cycle,
+                getdate(self.cutoff_date) if self.cutoff_date else None,
+            )
+        except ValueError as exc:
+            frappe.throw(_(str(exc)))
         if self.collection_cycle != MONTHLY:
             if self.remittance_due_date and getdate(self.remittance_due_date) < self.cutoff_date:
-                frappe.throw(_("El vencimiento del depósito no puede preceder el cierre de la quincena."))
+                frappe.throw(_("El vencimiento del depósito no puede preceder la fecha de corte."))
             return
         grace_days = frappe.db.get_value("CN Employer", self.employer, "grace_days") or 10
         first_next_month = getdate(add_months(getdate(self.payroll_month).replace(day=1), 1))
@@ -231,7 +243,7 @@ class CNReconciliationPeriod(Document):
                 "payroll_month": getdate(self.payroll_month).replace(day=1),
             },
             fields=[
-                "name", "collection_cycle", "reconciliation_mode", "historical_scope",
+                "name", "collection_cycle", "cutoff_date", "reconciliation_mode", "historical_scope",
                 "historical_application_date", "historical_start_date", "historical_end_date",
             ],
             limit_page_length=1000,
@@ -254,7 +266,8 @@ class CNReconciliationPeriod(Document):
                 conflict = historical_scopes_conflict(existing, proposed)
             else:
                 conflict = cycles_conflict(
-                    candidate.collection_cycle or MONTHLY, self.collection_cycle or MONTHLY
+                    candidate.collection_cycle or MONTHLY, self.collection_cycle or MONTHLY,
+                    candidate.cutoff_date, self.cutoff_date,
                 )
             if conflict:
                 frappe.throw(

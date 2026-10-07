@@ -168,6 +168,9 @@ async function createAccountingPeriod(frm) {
             }
             dialog.set_df_property("collection_cycle", "hidden", isHistorical);
             dialog.set_df_property("collection_cycle", "reqd", !isHistorical);
+            const exactDate = !isHistorical && dialog.get_value("collection_cycle") === "Fecha exacta";
+            dialog.set_df_property("cutoff_date", "hidden", !exactDate);
+            dialog.set_df_property("cutoff_date", "reqd", exactDate);
             dialog.set_df_property("application_basis", "hidden", isHistorical);
             dialog.set_df_property("application_basis", "reqd", !isHistorical);
         };
@@ -181,8 +184,10 @@ async function createAccountingPeriod(frm) {
                 {fieldname: "application_basis", fieldtype: "Select", label: __("Base de la primera conciliación"),
                     options: "\nCobranza\nDetalle de empresa", description: __("Elija una sola base contra la aplicación. Ambos archivos pueden conservarse en el período.")},
                 {fieldname: "collection_cycle", fieldtype: "Select", label: __("Ciclo de cobranza"),
-                    options: defaults.payroll_frequency === "Quincenal" ? "\nPrimera quincena\nSegunda quincena" : "Mensual",
-                    default: defaults.payroll_frequency === "Quincenal" ? "" : "Mensual"},
+                    options: defaults.payroll_frequency === "Quincenal" ? "\nPrimera quincena\nSegunda quincena\nFecha exacta" : "Mensual\nFecha exacta",
+                    default: defaults.payroll_frequency === "Quincenal" ? "" : "Mensual", onchange: updateFields},
+                {fieldname: "cutoff_date", fieldtype: "Date", label: __("Fecha de corte"),
+                    description: __("Elija un día del mes de cobranza para este período adicional.")},
                 {fieldname: "historical_scope", fieldtype: "Select", label: __("Tipo de período histórico"),
                     options: "Mensual\nFecha exacta\nRango de fechas", default: defaults.historical_scope, onchange: updateFields},
                 {fieldname: "historical_application_date", fieldtype: "Date", label: __("Fecha exacta de aplicación"), default: defaults.historical_application_date},

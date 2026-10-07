@@ -17,7 +17,12 @@ no deducida de una deducción ya realizada pero aún no remitida o aplicada.
 | **Histórico: abril 2025 – agosto 2026** | Aplicaciones del core contra depósitos y compensaciones confirmadas. | No se reconstruye la cobranza ni la deducción de planilla. La CxC es lo aplicado pendiente de cubrir, igual que en operativo. |
 | **Operativo: desde septiembre 2026** | Cobranza, detalle de deducción y aplicación; después, aplicación contra depósito. | Una deducción no se convierte en pago aplicado al crédito hasta que el core lo confirme. |
 
-La cobranza puede ser **mensual o quincenal** por empresa. Cada quincena tiene
+La cobranza puede ser **mensual o quincenal** por empresa. El ciclo **Fecha exacta**
+permite crear períodos operativos adicionales: seleccione una **Fecha de corte**
+dentro del mes de cobranza. Pueden coexistir con el mensual o las quincenas,
+pero no se admite repetir una fecha exacta para la misma empresa y mes.
+La fecha se protege después de cargar cobranza o enlazar aplicaciones; la fecha
+límite de depósito se registra manualmente. Cada quincena tiene
 su propio período y fecha límite de depósito. Si el core agrupa ambas quincenas
 en una aplicación, la app la reparte solo cuando crédito, empresa, mes e
 importes permiten un cruce único.
@@ -359,6 +364,11 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    **Nuevo análisis → Analizar archivo**: se conservan las selecciones del mismo
    archivo y se reagrupan por empresa y fecha antes de permitir la importación.
    **Quitar selecciones de empresa** permite volver a la identificación automática.
+   **Agregar alias** abre un diálogo para buscar la empresa y registrar el nombre
+   que aparece en el archivo; desde una fila, ese nombre se propone como alias.
+   Al guardarlo se vuelve a analizar el archivo sin crear importaciones. Guardar
+   nombres alternativos en la empresa ya no ejecuta una conciliación completa;
+   el alias se utiliza en los siguientes análisis o conciliaciones solicitados.
    Las decisiones no reemplazan identidades contradictorias de cartera ni se
    trasladan a otro archivo. El CSV individual conserva la decisión en
    `CN_EMPRESA_ASIGNADA`, sin reemplazar la empresa ni descripción originales.

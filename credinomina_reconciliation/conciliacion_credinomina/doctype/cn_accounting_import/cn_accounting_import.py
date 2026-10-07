@@ -569,7 +569,7 @@ def import_source_file(import_name: str):
                 "processing_route": prior_route,
                 "historical_period": (
                     prior_period or document.historical_period
-                    if record["event_type"] == "Aplicacion" else ""
+                    if record["event_type"] == "Aplicacion" and document.historical_period else ""
                 ),
                 "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
                 "match_status": "Pendiente",
@@ -591,7 +591,10 @@ def import_source_file(import_name: str):
         document.save()
     finally:
         _source_import_refresh.reset(token)
-    result = _reconcile_sources(document.employer, preserve_deposits=True)
+    result = _reconcile_sources(
+        document.employer, preserve_deposits=True,
+        unassigned_import=document.name if not document.historical_period else None,
+    )
     result["import_name"] = document.name
     return result
 
@@ -736,7 +739,7 @@ def _save_reconciled_document(document):
     return True
 
 
-def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False):
+def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False, unassigned_import=None):
     if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
@@ -862,9 +865,17 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False)
     deposit_pairs, registered_ids = _registered_deposit_pairs(all_rows, manual_allocations)
     _refresh_recognition_evidence(periods, deposit_pairs)
     report(30, _("Conciliando aplicaciones de pago…"))
+    # Reloading with an empty parent period explicitly removes row assignments.
+    # Recompute the old periods' balances without immediately matching these
+    # applications back to payroll. A later explicit reconciliation may match them.
+    matchable_rows = [row for row in all_rows if row._source_import != unassigned_import]
     _match_applications(
-        all_rows, collection_rows, deposit_pairs, complementary_by_target, periods
+        matchable_rows, collection_rows, deposit_pairs, complementary_by_target, periods
     )
+    for row in all_rows:
+        if row._source_import == unassigned_import and row.event_type == "Aplicacion" and row.effective:
+            row.match_status = "Sin coincidencia"
+            row.match_reason = _("Movimientos recargados sin período asignado. Seleccione un período o use Conciliar esta empresa para vincularlos nuevamente.")
     if preserve_deposits:
         report(50, _("Conservando las distribuciones de depósitos ya registradas…"))
         from credinomina_reconciliation.deposit_reconciliation import stored_cash_context
