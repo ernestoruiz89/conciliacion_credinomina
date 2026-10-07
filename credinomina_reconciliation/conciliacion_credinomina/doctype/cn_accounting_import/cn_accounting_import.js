@@ -49,7 +49,7 @@ frappe.ui.form.on("CN Accounting Import", {
         });
 
         if (frm.get_perm(0, "write")) {
-            frm.add_custom_button(__("Conciliar esta empresa"), () => reconcileCompany(frm));
+            frm.add_custom_button(__("Conciliar período predeterminado"), () => reconcileCompany(frm));
         }
     },
 
@@ -255,7 +255,7 @@ function updateImportExceptionNotice(frm) {
     }
     frm.set_intro(exceptions.length
         ? __("Esta carga tiene {0} filas con excepciones de conciliación. Use «Ver excepciones» para conocer los motivos; puede tratarse de depósitos pendientes, no de un error al importar.", [exceptions.length])
-        : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran excepciones. Revise el detalle y use «Conciliar esta empresa» para actualizar el resultado."), "orange");
+        : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran excepciones. Revise el detalle y use «Conciliar período predeterminado» para actualizar el resultado."), "orange");
     frm.add_custom_button(__("Ver excepciones"), () => showImportExceptions(frm));
 }
 
@@ -345,7 +345,7 @@ function importExceptionsHtml(frm, filters = {}, offset = 0) {
                 <span>${esc(__("Mostrando {0}–{1} de {2}", [offset + 1, Math.min(offset + 50, exceptions.length), exceptions.length]))}</span>
                 <button class="btn btn-default btn-sm" data-exception-page="next" ${offset + 50 < exceptions.length ? "" : "disabled"}>${esc(__("Siguiente"))}</button>
             </div>`
-            : `<p>${esc(total ? __("No hay filas que coincidan con los filtros.") : __("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar esta empresa» para recalcularlo."))}</p>`}
+            : `<p>${esc(total ? __("No hay filas que coincidan con los filtros.") : __("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar período predeterminado» para recalcularlo."))}</p>`}
         <p class="text-muted mt-3">${esc(__("Fila corresponde al número en la tabla de esta importación. Los importes están en US$. — indica un importe no disponible por aplicación; en operativo un depósito puede cubrir aplicaciones agrupadas. Consulte Ver motivos."))}</p>
         <p class="text-muted">${esc(__("Esta consulta no modifica datos ni concilia. Una fila aparece una sola vez aunque tenga varios motivos."))}</p>`;
 }
@@ -392,6 +392,10 @@ async function reconcileCompany(frm) {
         frappe.msgprint(__("Seleccione la empresa antes de conciliar."));
         return;
     }
+    if (!frm.doc.historical_period) {
+        frappe.msgprint(__("Seleccione el Período predeterminado de aplicaciones antes de conciliar."));
+        return;
+    }
     frm.__company_reconciliation_running = true;
     try {
         if (frm.is_dirty()) await frm.save();
@@ -399,7 +403,7 @@ async function reconcileCompany(frm) {
             method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.reconcile_company_sources",
             args: {import_name: frm.doc.name},
             freeze: true,
-            freeze_message: __("Conciliando las importaciones y depósitos de {0}…", [frm.doc.employer]),
+            freeze_message: __("Conciliando el período {0}…", [frm.doc.historical_period]),
         });
         await frm.reload_doc();
         showCompanyReconciliation(response.message);
@@ -426,7 +430,7 @@ function showCompanyReconciliation(result) {
             <td style="white-space:normal">${esc(row.reason)}</td>
         </tr>`).join("")}</tbody></table></div>`;
     const dialog = new frappe.ui.Dialog({
-        title: __("Conciliación de {0}", [result.employer]), size: "extra-large",
+        title: __("Conciliación de {0}", [result.period || result.employer]), size: "extra-large",
         fields: [{fieldtype: "HTML", options: `
             <style>.cn-company-reconciliation .cn-row-reconciled > td {
                 background-color: var(--bg-green, #eaf6ec);
@@ -434,13 +438,13 @@ function showCompanyReconciliation(result) {
             }</style>
             <div class="cn-company-reconciliation">
             <p>${__("Se procesaron {0} importaciones con los datos guardados.", [esc(result.imports)])}</p>
-            ${(result.reconciled_employers || []).length > 1 ? `<p>${__("Se recalcularon juntas las empresas vinculadas por pagos compartidos para conservar sus saldos:")} ${result.reconciled_employers.map(esc).join(", ")}</p>` : ""}
+            ${result.period ? `<p>${__("Período procesado")}: ${esc(result.period)}. ${__("Se conservaron las distribuciones de depósitos registradas.")}</p>` : (result.reconciled_employers || []).length > 1 ? `<p>${__("Se recalcularon juntas las empresas vinculadas por pagos compartidos para conservar sus saldos:")} ${result.reconciled_employers.map(esc).join(", ")}</p>` : ""}
             <div class="row">${counts.map(([label, value]) => `<div class="col-sm-3"><div class="text-muted">${label}</div><h3>${esc(value)}</h3></div>`).join("")}</div>
             <p class="text-muted">${__("Las filas ignoradas, como duplicados y ajustes, no se cuentan como pendientes.")}</p>
             ${result.pending ? `<h5>${__("Motivos para revisar")}</h5>
                 ${renderMovements(pending, false)}
                 ${result.pending > pending.length ? `<p>${__("Se muestran {0} de {1} filas pendientes. Abra las importaciones para revisar las demás.", [esc(pending.length), esc(result.pending)])}</p>` : ""}`
-                : `<p class="text-success">${result.rows ? __("No quedaron filas pendientes de conciliación.") : __("Esta empresa todavía no tiene movimientos importados.")}</p>`}
+                : `<p class="text-success">${result.rows ? __("No quedaron filas pendientes de conciliación.") : __("Este período todavía no tiene aplicaciones vinculadas.")}</p>`}
             ${matched.length ? `<h5>${__("Movimientos conciliados")}</h5>
                 ${renderMovements(matched, true)}
                 ${result.matched > matched.length ? `<p>${__("Se muestran {0} de {1} filas conciliadas. Abra las importaciones para revisar las demás.", [esc(matched.length), esc(result.matched)])}</p>` : ""}` : ""}
@@ -450,7 +454,7 @@ function showCompanyReconciliation(result) {
         secondary_action_label: __("Ver importaciones"),
         secondary_action: () => {
             dialog.hide();
-            frappe.set_route("List", "CN Accounting Import", {employer: result.employer});
+            frappe.set_route("List", "CN Accounting Import", {employer: result.employer, ...(result.period ? {historical_period: result.period} : {})});
         },
     });
     dialog.show();
