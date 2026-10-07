@@ -44,7 +44,12 @@ def run():
         source = save_file(f"{marker}.xlsx", stream.getvalue(), None, None, is_private=1)
         source_path = Path(source.get_full_path()).resolve()
         files_before = set(source_path.parent.iterdir())
-        options = {"source_file": source.file_url, "currency": "NIO", "manual_fx_rate": "36.6243"}
+        snapshot = frappe.get_doc({"doctype": "CN Credit Portfolio Snapshot",
+            "source_file": source.file_url, "report_date": "2039-12-31", "status": "Importado",
+            "rows": [{"credit_number": f"{marker}-CUT-{i}", "employer": employer,
+                      "credit_status": "VIGENTE"} for i, employer in enumerate(employers)]}).insert()
+        options = {"source_file": source.file_url, "currency": "NIO", "manual_fx_rate": "36.6243",
+                   "portfolio_snapshot": snapshot.name}
         count_before = frappe.db.count("CN Client")
         plan = bulk._plan(options)
         assert not plan["issues"], plan["issues"]
@@ -78,6 +83,7 @@ def run():
             assert document.total_usd == 45.04
             assert all(str(row.event_date) == result["event_date"] for row in document.rows)
             assert document.bulk_source_hash == plan["file_hash"]
+            assert document.portfolio_snapshot == snapshot.name
             assert document.bulk_source_file == source.file_url
             assert document.source_file != source.file_url
             individual_file = frappe.get_doc("File", {"file_url": document.source_file})

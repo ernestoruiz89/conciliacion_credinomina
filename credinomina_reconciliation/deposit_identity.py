@@ -83,7 +83,7 @@ def load_detail_loan_clients(rows, clients, allowed):
         result[credit_key(loan)].add(client["name"] if client else None)
 
     snapshots = frappe.get_all("CN Credit Portfolio Snapshot",
-        filters={"status": ["in", ["Importado", "Importado con alertas"]]}, pluck="name", limit_page_length=0)
+        filters={"disabled": 0, "status": ["in", ["Importado", "Importado con alertas"]]}, pluck="name", limit_page_length=0)
     if snapshots:
         for row in frappe.get_all("CN Credit Portfolio Row", filters={
                 "parent": ["in", snapshots], "parenttype": "CN Credit Portfolio Snapshot",

@@ -129,12 +129,12 @@ class DepositIdentityTests(unittest.TestCase):
         with patch.object(remittance.frappe, "get_doc", side_effect=lambda dt, name: document if dt == document.doctype else file_doc), \
                 patch.object(remittance.frappe, "get_all", return_value=["FILE"]), \
                 patch.object(remittance, "load_client_index", return_value=self.clients), \
-                patch.object(remittance, "load_detail_loan_clients", return_value=self.loans), \
+                patch.object(remittance, "load_detail_loan_clients", return_value={"0013375-1": {"1"}}), \
                 patch.object(remittance, "allowed_employers", return_value={"EMP"}), \
                 patch.object(remittance, "now_datetime", return_value="2026-10-04 10:00:00"):
             remittance.import_remittance_detail("DEP")
         row = document.detail_rows[0]
-        self.assertEqual((row.client, row.client_name, row.client_number, row.loan_number), ("1", "Ana María Pérez", "001", "13375-1"))
+        self.assertEqual((row.client, row.client_name, row.client_number, row.loan_number), ("1", "Ana María Pérez", "001", "0013375-1"))
         self.assertEqual((row.amount_usd, row.match_status, document.detail_total_usd), (20, "Pendiente", 20))
         self.assertEqual(document.targets, [])
 
