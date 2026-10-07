@@ -174,10 +174,9 @@ class CNReconciliationPeriod(Document):
             )
             if (
                 previous and (previous_cycle != (self.collection_cycle or MONTHLY) or exact_date_changed)
-                and (previous.collection_rows or previous.status != "Borrador" or linked_applications
-                     or frappe.db.exists("CN Source Row", {"collection_period": self.name}))
+                and (previous.collection_rows or linked_applications or self._has_cycle_links())
             ):
-                frappe.throw(_("No cambie el ciclo ni su fecha de corte después de cargar cobranza o enlazar aplicaciones."))
+                frappe.throw(_("No cambie el ciclo ni su fecha de corte mientras tenga cobranza o documentos vinculados."))
             if self.is_new() or (previous and previous_cycle != (self.collection_cycle or MONTHLY)):
                 frequency = frappe.db.get_value(
                     "CN Employer", self.employer, "payroll_frequency"
@@ -190,6 +189,17 @@ class CNReconciliationPeriod(Document):
                     frappe.throw(_(str(exc)))
             elif not self.collection_cycle:
                 self.collection_cycle = MONTHLY  # Existing monthly periods before this field.
+
+    def _has_cycle_links(self):
+        # Pendiente can describe an empty period after a recalculation. Check
+        # actual references only when changing its cycle/date, not on every save.
+        return any(frappe.db.exists(doctype, filters) for doctype, filters in (
+            ("CN Source Row", {"collection_period": self.name}),
+            ("CN Accounting Import", {"historical_period": self.name, "docstatus": ["<", 2]}),
+            ("CN Complementary Item", {"period": self.name, "docstatus": ["<", 2]}),
+            ("CN Remittance Period", {"period": self.name, "docstatus": ["<", 2]}),
+            ("CN Remittance Target", {"period": self.name, "docstatus": ["<", 2]}),
+        ))
 
     def on_update(self):
         rename_period_for_context_change(self)
