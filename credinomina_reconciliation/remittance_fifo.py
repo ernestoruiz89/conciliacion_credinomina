@@ -2,11 +2,11 @@
 from datetime import date
 
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
-from credinomina_reconciliation.rounding import money, money_float, sum_money
+from credinomina_reconciliation.rounding import money, money_float
 
 
 def fifo_targets(matches, amount_usd, reserved=None):
-    """Allocate a complete detail row or return no instructions.
+    """Allocate available dated capacity, leaving any detail excess pending.
 
     Claims are already scoped and identity-checked by remittance_detail. An
     operative claim can contain several applications: sort their dated slices,
@@ -50,8 +50,8 @@ def fifo_targets(matches, amount_usd, reserved=None):
             if not available:
                 break
     requested = money(amount_usd)
-    if requested <= 0 or sum_money(part[3] for part in slices) < requested:
-        return [], "Importe supera las aplicaciones pendientes del cliente y crédito en los períodos seleccionados"
+    if requested <= 0 or not slices:
+        return [], "Sin importe disponible para distribuir entre las aplicaciones pendientes del cliente y crédito en los períodos seleccionados"
     targets = {}
     for day, application_id, claim_id, amount in sorted(slices):
         assigned = min(requested, amount)
@@ -62,4 +62,7 @@ def fifo_targets(matches, amount_usd, reserved=None):
         requested -= assigned
         if not requested:
             break
-    return list(targets.values()), "Automática FIFO: aplicaciones de la más antigua a la más reciente"
+    reason = "Automática FIFO: aplicaciones de la más antigua a la más reciente"
+    if requested:
+        reason += f"; distribución parcial, pendiente de distribuir US$ {requested:.2f}"
+    return list(targets.values()), reason

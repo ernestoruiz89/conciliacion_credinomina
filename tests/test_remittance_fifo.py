@@ -59,9 +59,9 @@ class FifoMatchingTests(unittest.TestCase):
         self.claims[0]["fifo_applications"][0]["event_date"] = ""
         self.assertEqual(self.suggest()[0], [])
         self.claims[0]["period_closed"] = True
-        self.assertEqual(self.suggest()[0], [])
+        self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in self.suggest()[0]], [("H:OLD", 40)])
         self.claims[0].update(period_closed=False, kind="X")
-        self.assertEqual(self.suggest()[0], [])
+        self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in self.suggest()[0]], [("H:OLD", 40)])
 
     def test_date_ties_are_stable_and_independent_of_input_order(self):
         self.claims[0]["fifo_applications"][0]["event_date"] = "2025-04-15"
@@ -73,7 +73,9 @@ class FifoMatchingTests(unittest.TestCase):
         self.claims[1].update(amount_usd=25, core_applied_usd=25, fifo_covered_usd=15)
         targets, _ = self.suggest(70, reserved_amounts={"H:OLD": money(10)})
         self.assertEqual([t["amount_usd"] for t in targets], [15, 55])
-        self.assertEqual(self.suggest(75.01, reserved_amounts={"H:OLD": money(10)})[0], [])
+        targets, reason = self.suggest(75.01, reserved_amounts={"H:OLD": money(10)})
+        self.assertEqual([t["amount_usd"] for t in targets], [15, 60])
+        self.assertIn("pendiente de distribuir US$ 0.01", reason)
 
     def test_operative_slices_use_actual_dates_not_period_order(self):
         self.claims[0].update(kind="C", id="C:ROW", amount_usd=200, core_applied_usd=60,
@@ -82,7 +84,16 @@ class FifoMatchingTests(unittest.TestCase):
         targets, _ = self.suggest(70)
         self.assertEqual([(t["claim_id"], t["amount_usd"]) for t in targets], [("C:ROW", 30), ("H:OLD", 40)])
         self.assertEqual([a["amount_usd"] for a in targets[0]["fifo_applications"]], [20, 10])
-        self.assertEqual(self.suggest(100.01)[0], [])  # Deduction is not an application.
+        targets, reason = self.suggest(100.01)
+        self.assertEqual(sum_money(t["amount_usd"] for t in targets), money(100))
+        self.assertIn("pendiente de distribuir US$ 0.01", reason)
+
+    def test_detail_excess_distributes_available_balance_and_keeps_remainder(self):
+        self.claims = [application("A", "2025-04-15", 9.62)]
+        targets, reason = self.suggest(13.05)
+        self.assertEqual([t["amount_usd"] for t in targets], [9.62])
+        self.assertIn("pendiente de distribuir US$ 3.43", reason)
+        self.assertEqual(self.suggest(13.05, reserved_amounts={"H:A": money(9.62)})[0], [])
 
     def test_operative_fixed_cash_is_consumed_before_new_slices(self):
         self.claims = [dict(id="C:R", kind="C", group="EMP", period="P1", client="5464",
@@ -129,6 +140,28 @@ class FifoDetailEngineTests(unittest.TestCase):
         _, result = self.run_engine()
         self.assertEqual(sum_money(t["amount_usd"] for t in result["allocations"]), money(66.06))
 
+    def test_partial_fifo_persists_linked_and_pending_amounts_without_settling_row(self):
+        self.rows = self.rows[:1]
+        self.rows[0].deducted_usd = self.deposit["amount_usd"] = 13.05
+        self.claims = [application("A", "2025-04-15", 9.62)]
+        context, result = self.run_engine()
+        self.assertEqual(result["deposit_remaining"]["DEP"], 3.43)
+        self.assertEqual(result["claim_remaining"]["H:A"], 0)
+        self.assertEqual(context["rounding_eligible"], set())
+        with patch.object(engine.frappe, "db", Mock()) as db, patch(
+            "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={},
+        ):
+            db.get_single_value.return_value = "dd-MM-yyyy"
+            statuses = engine._sync_remittance_details(context, result, self.claims)
+        saved = next(call.args[2] for call in db.set_value.call_args_list
+                     if call.args[0] == "CN Remittance Detail")
+        self.assertEqual(saved["linked_usd"], 9.62)
+        self.assertEqual(saved["pending_usd"], 3.43)
+        self.assertEqual(saved["match_status"], "Revisar")
+        self.assertEqual(statuses["DEP"], "Revisar filas")
+        self.assertIn("pendiente de distribuir US$ 3.43", saved["match_reason"])
+        self.assertEqual(self.run_engine()[1], result)
+
     def test_manual_row_has_priority_even_when_it_is_last_in_file(self):
         manual = [dict(id="MANUAL", deposit_id="DEP", claim_id="H:A", amount_usd=22.02,
                        detail_row="ROW2", origin=MANUAL)]
@@ -160,7 +193,7 @@ class FifoDetailEngineTests(unittest.TestCase):
         context, _ = self.run_engine()
         self.assertEqual({t["claim_id"] for t in context["instructions"]}, {"H:B"})
 
-    def test_picker_can_link_fifo_remainder_to_another_detail_row(self):
+    def test_fifo_exhausts_capacity_and_manual_override_preserves_pending_cent(self):
         # Two detail rows of 18.67 cover applications of 18.66 and 18.67.
         # FIFO uses one cent of the second application in the first detail row.
         for row in self.rows:
@@ -168,7 +201,8 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.claims = [application("A", "2025-04-15", 18.66), application("B", "2025-04-30", 18.67)]
         self.deposit["amount_usd"] = 37.34
         _, initial = self.run_engine()
-        self.assertEqual(initial["claim_remaining"]["H:B"], 18.66)
+        self.assertEqual(initial["claim_remaining"]["H:B"], 0)
+        self.assertEqual(initial["deposit_remaining"]["DEP"], 0.01)
         selection = pending_selection(
             [{"historical_application": "B", "applied_usd": 18.67, "due_usd": 18.67}],
             [{"name": "DEP", "docstatus": 1, "allocation_detail": [
@@ -176,7 +210,7 @@ class FifoDetailEngineTests(unittest.TestCase):
                  "origen": entry["origin"]} for entry in initial["allocations"]
             ]}], "DEP", 37.34, [],
         )
-        self.assertEqual(selection["rows"][0]["pending_cents"], 1866)
+        self.assertEqual(selection["rows"], [])
         manual = [dict(id="MANUAL", deposit_id="DEP", claim_id="H:B", amount_usd=18.66,
                        detail_row="ROW2", origin=MANUAL)]
         context, result = self.run_engine(manual)
