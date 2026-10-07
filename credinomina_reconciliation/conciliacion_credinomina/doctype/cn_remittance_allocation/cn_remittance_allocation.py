@@ -459,6 +459,88 @@ def create_complementary_item(remittance_name: str, modified: str, values):
 
 
 @frappe.whitelist(methods=["POST"])
+def create_client_credit_items_bulk(remittance_name: str, modified: str, rows,
+                                    reason_type: str, description: str,
+                                    credit_treatment: str, credit_assigned_to: str,
+                                    credit_commitment_date: str, posting_date: str):
+    """Create a separate, row-linked client credit for every selected detail row."""
+    from credinomina_reconciliation.client_credit import lock_credit_deposit
+    from credinomina_reconciliation.provisional_adjustments import defer_deposit_reconciliation
+    from credinomina_reconciliation.rounding import money
+    from frappe.utils import getdate
+
+    document = lock_credit_deposit(remittance_name)
+    document.check_permission("write")
+    if document.docstatus != 1:
+        frappe.throw(_("Confirme primero el depósito."))
+    document._assert_open_related_periods()
+    if str(document.modified) != str(modified):
+        frappe.throw(_("El depósito cambió. Recárguelo antes de crear los saldos a favor."))
+    if not frappe.has_permission("CN Complementary Item", "create") or not frappe.has_permission("CN Complementary Item", "submit"):
+        frappe.throw(_("Necesita permisos para crear y confirmar partidas complementarias."), frappe.PermissionError)
+    rows = frappe.parse_json(rows) if isinstance(rows, str) else rows
+    if not isinstance(rows, list) or not 2 <= len(rows) <= 200:
+        frappe.throw(_("Seleccione entre 2 y 200 filas para crear saldos a favor."))
+    if (reason_type not in {"Error de la empresa", "Pago adicional no informado", "Por refinanciamiento",
+                            "Por cancelación", "Otro por aclarar"}
+            or not clean_text(description) or credit_treatment not in {"Pendiente de decisión", "Devolución", "Aplicación futura"}
+            or not credit_assigned_to or not credit_commitment_date or not posting_date):
+        frappe.throw(_("Complete el motivo, justificación y seguimiento de los saldos a favor."))
+    getdate(posting_date)
+    getdate(credit_commitment_date)
+    row_by_name = {row.name: row for row in document.detail_rows or []}
+    prepared, seen = [], set()
+    for entry in rows:
+        if not isinstance(entry, dict):
+            frappe.throw(_("Una de las filas seleccionadas no es válida."))
+        row_name, amount = clean_text(entry.get("detail_row")), money(entry.get("amount"))
+        row = row_by_name.get(row_name)
+        if not row or row_name in seen:
+            frappe.throw(_("Las filas seleccionadas cambiaron o están repetidas. Recargue el depósito."))
+        pending = money(row.amount_usd) - money(row.linked_usd) - money(row.client_credit_usd)
+        if amount <= 0 or amount > pending:
+            frappe.throw(_("El importe del saldo a favor de la fila {0} debe ser positivo y no superar su pendiente de US$ {1}.").format(
+                row.source_row or row.idx, max(pending, 0)))
+        if not any(clean_text(row.get(field)) for field in
+                   ("client", "client_number", "employee_number", "national_id", "client_name", "loan_number")):
+            frappe.throw(_("La fila {0} no tiene una identidad de cliente para crear el saldo a favor.").format(row.source_row or row.idx))
+        seen.add(row_name)
+        prepared.append((row, amount))
+
+    created = []
+    with defer_deposit_reconciliation():
+        for row, amount in prepared:
+            item = frappe.new_doc("CN Complementary Item")
+            item.update({
+                "category": "Saldo a favor del cliente", "reason_type": reason_type,
+                "description": clean_text(description), "reference": document.deposit_reference,
+                "deposit_voucher": document.deposit_voucher, "posting_date": getdate(posting_date),
+                "employer": "", "registered_deposit": document.name, "currency": "USD",
+                "amount": float(amount), "credit_client": row.client or "",
+                "credit_detail_row": row.name, "credit_treatment": credit_treatment,
+                "credit_assigned_to": credit_assigned_to,
+                "credit_commitment_date": getdate(credit_commitment_date),
+                "client_number": row.client_number or "", "loan_number": row.loan_number or "",
+            })
+            item.flags.defer_reconciliation = True
+            item.insert()
+            item.submit()
+            created.append(item)
+
+    from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
+    from credinomina_reconciliation.reconciliation_audit import audit_reason
+    with audit_reason("Crear saldos a favor del cliente en lote", clean_text(description)):
+        reconcile_deposit(document)
+    for item in created:
+        item.reload()
+        if item.result != "Saldo a favor documentado":
+            frappe.throw(_("El saldo a favor de la fila {0} no se pudo documentar: {1}.").format(
+                item.credit_detail_row, item.result or "Pendiente"))
+    return {"created": [{"name": item.name, "detail_row": item.credit_detail_row,
+                          "amount_usd": item.amount_usd} for item in created]}
+
+
+@frappe.whitelist(methods=["POST"])
 def reconcile_remittance(remittance_name: str, progress_id: str = "", reason: str = ""):
     """Run reconciliation only when the user explicitly requests it."""
     document = frappe.get_doc("CN Remittance Allocation", remittance_name)

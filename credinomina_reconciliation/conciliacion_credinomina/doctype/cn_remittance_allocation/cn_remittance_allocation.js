@@ -14,6 +14,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         // Imported rows remain intact; company and credit can disambiguate identity.
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
         frm.fields_dict.detail_rows.grid.df.cannot_delete_rows = true;
+        addBulkClientCreditButton(frm);
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
         frm.set_query("period", "detail_periods", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
         frm.set_query("employer", "detail_rows", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
@@ -451,6 +452,99 @@ function canCreateDetailClientCredit(frm, row) {
     return !frm.is_new() && frm.doc.docstatus === 1 && !!frm.get_perm(0, "write") &&
         !!frappe.model.can_create("CN Complementary Item") && !!frappe.model.can_submit("CN Complementary Item") &&
         !!row && Number.isFinite(pending) && pending > 0;
+}
+
+function addBulkClientCreditButton(frm) {
+    const grid = frm.fields_dict.detail_rows?.grid;
+    if (!grid?.add_custom_button || !grid.get_selected_children) return;
+    const label = __("Crear saldos a favor seleccionados");
+    frm.bulkClientCreditButton = grid.add_custom_button(label, () => createBulkClientCredits(frm), "bottom");
+    const refresh = () => {
+        const selected = grid.get_selected_children();
+        const available = selected.length >= 2 && selected.every(row => canCreateDetailClientCredit(frm, row));
+        frm.bulkClientCreditButton.toggleClass("hidden", !available);
+    };
+    grid.wrapper.off("change.cnBulkClientCredits", ".grid-row-check")
+        .on("change.cnBulkClientCredits", ".grid-row-check", () => setTimeout(refresh, 0));
+    refresh();
+}
+
+async function createBulkClientCredits(frm) {
+    if (frm.bulk_detail_credit_workflow || frm.detail_credit_workflow || frm.company_credit_workflow) return;
+    const grid = frm.fields_dict.detail_rows?.grid;
+    const selectedNames = (grid?.get_selected_children?.() || []).map(row => row.name);
+    if (selectedNames.length < 2) {
+        frappe.msgprint(__("Seleccione al menos dos filas con importe pendiente."));
+        return;
+    }
+    frm.bulk_detail_credit_workflow = true;
+    let dialogOpened = false;
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const rows = selectedNames.map(name => (frm.doc.detail_rows || []).find(row => row.name === name));
+        if (rows.some(row => !canCreateDetailClientCredit(frm, row))) {
+            frappe.msgprint(__("Una o más filas cambiaron o ya no tienen pendiente. Recargue el depósito y revise la selección."));
+            return;
+        }
+        const esc = value => frappe.utils.escape_html(String(value ?? ""));
+        const dialog = new frappe.ui.Dialog({
+            title: __("Crear saldos a favor del cliente"), size: "large",
+            onhide() { frm.bulk_detail_credit_workflow = false; },
+            fields: [
+                {fieldname: "rows_preview", fieldtype: "HTML", options: `<div class="alert alert-warning">${esc(__("Se creará una partida independiente por cada fila. El motivo y el comentario se compartirán; revise el importe individual de cada saldo. No se aplica a los créditos."))}</div>
+                    <div class="table-responsive"><table class="table table-bordered"><thead><tr><th>${esc(__("Fila"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Saldo a favor US$"))}</th></tr></thead>
+                    <tbody>${rows.map(row => `<tr><td>${esc(row.source_row || row.idx)}</td>
+                    <td>${esc(row.client_name || row.client_number || __("Cliente sin identificar"))}<div class="text-muted">${esc(row.loan_number || "")}</div></td>
+                    <td class="text-right">${esc(remittanceMoney(row.pending_usd))}</td>
+                    <td><input class="form-control input-sm" type="number" min="0.01" step="0.01" max="${esc(row.pending_usd)}"
+                        data-credit-amount="${esc(row.name)}" value="${Number(row.pending_usd).toFixed(2)}" required></td></tr>`).join("")}</tbody></table></div>`},
+                {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"),
+                    options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar", reqd: 1},
+                {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"),
+                    options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión", reqd: 1},
+                {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user, reqd: 1},
+                {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), reqd: 1},
+                {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
+                {fieldname: "description", fieldtype: "Small Text", label: __("Comentario / justificación"), reqd: 1},
+            ],
+            primary_action_label: __("Crear y confirmar {0} saldos", [rows.length]),
+            async primary_action(values) {
+                if (dialog.running) return;
+                const amounts = rows.map(row => {
+                    const raw = dialog.fields_dict.rows_preview.$wrapper.find(`[data-credit-amount="${row.name}"]`).val();
+                    const amount = Number(raw);
+                    return {detail_row: row.name, amount,
+                        valid: /^\d+(?:\.\d{1,2})?$/.test(String(raw || "")) && Number.isFinite(amount)
+                            && amount > 0 && amount <= Number(row.pending_usd)};
+                });
+                if (amounts.some(row => !row.valid)) {
+                    frappe.msgprint(__("Cada importe debe ser positivo y no superar el pendiente de su fila."));
+                    return;
+                }
+                dialog.running = true;
+                dialog.disable_primary_action();
+                try {
+                    const response = await frappe.call({
+                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.create_client_credit_items_bulk",
+                        args: {remittance_name: frm.doc.name, modified: frm.doc.modified,
+                            rows: JSON.stringify(amounts.map(({detail_row, amount}) => ({detail_row, amount}))), ...values},
+                        freeze: true, freeze_message: __("Creando saldos a favor independientes…"),
+                    });
+                    dialog.hide();
+                    await frm.reload_doc();
+                    frappe.show_alert({message: __("Se crearon {0} saldos a favor independientes.",
+                        [response.message.created.length]), indicator: "green"});
+                } finally {
+                    dialog.running = false;
+                    dialog.enable_primary_action();
+                }
+            },
+        });
+        dialog.show();
+        dialogOpened = true;
+    } finally {
+        if (!dialogOpened) frm.bulk_detail_credit_workflow = false;
+    }
 }
 
 async function createClientCreditFromDetail(frm, cdt, cdn) {

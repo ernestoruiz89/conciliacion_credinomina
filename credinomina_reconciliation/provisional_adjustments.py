@@ -12,6 +12,7 @@ from credinomina_reconciliation.application_quality import collection_quality, P
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 _trusted = ContextVar("cn_provisional_write", default=False)
+_materializing = ContextVar("cn_provisional_materializing", default=False)
 CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación",
               "Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CREDITS = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
@@ -181,7 +182,17 @@ def approve_proposals(period_name):
 
 
 def is_materializing():
-    return _trusted.get()
+    return _trusted.get() or _materializing.get()
+
+
+@contextmanager
+def defer_deposit_reconciliation():
+    """Defer per-item deposit rebuilds while confirming a batch of credits."""
+    token = _materializing.set(True)
+    try:
+        yield
+    finally:
+        _materializing.reset(token)
 
 
 def explicit_complement_rows(periods):
