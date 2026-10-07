@@ -65,6 +65,16 @@ def normalize_credit_number(value: Any) -> str:
     return f"{number}-1" if re.fullmatch(r"\d+", number) else number
 
 
+def normalize_returned_credit_number(value: Any) -> str:
+    """Company-returned deposit files prefix short numeric credits with exactly 00.
+
+    Apply once to each raw file value, before client/portfolio identification.
+    This is not padding to six digits; other explicit cycles remain untouched.
+    """
+    number = normalize_credit_number(value)
+    return f"00{number}" if re.fullmatch(r"\d{1,5}-1", number) else number
+
+
 def has_legacy_numeric_credit_numbers(credit_numbers: Iterable[Any]) -> bool:
     """Return whether stored portfolio rows still need the default ``-1`` suffix."""
     return any(clean_text(number).isdigit() for number in credit_numbers)
