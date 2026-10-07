@@ -48,12 +48,12 @@ def load_cuts(document, allowed):
     if not names:
         return []
     cuts = frappe.get_list("CN Credit Portfolio Snapshot", filters={
-        "name": ["in", sorted(names)], "status": ["in", IMPORTED]},
+        "disabled": 0, "name": ["in", sorted(names)], "status": ["in", IMPORTED]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
     if not cuts or not cuts[0].report_date:
         return []
     previous = frappe.get_list("CN Credit Portfolio Snapshot", filters={
-        "status": ["in", IMPORTED], "report_date": ["<", cuts[0].report_date]},
+        "disabled": 0, "status": ["in", IMPORTED], "report_date": ["<", cuts[0].report_date]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
     return cuts + previous
 

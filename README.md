@@ -305,9 +305,13 @@ para subir un archivo con aplicaciones de varios meses o empresas:
 
 1. Adjunte el archivo y seleccione USD o NIO. Para NIO, indique una tasa para
    toda la carga; si las fechas requieren tasas distintas, divida los archivos.
+   Seleccione un **Corte de cartera** importado: es obligatorio para analizar,
+   confirmar y reanudar cargas masivas, incluso desde la API. El corte se conserva
+   en cada importación creada. Si una empresa no está incluida, seleccione un corte
+   compatible; no se elimina el vínculo automáticamente. Una carga guardada sin
+   corte debe analizarse nuevamente con uno seleccionado antes de continuar.
 2. Deje Empresa vacía para archivos mixtos. Primero se busca el crédito en el
-   **Corte de cartera** seleccionado (o el corte aplicable a la fecha si no selecciona
-   uno) y se toma su empresa. Si no se obtiene empresa de cartera, se busca el
+   **Corte de cartera** seleccionado y se toma su empresa. Si no se obtiene empresa de cartera, se busca el
    nombre de la empresa, su código y finalmente sus alias registrados. Un nombre
    libre sin alias no bloquea una empresa ya identificada en cartera. Una empresa
    predeterminada solo completa filas sin datos de empresa; no reemplaza otra
@@ -655,8 +659,8 @@ quedan para revisión. No cambia aplicaciones ni saldos del core.
 Un parche adicional incorpora el enlace del reporte de antigüedad al Workspace
 existente sin borrar los demás accesos que haya configurado el sitio.
 
-La instalación crea los roles `Operador Credinomina` y
-`Supervisor Credinomina`. Asigne el rol correspondiente y, si se desea,
+La instalación crea los roles `Operador Credinomina`,
+`Supervisor Credinomina` y `Eliminar Mov. del Core`. Asigne el rol correspondiente y, si se desea,
 configure el idioma del usuario como español. El Workspace
 **Conciliación Credinómina** está en `/app/conciliacion-credinomina` y reúne
 el tablero, la operación, las excepciones y los reportes. También está
@@ -688,6 +692,13 @@ Los cortes de cartera importados se identifican como `CARTERA-mes-año`, por
 ejemplo `CARTERA-9-2026`, a partir de `FECHA_REPORTE` del archivo. Los borradores
 reciben un identificador provisional hasta importar el archivo. La migración
 renombra los cortes existentes y actualiza sus referencias.
+
+Los cortes permiten **Renombrar** desde el menú del documento, conservando sus
+vínculos; una nueva importación respeta el nombre personalizado. El check
+**Es Desactivar** puede actualizarse incluso en documentos confirmados. Al
+marcarlo, el corte deja de ofrecerse en selectores y búsquedas automáticas de
+cartera, y el servidor rechaza nuevas selecciones o cargas que intenten usarlo.
+Los vínculos históricos se conservan. Desmarcarlo vuelve a habilitar el corte.
 
 Los depósitos se nombran `DEP-mes-año-####` según su fecha real, por ejemplo
 `DEP-9-2026-0001`, con consecutivo por mes y año. El identificador asignado
@@ -1214,9 +1225,17 @@ ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
 complementaria anterior, la carga se detiene con un mensaje para revisar el
 registro previo. No se convierte evidencia anterior automáticamente.
 
-Los depósitos y partidas complementarias importados del histórico contable no
-se pueden cancelar ni eliminar, incluso en borrador o si quedaron cancelados
-antes de esta protección. La evidencia original debe conservarse. Para corregir
+Las importaciones `CN Accounting Import`, los depósitos y las partidas complementarias
+importados del archivo contable del core requieren el rol **Eliminar Mov. del Core**
+para cancelar o eliminar, incluso en borrador o si quedaron cancelados antes de
+esta protección. El rol se crea al instalar o ejecutar `bench migrate` y no se
+asigna automáticamente a ningún usuario; incluso Administrator debe tenerlo
+asignado explícitamente. Es un requisito adicional a los permisos normales de
+cancelación/eliminación: no permite saltarse vínculos, conciliaciones ni períodos
+cerrados. `CN Accounting Import` no es confirmable y conserva su flujo actual;
+la protección se aplica al eliminarlo y también valida cualquier intento de cancelación.
+Un borrador sin filas ni evidencia de importación puede eliminarse con los permisos
+normales. Para corregir
 la distribución de un depósito importado, use **Desconciliar**, revise sus destinos
 y vuelva a conciliar; el depósito permanece confirmado.
 

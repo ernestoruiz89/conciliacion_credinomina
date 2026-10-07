@@ -19,6 +19,7 @@ class BulkMovementLimitTests(unittest.TestCase):
         for count in (20_001, 99_999, 100_000, 100_001):
             with self.subTest(count=count), ExitStack() as stack:
                 stack.enter_context(patch.object(bulk, "_permissions"))
+                stack.enter_context(patch.object(bulk, "_required_portfolio_snapshot", return_value="CUT"))
                 stack.enter_context(patch.object(bulk, "_file", return_value=(SimpleNamespace(file_name="test.csv"), b"test")))
                 stack.enter_context(patch.object(bulk.frappe, "get_list", return_value=[]))
                 stack.enter_context(patch.object(bulk.frappe, "has_permission", return_value=True))

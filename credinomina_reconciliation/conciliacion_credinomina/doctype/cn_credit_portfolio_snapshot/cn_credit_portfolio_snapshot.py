@@ -131,6 +131,7 @@ def import_portfolio_snapshot(snapshot_name: str):
     created = {}
     analyze_portfolio_rows(parsed, created=created)
     previous_hash = snapshot.file_hash
+    previous_report_date = snapshot.report_date
     previous_count = len(snapshot.rows or [])
     snapshot.report_date = parsed[0]["report_date"]
     snapshot.file_hash = digest
@@ -162,7 +163,7 @@ def import_portfolio_snapshot(snapshot_name: str):
     # monthly cut can exceed MariaDB's packet limit even though every row is
     # valid. Keep normal validation/transactions and audit the import compactly.
     snapshot.save(ignore_version=True)
-    snapshot_name = rename_snapshot_for_date(snapshot, parsed[0]["report_date"])
+    snapshot_name = rename_snapshot_for_date(snapshot, parsed[0]["report_date"], previous_report_date)
     snapshot.add_comment("Comment", _portfolio_import_audit(
         snapshot, file_doc.file_name, previous_hash, previous_count, created,
     ))

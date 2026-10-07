@@ -81,7 +81,7 @@ def load_detail_context(remittance_name, detail_row_name):
         frappe.throw(_("Identifique primero al cliente de la fila: {0}.").format(reason))
     frappe.get_doc("CN Client", client["name"]).check_permission("read")
     snapshots = frappe.get_list("CN Credit Portfolio Snapshot",
-        filters={"status": ["in", ["Importado", "Importado con alertas"]]},
+        filters={"disabled": 0, "status": ["in", ["Importado", "Importado con alertas"]]},
         fields=["name", "report_date"], limit_page_length=0)
     by_name = {item.name: item for item in snapshots}
     rows = frappe.get_all("CN Credit Portfolio Row",

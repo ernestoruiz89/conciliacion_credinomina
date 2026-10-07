@@ -15,8 +15,11 @@ def portfolio_snapshot_name(report_date):
     return f"CARTERA-{cut_date.month}-{cut_date.year}"
 
 
-def rename_snapshot_for_date(snapshot, report_date):
+def rename_snapshot_for_date(snapshot, report_date, previous_report_date=None):
     """Rename a saved snapshot and let Frappe update linked data and attachments."""
+    automatic_name = portfolio_snapshot_name(previous_report_date) if previous_report_date else None
+    if not snapshot.name.startswith("CARTERA-BORRADOR-") and snapshot.name != automatic_name:
+        return snapshot.name  # Keep a user's custom name when reimporting.
     new_name = portfolio_snapshot_name(report_date)
     if snapshot.name == new_name:
         return new_name

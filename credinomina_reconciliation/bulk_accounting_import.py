@@ -39,6 +39,32 @@ def _permissions():
         frappe.throw(_("No tiene permisos para crear importaciones contables."), frappe.PermissionError)
 
 
+def _required_portfolio_snapshot(value):
+    name = clean_text(value)
+    if not name:
+        frappe.throw(_("Seleccione un Corte de cartera importado antes de analizar o procesar la carga masiva. Si la carga fue guardada sin corte, seleccione uno y genere un nuevo análisis."))
+    snapshot = frappe.get_doc("CN Credit Portfolio Snapshot", name)
+    snapshot.check_permission("read")
+    if snapshot.get("disabled"):
+        frappe.throw(_("El Corte de cartera está desactivado. Seleccione un corte activo."))
+    if snapshot.status not in {"Importado", "Importado con alertas"}:
+        frappe.throw(_("El Corte de cartera debe estar importado antes de usarlo en la carga masiva."))
+    return name
+
+
+def _validate_portfolio_companies(snapshot, groups):
+    companies = {group["employer"] for group in groups} - {UNIDENTIFIED_EMPLOYER}
+    if not companies:
+        return
+    present = set(frappe.get_all("CN Credit Portfolio Row", filters={
+        "parent": snapshot, "parenttype": "CN Credit Portfolio Snapshot",
+        "employer": ["in", sorted(companies)]}, pluck="employer", limit_page_length=0))
+    missing = companies - present
+    if missing:
+        frappe.throw(_("El Corte de cartera seleccionado no contiene créditos de estas empresas: {0}. Seleccione un corte compatible y genere un nuevo análisis.").format(
+            ", ".join(sorted(missing))))
+
+
 def _state(token, for_update=False):
     _permissions()
     from credinomina_reconciliation.accounting_batch_store import load_state
@@ -66,6 +92,7 @@ def _file(url):
 
 def _plan(options):
     _permissions()
+    snapshot = _required_portfolio_snapshot(options.get("portfolio_snapshot"))
     file_doc, content = _file(options["source_file"])
     employers = frappe.get_list(
         "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
@@ -74,9 +101,6 @@ def _plan(options):
     fallback = options.get("employer") or ""
     if fallback:
         frappe.get_doc("CN Employer", fallback).check_permission("read")
-    snapshot = options.get("portfolio_snapshot") or ""
-    if snapshot:
-        frappe.get_doc("CN Credit Portfolio Snapshot", snapshot).check_permission("read")
     if not frappe.has_permission("CN Credit Portfolio Snapshot", "read"):
         frappe.throw(_("Se requiere acceso de lectura a los cortes de cartera."), frappe.PermissionError)
     records = apply_accounting_currency_override(
@@ -130,6 +154,7 @@ def _plan(options):
     deposit_records = plan_deposits(records, employers, fallback)
     applications = [row for row in records if row.get("event_type") != "Ajuste" and row.get("accounting_classification") != "Depósito"]
     plan = group_applications([row for row in applications if row["source_row"] not in imported_lines], employers, fallback, existing)
+    _validate_portfolio_companies(snapshot, plan["groups"])
     plan["already_imported"] = [{"row": row["source_row"], "reason": "Esta misma fila del mismo archivo ya fue importada; use su documento para reprocesarla"}
                                 for row in applications if row["source_row"] in imported_lines]
     plan["duplicates"].extend(repeated_evidence)
@@ -220,6 +245,7 @@ def _signature(plan):
 def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", portfolio_snapshot="", historical_backfill=0,
                         employer_assignments=None, assignments_file_hash=""):
     _permissions()
+    portfolio_snapshot = _required_portfolio_snapshot(portfolio_snapshot)
     _file(source_file)
     from credinomina_reconciliation.accounting_batch_store import ensure_mutex
     ensure_mutex()
@@ -260,6 +286,7 @@ def confirm_bulk_import(token):
     _state(token)
     ensure_mutex()
     state = _state(token, for_update=True)
+    _required_portfolio_snapshot(state["options"].get("portfolio_snapshot"))
     if state["status"] != "Vista previa" or state["summary"]["issues_count"]:
         frappe.throw(_("Primero genere una vista previa sin errores."))
     if state.get("draft_assignments", state["options"].get("employer_assignments", {})) != state["options"].get("employer_assignments", {}):
@@ -329,6 +356,7 @@ def resume_bulk_import(token):
     _state(token)  # Permission/ownership check before locking anything.
     ensure_mutex()
     state = _state(token, for_update=True)
+    _required_portfolio_snapshot(state["options"].get("portfolio_snapshot"))
     if state["status"] not in {"Error", "En cola", "Procesando"}:
         frappe.throw(_("Esta carga no necesita reanudarse."))
     if state.get("job_id"):
@@ -344,6 +372,8 @@ def resume_bulk_import(token):
 
 def _create_imports(plan, options, progress=None):
     """One transaction, no reconciliation or period changes. Caller owns commit."""
+    snapshot = _required_portfolio_snapshot(options.get("portfolio_snapshot"))
+    _validate_portfolio_companies(snapshot, plan["groups"])
     created = []
     source = readable_file(options["source_file"])
     source_records = None
@@ -361,24 +391,16 @@ def _create_imports(plan, options, progress=None):
     # The preview already selected the dated cut. Reuse that evidence and build
     # the registry once for the whole batch, without changing its company scope.
     enrich_source_import_clients(records)
-    snapshot = options.get("portfolio_snapshot") or ""
-    snapshot_companies = None
-    if snapshot and any(row.get("_manual_employer") for row in records):
-        snapshot_companies = set(frappe.get_all("CN Credit Portfolio Row",
-            filters={"parent": snapshot}, pluck="employer", limit_page_length=0))
     for index, group in enumerate(plan["groups"], 1):
         employer = group["employer"]
         frappe.get_doc("CN Employer", employer).check_permission("read")
         records = group["rows"]
         csv_content = (group["csv_content"].encode("utf-8") if "csv_content" in group
                        else accounting_group_csv(source_records, records))
-        group_snapshot = snapshot
-        if snapshot_companies is not None and employer not in snapshot_companies and employer != UNIDENTIFIED_EMPLOYER:
-            group_snapshot = ""
         document = frappe.get_doc({
             "doctype": DOCTYPE, "employer": employer, "source_file": options["source_file"],
             "currency": options["currency"], "manual_fx_rate": options.get("manual_fx_rate", 0),
-            "portfolio_snapshot": group_snapshot,
+            "portfolio_snapshot": snapshot,
             "historical_backfill": options.get("historical_backfill", 0),
             "bulk_source_hash": plan["file_hash"], "bulk_event_date": group["event_date"],
             "bulk_source_file": options["source_file"],
@@ -387,8 +409,7 @@ def _create_imports(plan, options, progress=None):
             "notes": _("Carga masiva de {0}. Fecha: {1}. Pendiente de conciliar esta empresa.").format(
                 plan["file_name"], group["event_date"])
                 + (_(" Empresa pendiente de identificar; se conservó el texto original del movimiento.") if employer == UNIDENTIFIED_EMPLOYER else "")
-                + (_(" Empresa seleccionada manualmente antes de importar; decisión conservada en CN_EMPRESA_ASIGNADA del CSV.") if any(row.get("_manual_employer") for row in records) else "")
-                + (_(" Corte usado en el análisis: {0}. No se fijó en el documento porque no contiene esta empresa.").format(snapshot) if snapshot and not group_snapshot else ""),
+                + (_(" Empresa seleccionada manualmente antes de importar; decisión conservada en CN_EMPRESA_ASIGNADA del CSV.") if any(row.get("_manual_employer") for row in records) else ""),
             "rows": [{**record, "effective": 1, "match_status": "Pendiente", "deposit_match_status": "Pendiente"}
                      for record in records],
         }).insert()

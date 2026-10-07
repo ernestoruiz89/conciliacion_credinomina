@@ -15,6 +15,7 @@ class BatchRecoveryTests(unittest.TestCase):
 
     def setup_calls(self, stack, state, status):
         stack.enter_context(patch.object(bulk, "_state", return_value=state))
+        stack.enter_context(patch.object(bulk, "_required_portfolio_snapshot", return_value="CUT"))
         stack.enter_context(patch.object(bulk, "_", side_effect=lambda value: value))
         stack.enter_context(patch.object(store, "ensure_mutex"))
         stack.enter_context(patch.object(store, "results", return_value=[]))

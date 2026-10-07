@@ -171,6 +171,8 @@ class CNAccountingImport(Document):
         rename_accounting_import(self)
 
     def on_trash(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "eliminar")
         self._assert_no_closed_period_links(self.rows or [])
         from credinomina_reconciliation.accounting_cash_guard import guard_cash_changes
         guard_cash_changes(self, deleting=True)
@@ -178,6 +180,11 @@ class CNAccountingImport(Document):
         guard_verified_import(frappe._dict(rows=[]), self, _SOURCE_EVIDENCE_FIELDS)
         if self.rows and frappe.db.exists("CN Complementary Item", {"related_application": ["in", [row.name for row in self.rows]]}):
             frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
+
+    def before_cancel(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "cancelar")
+        self._assert_no_closed_period_links(self.rows or [])
 
     def validate(self):
         self._validate_bulk_scope()
@@ -267,6 +274,10 @@ class CNAccountingImport(Document):
                     ).format(self.name, row.name, period_name))
 
     def _validate_employer_scope(self):
+        previous = self.get_doc_before_save()
+        if self.portfolio_snapshot and (not previous or previous.portfolio_snapshot != self.portfolio_snapshot):
+            if frappe.db.get_value("CN Credit Portfolio Snapshot", self.portfolio_snapshot, "disabled"):
+                frappe.throw(_("El corte de cartera está desactivado. Seleccione un corte activo."))
         if self.status == "Borrador" and not self.employer:
             frappe.throw(_("Seleccione la empresa de esta importación."))
         if self.employer and not frappe.db.exists("CN Employer", self.employer):
@@ -415,7 +426,7 @@ def get_company_portfolio_snapshots(doctype, txt, searchfield, start, page_len, 
         return []
     snapshots = frappe.get_list(
         "CN Credit Portfolio Snapshot",
-        filters={"status": ["in", ["Importado", "Importado con alertas"]]},
+        filters={"disabled": 0, "status": ["in", ["Importado", "Importado con alertas"]]},
         fields=["name", "cut_month", "report_date"],
         order_by="report_date desc, name desc", limit_page_length=100000,
     )

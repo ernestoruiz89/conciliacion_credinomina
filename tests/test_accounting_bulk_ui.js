@@ -5,7 +5,7 @@ const path = require("node:path");
 
 let dialog, calls = [], phase = "preview", html = "", legacy = false, handlers = {};
 const storage = new Map();
-const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual_fx_rate: 0};
+const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual_fx_rate: 0, portfolio_snapshot: "CUT"};
 const state = {status: "Vista previa", options, summary: {
     groups: [{employer: "<Empresa>", event_date: "2025-04-15", count: 2, total_usd: 45.04},
         {employer: "NO IDENTIFICADA", event_date: "2025-04-15", count: 1, total_usd: 10}],
@@ -73,6 +73,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
 
 (async () => {
     context.frappe.credinomina.openAccountingBulk();
+    const portfolioField = dialog.opts.fields.find(field => field.fieldname === "portfolio_snapshot");
+    assert.equal(portfolioField.reqd, 1);
+    assert.equal(portfolioField.label, "Corte de cartera");
     await dialog.primary();
     assert.equal(dialog.label, "Crear importaciones");
     assert.equal(dialog.disabled, false);

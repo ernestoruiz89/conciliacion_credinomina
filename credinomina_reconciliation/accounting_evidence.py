@@ -43,18 +43,59 @@ def is_deposit(row):
     return classification == "Depósito" if classification else row.get("event_type") == "Deposito"
 
 
+CORE_REMOVAL_ROLE = "Eliminar Mov. del Core"
+
+
+def has_core_removal_role():
+    """Require an explicit assignment, including for Administrator."""
+    import frappe
+
+    return bool(
+        frappe.db.exists("Role", {"name": CORE_REMOVAL_ROLE, "disabled": 0})
+        and frappe.db.exists("Has Role", {
+            "parent": frappe.session.user, "parenttype": "User",
+            "parentfield": "roles", "role": CORE_REMOVAL_ROLE,
+        })
+    )
+
+
+def _is_core_import(document):
+    import frappe
+
+    if document.get("doctype") != "CN Accounting Import":
+        return document.get("accounting_source_key") or (
+            document.get("name") and frappe.db.get_value(
+                document.doctype, document.name, "accounting_source_key"
+            )
+        )
+
+    markers = ("file_hash", "bulk_source_hash", "imported_on")
+    if any(document.get(field) for field in markers):
+        return True
+    if document.get("rows") and (document.get("source_file") or any(
+        row.get("accounting_source_key") for row in document.rows
+    )):
+        return True
+    if not document.get("name"):
+        return False
+    # Never trust a cancellation payload that clears the saved provenance.
+    saved = frappe.db.get_value(document.doctype, document.name,
+                                [*markers, "source_file"], as_dict=True)
+    if saved and any(saved.get(field) for field in markers):
+        return True
+    filters = {"parent": document.name, "parenttype": document.doctype, "parentfield": "rows"}
+    if not (saved and saved.get("source_file")):
+        filters["accounting_source_key"] = ["!=", ""]
+    return bool(frappe.db.exists("CN Source Row", filters))
+
+
 def guard_imported_removal(document, action):
     import frappe
     from frappe import _
 
-    imported = document.get("accounting_source_key")
-    if not imported and document.get("name") and document.get("doctype"):
-        # Cancellation requests can carry unsaved data. A cleared origin in the
-        # payload must not hide the persisted accounting evidence.
-        imported = frappe.db.get_value(document.doctype, document.name, "accounting_source_key")
-    if not imported:
+    if not _is_core_import(document) or has_core_removal_role():
         return
-    message = _("No se puede {0} un registro importado del histórico contable. Debe conservarse la evidencia original.").format(action)
+    message = _("No se puede {0} un registro importado del histórico contable sin tener asignado el rol {1}.").format(action, CORE_REMOVAL_ROLE)
     if document.get("doctype") == "CN Remittance Allocation":
         message += " " + _("Use Desconciliar si necesita retirar la distribución del depósito y corregir sus destinos.")
     frappe.throw(message)

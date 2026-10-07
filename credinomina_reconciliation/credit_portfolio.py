@@ -315,8 +315,10 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
     if selected_snapshot:
         selected = frappe.db.get_value(
             "CN Credit Portfolio Snapshot", selected_snapshot,
-            ["name", "report_date", "status"], as_dict=True,
+            ["name", "report_date", "status", "disabled"], as_dict=True,
         )
+        if selected and selected.get("disabled"):
+            frappe.throw(_("El corte de cartera está desactivado. Seleccione un corte activo."))
         if not selected or selected.status not in {"Importado", "Importado con alertas"}:
             frappe.throw(_("Seleccione un corte de cartera importado."))
         if employer and not frappe.get_all(
@@ -329,7 +331,7 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
     else:
         snapshots = frappe.get_all(
             "CN Credit Portfolio Snapshot",
-            filters={"status": ["in", ["Importado", "Importado con alertas"]]},
+            filters={"disabled": 0, "status": ["in", ["Importado", "Importado con alertas"]]},
             fields=["name", "report_date"],
             order_by="report_date asc",
             limit_page_length=100000,
