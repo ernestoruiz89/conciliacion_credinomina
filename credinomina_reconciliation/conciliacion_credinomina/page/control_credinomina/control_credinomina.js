@@ -310,13 +310,12 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         }
         const historical = period.reconciliation_mode === "Historica";
         const historicalTable = (period.historical_rows || []).length ? `
-            <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Referencia"))}</th>
+            <div class="cn-list-scroll"><table class="cn-detail-table cn-period-applications"><thead><tr>
+                <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th>
                 <th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción"))}</th>
             </tr></thead><tbody>${(period.historical_rows || []).map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
-                <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}</td>
-                <td>${esc(row.reference)}</td>
+                <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}${row.reference ? `<br><span class="text-muted">${esc(__("Referencia"))}: ${esc(row.reference)}</span>` : ""}</td>
                 <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
                 <td class="cn-number">${money(row.historical_remitted_usd)}</td>
                 <td class="cn-number">${money(row.historical_balance_usd)}</td>
@@ -389,7 +388,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
         dialog.show();
         dialog.get_field("detail").$wrapper.html(`
-            <div class="cn-dialog">
+            <div class="cn-dialog cn-period-detail">
                 ${renderPeriodRemark(period)}
                 ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
                 <div class="cn-kpis cn-dialog-kpis">
@@ -1283,6 +1282,19 @@ function styles() {
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
         .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
+        .cn-period-detail .cn-detail-table { font-size: 12px; line-height: 1.4; }
+        .cn-period-detail .cn-detail-table th { font-size: 11px; letter-spacing: normal; }
+        .cn-period-detail .cn-detail-table th,
+        .cn-period-detail .cn-detail-table td { padding: 7px 6px; white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+        .cn-period-detail .cn-detail-table button { font-size: inherit; white-space: normal; overflow-wrap: anywhere; }
+        .cn-period-detail .cn-period-applications { table-layout: fixed; }
+        .cn-period-applications th:nth-child(1) { width: 9%; }
+        .cn-period-applications th:nth-child(2) { width: 23%; }
+        .cn-period-applications th:nth-child(3),
+        .cn-period-applications th:nth-child(4),
+        .cn-period-applications th:nth-child(5) { width: 11%; }
+        .cn-period-applications th:nth-child(6) { width: 20%; }
+        .cn-period-applications th:nth-child(7) { width: 15%; }
         /* Month-dialog cards need readable text, not the calendar's 9px labels. */
         .cn-period-card { font-size: 14px; line-height: 1.5; }
         .cn-period-card .cn-cell-sub,

@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.model.naming import make_autoname
-from frappe.utils import getdate, get_datetime, now_datetime
+from frappe.utils import cint, getdate, get_datetime, now_datetime
 
 from credinomina_reconciliation.credit_portfolio import analyze_portfolio_rows, has_portfolio_employer
 from credinomina_reconciliation.parsers import (
@@ -58,23 +58,27 @@ class CNCreditPortfolioSnapshot(Document):
         self.recalculate_summary()
 
     def _validate_unique_month(self):
+        if cint(self.disabled):
+            return
+        _lock_portfolio_availability()
         cut_date = getdate(self.report_date)
         first_day = cut_date.replace(day=1)
         last_day = cut_date.replace(day=monthrange(cut_date.year, cut_date.month)[1])
-        duplicates = frappe.get_all(
+        duplicate = frappe.db.get_value(
             self.doctype,
             filters={
                 "name": ["!=", self.name or ""],
                 "status": ["in", ["Importado", "Importado con alertas"]],
+                "disabled": 0,
                 "report_date": ["between", [first_day, last_day]],
             },
-            fields=["name"],
-            limit_page_length=1,
+            fieldname="name",
+            for_update=True,
         )
-        if duplicates:
+        if duplicate:
             frappe.throw(_(
-                "Ya existe un corte importado para {0}: {1}. Abra ese corte para actualizarlo."
-            ).format(self.cut_month, duplicates[0].name))
+                "Ya existe un corte activo para {0}: {1}. Desactívelo antes de importar o activar otro corte del mismo mes y año."
+            ).format(self.cut_month, duplicate))
 
     def recalculate_summary(self):
         rows = list(self.rows or [])
@@ -90,6 +94,12 @@ class CNCreditPortfolioSnapshot(Document):
         self.saneado_count = sum(row.credit_lifecycle == "Saneado" for row in rows)
 
 
+def _lock_portfolio_availability():
+    # One stable parent row serializes imports and activations until commit,
+    # including months with no snapshots yet. Never load the portfolio children.
+    frappe.db.get_value("DocType", "CN Credit Portfolio Snapshot", "name", for_update=True)
+
+
 @frappe.whitelist(methods=["POST"])
 def set_portfolio_disabled(snapshot_name: str, disabled: int, modified: str):
     """Change availability without loading, validating or rewriting portfolio rows."""
@@ -101,6 +111,8 @@ def _update_portfolio_header(snapshot_name, changes, modified, docstatus=None):
     if str(changes.get("disabled")) not in {"0", "1"} or not modified:
         frappe.throw(_("Indique el estado del corte y su fecha de modificación."))
     doctype = "CN Credit Portfolio Snapshot"
+    if not int(changes["disabled"]):
+        _lock_portfolio_availability()
     saved = frappe.db.get_value(doctype, snapshot_name, "*", as_dict=True, for_update=True)
     if not saved:
         frappe.throw(_("El corte de cartera no existe."), frappe.DoesNotExistError)
@@ -128,6 +140,8 @@ def _update_portfolio_header(snapshot_name, changes, modified, docstatus=None):
                 document.meta.get_field(field).label), frappe.UpdateAfterSubmitError)
     if changed:
         document.update(values)
+        if not document.disabled and document.report_date and document.status in {"Importado", "Importado con alertas"}:
+            document._validate_unique_month()
         document.modified = now_datetime()
         document.modified_by = frappe.session.user
         values.update(modified=document.modified, modified_by=document.modified_by)
@@ -168,6 +182,7 @@ def _has_legacy_numeric_credit_numbers(snapshot_name):
 
 @frappe.whitelist(methods=["POST"])
 def import_portfolio_snapshot(snapshot_name: str):
+    _lock_portfolio_availability()
     snapshot = frappe.get_doc("CN Credit Portfolio Snapshot", snapshot_name)
     snapshot.check_permission("write")
     file_doc, content = _attached_file(snapshot)
@@ -187,6 +202,7 @@ def import_portfolio_snapshot(snapshot_name: str):
         {
             "name": ["!=", snapshot.name],
             "file_hash": digest,
+            "disabled": 0,
             "status": ["in", ["Importado", "Importado con alertas"]],
         },
         "name",

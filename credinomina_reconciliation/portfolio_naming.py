@@ -23,10 +23,11 @@ def rename_snapshot_for_date(snapshot, report_date, previous_report_date=None):
     new_name = portfolio_snapshot_name(report_date)
     if snapshot.name == new_name:
         return new_name
-    if frappe.db.exists(DOCTYPE, new_name):
-        frappe.throw(_(
-            "Ya existe el corte {0}. Abra ese registro para actualizarlo en vez de crear otro."
-        ).format(new_name))
+    base_name = new_name
+    suffix = 2
+    while frappe.db.exists(DOCTYPE, new_name):
+        new_name = f"{base_name}-{suffix}"
+        suffix += 1
     old_name = snapshot.name
     renamed = frappe.rename_doc(
         DOCTYPE, old_name, new_name, force=True, merge=False,

@@ -47,3 +47,29 @@ class PortfolioAvailabilityTests(unittest.TestCase):
                  patch.object(frappe, "rename_doc", return_value="CARTERA-7-2025") as rename:
                 self.assertEqual(portfolio_naming.rename_snapshot_for_date(doc, "2025-07-31", old_date), "CARTERA-7-2025")
                 rename.assert_called_once()
+
+    def test_replacement_name_skips_existing_names_without_merging(self):
+        doc = frappe._dict(name="CARTERA-BORRADOR-2026-00001", get_all_children=lambda: [])
+        with patch.object(frappe, "db", Mock(exists=Mock(side_effect=[True, True, False]))), \
+             patch.object(frappe, "rename_doc", return_value="CARTERA-7-2025-3") as rename:
+            self.assertEqual(portfolio_naming.rename_snapshot_for_date(doc, "2025-07-31"), "CARTERA-7-2025-3")
+            self.assertFalse(rename.call_args.kwargs["merge"])
+
+    def test_month_uniqueness_only_checks_other_active_cuts(self):
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_credit_portfolio_snapshot import cn_credit_portfolio_snapshot as portfolio
+        doc = frappe._dict(name="CUT", doctype="CN Credit Portfolio Snapshot", disabled=0,
+                           report_date="2025-07-15", cut_month="2025-07")
+        with patch.object(portfolio, "_lock_portfolio_availability"), \
+             patch.object(frappe.db, "get_value", return_value="ACTIVE") as query, \
+             patch.object(frappe, "throw", side_effect=reject):
+            with self.assertRaisesRegex(ValueError, "Desactívelo"):
+                portfolio.CNCreditPortfolioSnapshot._validate_unique_month(doc)
+            filters = next(call.kwargs["filters"] for call in query.call_args_list
+                           if call.args and call.args[0] == doc.doctype)
+            self.assertEqual(filters["disabled"], 0)
+            self.assertEqual(filters["name"], ["!=", "CUT"])
+            self.assertEqual([str(date) for date in filters["report_date"][1]], ["2025-07-01", "2025-07-31"])
+            query.reset_mock()
+            doc.disabled = 1
+            portfolio.CNCreditPortfolioSnapshot._validate_unique_month(doc)
+            query.assert_not_called()
