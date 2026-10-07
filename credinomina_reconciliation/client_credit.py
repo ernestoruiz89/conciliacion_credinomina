@@ -50,7 +50,8 @@ def load_credits(deposit_names):
     """All confirmed cash reservations, including externally managed balances.
 
     A refund/future application never makes the original deposit spendable again.
-    Company credits have no detail row and cannot reduce a client's row.
+    A company credit may reference a detail row as evidence, without making
+    that row's client the beneficiary or increasing loan payments.
     """
     if not deposit_names:
         return []
@@ -198,7 +199,7 @@ def guard_deposit_changes(deposit, previous):
             return not _same_value(field, old[key].get(field), by_id[key].get(field))
         if key not in by_id or key not in old or any(changed(field)
                 for field in ("client", "client_number", "loan_number", "employer", "amount_usd", "deducted_usd", "deducted_nio")):
-            frappe.throw(_("No cambie ni elimine una fila con saldo a favor del cliente confirmado. Conserve la evidencia de su clasificación."))
+            frappe.throw(_("No cambie ni elimine una fila con saldo a favor confirmado. Conserve la evidencia de su clasificación."))
 
 
 @frappe.whitelist(methods=["POST"])

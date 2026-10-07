@@ -122,8 +122,8 @@ empresas que necesite revisar; no se redistribuye dinero mediante un parche masi
   ajustes que reducen aplicaciones: para estos últimos use **Vincular a aplicación**.
 - **Partidas complementarias** también permiten documentar un **Saldo a favor
   de la empresa**, desde el mismo modal del depósito. Este concepto se vincula
-  directamente al depósito confirmado, sin agregarse a los destinos ni al
-  detalle de clientes: no es pago de crédito ni ingreso administrativo. El
+  directamente al depósito confirmado, sin agregarse a los destinos:
+  no es pago de crédito ni ingreso administrativo. El
   excedente sin explicar sigue sin conciliar.
   En un depósito confirmado con saldo sin clasificar, el botón directo
   **Crear saldo a favor de la empresa** propone ese saldo en US$ y abre el modal
@@ -132,6 +132,14 @@ empresas que necesite revisar; no se redistribuye dinero mediante un parche masi
   pertenece a la empresa o a un cliente y si ya existe una partida contable antes
   de confirmar. Se consulta después en **Distribución completa** y **Ver saldos
   a favor**; no se agrega como pago de crédito en la tabla Destinos.
+  Desde una fila del detalle, **Crear saldo a favor de la empresa** vincula la
+  partida a esa fila como evidencia del excedente, manteniendo a la empresa
+  pagadora como beneficiaria. Propone el menor importe entre el pendiente de la
+  fila y el efectivo sin clasificar; exige motivo, justificación, responsable y
+  fecha compromiso. Al confirmar, concilia y muestra **Saldo a favor de la empresa
+  US$** separado del saldo del cliente. La fila queda conciliada si todo su
+  importe está explicado. Las reservas de ambos tipos comparten el límite de
+  la fila y del depósito; no se puede documentar dos veces el mismo dinero.
 - **Saldo a favor del cliente**, en Partidas Complementarias, identifica el
   excedente de una persona sin incrementar lo aplicado al crédito. Seleccione
   cliente, depósito confirmado, importe positivo, motivo, responsable y fecha

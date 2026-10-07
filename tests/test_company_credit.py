@@ -47,10 +47,25 @@ class CompanyCreditTests(unittest.TestCase):
         for values in ({"amount_usd": 0}, {"amount_usd": -10}, {"client_number": "123"},
                        {"loan_number": "123-1"}, {"installment_number": "1"},
                        {"registered_deposit": None}, {"reason_type": ""}, {"description": "  "},
-                       {"credit_client": "CLIENT"}, {"credit_detail_row": "ROW"},
+                       {"credit_client": "CLIENT"},
                        {"credit_assigned_to": ""}, {"credit_commitment_date": ""}, {"credit_treatment": ""}):
             with self.subTest(values=values), patch.object(credit.frappe, "throw", side_effect=ValueError):
                 with self.assertRaises(ValueError):
+                    credit.validate_company_credit(self.document(**values))
+
+    def test_company_credit_row_is_evidence_and_respects_row_reservations(self):
+        row = Row(name="ROW", amount_usd=30, deducted_usd=30, linked_usd=5, client="CLIENT", loan_number="123-1")
+        deposit = Row(name="DEP", amount_usd=100, allocated_usd=5, docstatus=1, deposit_date="2025-05-10",
+                      employer="EMP", check_permission=Mock(), detail_rows=[row])
+        with patch.object(credit.frappe, "get_doc", return_value=deposit), \
+             patch.object(credit.frappe, "db", Mock(sql=Mock(return_value=[Row(amount_usd=15, credit_detail_row="ROW")]))), \
+             patch.object(credit, "ensure_related_periods_open"), patch.object(credit.frappe, "throw", side_effect=ValueError):
+            doc = self.document(credit_detail_row="ROW")
+            credit.validate_company_credit(doc)
+            self.assertEqual(doc.credit_detail_row, "ROW")
+            self.assertFalse(doc.credit_client or doc.client_number or doc.loan_number)
+            for values in ({"credit_detail_row": "OTHER"}, {"credit_detail_row": "ROW", "amount_usd": 10.01}):
+                with self.subTest(values=values), self.assertRaises(ValueError):
                     credit.validate_company_credit(self.document(**values))
 
     def test_draft_or_wrong_company_deposit_rejected(self):

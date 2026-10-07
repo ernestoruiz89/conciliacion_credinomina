@@ -264,7 +264,7 @@ def reconcile_deposit(document, progress=None, undo=False):
             frappe.db.set_value("CN Remittance Detail", row.name, {
                 "match_status": "Pendiente", "match_reason": _("Depósito desconciliado."),
                 "matched_targets": "[]", "matched_targets_summary": "",
-                "linked_usd": 0, "client_credit_usd": 0, "pending_usd": row.amount_usd,
+                "linked_usd": 0, "client_credit_usd": 0, "company_credit_usd": 0, "pending_usd": row.amount_usd,
             }, update_modified=False)
         record_transition(document.name, before, snapshot({**before, **values}))
     active_parents = {row.parent for row in active_sources}

@@ -58,7 +58,7 @@ def validate_company_credit(doc):
         return  # Follow-up does not mutate the original cash or closed periods.
     if money(doc.amount_usd) <= 0:
         frappe.throw(_("El saldo a favor de la empresa debe ser positivo."))
-    if doc.client_number or doc.loan_number or doc.installment_number or doc.get("credit_client") or doc.get("credit_detail_row"):
+    if doc.client_number or doc.loan_number or doc.installment_number or doc.get("credit_client"):
         frappe.throw(_("El saldo a favor pertenece a la empresa, no a un cliente o crédito."))
     if not doc.registered_deposit:
         if doc.docstatus == 1:
@@ -92,6 +92,16 @@ def validate_company_credit(doc):
         capacity = money(deposit.amount_usd) - money(deposit.allocated_usd) - sum_money(row.amount_usd for row in other)
         if money(doc.amount_usd) > capacity:
             frappe.throw(_("El saldo a favor supera el efectivo del depósito sin asignar ni documentar."))
+        if doc.get("credit_detail_row"):
+            # The row is evidence of the excess, never the beneficiary.
+            from credinomina_reconciliation.remittance_detail import detail_amount_usd
+            row = next((row for row in deposit.detail_rows or [] if row.name == doc.credit_detail_row), None)
+            if not row:
+                frappe.throw(_("La fila del saldo a favor no pertenece al depósito seleccionado."))
+            reserved = sum_money(item.amount_usd for item in other if item.credit_detail_row == row.name)
+            available = money(detail_amount_usd(row, deposit.fx_rate)[0]) - reserved - max(money(row.get("linked_usd")), money(0))
+            if money(doc.amount_usd) > available:
+                frappe.throw(_("El saldo a favor supera el importe de la fila disponible para clasificar."))
     doc.credit_resolved_usd = 0
     doc.credit_pending_usd = money_float(doc.amount_usd)
     doc.credit_management_status = "Pendiente"
