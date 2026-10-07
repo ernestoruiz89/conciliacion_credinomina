@@ -17,6 +17,18 @@ AMOUNT_FIELDS = ('amount', 'equivalent_amount', 'manual_fx_rate', 'fx_rate')
 DERIVED_FIELDS = ('match_status', 'quality_basis', 'quality_status', 'collection_period', 'collection_row_id',
                   'application_allocation_detail', 'historical_remitted_usd',
                   'historical_balance_usd', 'historical_detail')
+DERIVED_AMOUNT_FIELDS = {'historical_remitted_usd', 'historical_balance_usd'}
+
+
+def _derived_changed(old, row):
+    # JSON from the form may send 100 for a persisted 100.0 Currency value.
+    # Compare exact numeric values; formatting alone cannot change cash.
+    return any(
+        decimal_value(old.get(field)) != decimal_value(row.get(field))
+        if field in DERIVED_AMOUNT_FIELDS
+        else str(old.get(field) or '') != str(row.get(field) or '')
+        for field in DERIVED_FIELDS
+    )
 
 
 def guard_cash_changes(document, previous=None, deleting=False, *, verified_reconciliation=False, unpaid_refresh=False):
@@ -50,8 +62,7 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
             or any(str(previous.get(field) or '') != str(document.get(field) or '')
                                  for field in ('employer', 'source_file', 'file_hash', 'historical_backfill', 'historical_period'))
             or any(str(old.get(field) or '') != str(row.get(field) or '') for field in IDENTITY_FIELDS)
-            or (not verified_reconciliation and any(str(old.get(field) or '') != str(row.get(field) or '')
-                                                     for field in DERIVED_FIELDS))
+            or (not verified_reconciliation and _derived_changed(old, row))
             or any(decimal_value(old.get(field)) != decimal_value(row.get(field)) for field in AMOUNT_FIELDS))
         if not changed:
             continue
@@ -72,7 +83,5 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
                 'o cambiar su origen, identidad o importe.'
             ).format(old.get('idx') or old.name))
         row = current.get(old.name)
-        if row and not verified_reconciliation and not unpaid_refresh and any(
-            str(old.get(field) or '') != str(row.get(field) or '') for field in DERIVED_FIELDS
-        ):
+        if row and not verified_reconciliation and not unpaid_refresh and _derived_changed(old, row):
             frappe.throw(_('Los resultados de conciliación de la aplicación {0} se calculan desde sus vínculos reales. Use Conciliar esta empresa para actualizarlos.').format(old.get('idx') or old.name))

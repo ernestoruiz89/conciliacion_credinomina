@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal
 from unittest.mock import patch
 import frappe
 from credinomina_reconciliation import accounting_cash_guard as guard
@@ -39,6 +40,33 @@ class AccountingCashGuardTests(unittest.TestCase):
             guard.guard_cash_changes(self.document(notes='Observación'))
         read.assert_not_called()
         self.lock_mock.assert_not_called()
+
+    def test_save_accepts_equivalent_currency_serialization(self):
+        for field in ('historical_remitted_usd', 'historical_balance_usd'):
+            for stored, submitted in [(100.0, 100), (Decimal('100.00'), 100),
+                                      (100.50, '100.500'), (None, 0), (0.0, '0')]:
+                with self.subTest(field=field, stored=stored, submitted=submitted):
+                    doc = self.document()
+                    old = frappe._dict(doc.rows[0], **{field: stored})
+                    doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado', rows=[old])
+                    doc.rows = [frappe._dict(old, **{field: submitted})]
+                    with patch.object(guard, 'cash_coverage', return_value=dict(protected_usd=0, snapshots={})) as read, \
+                         patch.object(frappe, 'throw', side_effect=frappe.ValidationError):
+                        guard.guard_cash_changes(doc)
+                    read.assert_not_called()
+        self.lock_mock.assert_not_called()
+
+    def test_unpaid_row_still_rejects_real_currency_changes(self):
+        for field in ('historical_remitted_usd', 'historical_balance_usd'):
+            doc = self.document()
+            old = frappe._dict(doc.rows[0], **{field: 100.0})
+            doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado', rows=[old])
+            doc.rows = [frappe._dict(old, **{field: 100.01})]
+            with self.subTest(field=field), \
+                 patch.object(guard, 'cash_coverage', return_value=dict(protected_usd=0, snapshots={})), \
+                 patch.object(frappe, 'throw', side_effect=frappe.ValidationError), \
+                 self.assertRaises(frappe.ValidationError):
+                guard.guard_cash_changes(doc)
 
     def test_unpaid_application_can_be_removed(self):
         with patch.object(guard, 'cash_coverage', return_value=dict(protected_usd=0, snapshots={})):
