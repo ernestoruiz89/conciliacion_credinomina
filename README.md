@@ -38,7 +38,7 @@ muestra una tabla de control en su detalle: base utilizada, importe a aplicar,
 aplicado y diferencia; cada fila contable también muestra el control de las
 cuotas vinculadas. Una aplicación parcial no vuelve conforme una cuota incompleta.
 
-Cargue la cobranza, importe los movimientos y use **Conciliar esta empresa**;
+Cargue la cobranza, importe los movimientos y use **Conciliar período predeterminado**;
 recargue el período para revisar el control. Al llegar la respuesta de la empresa,
 importe el detalle y vuelva a conciliar: la base pasa a la deducción informada.
 Las diferencias de centavos no se ocultan con la tolerancia de depósitos. Una
@@ -247,7 +247,7 @@ En modalidad **Operativa**, las conciliaciones 1 y 2 pueden realizarse en cualqu
 orden. Para conciliar aplicaciones directamente con depósitos antes de cargar la
 cobranza o el detalle de empresa, asigne el período en **CN Accounting Import →
 Período predeterminado de aplicaciones**, o en **Período asignado de aplicación**
-por fila. Guarde y use **Conciliar esta empresa**; después concilie el depósito.
+por fila. Guarde y use **Conciliar período predeterminado**; después concilie el depósito.
 La asignación explícita conserva una única aplicación como destino financiero.
 Cuando llegue la base, sus vínculos de calidad se calculan sin duplicar la cobertura.
 
@@ -385,7 +385,11 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    Archivo, nombrado como el documento. El archivo masivo se conserva por separado
    como soporte en Historial. Se conserva
    el nombre `CONTA-NombreCorto-Mes-Año-###` (usa el código si no hay nombre corto). No modifica cargas anteriores.
-5. Abra los documentos y use **Conciliar esta empresa** cuando corresponda.
+5. Abra los documentos y use **Conciliar período predeterminado** cuando corresponda.
+   Es obligatorio seleccionar ese período: el botón procesa sus aplicaciones
+   vinculadas, incluidas las de otras importaciones del mismo período, sin
+   reprocesar otros períodos de la empresa. Conserva las distribuciones de
+   depósitos registradas; para distribuir un depósito use su botón **Conciliar**.
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
 
 En **Resultados → Saldos por cliente**, cada importación muestra el aplicado

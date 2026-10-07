@@ -44,7 +44,7 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
                 or row.get('historical_detail') not in (None, '', '[]')
                 or row.get('application_allocation_detail') not in (None, '', '[]')
             ):
-                frappe.throw(_('Los resultados de conciliación se calculan desde los vínculos reales. Use Conciliar esta empresa; no indique depósitos asignados manualmente en la fila contable.'))
+                frappe.throw(_('Los resultados de conciliación se calculan desde los vínculos reales. Use Conciliar período predeterminado; no indique depósitos asignados manualmente en la fila contable.'))
     if not previous:
         return
     current = {} if deleting else {row.name: row for row in document.rows or []}
@@ -84,4 +84,4 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
             ).format(old.get('idx') or old.name))
         row = current.get(old.name)
         if row and not verified_reconciliation and not unpaid_refresh and _derived_changed(old, row):
-            frappe.throw(_('Los resultados de conciliación de la aplicación {0} se calculan desde sus vínculos reales. Use Conciliar esta empresa para actualizarlos.').format(old.get('idx') or old.name))
+            frappe.throw(_('Los resultados de conciliación de la aplicación {0} se calculan desde sus vínculos reales. Use Conciliar período predeterminado para actualizarlos.').format(old.get('idx') or old.name))

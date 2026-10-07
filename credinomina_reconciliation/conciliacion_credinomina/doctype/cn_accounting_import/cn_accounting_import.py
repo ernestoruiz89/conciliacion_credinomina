@@ -643,7 +643,9 @@ def reconcile_company_sources(import_name: str):
     if not employer:
         frappe.throw(_("Seleccione y guarde la empresa antes de conciliar."))
     frappe.get_doc("CN Employer", employer).check_permission("read")
-    return _reconcile_sources(employer)
+    if not document.historical_period:
+        frappe.throw(_("Seleccione y guarde el Período predeterminado de aplicaciones antes de conciliar."))
+    return _reconcile_sources(employer, preserve_deposits=True, period_name=document.historical_period)
 
 
 def _company_imports(imports, employer):
@@ -739,7 +741,7 @@ def _save_reconciled_document(document):
     return True
 
 
-def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False, unassigned_import=None):
+def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False, unassigned_import=None, period_name=None):
     if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
@@ -747,9 +749,21 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     report(5, _("Validando empresas y cargando movimientos relacionados…"))
     from credinomina_reconciliation.paying_employers import reconciliation_companies
     companies = reconciliation_companies(employer) if employer else []
+    scoped_period = None
+    if period_name:
+        scoped_period = frappe.get_doc("CN Reconciliation Period", period_name)
+        scoped_period.check_permission("write")
+        if scoped_period.employer != employer:
+            frappe.throw(_("El período predeterminado pertenece a otra empresa."))
+        if scoped_period.status == "Cerrado":
+            frappe.throw(_("Reabra el período predeterminado antes de conciliarlo."))
+        preserve_deposits = True
     from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
     lock_cash_pool(companies or frappe.get_all("CN Employer", pluck="name", limit_page_length=0))
-    if employer:
+    if scoped_period:
+        from credinomina_reconciliation.accounting_period_scope import load_imports, selected_rows
+        imports = load_imports(scoped_period)
+    elif employer:
         imports = load_scoped_imports(companies)
     else:
         import_names = frappe.get_all(
@@ -765,7 +779,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     ]
     all_rows = []
     for document in imports:
-        for row in document.rows:
+        for row in (selected_rows(document, period_name) if scoped_period else document.rows):
             row._source_import = document.name
             row._source_employer = document.employer
             row._historical_backfill = (
@@ -810,13 +824,13 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     _deduplicate_applications(all_rows)
     refresh_rows(all_rows)
     scope_filter = ["in", companies] if len(companies) > 1 else employer
-    periods = _load_open_periods(scope_filter) if employer else _load_open_periods()
+    periods = [scoped_period] if scoped_period else _load_open_periods(scope_filter) if employer else _load_open_periods()
     for period in periods:
         if (period.reconciliation_mode == "Operativa" and period.collection_rows
             and period.get("application_basis") not in {COLLECTION, EMPLOYER_DETAIL}):
             frappe.throw(_("Elija una única base de la primera conciliación en el período {0} antes de reprocesar.").format(period.name))
         period._reconciliation_original_state = document_state(period)
-    company_filters = {"employer": scope_filter} if employer else {}
+    company_filters = {"employer": employer if scoped_period else scope_filter} if employer else {}
     closed_operative_state = {
         period.name: _operative_period_state(period)
         for period in periods
@@ -832,23 +846,29 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
             "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key",
         ],
     )
+    if scoped_period:
+        complementary_items = [item for item in complementary_items if not item.period or item.period == period_name]
     complementary_by_target = _allocate_complementary_items(
         complementary_items, periods
     )
-    manual_allocations = frappe.get_all(
-        "CN Remittance Allocation",
-        filters={"docstatus": 1, **company_filters},
-        fields=[
-            "name", "deposit_reference", "deposit_voucher", "reconciliation_identity",
-            "amount_usd", "result", "employer", "deposit_date",
-            "deposit_currency", "deposit_amount", "fx_rate", "notes",
-            "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
-            "allocation_detail",
-            "support_file", "detail_file", "detail_source_file", "detail_hash",
-            "detail_status", "detail_total_usd", "detail_count", "apply_fifo", "allow_manual_other_periods",
-        ],
-        order_by="creation asc",
-    )
+    if scoped_period:
+        from credinomina_reconciliation.accounting_period_scope import related_cash
+        manual_allocations = related_cash(periods, all_rows, complementary_items)
+    else:
+        manual_allocations = frappe.get_all(
+            "CN Remittance Allocation",
+            filters={"docstatus": 1, **company_filters},
+            fields=[
+                "name", "deposit_reference", "deposit_voucher", "reconciliation_identity",
+                "amount_usd", "result", "employer", "deposit_date",
+                "deposit_currency", "deposit_amount", "fx_rate", "notes",
+                "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
+                "allocation_detail",
+                "support_file", "detail_file", "detail_source_file", "detail_hash",
+                "detail_status", "detail_total_usd", "detail_count", "apply_fifo", "allow_manual_other_periods",
+            ],
+            order_by="creation asc",
+        )
     closed_operative_links = _operative_links(
         periods, original_source_rows, manual_allocations, complementary_items,
         closed_operative_state,
@@ -875,11 +895,15 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     for row in all_rows:
         if row._source_import == unassigned_import and row.event_type == "Aplicacion" and row.effective:
             row.match_status = "Sin coincidencia"
-            row.match_reason = _("Movimientos recargados sin período asignado. Seleccione un período o use Conciliar esta empresa para vincularlos nuevamente.")
+            row.match_reason = _("Movimientos recargados sin período asignado. Seleccione el período predeterminado y use Conciliar período predeterminado para vincularlos nuevamente.")
     if preserve_deposits:
         report(50, _("Conservando las distribuciones de depósitos ya registradas…"))
         from credinomina_reconciliation.deposit_reconciliation import stored_cash_context
-        stored = stored_cash_context(manual_allocations, periods, deposit_pairs)
+        evidence_periods = periods
+        if scoped_period:
+            from credinomina_reconciliation.accounting_period_scope import cash_evidence_periods
+            evidence_periods = cash_evidence_periods(periods, manual_allocations)
+        stored = stored_cash_context(manual_allocations, evidence_periods, deposit_pairs)
         # Build application/complement context without passing any deposits to
         # the matcher. Stored cash is evidence, never a new allocation request.
         allocation = _distribute_deposits(
@@ -913,6 +937,8 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
         [period for period in periods if period.reconciliation_mode != "Historica"],
         all_rows, deposit_pairs, allocation,
         closed_operative_state, closed_operative_links, complementary_items,
+        status_source_ids=({row.name for row in all_rows
+                            if scoped_period.reconciliation_mode != "Historica"} if scoped_period else None),
     )
     from credinomina_reconciliation.application_adjustments import mark_mixed_settlements
     mark_mixed_settlements(all_rows, collection_rows)
@@ -945,6 +971,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
         "saved_imports": saved_imports,
         "rows": len(all_rows),
         "employer": employer,
+        "period": period_name,
         "reconciled_employers": companies,
         "matched": sum(
             row.match_status == "Conciliado"

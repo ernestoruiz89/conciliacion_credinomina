@@ -50,7 +50,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     formHandlers["CN Accounting Import"].refresh(accountingForm);
     for (const field of ["historical_period", "historical_period.rows"]) {
         const filters = queries[field]().filters;
-        assert.equal(filters.reconciliation_mode, "Historica");
+        assert.equal(filters.reconciliation_mode, undefined, "Allow historical and operative default periods");
         assert.equal(filters.employer, "A");
         assert.deepEqual(Array.from(filters.status), ["!=", "Cerrado"]);
         accountingForm.doc.employer = "B";
@@ -119,7 +119,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
         assert.ok(!section.collapsible);
     }
 
-    const frm = {doc: {employer: "A", name: "IA"}, is_dirty: () => true,
+    const frm = {doc: {employer: "A", name: "IA", historical_period: "P"}, is_dirty: () => true,
         save: async () => events.push("save"), reload_doc: async () => events.push("reload")};
     await context.reconcileCompany(frm);
     assert.deepEqual(events, ["save", "call", "reload", "dialog"]);
@@ -128,6 +128,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(html.includes("&lt;script&gt;bad&lt;/script&gt;"));
     assert.ok(!html.includes("<script>"));
     assert.equal(frm.__company_reconciliation_running, false);
+
+    context.showCompanyReconciliation({...result, period: "P"});
+    assert.equal(dialogOptions.title, "Conciliación de P");
+    assert.ok(dialogOptions.fields[0].options.includes("Período procesado"));
 
     context.showCompanyReconciliation({...result, rows: 3, matched: 2,
         matched_rows: [{import_name: "IB", row: 3, client_name: "<b>Cliente conciliado</b>",
@@ -157,6 +161,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.deepEqual(events, ["save"]);
     assert.equal(frm.__company_reconciliation_running, false);
 
+    events.length = 0;
+    frm.doc.historical_period = "";
+    await context.reconcileCompany(frm);
+    assert.deepEqual(events, ["message"]);
     events.length = 0;
     frm.doc.employer = "";
     await context.reconcileCompany(frm);
