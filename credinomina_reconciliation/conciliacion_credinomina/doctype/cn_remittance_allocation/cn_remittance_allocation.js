@@ -14,7 +14,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
         // Imported rows remain intact; company and credit can disambiguate identity.
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
         frm.fields_dict.detail_rows.grid.df.cannot_delete_rows = true;
-        addBulkClientCreditButton(frm);
         frm.set_query("bank_account", () => ({ filters: { active: 1 } }));
         frm.set_query("period", "detail_periods", () => ({ filters: { employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"] } }));
         frm.set_query("employer", "detail_rows", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
@@ -28,6 +27,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         toggleRemittanceDetailActions(frm);
         toggleApplicationDetailAction(frm);
         addCompanyCreditButton(frm);
+        addBulkClientCreditButton(frm);
         frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("create_complementary", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("link_detail_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write") &&
@@ -456,7 +456,9 @@ function canCreateDetailClientCredit(frm, row) {
 
 function addBulkClientCreditButton(frm) {
     const grid = frm.fields_dict.detail_rows?.grid;
-    if (!grid?.add_custom_button || !grid.get_selected_children) return;
+    // Frappe creates these controls when the grid renders, after form setup.
+    if (!grid?.add_custom_button || !grid.get_selected_children || !grid.custom_buttons
+        || !grid.grid_buttons || !grid.wrapper) return;
     const label = __("Crear saldos a favor seleccionados");
     frm.bulkClientCreditButton = grid.add_custom_button(label, () => createBulkClientCredits(frm), "bottom");
     const refresh = () => {
