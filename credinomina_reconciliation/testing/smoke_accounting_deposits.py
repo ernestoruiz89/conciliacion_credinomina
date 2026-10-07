@@ -34,6 +34,35 @@ def run():
         assert not frappe.db.get_value("CN Bank Account", "NO IDENTIFICADA", "currency")
         assert not create_deposits(plan, file.file_url, file_sha256(content))
         assert plan[0]["remittance_allocation"] == first.name
+        def rejected(action):
+            frappe.db.savepoint("imported_removal")
+            try:
+                action()
+            except frappe.ValidationError as exc:
+                frappe.db.rollback(save_point="imported_removal")
+                assert "histórico contable" in str(exc), str(exc)
+            else:
+                raise AssertionError("Imported accounting evidence was removed")
+        rejected(lambda: frappe.delete_doc(first.doctype, first.name))
+        # Legacy canceled imports must remain protected too.
+        frappe.db.set_value(unknown.doctype, unknown.name, "docstatus", 2)
+        rejected(lambda: frappe.delete_doc(unknown.doctype, unknown.name))
+        frappe.db.set_value(unknown.doctype, unknown.name, "docstatus", 0)
+        item = frappe.get_doc({"doctype": "CN Complementary Item", "employer": employer.name,
+            "accounting_source_key": marker + "-ITEM", "source_file": file.file_url, "source_row": 4,
+            "category": "Por clasificar", "posting_date": "2025-04-04", "currency": "USD",
+            "amount": 10, "description": "Movimiento histórico de prueba"}).insert()
+        rejected(lambda: frappe.delete_doc(item.doctype, item.name))
+        item.category = "Otros ingresos"
+        item.reference = marker + "-ITEM"
+        item.review_action = "Partida de depósito"
+        item.review_notes = "Ingreso identificado y revisado"
+        item.amount_reviewed = 1
+        item.flags.defer_reconciliation = True
+        item.submit()
+        rejected(lambda: frappe.get_doc(item.doctype, item.name).cancel())
+        frappe.db.set_value(item.doctype, item.name, "docstatus", 2)
+        rejected(lambda: frappe.delete_doc(item.doctype, item.name))
         # A confirmed deposit may lack detail, but never lack a company.
         try:
             unknown.employer = ""
@@ -82,10 +111,13 @@ def run():
         assert frappe.db.count("CN Remittance Allocation", {"source_file": file.file_url}) == 2
         first.reload()
         first.submit()
+        rejected(lambda: frappe.get_doc(first.doctype, first.name).cancel())
+        assert frappe.db.get_value(first.doctype, first.name, "docstatus") == 1
         _, data, *_ = execute({"month": "2025-04-01", "employer": employer.name})
         assert next(row for row in data if row["evidence_key"] == first.accounting_source_key)["state"] == "Pendiente"
         return {"cash_vs_ledger": "OK", "only_holding_bank_created": "OK", "unknown_bank_and_company": "OK",
                 "idempotence": "OK", "individual_and_bulk": "OK", "no_duplicate_cash": "OK",
-                "report_mirror_once": "OK", "evidence_immutable": "OK", "rolled_back": True}
+                "report_mirror_once": "OK", "evidence_immutable": "OK",
+                "imported_deposit_and_item_removal_blocked": True, "rolled_back": True}
     finally:
         frappe.db.rollback()

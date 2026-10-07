@@ -146,7 +146,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
     document._validate_deposit()
     if undo:
-        document.before_cancel()
+        document._assert_can_reverse_distribution()
         if frappe.get_all("CN Complementary Item", filters={
             "registered_deposit": document.name, "docstatus": 1,
             "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],

@@ -63,6 +63,7 @@ def run():
                 fixed.reload()
                 fixed_state = document_state(fixed)
                 deposit = new_deposit("FIFO", 55.05)
+                deposit.accounting_source_key = marker + "-IMPORTED"
                 deposit.apply_fifo = 1
                 # Reversed selected periods prove that application dates set the order.
                 for period in reversed(periods):

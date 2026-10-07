@@ -38,6 +38,25 @@ def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modi
 
 
 class CNRemittanceAllocation(Document):
+    def insert(self, *args, **kwargs):
+        # Frappe validates links before before_insert/validate. Repair only the
+        # recovery snapshot, without bypassing normal link validation.
+        from credinomina_reconciliation.remittance_restore import prepare_restore
+        removed = prepare_restore(self)
+        document = super().insert(*args, **kwargs)
+        if removed:
+            from frappe.utils import escape_html
+            document.add_comment("Edit", _(
+                "Restauración del histórico: se retiraron destinos de partidas "
+                "complementarias anuladas o eliminadas: {0}. "
+                "El depósito conserva su origen contable y requiere revisión y conciliación."
+            ).format(escape_html(json.dumps(removed, ensure_ascii=False, default=str))))
+            frappe.msgprint(_(
+                "Se restauró el depósito en borrador, conservando su origen contable. "
+                "Se retiraron destinos anulados o eliminados; revise el historial y vuelva a conciliar."
+            ))
+        return document
+
     def autoname(self):
         from credinomina_reconciliation.deposit_naming import new_deposit_name
         self.name = new_deposit_name(self.deposit_date)
@@ -266,6 +285,15 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("El período de la partida complementaria está cerrado."))
 
     def before_cancel(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "cancelar")
+        self._assert_can_reverse_distribution()
+
+    def on_trash(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "eliminar")
+
+    def _assert_can_reverse_distribution(self):
         from credinomina_reconciliation.client_credit import guard_detail_replacement
         guard_detail_replacement(self, operation="cancelar el depósito")
         self._assert_open_related_periods()
