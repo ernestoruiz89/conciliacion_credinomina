@@ -1218,6 +1218,7 @@ class RemittanceTargetPicker {
         this.pageSize = 50;
         this.available_cents = this.availableFor(data);
         this.detailPeriods = new Set((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
+        const filterSelectedPeriods = this.detailPeriods.size && !Number(frm.doc.allow_manual_other_periods) ? 1 : 0;
         this.dialog = new frappe.ui.Dialog({
             title: this.detailRowName ? __("Seleccionar partidas pendientes del cliente") : __("Seleccionar partidas pendientes"), size: "extra-large",
             onhide: () => {
@@ -1231,7 +1232,7 @@ class RemittanceTargetPicker {
             fields: [
                 { fieldname: "intro", fieldtype: "HTML" },
                 { fieldname: "use_detail_periods", fieldtype: "Check", label: __("Usar períodos del detalle"),
-                    default: this.detailPeriods.size ? 1 : 0, read_only: this.detailPeriods.size ? 0 : 1,
+                    default: filterSelectedPeriods, read_only: this.detailPeriods.size ? 0 : 1,
                     description: this.detailPeriods.size
                         ? __("Muestra solo partidas de la tabla Períodos del detalle. Desmarque para buscar en otros períodos; las partidas sin período no se muestran mientras esté marcado.")
                         : __("Agregue períodos en la tabla Períodos del detalle del depósito para habilitar este filtro."),
@@ -1303,7 +1304,7 @@ class RemittanceTargetPicker {
         // Frappe applies dialog defaults asynchronously. Seed this control before
         // the first render so the checked filter and the visible rows agree,
         // even while Bootstrap is still showing the modal.
-        this.dialog.fields_dict.use_detail_periods.set_input(this.detailPeriods.size ? 1 : 0);
+        this.dialog.fields_dict.use_detail_periods.set_input(filterSelectedPeriods);
         this.dialog.show();
         this.render();
     }

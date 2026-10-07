@@ -113,6 +113,19 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(targets, [])
         self.assertIn("período", reason)
 
+    def test_other_periods_require_opt_in_and_keep_identity_and_amount_checks(self):
+        targets, reason = manual_detail_targets(self.row, self.claims, self.manual, 22.52, "EMP", "MAY",
+                                               allow_other_periods=True)
+        self.assertEqual(targets[0]["claim_id"], "H:A")
+        self.assertIn("vínculo autorizado con otros períodos: APRIL", reason)
+        for changes in ({"group": "OTHER"}, {"client_number": "OTHER"}, {"period_closed": True}, {"period": ""}):
+            with self.subTest(changes=changes):
+                claims = [self.claims[0] | changes]
+                self.assertFalse(manual_detail_targets(self.row, claims, self.manual, 22.52, "EMP", "MAY",
+                                                       allow_other_periods=True)[0])
+        self.assertFalse(manual_detail_targets(self.row, self.claims, self.manual, 20, "EMP", "MAY",
+                                               allow_other_periods=True)[0])
+
     def test_periodless_identified_complement_is_valid_only_when_explicitly_linked(self):
         claims = [dict(id="H:A", kind="H", group="EMP", period="APRIL", client_number="3538", amount_usd=63.73),
                   dict(id="X:ITEM", kind="X", group="EMP", period="", client_number="3538", amount_usd=63.74)]

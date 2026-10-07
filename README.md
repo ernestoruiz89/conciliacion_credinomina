@@ -789,6 +789,14 @@ a todos ellos. Puede combinarlo con los filtros de cliente, empresa, tipo y un
 período específico. Desmárquelo para buscar en otros períodos o ver partidas
 complementarias sin período. Si la tabla está vacía, el check queda deshabilitado.
 
+En **Asignación manual (opcional)**, active **Permitir vínculos manuales con períodos
+distintos a los seleccionados** para conciliar filas vinculadas explícitamente a
+destinos de otros períodos abiertos. Guarde y pulse **Conciliar**. El motivo de la
+fila identifica los períodos adicionales autorizados; se mantienen los controles
+de empresa, identidad, crédito, importe y saldo disponible. La búsqueda automática
+y FIFO conservan los períodos seleccionados. Con esta opción activa, el selector
+de partidas inicia con **Usar períodos del detalle** desmarcado.
+
 **Usar aplicaciones como detalle**
 previsualiza únicamente los importes aplicados pendientes, descontando lo cubierto
 por otros depósitos confirmados y los ajustes vigentes por faltantes de centavos.

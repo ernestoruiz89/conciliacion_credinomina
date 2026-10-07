@@ -128,6 +128,13 @@ assert.deepEqual(Array.from(empty.filtered, row => row.id), rows.map(row => row.
 assert.match(empty.dialog.fields_dict.use_detail_periods.df.description, /Agregue períodos/);
 await Promise.resolve();
 assert.deepEqual(Array.from(empty.filtered, row => row.id), rows.map(row => row.id));
+const expanded = new Picker({doc: {detail_periods: [{period: "A"}], allow_manual_other_periods: 1}}, data);
+assert.equal(expanded.dialog.get_value("use_detail_periods"), 0);
+assert.deepEqual(Array.from(expanded.filtered, row => row.id), rows.map(row => row.id));
+await Promise.resolve();
+assert.equal(expanded.dialog.get_value("use_detail_periods"), 0);
+expanded.dialog.set_value("use_detail_periods", 1);
+assert.deepEqual(Array.from(expanded.filtered, row => row.id), ["H:A", "C:A"]);
 console.log("OK: detail-period checkbox, defaults, multiple companies and kinds, intersecting filters, selection and empty table.");
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

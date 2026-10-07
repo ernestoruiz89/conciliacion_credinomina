@@ -829,7 +829,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False)
             "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
             "allocation_detail",
             "support_file", "detail_file", "detail_source_file", "detail_hash",
-            "detail_status", "detail_total_usd", "detail_count", "apply_fifo",
+            "detail_status", "detail_total_usd", "detail_count", "apply_fifo", "allow_manual_other_periods",
         ],
         order_by="creation asc",
     )
@@ -1596,6 +1596,7 @@ def _prepare_remittance_details(
                 plan["targets"], plan["reason"] = manual_detail_targets(
                     plan["row"], claims, manual, amount, item.employer, selected_periods(item),
                     allowed_groups=deposit.get("allowed_groups"),
+                    allow_other_periods=bool(item.get("allow_manual_other_periods")),
                 )
                 if not plan["targets"]:
                     plan["status"] = "Revisar"
