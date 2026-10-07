@@ -427,8 +427,15 @@ def _create_imports(plan, options, progress=None):
             stored_content = stored_content.encode("utf-8")
         # File.get_content may strip the UTF-8 BOM; use the exact same input
         # representation as the individual importer for duplicate detection.
-        document.file_hash = file_sha256(stored_content)
-        document.save()
+        stored_hash = file_sha256(stored_content)
+        if stored_hash != document.file_hash:
+            document.file_hash = stored_hash
+            document._validate_duplicate_file()
+        # This document was just inserted and fully validated in this block.
+        # Only finish its generated-file reference: saving again would rewrite
+        # every child and check cash links on each new application. Keep this
+        # update in the same transaction as the file, rows and checkpoint.
+        document.db_set({"source_file": csv_file.file_url, "file_hash": stored_hash})
         # Keep the original report separately as provenance, never as reimport input.
         attach_existing_file(source, DOCTYPE, document.name, "bulk_source_file")
         created.append({"name": document.name, "employer": employer, "event_date": group["event_date"],

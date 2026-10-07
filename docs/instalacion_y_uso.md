@@ -203,7 +203,7 @@ Cuando la empresa confirme la deducción completa, use **Más opciones → Recon
 
 ### Resolver diferencias en las filas del depósito
 
-Al importar el detalle devuelto por la empresa, los números de crédito de menos de seis dígitos reciben exactamente el prefijo `00`, sin contar el sufijo `-1`: `1807` pasa a `001807-1` y `12230` a `0012230-1`. La regla no afecta al detalle generado desde aplicaciones pendientes. Se muestran **Estado del crédito** y **Fecha de corte de cartera** según el corte del período seleccionado más reciente; si no aparece el crédito, se consulta solo el corte habilitado inmediatamente anterior. Sin coincidencia se muestra **No Identificado**.
+Al importar el detalle devuelto por la empresa ya no se agrega `00`: `1807` se conserva como `1807-1` y `001807` como `001807-1`. Las comparaciones con cartera, movimientos contables y depósitos ignoran los ceros iniciales, pero conservan el ciclo; `1807-2` es distinto de `1807-1`. Los números originales de los registros existentes no se reescriben. Se muestran **Estado del crédito** y **Fecha de corte de cartera** según el corte del período seleccionado más reciente; si no aparece el crédito, se consulta solo el corte habilitado inmediatamente anterior. Sin coincidencia se muestra **No Identificado**.
 
 Con **Aplicar por antigüedad (FIFO)**, una fila de US$13.05 y aplicaciones disponibles de US$9.62 permite distribuir US$9.62, dejando US$3.43 por resolver. Para destinos manuales fuera de los períodos seleccionados, active **Permitir vínculos manuales con períodos distintos a los seleccionados**, guarde y concilie. Esto no amplía la búsqueda automática ni FIFO.
 

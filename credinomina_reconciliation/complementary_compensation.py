@@ -9,7 +9,7 @@ from frappe.utils import getdate, get_datetime, nowdate, now_datetime
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
 from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT as CREDIT_RESULT
 from credinomina_reconciliation.client_identity import name_key
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text, normalize_credit_number
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
@@ -160,7 +160,7 @@ def _validate_credit_evidence(credit, evidence):
         frappe.throw(_("El importe de la partida no coincide con su débito original convertido a US$. Revise la evidencia."))
     if credit.category == "Saldo a favor del cliente":
         matched = False
-        for field, normalize in (("client_number", canonical_identifier), ("loan_number", normalize_credit_number)):
+        for field, normalize in (("client_number", canonical_identifier), ("loan_number", canonical_credit_number)):
             left, right = clean_text(credit.get(field)), clean_text(evidence.get(field))
             if left and right:
                 if normalize(left) != normalize(right):

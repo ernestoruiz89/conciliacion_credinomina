@@ -45,6 +45,18 @@ def load_client_index(employers=None):
 class ClientIndex:
     def __init__(self):
         self.records = load_client_index()
+        self._employer_exists = {}
+        self._by_name = {}
+
+    def employer_exists(self, employer):
+        if employer not in self._employer_exists:
+            self._employer_exists[employer] = bool(frappe.db.exists("CN Employer", employer))
+        return self._employer_exists[employer]
+
+    def linked_client(self, name):
+        if len(self._by_name) != len(self.records):
+            self._by_name = {row["name"]: row for row in self.records}
+        return self._by_name.get(name)
 
     def ensure_from_collection(self, record, employer):
         client, reason = choose_client(record, self.records, employer)
@@ -93,7 +105,7 @@ class ClientIndex:
     def ensure_from_source_import(self, record, employer):
         """Resolve or create a client from an accounting movement without blocking import."""
         employer = clean_text(employer)
-        if not employer or not frappe.db.exists("CN Employer", employer):
+        if not employer or not self.employer_exists(employer):
             return "", "No creado: empresa no identificada"
 
         candidate = {
@@ -118,10 +130,7 @@ class ClientIndex:
 
         existing_link = clean_text(record.get("client"))
         if existing_link:
-            linked_client = next(
-                (row for row in self.records if row.get("name") == existing_link),
-                None,
-            )
+            linked_client = self.linked_client(existing_link)
             if not linked_client:
                 return "", "Revisar: el cliente relacionado ya no existe"
             if clean_text(linked_client.get("employer")) != employer:
@@ -188,9 +197,13 @@ class ClientIndex:
         })
         return document.name, "Cliente creado desde movimiento contable"
 
-    @staticmethod
-    def _complete_existing_client(client, candidate):
+    def _complete_existing_client(self, client, candidate):
         """Fill blank identifiers and keep the imported name as a verified alias."""
+        missing_identifiers = any(candidate.get(field) and not client.get(field)
+                                  for field in ("client_number", "employee_number", "national_id"))
+        incoming_name = clean_text(candidate.get("client_name"))
+        if not missing_identifiers and (not incoming_name or matching_name(incoming_name, client)):
+            return
         document = frappe.get_doc("CN Client", client["name"])
         changed = False
         for fieldname in ("client_number", "employee_number", "national_id"):
@@ -219,7 +232,7 @@ class ClientIndex:
     def ensure_from_portfolio(self, record, employer):
         """Link or create a client only from a validated portfolio employer."""
         employer = clean_text(employer)
-        if not employer or not frappe.db.exists("CN Employer", employer):
+        if not employer or not self.employer_exists(employer):
             return "", "No creado: empresa de cartera no validada"
 
         candidate = {
@@ -231,10 +244,7 @@ class ClientIndex:
         }
 
         portfolio_client_name = clean_text(record.get("portfolio_client"))
-        linked_client = next(
-            (row for row in self.records if row["name"] == portfolio_client_name),
-            None,
-        ) if portfolio_client_name else None
+        linked_client = self.linked_client(portfolio_client_name) if portfolio_client_name else None
         if linked_client:
             if clean_text(linked_client.get("employer")) != employer:
                 return "", "Revisar: cliente relacionado pertenece a otra empresa"
@@ -317,6 +327,8 @@ def names_for_claim(claim, clients, employer=""):
 
 def enrich_source_import_clients(records, client_index=None):
     """Attach CN Client links to accounting application rows, creating safely."""
+    if not any(record.get("event_type") == "Aplicacion" for record in records):
+        return records
     client_index = client_index or ClientIndex()
     employers = frappe.get_all(
         "CN Employer",
@@ -334,10 +346,7 @@ def enrich_source_import_clients(records, client_index=None):
         employer = clean_text(record.get("portfolio_employer") or record.get("_manual_employer"))
         if employer not in employer_names:
             linked_name = clean_text(record.get("portfolio_client") or record.get("client"))
-            linked_client = next(
-                (row for row in client_index.records if row.get("name") == linked_name),
-                None,
-            ) if linked_name else None
+            linked_client = client_index.linked_client(linked_name) if linked_name else None
             if linked_client:
                 employer = clean_text(linked_client.get("employer"))
 

@@ -15,7 +15,7 @@ from credinomina_reconciliation.employer_naming import (
     employer_alias_index,
     employer_label_key,
 )
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text, normalize_credit_number
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 
 
 def has_portfolio_employer(row):
@@ -202,7 +202,7 @@ def _load_snapshot_rows(snapshot_name, employer=""):
     by_credit = defaultdict(list)
     by_client_number = defaultdict(list)
     for row in rows:
-        credit_number = canonical_identifier(normalize_credit_number(row.credit_number))
+        credit_number = canonical_credit_number(row.credit_number)
         if credit_number:
             by_credit[credit_number].append(row)
         client_number_siaf = canonical_identifier(row.get("client_number_core"))
@@ -396,7 +396,7 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
 
         record["portfolio_snapshot_used"] = snapshot.name
         index = row_indexes[snapshot.name]
-        credit_key = canonical_identifier(normalize_credit_number(record.get("loan_number")))
+        credit_key = canonical_credit_number(record.get("loan_number"))
         client_key = canonical_identifier(record.get("client_number"))
         if not credit_key:
             if not client_key:

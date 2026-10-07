@@ -5,7 +5,7 @@ from typing import Any
 
 from credinomina_reconciliation.client_identity import matching_name
 from credinomina_reconciliation.parsers import (
-    canonical_identifier,
+    canonical_credit_number, canonical_identifier,
     clean_text,
 )
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
@@ -37,11 +37,11 @@ def application_matches_collection(
     client_aliases: Iterable[str] = (),
 ) -> bool:
     """Match core applications by available identifiers, name only as a last resort."""
-    loan = canonical_identifier(application.get("loan_number"))
+    loan = canonical_credit_number(application.get("loan_number"))
     client = canonical_identifier(application.get("client_number"))
     employee = canonical_identifier(application.get("employee_number"))
     national_id = canonical_identifier(application.get("national_id"))
-    if loan and loan != canonical_identifier(collection.get("loan_number")):
+    if loan and loan != canonical_credit_number(collection.get("loan_number")):
         return False
     if client and client != canonical_identifier(collection.get("client_number")):
         return False
@@ -222,8 +222,8 @@ def complementary_matches_collection(
     """Allocate other income to a collection row only with an explicit loan link."""
     if clean_text(item.get("reference")) != clean_text(reference):
         return False
-    loan = canonical_identifier(item.get("loan_number"))
-    if not loan or loan != canonical_identifier(target.get("loan_number")):
+    loan = canonical_credit_number(item.get("loan_number"))
+    if not loan or loan != canonical_credit_number(target.get("loan_number")):
         return False
     for field in ("client_number", "installment_number"):
         value = canonical_identifier(item.get(field))
@@ -328,8 +328,9 @@ def match_collection_record(
         if len(exact) == 1:
             row = exact[0]
             for field in ("loan_number", "client_number", "employee_number", "national_id"):
-                incoming = canonical_identifier(response.get(field))
-                stored = canonical_identifier(row.get(field))
+                normalize = canonical_credit_number if field == "loan_number" else canonical_identifier
+                incoming = normalize(response.get(field))
+                stored = normalize(row.get(field))
                 if incoming and stored and incoming != stored:
                     return None, "La Fila ID contradice los identificadores del cliente o crédito"
             return exact[0], "Fila ID"
@@ -362,8 +363,8 @@ def match_collection_record(
                 lambda row: canonical_identifier(row.get("client_number"))
                 == canonical_identifier(client)
                 and identifiers_compatible(row)
-                and canonical_identifier(row.get("loan_number"))
-                == canonical_identifier(loan)
+                and canonical_credit_number(row.get("loan_number"))
+                == canonical_credit_number(loan)
                 and (
                     not installment
                     or canonical_identifier(row.get("installment_number"))
@@ -378,8 +379,8 @@ def match_collection_record(
                 lambda row: clean_text(row.get("national_id")).casefold()
                 == national_id.casefold()
                 and identifiers_compatible(row)
-                and canonical_identifier(row.get("loan_number"))
-                == canonical_identifier(loan)
+                and canonical_credit_number(row.get("loan_number"))
+                == canonical_credit_number(loan)
                 and (
                     not installment
                     or canonical_identifier(row.get("installment_number"))
@@ -393,7 +394,7 @@ def match_collection_record(
             lambda row: canonical_identifier(row.get("employee_number"))
             == canonical_identifier(employee)
             and identifiers_compatible(row)
-            and canonical_identifier(row.get("loan_number")) == canonical_identifier(loan)
+            and canonical_credit_number(row.get("loan_number")) == canonical_credit_number(loan)
             and (not installment or canonical_identifier(row.get("installment_number"))
                  == canonical_identifier(installment)),
         ))
@@ -401,8 +402,8 @@ def match_collection_record(
         strategies.append(
             (
                 "credito y cuota",
-                lambda row: canonical_identifier(row.get("loan_number"))
-                == canonical_identifier(loan)
+                lambda row: canonical_credit_number(row.get("loan_number"))
+                == canonical_credit_number(loan)
                 and (
                     not installment
                     or canonical_identifier(row.get("installment_number"))
@@ -459,7 +460,7 @@ def duplicate_business_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
     if event_type == "Aplicacion":
         return (
             event_type,
-            canonical_identifier(row.get("loan_number")),
+            canonical_credit_number(row.get("loan_number")),
             clean_text(row.get("reference")),
             clean_text(row.get("currency")).upper(),
             money(row.get("amount")),

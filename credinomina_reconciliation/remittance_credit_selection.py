@@ -1,6 +1,6 @@
 """Client enrichment and permission-checked portfolio choices for deposit detail."""
 
-from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
 
 
@@ -43,7 +43,7 @@ def portfolio_credit_choices(rows, snapshots, client, employer):
         if not credit:
             continue
         # Ambiguous duplicate credit rows in the same cut are not selectable.
-        key = (row["parent"], canonical_identifier(credit))
+        key = (row["parent"], canonical_credit_number(credit))
         if key in seen:
             choices = [item for item in choices if item["key"] != key]
             continue

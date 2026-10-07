@@ -64,7 +64,7 @@ def load_credit_periods(items):
     Child identities are resolved through their permission-checked parents.
     """
     from credinomina_reconciliation.control_deposits import _entries, _credit_key, _load_credit_people
-    from credinomina_reconciliation.parsers import canonical_identifier
+    from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
 
     credits = [item for item in items if item.get("category") in CREDIT_CATEGORIES
                and item.get("docstatus") == 1 and not item.get("period") and item.get("registered_deposit")
@@ -98,7 +98,7 @@ def load_credit_periods(items):
                 client = canonical_identifier(item.get("client_number"))
                 if not client or canonical_identifier(person.get("client_number")) != client:
                     continue
-                if item.get("loan_number") and canonical_identifier(item["loan_number"]) != canonical_identifier(person.get("loan_number")):
+                if item.get("loan_number") and canonical_credit_number(item["loan_number"]) != canonical_credit_number(person.get("loan_number")):
                     continue
             found.add(period["name"])
         if found:
