@@ -1078,6 +1078,11 @@ negativa realmente utilizada en depósitos confirmados, no por destinos seleccio
 Se muestra positiva en el estado por empresa, en **Partidas y excepciones** del Excel,
 en la partida y en **Qué falta hacer**, aunque el depósito esté conciliado. El asiento
 informado o verificado no elimina la deuda. No se ofrece un cierre manual sin evidencia.
+En **Crear partida complementaria**, el concepto **Cuenta por Cobrar a la Empresa**
+selecciona directamente el tratamiento **CxC a la empresa** del ajuste de conciliación.
+Ingrese el faltante como importe negativo (por ejemplo, −10 si se aplicaron 100 y
+se depositaron 90). La partida se agrega a Destinos; complete la distribución y
+pulse **Conciliar** para reconocer la deuda.
 Use **Aplicar cobro / Compensar CxC** desde la partida original para liquidarla,
 total o parcialmente, con un depósito existente o una partida de crédito vinculada.
 El modal muestra el importe disponible por empresa y conserva el vínculo al ajuste.
