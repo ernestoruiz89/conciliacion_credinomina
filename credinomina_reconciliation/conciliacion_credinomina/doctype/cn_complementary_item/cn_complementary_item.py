@@ -141,6 +141,8 @@ class CNComplementaryItem(Document):
             self._reconcile()
 
     def before_cancel(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "cancelar")
         from credinomina_reconciliation.receivable_recovery import guard_origin
         guard_origin(self)
         client_credit.guard_cancel(self)
@@ -169,6 +171,8 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
+        guard_imported_removal(self, "eliminar")
         from credinomina_reconciliation.receivable_recovery import guard_origin
         guard_origin(self)
         client_credit.guard_cancel(self)

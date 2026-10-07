@@ -1183,6 +1183,20 @@ ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
 complementaria anterior, la carga se detiene con un mensaje para revisar el
 registro previo. No se convierte evidencia anterior automáticamente.
 
+Los depósitos y partidas complementarias importados del histórico contable no
+se pueden cancelar ni eliminar, incluso en borrador o si quedaron cancelados
+antes de esta protección. La evidencia original debe conservarse. Para corregir
+la distribución de un depósito importado, use **Desconciliar**, revise sus destinos
+y vuelva a conciliar; el depósito permanece confirmado.
+
+Al restaurar desde **Deleted Document** un depósito histórico en borrador o
+cancelado, se retiran los destinos de partidas complementarias anuladas o
+eliminadas. Se conservan la evidencia contable, el detalle y los destinos válidos;
+el depósito queda en borrador y sus resultados se marcan pendientes. El historial
+registra cada destino retirado con su fila, partida e importe. Revise los destinos
+y vuelva a conciliar después de confirmar. Esta recuperación no modifica la copia
+original eliminada ni permite usar partidas anuladas en operaciones normales.
+
 ### Corrección de vínculos y filas originales del CSV
 
 El Control Mensual solo incorpora los datos de un depósito cuando la fila es

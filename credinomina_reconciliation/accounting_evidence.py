@@ -41,3 +41,20 @@ def is_deposit(row):
         return False
     classification = row.get("accounting_classification")
     return classification == "Depósito" if classification else row.get("event_type") == "Deposito"
+
+
+def guard_imported_removal(document, action):
+    import frappe
+    from frappe import _
+
+    imported = document.get("accounting_source_key")
+    if not imported and document.get("name") and document.get("doctype"):
+        # Cancellation requests can carry unsaved data. A cleared origin in the
+        # payload must not hide the persisted accounting evidence.
+        imported = frappe.db.get_value(document.doctype, document.name, "accounting_source_key")
+    if not imported:
+        return
+    message = _("No se puede {0} un registro importado del histórico contable. Debe conservarse la evidencia original.").format(action)
+    if document.get("doctype") == "CN Remittance Allocation":
+        message += " " + _("Use Desconciliar si necesita retirar la distribución del depósito y corregir sus destinos.")
+    frappe.throw(message)
