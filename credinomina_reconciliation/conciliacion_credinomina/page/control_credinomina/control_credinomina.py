@@ -874,7 +874,10 @@ def _build_work_items(
                 end = display_date(period.get("historical_end_date")) or "?"
                 return f"{month} · {start}–{end}"
             return f"{month} · histórico"
-        return f"{month} · {period.get('collection_cycle') or 'mensual'}"
+        cycle = period.get('collection_cycle') or 'mensual'
+        if cycle == "Fecha exacta":
+            cycle += f" · {display_date(period.get('cutoff_date'))}"
+        return f"{month} · {cycle}"
 
     def add(priority, kind, summary, next_action, *, period=None, employer=None,
             amount_usd=None, count=None, due_date=None, target_doctype=None,

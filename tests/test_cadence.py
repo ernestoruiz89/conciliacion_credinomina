@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 from credinomina_reconciliation.cadence import (
+    EXACT_DATE,
     FIRST_HALF,
     MONTHLY,
     SECOND_HALF,
@@ -14,6 +15,21 @@ from credinomina_reconciliation.cadence import (
 
 
 class CollectionCadenceTest(unittest.TestCase):
+    def test_additional_exact_dates_for_both_frequencies(self):
+        for frequency in (MONTHLY, "Quincenal"):
+            self.assertEqual(EXACT_DATE, cycle_for_frequency(frequency, EXACT_DATE))
+        month, cut = date(2026, 9, 1), date(2026, 9, 20)
+        self.assertEqual(cut, cycle_cutoff(month, EXACT_DATE, cut))
+        self.assertEqual("FE", cycle_code(EXACT_DATE))
+        for invalid in (None, date(2026, 10, 20), date(2025, 9, 20)):
+            with self.assertRaises(ValueError):
+                cycle_cutoff(month, EXACT_DATE, invalid)
+        self.assertTrue(cycles_conflict(EXACT_DATE, EXACT_DATE, cut, str(cut)))
+        self.assertFalse(cycles_conflict(EXACT_DATE, EXACT_DATE, cut, date(2026, 9, 21)))
+        for regular in (MONTHLY, FIRST_HALF, SECOND_HALF):
+            self.assertFalse(cycles_conflict(regular, EXACT_DATE, cut, cut))
+            self.assertFalse(cycles_conflict(EXACT_DATE, regular, cut, cut))
+
     def test_monthly_and_fortnightly_cycle_selection(self):
         self.assertEqual(MONTHLY, cycle_for_frequency("Mensual", ""))
         self.assertEqual(FIRST_HALF, cycle_for_frequency("Quincenal", FIRST_HALF))

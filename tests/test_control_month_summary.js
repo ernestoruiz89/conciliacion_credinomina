@@ -95,7 +95,7 @@ const original = JSON.stringify(periods);
     selector.events["[data-month-period]"].call({"data-month-period": "P2"});
     assert.equal(selector.shown, false);
     assert.equal(dialog.options.primary_action_label, "Abrir período");
-    assert.ok(dialog.shown && dialog.html.includes('class="cn-dialog"'));
+    assert.ok(dialog.shown && /class="cn-dialog(?:\s|\")/.test(dialog.html));
     const detailHtml = dialog.html;
     const periodDetail = dialog;
     assert.equal(periodDetail.options.animate, false, "Return to month must not leave a transitioning period dialog open");
@@ -114,6 +114,8 @@ const original = JSON.stringify(periods);
     assert.equal(dialog.html, detailHtml); // Exactly the normal detailed modal.
     assert.equal(dialog.options.secondary_action_label, undefined); // No unrelated month when opened directly.
     const historicalCard = context.helpers.renderPeriodCard({...periods[2], name: '<Period>', historical_scope: "Fecha exacta", historical_application_date: "2026-09-15"});
+    const exactCard = context.helpers.renderPeriodCard({...periods[0], collection_cycle: "Fecha exacta", cutoff_date: "2026-09-20"});
+    assert.ok(exactCard.includes("Fecha exacta · 2026-09-20"));
     assert.ok(historicalCard.includes("2026-09-15"));
     assert.ok(historicalCard.includes("&lt;Period&gt;") && !historicalCard.includes("<Period>"));
     assert.ok(!historicalCard.includes(">Deducido<"));

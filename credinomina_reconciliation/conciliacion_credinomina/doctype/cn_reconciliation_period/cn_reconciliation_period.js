@@ -120,6 +120,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
     employer(frm) {
         if (!frm.is_new() || !frm.doc.employer || frm.doc.reconciliation_mode === "Historica") return;
         frappe.db.get_value("CN Employer", frm.doc.employer, "payroll_frequency").then((result) => {
+            if (frm.doc.collection_cycle === "Fecha exacta") return;
             if (result.message?.payroll_frequency === "Mensual") {
                 frm.set_value("collection_cycle", "Mensual");
             } else if (result.message?.payroll_frequency === "Quincenal" && frm.doc.collection_cycle === "Mensual") {
@@ -451,7 +452,7 @@ function setRemittanceDateEditing(frm) {
     frm.set_df_property(
         "remittance_due_date", "read_only",
         frm.doc.status === "Cerrado" || frm.doc.reconciliation_mode === "Historica" ||
-        !["Primera quincena", "Segunda quincena"].includes(frm.doc.collection_cycle)
+        !["Primera quincena", "Segunda quincena", "Fecha exacta"].includes(frm.doc.collection_cycle)
     );
 }
 
