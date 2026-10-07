@@ -28,6 +28,28 @@ class ApplicationDepositDetailTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     module.select_application_rows(rows, ids)
 
+    def test_adjusted_amounts_can_be_lower_or_higher_without_changing_applications(self):
+        rows = [dict(claim_id="H:A", deducted_usd=10, applied_usd=30, comments="Origen"),
+                dict(claim_id="C:B", deducted_usd=20, applied_usd=20)]
+        with patch.object(module, "_", side_effect=lambda v: v):
+            selected = module.select_application_rows(rows, ["H:A", "C:B"], '{"H:A":"8.25","C:B":"25.01"}')
+        self.assertEqual([row["deducted_usd"] for row in selected], [8.25, 25.01])
+        self.assertIn("pendiente original US$ 10.00; detalle US$ 8.25", selected[0]["comments"])
+        self.assertTrue(selected[0]["comments"].startswith("Origen"))
+        self.assertEqual(selected[0]["applied_usd"], 30)
+        self.assertEqual(rows[0]["deducted_usd"], 10)
+        self.assertEqual(rows[0]["comments"], "Origen")
+
+    def test_adjusted_amounts_reject_invalid_values_and_mismatched_selection(self):
+        rows = [dict(claim_id="H:A", deducted_usd=10)]
+        invalid = [{"H:A": value} for value in (None, True, "", "abc", "NaN", "Infinity", 0, -1, "1.001", "1e999")]
+        invalid += [{}, {"OTHER": 10}, {"H:A": 10, "OTHER": 10}, [], "bad json"]
+        for amounts in invalid:
+            with self.subTest(amounts=amounts), patch.object(module, "_", side_effect=lambda v: v), \
+                 patch.object(module.frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError):
+                    module.select_application_rows(rows, ["H:A"], amounts)
+
     def test_pending_excludes_other_payments_but_not_current_deposit(self):
         candidates = [dict(historical_application="A", claim_id="H:A", applied_usd=100),
                       dict(period="P", row_key="R", claim_id="C:C", applied_usd=50)]
@@ -145,15 +167,16 @@ class ApplicationDepositDetailTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.use_application_detail("D", "F", True, [])
             save_file.assert_not_called()
-            result = module.use_application_detail("D", "F", True, ["H:B"])
+            result = module.use_application_detail("D", "F", True, ["H:B"], {"H:B": "22.35"})
         self.assertEqual(result["rows"], 1)
-        self.assertEqual(result["total_usd"], 20)
-        self.assertEqual(document.detail_total_usd, 20)
+        self.assertEqual(result["total_usd"], 22.35)
+        self.assertEqual(document.detail_total_usd, 22.35)
         self.assertEqual(apply.call_args.args[1][0]["claim_id"], "H:B")
         generated = parse_collection_file("detail.xlsx", save_file.call_args.args[1], require_deduction=True, require_name=True)
         self.assertEqual(len(generated), 1)
         self.assertEqual(generated[0]["client_name"], "Bea")
-        self.assertEqual(generated[0]["deducted_usd"], 20)
+        self.assertEqual(generated[0]["deducted_usd"], 22.35)
+        self.assertIn("pendiente original US$ 20.00; detalle US$ 22.35", generated[0]["comments"])
         self.assertEqual(document.result, "Pendiente")
         self.assertEqual(document.detail_file, "/private/files/generated.xlsx")
         self.assertEqual(save_file.call_args.kwargs["is_private"], 1)

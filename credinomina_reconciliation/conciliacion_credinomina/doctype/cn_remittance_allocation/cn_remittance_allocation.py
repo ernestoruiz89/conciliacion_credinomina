@@ -670,9 +670,9 @@ def get_paying_companies(employer):
 
 
 @frappe.whitelist(methods=["POST"])
-def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False, selected_claim_ids=None):
+def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False, selected_claim_ids=None, selected_amounts=None):
     from credinomina_reconciliation.application_deposit_detail import use_application_detail as apply
-    return apply(remittance_name, fingerprint, replace_detail, selected_claim_ids)
+    return apply(remittance_name, fingerprint, replace_detail, selected_claim_ids, selected_amounts)
 
 
 @frappe.whitelist(methods=["POST"])

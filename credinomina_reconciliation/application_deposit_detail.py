@@ -1,6 +1,7 @@
 """Explicit, auditable reuse of pending applications as a deposit detail."""
 
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 import hashlib
 import io
 import json
@@ -147,8 +148,8 @@ def _workbook(rows, amount_description=None):
     return output.getvalue()
 
 
-def select_application_rows(rows, selected_claim_ids):
-    """Accept identities only; amounts and eligibility always come from the server."""
+def select_application_rows(rows, selected_claim_ids, selected_amounts=None):
+    """Validate selection against server eligibility; overrides affect detail only."""
     if selected_claim_ids is None:
         selected_claim_ids = [row["claim_id"] for row in rows]
     if isinstance(selected_claim_ids, str):
@@ -164,11 +165,40 @@ def select_application_rows(rows, selected_claim_ids):
     available = {row["claim_id"] for row in rows}
     if len(selected) != len(selected_claim_ids) or not selected.issubset(available):
         frappe.throw(_("Hay movimientos duplicados o que ya no están disponibles. Abra nuevamente la vista previa."))
-    chosen = [row for row in rows if row["claim_id"] in selected]
-    return [{**row, "source_row": index} for index, row in enumerate(chosen, 2)]
+    if isinstance(selected_amounts, str):
+        try:
+            selected_amounts = json.loads(selected_amounts)
+        except (ValueError, TypeError):
+            frappe.throw(_("Los importes seleccionados no son válidos."))
+    if selected_amounts is not None and (
+        not isinstance(selected_amounts, dict) or set(selected_amounts) != selected
+    ):
+        frappe.throw(_("Indique un importe para cada movimiento seleccionado, sin agregar otros movimientos."))
+    chosen = []
+    for original in rows:
+        key = original["claim_id"]
+        if key not in selected:
+            continue
+        row = {**original, "source_row": len(chosen) + 2}
+        if selected_amounts is not None:
+            try:
+                amount = Decimal(str(selected_amounts[key]))
+                valid = (amount.is_finite() and 0 < amount <= Decimal("90071992547409.91")
+                         and amount == money(amount))
+            except (InvalidOperation, ValueError, TypeError):
+                valid = False
+            if not valid:
+                frappe.throw(_("El importe de {0} debe ser mayor que cero y tener como máximo dos decimales.").format(key))
+            row["deducted_usd"] = money_float(amount)
+            if amount != money(original["deducted_usd"]):
+                row["comments"] = " ".join(filter(None, [original.get("comments"), _(
+                    "Importe ajustado por el usuario para este depósito: pendiente original US$ {0}; detalle US$ {1}."
+                ).format(format(money(original["deducted_usd"]), ".2f"), format(amount, ".2f"))]))
+        chosen.append(row)
+    return chosen
 
 
-def use_application_detail(remittance_name, fingerprint, replace_detail=False, selected_claim_ids=None):
+def use_application_detail(remittance_name, fingerprint, replace_detail=False, selected_claim_ids=None, selected_amounts=None):
     from frappe.utils.file_manager import save_file
     from frappe.utils import cint
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import (
@@ -183,9 +213,12 @@ def use_application_detail(remittance_name, fingerprint, replace_detail=False, s
         frappe.throw(_("No hay aplicaciones pendientes para los períodos seleccionados."))
     if preview["replaces_detail"] and not cint(replace_detail):
         frappe.throw(_("Confirme el reemplazo del detalle existente."))
-    rows = select_application_rows(preview["rows"], selected_claim_ids)
+    rows = select_application_rows(preview["rows"], selected_claim_ids, selected_amounts)
     total_usd = money_float(sum_money(row["deducted_usd"] for row in rows))
-    content = _workbook(rows)
+    content = _workbook(rows, amount_description=(
+        "Importe para el detalle del depósito, inicializado desde la aplicación pendiente y editable por el usuario. "
+        "Los ajustes se registran en los comentarios de cada fila. No confirma una deducción informada por la empresa."
+    ))
     safe_name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", document.name)
     attachment = save_file(f"detalle_aplicaciones_{safe_name}.xlsx", content,
                            document.doctype, document.name, is_private=1, df="detail_file")
