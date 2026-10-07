@@ -50,6 +50,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         if (!frm.is_new() && frm.doc.docstatus === 1 && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Corregir datos"), () => correctDepositData(frm));
+            frm.add_custom_button(__("Desconciliar"), () => unreconcileRemittance(frm), __("Conciliación"));
             frm.add_custom_button(__("Conciliar"), () => reconcileRemittance(frm), __("Conciliación"));
             frm.add_custom_button(__("Usar conciliación preparada"), () => usePreparedReconciliation(frm), __("Conciliación"));
         }
@@ -1366,4 +1367,35 @@ function toScaledInteger(value, decimalPlaces) {
     const fraction = ((match[3] || "") + "0".repeat(decimalPlaces)).slice(0, decimalPlaces);
     const scaled = BigInt(match[2]) * factor + BigInt(fraction || "0");
     return match[1] === "-" ? -scaled : scaled;
+}
+
+
+function unreconcileRemittance(frm) {
+    const dialog = new frappe.ui.Dialog({
+        title: __("Desconciliar depósito"),
+        fields: [
+            {fieldtype: "HTML", options: `<div class="alert alert-warning">${__("Se retirarán las asignaciones de este depósito y se recalcularán los saldos de los períodos afectados. El depósito seguirá confirmado y quedará pendiente de conciliación. La operación se registrará en el historial.")}</div>`},
+            {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo"), reqd: 1},
+        ],
+        primary_action_label: __("Desconciliar"),
+        primary_action(values) {
+            if (dialog.running) return;
+            dialog.running = true;
+            dialog.disable_primary_action();
+            frappe.confirm(__("¿Confirma que desea desconciliar este depósito?"), async () => {
+                try {
+                    if (frm.is_dirty()) await frm.save();
+                    await frappe.call({
+                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.unreconcile_remittance",
+                        args: {remittance_name: frm.doc.name, modified: frm.doc.modified, reason: values.reason},
+                        freeze: true, freeze_message: __("Desconciliando depósito…"),
+                    });
+                    dialog.hide();
+                    await frm.reload_doc();
+                    frappe.show_alert({message: __("Depósito desconciliado."), indicator: "green"});
+                } finally { dialog.running = false; dialog.enable_primary_action(); }
+            }, () => { dialog.running = false; dialog.enable_primary_action(); });
+        },
+    });
+    dialog.show();
 }
