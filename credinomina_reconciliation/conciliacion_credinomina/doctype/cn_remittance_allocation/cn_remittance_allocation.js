@@ -654,7 +654,9 @@ async function createRemittanceComplementary(frm, options = {}) {
                   Para dinero sin aplicación ni ingreso identificado, elija <b>Saldo a favor de la empresa</b>:
                   debe ser positivo y no se agrega al detalle por cliente ni a Destinos.
                   Si el excedente pertenece a una persona, use <b>Saldo a favor del cliente</b>, identifique la fila y registre responsable y fecha compromiso. No aumenta lo aplicado al crédito.</p>`},
-            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: companyCredit ? "Saldo a favor de la empresa" : sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow || companyCredit, reqd: 1},
+            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nCuenta por Cobrar a la Empresa\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: companyCredit ? "Saldo a favor de la empresa" : sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow || companyCredit, reqd: 1},
+            {fieldname: "receivable_help", fieldtype: "HTML", depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa'",
+                options: `<p>${__("Registre el faltante del depósito con importe negativo. Por ejemplo, aplicado US$100 y depositado US$90: ingrese −10. La deuda de la empresa se reconocerá al conciliar la distribución y permanecerá pendiente hasta registrar su cobro o compensación.")}</p>`},
             {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa o corresponde a otro ajuste.")},
             {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"),
                 options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar", default: "",
@@ -724,6 +726,11 @@ async function createRemittanceComplementary(frm, options = {}) {
             if (sourceRow) values = {...values, category: "Saldo a favor del cliente", currency: "USD",
                 credit_detail_row: sourceRow.name, credit_client: sourceRow.client || values.credit_client,
                 client_number: sourceRow.client_number || "", loan_number: sourceRow.loan_number || ""};
+            if (values.category === "Cuenta por Cobrar a la Empresa" &&
+                (!Number.isFinite(Number(values.amount)) || Number(values.amount) >= 0)) {
+                frappe.msgprint(__("Para Cuenta por Cobrar a la Empresa, ingrese el faltante como importe negativo."));
+                return;
+            }
             busy = true;
             dialog.get_primary_btn().prop("disabled", true);
             try {
@@ -736,7 +743,9 @@ async function createRemittanceComplementary(frm, options = {}) {
                 await frm.reload_doc();
                 const message = response.message.company_credit || response.message.client_credit
                     ? __("Saldo a favor documentado y vinculado al depósito. No se aplicó a créditos.")
-                    : __("Partida agregada a Destinos. Complete la distribución y use Conciliar.");
+                    : response.message.company_receivable
+                        ? __("Cuenta por cobrar agregada a Destinos. Complete la distribución y use Conciliar para reconocer el saldo por cobrar a la empresa.")
+                        : __("Partida agregada a Destinos. Complete la distribución y use Conciliar.");
                 frappe.msgprint({title: __("Partida registrada"), message: `${frappe.utils.escape_html(response.message.name)} · ${frappe.utils.escape_html(response.message.accounting_status)}.<br>${frappe.utils.escape_html(message)}`});
             } finally {
                 busy = false;

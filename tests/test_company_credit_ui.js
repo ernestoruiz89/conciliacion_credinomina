@@ -15,7 +15,9 @@ const context = vm.createContext({__: value => value, frappe: {
     db: {get_value: () => new Promise(resolve => lookups.push(resolve))},
     utils: {escape_html: value => value},
     model: {can_create: () => canCreate, can_submit: () => canSubmit},
-    call: async args => {request = args; creations++; return {message: {name: "CREDIT", company_credit: true, result: "Saldo a favor documentado"}};},
+    call: async args => {request = args; creations++; return {message: {name: "CREDIT",
+        company_credit: args.args.values.category === "Saldo a favor de la empresa",
+        company_receivable: args.args.values.category === "Cuenta por Cobrar a la Empresa", result: "Pendiente"}};},
     msgprint: message => alerts.push(message),
 }});
 const base = path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype");
@@ -57,6 +59,20 @@ for (const dt of ["cn_complementary_item", "cn_remittance_allocation"]) {
     assert.equal(reloaded, 1);
     assert.equal(dialog.hidden, true);
     assert.match(alerts[0].message, /saldo a favor/i);
+
+    await context.createRemittanceComplementary({doc: {name: "DEP", modified: "stamp", employer: "EMP"},
+        is_new: () => false, is_dirty: () => false, reload_doc: async () => {reloaded++;}});
+    assert.ok(dialog.options.fields.find(f => f.fieldname === "category").options.split("\n").includes("Cuenta por Cobrar a la Empresa"));
+    const beforeReceivable = creations;
+    for (const amount of [0, 10, NaN, Infinity]) {
+        await dialog.options.primary_action({category: "Cuenta por Cobrar a la Empresa", amount});
+    }
+    assert.equal(creations, beforeReceivable);
+    await dialog.options.primary_action({category: "Cuenta por Cobrar a la Empresa", amount: -10, currency: "USD"});
+    assert.equal(request.args.values.category, "Cuenta por Cobrar a la Empresa");
+    assert.equal(request.args.values.amount, -10);
+    assert.equal(creations, beforeReceivable + 1);
+    assert.match(alerts.at(-1).message, /saldo por cobrar a la empresa/);
 
     const buttons = {};
     const deposit = {doc: {name: "DEP", docstatus: 1, modified: "stamp", employer: "EMP",

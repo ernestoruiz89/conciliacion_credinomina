@@ -9,6 +9,7 @@ from credinomina_reconciliation.complementary_compensation import reverse_compen
 from credinomina_reconciliation.complementary_subcategories import seed_subcategories
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.receivable_recovery import apply_recovery
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import create_complementary_item
 
 
 def fixture(marker):
@@ -26,16 +27,19 @@ def fixture(marker):
             amount=100, amount_usd=100, effective=1, client_number=marker, client_name=marker,
             loan_number=marker + '-1', historical_period=period.name, processing_route='Historica')])).insert()
     _reconcile_sources(company.name)
-    item = frappe.get_doc(dict(doctype='CN Complementary Item', employer=company.name,
-        period=period.name, category='Ajuste de conciliación', subcategory='CxC a la empresa',
-        reference=marker, posting_date='2025-05-01', currency='USD', amount=-10,
-        description='CxC de ensayo por depósito insuficiente'))
-    item.flags.defer_reconciliation = True
-    item.insert()
-    item.submit()
     deposit = new_deposit(company.name, marker, 90)
+    values = dict(period=period.name, category='Cuenta por Cobrar a la Empresa',
+        posting_date='2025-05-01', currency='USD', amount=-10,
+        subcategory='Otro ajuste sin CxC', description='CxC de ensayo por depósito insuficiente')
+    for amount in (0, 10):
+        rejects(lambda: create_complementary_item(deposit.name, str(deposit.modified), values | {'amount': amount}))
+    created = create_complementary_item(deposit.name, str(deposit.modified), values)
+    item = frappe.get_doc('CN Complementary Item', created['name'])
+    assert created['company_receivable'] and item.docstatus == 1
+    assert item.category == 'Ajuste de conciliación' and item.subcategory_effect == 'CxC a la empresa'
+    deposit.reload()
+    assert len(deposit.targets) == 1 and deposit.targets[0].amount_usd == -10
     deposit.append('targets', dict(historical_application=imported.rows[0].name, amount_usd=100))
-    deposit.append('targets', dict(complementary_item=item.name, amount_usd=-10))
     deposit.save()
     reconcile_deposit(deposit)
     deposit.reload()

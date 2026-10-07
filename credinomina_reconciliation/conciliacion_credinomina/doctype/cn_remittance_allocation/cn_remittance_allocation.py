@@ -437,6 +437,13 @@ def create_complementary_item(remittance_name: str, modified: str, values):
             item.set(field, values[field])
     item.reference = document.deposit_reference
     item.employer = document.employer
+    company_receivable = item.category == "Cuenta por Cobrar a la Empresa"
+    if company_receivable:
+        # A direct UI choice reuses the established receivable classification,
+        # so balances, collection and reversal keep the same accounting rules.
+        from credinomina_reconciliation.complementary_subcategories import ADJUSTMENT, RECEIVABLE
+        item.category = ADJUSTMENT
+        item.subcategory = RECEIVABLE
     company_credit = item.category == "Saldo a favor de la empresa"
     client_credit = item.category == "Saldo a favor del cliente"
     if client_credit:
@@ -455,7 +462,8 @@ def create_complementary_item(remittance_name: str, modified: str, values):
         })
         document.save()
     return {"name": item.name, "accounting_status": item.accounting_status,
-            "company_credit": company_credit, "client_credit": client_credit, "result": item.result}
+            "company_credit": company_credit, "client_credit": client_credit,
+            "company_receivable": company_receivable, "result": item.result}
 
 
 @frappe.whitelist(methods=["POST"])
