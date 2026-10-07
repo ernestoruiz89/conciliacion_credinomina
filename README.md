@@ -774,7 +774,21 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    se inventa un reparto cuando hay nombres ambiguos o el total supera el
    depósito. Un saldo restante queda sin distribuir o como saldo a favor
    documentado. Un detalle solo en C$ requiere tasa C$/US$ para convertirlo;
-   las observaciones y el **Soporte del depósito** son opcionales.
+  las observaciones y el **Soporte del depósito** son opcionales.
+
+Al cargar el detalle se completan **Estado del crédito** y **Fecha de corte de
+cartera**, de solo lectura. Se toma el período seleccionado con la fecha de
+aplicación/cierre más reciente y el `portfolio_snapshot` de sus importaciones
+contables; cuando la selección fue automática se usa el corte registrado en sus
+aplicaciones. Si hay varios cortes usados en ese período, se toma el más reciente.
+Cada crédito se busca por número y empresa en ese corte y, si no aparece, solo en
+el corte importado inmediatamente anterior, aunque no esté seleccionado. No se
+salta a cortes más antiguos. Sin coincidencia muestra **No Identificado** y deja
+vacía la fecha; las coincidencias ambiguas no se resuelven usando estados antiguos.
+Se conserva el enlace al corte realmente utilizado y se actualiza al cambiar
+el crédito o los períodos. Sin períodos seleccionados no se presume una cartera.
+Estos campos son informativos y no asignan efectivo ni concilian el depósito.
+Después de desplegar, ejecute `bench --site <sitio> migrate` para crear los campos.
 
 En **Distribución de Depósito → Detalle por cliente**, agregue una o varias filas
 en **Períodos del detalle**. Cada fila muestra su empresa y aplicado US$; debajo

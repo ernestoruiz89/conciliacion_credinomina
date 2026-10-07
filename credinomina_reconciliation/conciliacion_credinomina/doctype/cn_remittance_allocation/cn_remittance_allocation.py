@@ -215,6 +215,8 @@ class CNRemittanceAllocation(Document):
             if client_reserved:
                 frappe.throw(_("Los destinos usan efectivo reservado como saldo a favor. Ese saldo no está disponible para nuevos pagos."))
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
+        from credinomina_reconciliation.remittance_portfolio import update_detail_portfolio
+        update_detail_portfolio(self)
 
     @staticmethod
     def _validate_target(target):
