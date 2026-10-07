@@ -591,3 +591,20 @@ def get_paying_companies(employer):
 def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False, selected_claim_ids=None):
     from credinomina_reconciliation.application_deposit_detail import use_application_detail as apply
     return apply(remittance_name, fingerprint, replace_detail, selected_claim_ids)
+
+
+@frappe.whitelist(methods=["POST"])
+def unreconcile_remittance(remittance_name: str, modified: str, reason: str):
+    document = frappe.get_doc("CN Remittance Allocation", remittance_name)
+    document.check_permission("write")
+    if not str(reason or "").strip():
+        frappe.throw(_("Indique el motivo de la desconciliación."))
+    from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit, lock_cash_pool
+    from credinomina_reconciliation.paying_employers import reconciliation_companies
+    from credinomina_reconciliation.reconciliation_audit import audit_reason
+    lock_cash_pool(reconciliation_companies(document.employer))
+    document.reload()
+    if str(document.modified) != str(modified):
+        frappe.throw(_("El depósito cambió. Recargue antes de desconciliar."))
+    with audit_reason("Desconciliar depósito", reason):
+        return reconcile_deposit(document, undo=True)

@@ -126,7 +126,7 @@ def stored_cash_context(deposits, periods, pairs=None):
             "rounding_movements": movements, "registered_ids": {name: name for name in stored}}
 
 
-def reconcile_deposit(document, progress=None):
+def reconcile_deposit(document, progress=None, undo=False):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
     from credinomina_reconciliation.paying_employers import reconciliation_companies
     from credinomina_reconciliation.application_adjustments import mark_mixed_settlements
@@ -145,6 +145,13 @@ def reconcile_deposit(document, progress=None):
     if document.docstatus != 1:
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
     document._validate_deposit()
+    if undo:
+        document.before_cancel()
+        if frappe.get_all("CN Complementary Item", filters={
+            "registered_deposit": document.name, "docstatus": 1,
+            "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],
+        }, limit_page_length=1):
+            frappe.throw(_("Cancele los saldos a favor vinculados antes de desconciliar el depósito."))
     imports = engine.load_scoped_imports(companies)
     source_rows = [row for imported in imports for row in imported.rows]
     for imported in imports:
@@ -196,9 +203,13 @@ def reconcile_deposit(document, progress=None):
     closed_links = engine._operative_links(periods, originals, [document, *others], complements, closed_state)
     report(35, _("Conciliando el detalle y los destinos de este depósito…"))
     pairs, registered = engine._registered_deposit_pairs(source_rows, [document])
-    allocation = engine._distribute_deposits(periods, source_rows, pairs, complements,
-                                           complementary_by_target, [document], registered, fixed_coverage=coverage)
+    allocation = engine._distribute_deposits(periods, source_rows, [] if undo else pairs, complements,
+                                           complementary_by_target, [] if undo else [document],
+                                           {} if undo else registered, fixed_coverage=coverage)
     affected = affected_periods(document, allocation, periods, source_rows, complements)
+    if undo:
+        pairs = []
+        registered = {}
     active_periods = [period for period in periods if period.name in affected]
     for period in active_periods:
         period.check_permission("write")
@@ -241,6 +252,21 @@ def reconcile_deposit(document, progress=None):
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     # Sync can only write the selected registered deposit.
     engine._sync_registered_deposit_detail(allocation)
+    if undo:
+        from credinomina_reconciliation.reconciliation_audit import snapshot, record_transition
+        before = snapshot(document)
+        values = dict(allocated_usd=0, unallocated_usd=document.amount_usd,
+                      unclassified_usd=document.amount_usd, justified_surplus_usd=0,
+                      allocation_detail="[]", result="Pendiente",
+                      detail_status="Detalle pendiente", inherited_exception_comment="")
+        frappe.db.set_value(document.doctype, document.name, values)
+        for row in document.detail_rows:
+            frappe.db.set_value("CN Remittance Detail", row.name, {
+                "match_status": "Pendiente", "match_reason": _("Depósito desconciliado."),
+                "matched_targets": "[]", "matched_targets_summary": "",
+                "linked_usd": 0, "client_credit_usd": 0, "pending_usd": row.amount_usd,
+            }, update_modified=False)
+        record_transition(document.name, before, snapshot({**before, **values}))
     active_parents = {row.parent for row in active_sources}
     for account, bank in pairs:
         if bank.name != document.name and bank.get("parent"):
