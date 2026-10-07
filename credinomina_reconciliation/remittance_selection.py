@@ -82,7 +82,39 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
             "reserved_cents": int(reserved * 100)}
 
 
-def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
+def _historical_sources(open_periods, selected_keys=None):
+    """Load only imports containing eligible applications in visible open periods.
+
+    Keep both parent list permissions and document read checks. Do not scan every
+    accounting import (and all its child rows) just to discard it afterward.
+    """
+    import frappe
+
+    historical = [name for name, period in open_periods.items()
+                  if period.reconciliation_mode == "Historica"]
+    if not historical or not frappe.has_permission("CN Accounting Import", "read"):
+        return
+    filters = {"parenttype": "CN Accounting Import", "parentfield": "rows",
+               "historical_period": ["in", historical], "event_type": "Aplicacion",
+               "effective": 1, "currency": "USD", "match_status": "Conciliado"}
+    if selected_keys is not None:
+        names = [key[1] for key in selected_keys if key[0] == "H"]
+        if not names:
+            return
+        filters["name"] = ["in", names]
+    parents = frappe.get_all("CN Source Row", filters=filters, pluck="parent",
+                             group_by="parent", limit_page_length=0)
+    if not parents:
+        return
+    for parent in frappe.get_list("CN Accounting Import", filters={
+        "name": ["in", parents], "status": ["in", ["Importado", "Importado con excepciones"]],
+    }, pluck="name", limit_page_length=0):
+        source = frappe.get_doc("CN Accounting Import", parent)
+        if source.has_permission("read"):
+            yield source
+
+
+def get_pending_targets(remittance_name, targets=None, detail_row_name=None, selected_ids=None):
     import frappe
     from frappe import _
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
@@ -101,6 +133,23 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
         targets = [row.as_dict() for row in doc.targets]
     if not isinstance(targets, list) or any(not isinstance(row, dict) for row in targets):
         frappe.throw(_("La lista de destinos no es válida."))
+    selected_keys = None
+    if selected_ids is not None:
+        try:
+            ids = json.loads(selected_ids) if isinstance(selected_ids, str) else selected_ids
+            if not isinstance(ids, list):
+                raise ValueError
+            keys = [json.loads(value) for value in ids]
+            if any(not isinstance(key, list) or not key or key[0] not in {"C", "H", "X"}
+                   or len(key) != (3 if key[0] == "C" else 2)
+                   or any(not isinstance(value, str) or not value for value in key) for key in keys):
+                raise ValueError
+            selected_keys = {tuple(key) for key in keys}
+        except (ValueError, TypeError):
+            frappe.throw(_("La selección de destinos no es válida."))
+
+    def requested(row):
+        return selected_keys is None or target_key(row) in selected_keys
 
     # get_list applies user permissions; child tables are read through their parents.
     allowed = sorted(allowed_employers(doc.employer))
@@ -188,7 +237,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
         if period.reconciliation_mode == "Historica":
             continue
         for row in period.collection_rows:
-            if not row.row_key:
+            if not row.row_key or not requested({"period": period.name, "row_key": row.row_key}):
                 continue
             candidates.append({**identity(row), "employer": period.employer, "kind": "Cobranza", "period": period.name,
                 "period_label": period_label(period), "filter_period": period.name,
@@ -196,27 +245,23 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
                 "applied_usd": float(money(row.applied_usd)),
                 "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name]
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
-    if open_periods and frappe.has_permission("CN Accounting Import", "read"):
-        parents = frappe.get_list("CN Accounting Import",
-            filters={"status": ["in", ["Importado", "Importado con excepciones"]]},
-            pluck="name", limit_page_length=0)
-        for parent in parents:
-            source = frappe.get_doc("CN Accounting Import", parent)
-            if not source.has_permission("read"):
+    for source in _historical_sources(open_periods, selected_keys):
+        for row in source.rows:
+            period = open_periods.get(row.historical_period)
+            if (not period or period.reconciliation_mode != "Historica"
+                    or row.event_type != "Aplicacion" or not row.effective
+                    or row.currency != "USD" or row.match_status != "Conciliado"
+                    or not requested({"historical_application": row.name})):
                 continue
-            for row in source.rows:
-                period = open_periods.get(row.historical_period)
-                if (not period or period.reconciliation_mode != "Historica"
-                        or row.event_type != "Aplicacion" or not row.effective
-                        or row.currency != "USD" or row.match_status != "Conciliado"):
-                    continue
-                candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica",
-                    "historical_application": row.name, "filter_period": period.name,
-                    "period_label": period_label(period),
-                    "applied_usd": net_application_amount(row),
-                    "reference": " · ".join(str(v) for v in [row.reference, row.voucher, row.receipt] if v),
-                    "due_usd": float(money(net_application_amount(row)) + min(money(row.rounding_adjustment_usd), money(0)))})
+            candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica",
+                "historical_application": row.name, "filter_period": period.name,
+                "period_label": period_label(period),
+                "applied_usd": net_application_amount(row),
+                "reference": " · ".join(str(v) for v in [row.reference, row.voucher, row.receipt] if v),
+                "due_usd": float(money(net_application_amount(row)) + min(money(row.rounding_adjustment_usd), money(0)))})
     for item in items:
+        if not requested({"complementary_item": item.name}):
+            continue
         period = open_periods.get(item.period)
         if item.period and not period:
             continue

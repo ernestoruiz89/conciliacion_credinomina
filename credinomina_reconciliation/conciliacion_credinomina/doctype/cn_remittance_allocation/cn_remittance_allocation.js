@@ -1074,11 +1074,12 @@ async function renderRemittanceDistribution(frm) {
     }
 }
 
-async function loadPendingRemittanceTargets(frm, detailRowName = "") {
+async function loadPendingRemittanceTargets(frm, detailRowName = "", selectedIds = null) {
     const response = await frappe.call({
         method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.get_pending_targets",
         args: { remittance_name: frm.doc.name, targets: JSON.stringify(frm.doc.targets || []),
-            detail_row_name: detailRowName },
+            detail_row_name: detailRowName,
+            ...(selectedIds === null ? {} : {selected_ids: JSON.stringify(selectedIds)}) },
         freeze: true,
         freeze_message: __("Consultando partidas pendientes…"),
     });
@@ -1310,7 +1311,7 @@ class RemittanceTargetPicker {
         this.applying = true;
         try {
             // Re-read balances before adding; never silently truncate the user's selection.
-            const fresh = await loadPendingRemittanceTargets(this.frm, this.detailRowName);
+            const fresh = await loadPendingRemittanceTargets(this.frm, this.detailRowName, [...this.selected.keys()]);
             const byId = new Map(fresh.rows.map(row => [row.id, row]));
             const freshAvailable = this.availableFor(fresh);
             if (fresh.modified !== this.data.modified || this.total() > freshAvailable ||

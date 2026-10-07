@@ -6,6 +6,7 @@ import frappe
 
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.reconciliation_scope import document_state
+from credinomina_reconciliation.remittance_selection import get_pending_targets
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import unreconcile_remittance
 
@@ -101,6 +102,31 @@ def run():
                 for period, expected in zip(periods, (10, 0)):
                     period.reload()
                     assert period.remitted_usd == expected, period.as_dict()
+                # Opening and rechecking only the selected destination return
+                # the same current balance without loading unrelated imports.
+                with patch.object(frappe, "get_doc", wraps=frappe.get_doc) as reads:
+                    choices = get_pending_targets(deposit.name, detail_row_name=deposit.detail_rows[0].name)
+                import_reads = [call.args[1] for call in reads.call_args_list
+                                if len(call.args) > 1 and call.args[0] == "CN Accounting Import"]
+                assert import_reads == ([sources[0].name] if mode == "Historica" else []), import_reads
+                assert len(choices["rows"]) == 1 and choices["rows"][0]["pending_cents"] == 9000, choices
+                selected_id = choices["rows"][0]["id"]
+                selected = get_pending_targets(deposit.name, detail_row_name=deposit.detail_rows[0].name,
+                                               selected_ids=json.dumps([selected_id]))
+                assert selected == choices, (selected, choices)
+                # Another confirmed deposit consuming capacity must be seen by
+                # revalidation even when the current deposit has not changed.
+                extra = new_deposit("CONCURRENT", 5)
+                extra.append("targets", {"historical_application": sources[0].rows[0].name, "amount_usd": 5}
+                    if mode == "Historica" else {"period": periods[0].name, "row_key": marker + "15", "amount_usd": 5})
+                extra.insert(); extra.submit(); reconcile_deposit(extra)
+                changed = get_pending_targets(deposit.name, detail_row_name=deposit.detail_rows[0].name,
+                                              selected_ids=json.dumps([selected_id]))
+                assert changed["rows"][0]["pending_cents"] == 8500, changed
+                extra.reload()
+                unreconcile_remittance(extra.name, str(extra.modified), "Fin de ensayo concurrente")
+                empty = get_pending_targets(deposit.name, selected_ids="[]")
+                assert empty["rows"] == [] and empty["available_cents"] == choices["available_cents"]
                 for imported in sources:
                     imported.reload()
                     payload = json.loads(frappe.as_json(imported.as_dict()))
@@ -117,7 +143,7 @@ def run():
                 assert json.loads(deposit.allocation_detail) == detail
                 assert fixed_state == document_state(fixed)
 
-            return {"historical_and_operative": True, "unreconcile_and_save": True,
+            return {"historical_and_operative": True, "unreconcile_and_save": True, "picker_revalidation": True,
                     "other_deposit_preserved": True, "reconcile_again": True, "rolled_back": True}
     finally:
         frappe.db.rollback()
