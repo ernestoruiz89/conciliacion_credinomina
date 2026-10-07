@@ -72,6 +72,7 @@ async function run() {
     rowPicker.dialog = {hide() { hidden = true; }};
     context.frappe.call = async request => {
         assert.equal(request.args.detail_row_name, "DETAIL-1");
+        assert.deepEqual(JSON.parse(request.args.selected_ids), ["app-ana"]);
         return {message: rowPicker.data};
     };
     await rowPicker.apply();

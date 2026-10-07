@@ -20,9 +20,9 @@ from credinomina_reconciliation.rounding import (
 
 
 @frappe.whitelist()
-def get_pending_targets(remittance_name, targets=None, detail_row_name=None):
+def get_pending_targets(remittance_name, targets=None, detail_row_name=None, selected_ids=None):
     from credinomina_reconciliation.remittance_selection import get_pending_targets as load
-    return load(remittance_name, targets, detail_row_name=detail_row_name)
+    return load(remittance_name, targets, detail_row_name=detail_row_name, selected_ids=selected_ids)
 
 
 @frappe.whitelist()
