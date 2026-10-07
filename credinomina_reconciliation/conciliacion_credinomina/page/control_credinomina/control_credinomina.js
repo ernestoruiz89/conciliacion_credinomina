@@ -538,10 +538,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const employer = $(this).attr("data-employer");
         const month = $(this).attr("data-month");
         const periods = (currentData?.periods || []).filter(item => item.employer === employer && item.month === month)
-            .sort((a, b) => a.reconciliation_mode === "Historica" && b.reconciliation_mode === "Historica"
-                ? historicalSortDate(a).localeCompare(historicalSortDate(b)) || a.name.localeCompare(b.name)
-                : cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle) || a.name.localeCompare(b.name));
-        const receipts = (currentData?.cash_deposits || []).filter(item => item.employer === employer && item.month === month);
+            .sort((a, b) => periodCardDate(a).localeCompare(periodCardDate(b))
+                || cycleOrder(a.collection_cycle) - cycleOrder(b.collection_cycle) || a.name.localeCompare(b.name));
+        const receipts = (currentData?.cash_deposits || []).filter(item => item.employer === employer && item.month === month)
+            .sort((a, b) => String(a.date || "9999-12-31").localeCompare(String(b.date || "9999-12-31"))
+                || a.name.localeCompare(b.name));
         if (!periods.length && !receipts.length) return;
         // These dialogs replace/reopen one another. Bootstrap 4 ignores hide/show
         // during a fade, leaving overlapping dialogs/backdrops on rapid navigation.
@@ -1001,6 +1002,12 @@ function cycleOrder(cycle) {
 
 function historicalSortDate(period) {
     return period.historical_application_date || period.historical_start_date || period.payroll_month || "";
+}
+
+function periodCardDate(period) {
+    const date = period.reconciliation_mode === "Historica" ? historicalSortDate(period)
+        : period.cutoff_date || period.payroll_month || (period.month && `${period.month}-01`);
+    return String(date || "9999-12-31").slice(0, 10);
 }
 
 function displayDate(value) {
