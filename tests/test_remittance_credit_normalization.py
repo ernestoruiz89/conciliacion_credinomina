@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation import cn_remittance_allocation as remittance
 from credinomina_reconciliation.remittance_detail import suggest_detail_targets
+from credinomina_reconciliation.parsers import normalize_returned_credit_number
 
 
 class Record(dict):
@@ -17,6 +18,15 @@ class Record(dict):
 
 
 class RemittanceCreditNormalizationTests(unittest.TestCase):
+    def test_returned_credit_prefix_is_exactly_two_zeroes_not_six_digit_padding(self):
+        for raw, expected in ((1807, "001807-1"), (11, "0011-1"), (1122, "001122-1"),
+                              (12230, "0012230-1"), (1807.0, "001807-1"),
+                              ("1807-1", "001807-1"), ("107997-1", "107997-1"),
+                              ("001807", "001807-1"), ("1234567", "1234567-1"),
+                              ("1807-2", "1807-2"), ("", ""), (None, ""), ("ABC", "ABC")):
+            with self.subTest(raw=raw):
+                self.assertEqual(normalize_returned_credit_number(raw), expected)
+
     def test_file_import_normalizes_numeric_credits_and_preserves_existing_suffixes(self):
         content = (
             "Nombre y Apellidos del Cliente,Nro. Crédito,Deducido US$\n"
@@ -42,20 +52,20 @@ class RemittanceCreditNormalizationTests(unittest.TestCase):
         ):
             result = remittance.import_remittance_detail(document.name)
             self.assertEqual([row.loan_number for row in document.detail_rows],
-                             ["13375-1", "13376-1", "13377-2", "0013378-1", "", "L-13379"])
+                             ["0013375-1", "0013376-1", "13377-2", "0013378-1", "", "L-13379"])
             self.assertEqual(result["rows"], 6)
             self.assertEqual([row.amount_usd for row in document.detail_rows], [50] * 6)
             self.assertEqual([row.pending_usd for row in document.detail_rows], [50] * 6)
             self.assertEqual(document.detail_total_usd, 300)
             self.assertEqual(document.detail_status, "Cargado; pendiente de conciliación")
             document.save.assert_called_once()
-            # Re-importing the same file must not append the suffix twice.
+            # Re-importing the raw file must not accumulate prefixes or suffixes.
             remittance.import_remittance_detail(document.name)
-            self.assertEqual(document.detail_rows[0].loan_number, "13375-1")
+            self.assertEqual(document.detail_rows[0].loan_number, "0013375-1")
 
         targets, _ = suggest_detail_targets(
             document.detail_rows[0], [{"id": "H:APP", "kind": "H", "group": "A",
-                "loan_number": "13375-1", "client_name": "Ana", "amount_usd": 50}], 50, "A",
+                "loan_number": "0013375-1", "client_name": "Ana", "amount_usd": 50}], 50, "A",
         )
         self.assertEqual(targets, [{"claim_id": "H:APP", "amount_usd": 50}])
 

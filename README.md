@@ -776,6 +776,14 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    documentado. Un detalle solo en C$ requiere tasa C$/US$ para convertirlo;
   las observaciones y el **Soporte del depósito** son opcionales.
 
+Al importar el archivo de detalle devuelto por la empresa, un crédito numérico
+con menos de seis dígitos (sin contar `-1`) recibe exactamente el prefijo `00`.
+Por ejemplo: `1807` → `001807-1`, `11` → `0011-1`, `1122` → `001122-1` y
+`12230` → `0012230-1`. Se conserva `-1` si ya existe; los números de seis o más
+dígitos, otros ciclos y códigos alfanuméricos mantienen la normalización previa.
+La regla se aplica al archivo antes de identificar clientes y consultar cartera;
+no cambia los créditos del detalle generado desde aplicaciones pendientes.
+
 Al cargar el detalle se completan **Estado del crédito** y **Fecha de corte de
 cartera**, de solo lectura. Se toma el período seleccionado con la fecha de
 aplicación/cierre más reciente y el `portfolio_snapshot` de sus importaciones

@@ -6,7 +6,7 @@ from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
 from credinomina_reconciliation.parsers import (
-    SourceFileError, clean_text, file_sha256, normalize_credit_number, parse_collection_file,
+    SourceFileError, clean_text, file_sha256, normalize_returned_credit_number, parse_collection_file,
 )
 from credinomina_reconciliation.client_registry import load_client_index
 from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
@@ -634,7 +634,7 @@ def import_remittance_detail(remittance_name: str):
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Detalle de depósito inválido"))
     for record in records:
-        record["loan_number"] = normalize_credit_number(record.get("loan_number"))
+        record["loan_number"] = normalize_returned_credit_number(record.get("loan_number"))
     _apply_remittance_detail(document, records, content, source_url)
     return {
         "deposit": document.name,
