@@ -196,12 +196,13 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
             <p role="status">${esc(__("Pendientes visibles: {0} · Con los filtros: {1}", [data.total, data.count]))}</p>
             ${data.rows.length ? `<div class="table-responsive"><table class="table table-bordered" style="font-size:14px">
                 <thead><tr>${["Tipo / documento", "Fila", "Cliente / crédito", "Aplicado neto US$", "Depositado US$", "Pendiente US$", "Estado / motivo"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
-                <tbody>${data.rows.map(row => `<tr>
+                <tbody>${data.rows.map((row, index) => `<tr>
                     <td>${esc(__(row.kind))}<br><a href="/app/${routes[row.doctype] || "cn-reconciliation-period"}/${encodeURIComponent(row.source)}">${esc(row.source)}</a></td>
                     <td>${esc(row.row ?? "—")}</td>
                     <td>${esc(row.client_name || "—")}<div class="text-muted">${esc(row.client_number)} ${esc(row.loan_number)}</div></td>
                     <td class="text-right text-nowrap">${money(row.applied)}</td><td class="text-right text-nowrap">${money(row.paid)}</td><td class="text-right text-nowrap">${money(row.pending)}</td>
-                    <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}</details></td>
+                    <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}
+                        ${data.can_create_complementary ? `<div class="mt-2"><button type="button" class="btn btn-default btn-xs" data-pending="complementary" data-row-index="${index}">${esc(__("Crear partida complementaria"))}</button></div>` : ""}</details></td>
                 </tr>`).join("")}</tbody></table></div>` : `<p>${esc(__(data.total ? "No hay pendientes que coincidan con los filtros." : "No hay pendientes detectados en los registros visibles vinculados a este período."))}</p>`}
             <p class="text-muted">${esc(__("En depósitos se muestra el importe completo y su saldo sin distribuir, que puede corresponder a otros períodos. No se suma a lo pendiente de aplicaciones o cobranzas."))}</p>
             <div class="d-flex justify-content-between"><button type="button" class="btn btn-default btn-sm" data-pending="previous" ${start ? "" : "disabled"}>${esc(__("Anterior"))}</button>
@@ -213,11 +214,39 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
         wrapper.on("keydown.cnPending", '[data-pending="search"]', event => { if (event.key === "Enter") { event.preventDefault(); filter(); } });
         wrapper.on("click.cnPending", '[data-pending="previous"]', () => refreshPeriodPending(frm, Math.max(start - 50, 0), search, kind));
         wrapper.on("click.cnPending", '[data-pending="next"]', () => refreshPeriodPending(frm, start + 50, search, kind));
+        wrapper.on("click.cnPending", '[data-pending="complementary"]', event => {
+            if (!current() || !data.can_create_complementary || frm.doc.status === "Cerrado" || frm.doc.docstatus === 2) return;
+            const row = data.rows[Number(event.currentTarget.dataset.rowIndex)];
+            if (row) return createPeriodPendingComplementary(frm, row);
+        });
     } catch (error) {
         if (!current()) return;
         wrapper.html(`<p class="text-danger">${esc(__("No se pudieron consultar los pendientes. Compruebe sus permisos o vuelva a intentar."))}</p><button type="button" class="btn btn-default btn-sm" data-pending="retry">${esc(__("Reintentar"))}</button>`);
         wrapper.on("click.cnPending", '[data-pending="retry"]', () => refreshPeriodPending(frm, start, search, kind));
     }
+}
+
+function createPeriodPendingComplementary(frm, row) {
+    if (frm.is_dirty()) {
+        frappe.msgprint(__("Guarde los cambios del período antes de crear la partida complementaria."));
+        return;
+    }
+    const amount = Number(row.pending || 0);
+    const adjustment = row.kind === "Aplicación" && !!row.source_row && amount > 0;
+    const values = {
+        employer: frm.doc.employer, period: frm.doc.name,
+        client_name: row.client_name || "", client_number: row.client_number || "",
+        loan_number: row.loan_number || "", installment_number: row.installment_number || "",
+        currency: "USD", posting_date: frappe.datetime.get_today(),
+        category: adjustment ? "Ajuste de aplicación" : "Ajuste de conciliación",
+    };
+    if (adjustment) {
+        Object.assign(values, {related_import: row.source, related_application: row.source_row,
+            review_action: "Ajuste de aplicación", application_adjustment_usd: amount, amount});
+    } else if (amount > 0) {
+        values.amount = row.kind === "Depósito" ? amount : -amount;
+    }
+    return frappe.new_doc("CN Complementary Item", values);
 }
 
 async function refreshPeriodExceptions(frm, offset = 0, includeClosed = false) {
