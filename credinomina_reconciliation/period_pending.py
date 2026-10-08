@@ -19,15 +19,29 @@ def application_issue(row):
                      and not str(row.get("quality_status") or "").startswith("Conforme"))
     if row.get("deposit_match_status") in SETTLED and not first_pending:
         return None
+    status = row.get("deposit_match_status") or "Pendiente"
+    reason = row.get("deposit_match_reason") or row.get("match_reason") or _("Aplicación pendiente de conciliar.")
+    applied = money(row.get("net_applied_usd"))
+    paid = money(row.get("historical_remitted_usd"))
+    pending = money(row.get("historical_balance_usd"))
+    # Older reconciliations can retain the operative "Sin deposito" reason
+    # even though historical cash coverage has already been recorded.
+    if paid > 0 and pending > 0:
+        status = "Depósito parcial"
+        reason = _(
+            "La aplicación tiene US$ {0} vinculados a depósitos de un aplicado neto de US$ {1}. "
+            "Quedan US$ {2} pendientes de cubrir."
+        ).format(f"{paid:,.2f}", f"{applied:,.2f}", f"{pending:,.2f}")
     return {
         "kind": "Aplicación", "source": row.get("parent"), "doctype": "CN Accounting Import",
+        "source_row": row.get("name"), "installment_number": row.get("installment_number"),
         "row": row.get("idx"), "client_name": row.get("client_name"),
         "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
-        "applied": money_float(row.get("net_applied_usd")),
-        "paid": money_float(row.get("historical_remitted_usd")),
-        "pending": money_float(row.get("historical_balance_usd")),
-        "status": "Conciliación 1 pendiente" if first_pending else row.get("deposit_match_status") or "Pendiente",
-        "reason": row.get("quality_status") if first_pending else row.get("deposit_match_reason") or row.get("match_reason") or _("Aplicación pendiente de conciliar."),
+        "applied": money_float(applied),
+        "paid": money_float(paid),
+        "pending": money_float(pending),
+        "status": "Conciliación 1 pendiente" if first_pending else status,
+        "reason": row.get("quality_status") if first_pending else reason,
     }
 
 
@@ -48,6 +62,7 @@ def collection_issue(row, basis=None):
         return None
     return {
         "kind": "Cobranza", "source": row.get("parent"), "doctype": "CN Reconciliation Period",
+        "source_row": row.get("name"), "installment_number": row.get("installment_number"),
         "row": row.get("idx"), "client_name": row.get("client_name"),
         "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
         "applied": money_float(applied), "paid": money_float(paid), "pending": money_float(pending),
@@ -94,7 +109,7 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         rows = frappe.get_all("CN Source Row", filters={
             "historical_period": period.name, "parenttype": "CN Accounting Import",
             "event_type": "Aplicacion", "effective": 1,
-        }, fields=["parent", "idx", "client_name", "client_number", "loan_number", "net_applied_usd",
+        }, fields=["name", "parent", "idx", "client_name", "client_number", "loan_number", "installment_number", "net_applied_usd",
                    "historical_remitted_usd", "historical_balance_usd", "deposit_match_status",
                    "deposit_match_reason", "match_reason", "processing_route", "quality_status"], order_by="parent asc, idx asc", limit_page_length=0)
         allowed = readable_imports({row.parent for row in rows})
@@ -128,4 +143,6 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         issues = [issue for issue in issues if all(term in normalized(" ".join(str(value or "") for value in issue.values())) for term in terms)]
     start = max(cint(start), 0)
     return {"rows": issues[start:start + 50], "count": len(issues), "total": total,
-            "restricted": restricted, "start": start}
+            "restricted": restricted, "start": start,
+            "can_create_complementary": period.status != "Cerrado" and period.docstatus != 2
+                and bool(frappe.has_permission("CN Complementary Item", "create"))}

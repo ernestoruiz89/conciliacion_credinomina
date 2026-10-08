@@ -7,6 +7,28 @@ from credinomina_reconciliation import period_pending as pending
 
 
 class PeriodPendingTests(unittest.TestCase):
+    def test_partial_payment_replaces_stale_missing_collection_message(self):
+        row = dict(name="APP-80", parent="CONTA-ACEITERA-9-2025-002", idx=80, installment_number="4",
+                   net_applied_usd=25.96, historical_remitted_usd=25.95,
+                   historical_balance_usd=0.01, deposit_match_status="Sin deposito",
+                   deposit_match_reason="La aplicacion aun no se enlaza de forma unica con una cobranza.")
+        original = row.copy()
+        result = pending.application_issue(row)
+        self.assertEqual((result["source_row"], result["installment_number"]), ("APP-80", "4"))
+        self.assertEqual(result["status"], "Depósito parcial")
+        self.assertEqual(result["reason"],
+                         "La aplicación tiene US$ 25.95 vinculados a depósitos de un aplicado neto de US$ 25.96. "
+                         "Quedan US$ 0.01 pendientes de cubrir.")
+        self.assertEqual(row, original)
+        operative = pending.application_issue({**row, "processing_route": "Operativa",
+                                               "quality_status": "Pendiente de detalle"})
+        self.assertEqual(operative["status"], "Conciliación 1 pendiente")
+        self.assertEqual(operative["reason"], "Pendiente de detalle")
+        unpaid = pending.application_issue({**row, "historical_remitted_usd": 0,
+                                            "historical_balance_usd": 25.96})
+        self.assertEqual(unpaid["status"], "Sin deposito")
+        self.assertEqual(unpaid["reason"], row["deposit_match_reason"])
+
     def test_historical_partial_and_mixed_settlement(self):
         row = dict(parent="I", idx=9, net_applied_usd=137.33, historical_remitted_usd=111.32,
                    historical_balance_usd=26.01, deposit_match_status="Depósito parcial")
@@ -91,7 +113,23 @@ class PeriodPendingTests(unittest.TestCase):
              patch.object(pending.frappe, "get_all") as query:
             result = pending.get_period_pending("P")
         self.assertEqual(len(result["restricted"]), 2)
+        self.assertFalse(result["can_create_complementary"])
         query.assert_not_called()
+
+    def test_create_action_requires_permission_and_open_period(self):
+        period = Mock(reconciliation_mode="Historica", status="Parcial", docstatus=0)
+        period.name = "P"
+        with patch.object(pending.frappe, "get_doc", return_value=period), \
+             patch.object(pending.frappe, "has_permission", side_effect=lambda dt, action: action == "create") as permission:
+            self.assertTrue(pending.get_period_pending("P")["can_create_complementary"])
+            period.status = "Cerrado"
+            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
+            period.status = "Parcial"
+            period.docstatus = 2
+            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
+            period.docstatus = 0
+            permission.side_effect = lambda *_: False
+            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
 
 
 if __name__ == "__main__":

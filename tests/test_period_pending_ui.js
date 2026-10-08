@@ -1,10 +1,12 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
-let rpc, calls = [];
+let rpc, calls = [], created = [], messages = [];
 const context = vm.createContext({
     __: (text, args = []) => String(text).replace(/\{(\d+)\}/g, (_, i) => args[i]),
     format_currency: n => `USD ${Number(n).toFixed(2)}`,
     frappe: {ui: {form: {on() {}}}, utils: {escape_html: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")},
+        datetime: {get_today: () => "2026-10-08"},
+        new_doc: (doctype, values) => created.push({doctype, values}), msgprint: value => messages.push(value),
         call: args => {calls.push(args); return rpc(args);}},
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname,
@@ -12,8 +14,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 const wrapper = {content: "", handlers: {}, html(value) {this.content = value;}, empty() {this.content = "";},
     off() {this.handlers = {};}, on(event, selector, handler) {this.handlers[selector] = handler;},
     find(selector) {return {val: () => selector.includes("search") ? "Ana" : "Aplicación"};}};
-const frm = {doc: {name: "P", status: "Cerrado"}, fields_dict: {pending_html: {$wrapper: wrapper}}, is_new: () => false};
+const frm = {doc: {name: "P", employer: "EMP", status: "Cerrado"}, fields_dict: {pending_html: {$wrapper: wrapper}}, is_new: () => false, is_dirty: () => false};
 const row = {kind: "Aplicación", doctype: "CN Accounting Import", source: "I", row: 9, client_name: "Ana <script>",
+    source_row: "APPLICATION-9", client_number: "5552", loan_number: "001500-1", installment_number: "4",
     applied: 137.33, paid: 111.32, pending: 26.01, status: "Depósito parcial", reason: "<b>motivo</b>"};
 const action = name => wrapper.handlers[`[data-pending="${name}"]`];
 (async () => {
@@ -24,12 +27,43 @@ const action = name => wrapper.handlers[`[data-pending="${name}"]`];
     assert.ok(wrapper.content.includes("&lt;script&gt;") && !wrapper.content.includes("<script>"));
     assert.ok(wrapper.content.includes("/app/cn-accounting-import/I"));
     assert.ok(wrapper.content.includes("Mostrando 1–50 de 70"));
+    assert.ok(!wrapper.content.includes('data-pending="complementary"'));
     await action("next")();
     assert.equal(calls.at(-1).args.start, 50);
     await action("filter")();
     assert.equal(calls.at(-1).args.start, 0);
     assert.equal(calls.at(-1).args.search, "Ana");
     assert.equal(calls.at(-1).args.kind, "Aplicación");
+    frm.doc.status = "Parcial";
+    const second = {...row, source_row: "APPLICATION-80", client_name: "Álvaro", pending: 0.01};
+    rpc = async () => ({message: {rows: [row, second], total: 2, count: 2, can_create_complementary: true}});
+    await context.refreshPeriodPending(frm);
+    assert.ok(wrapper.content.includes('data-pending="complementary"'));
+    const click = () => action("complementary")({currentTarget: {dataset: {rowIndex: "1"}}});
+    await click();
+    assert.equal(created[0].doctype, "CN Complementary Item");
+    assert.deepEqual(JSON.parse(JSON.stringify(created[0].values)), {
+        employer: "EMP", period: "P", client_name: "Álvaro", client_number: "5552", loan_number: "001500-1",
+        installment_number: "4", currency: "USD", posting_date: "2026-10-08", category: "Ajuste de aplicación",
+        related_import: "I", related_application: "APPLICATION-80", review_action: "Ajuste de aplicación",
+        application_adjustment_usd: 0.01, amount: 0.01,
+    });
+    frm.is_dirty = () => true;
+    await click();
+    assert.equal(created.length, 1);
+    assert.ok(messages.at(-1).includes("Guarde los cambios"));
+    frm.is_dirty = () => false;
+    frm.doc.status = "Cerrado";
+    await click();
+    assert.equal(created.length, 1);
+    frm.doc.status = "Parcial";
+    context.createPeriodPendingComplementary(frm, {...row, kind: "Cobranza", pending: 10});
+    assert.equal(created.at(-1).values.amount, -10);
+    assert.equal(created.at(-1).values.related_application, undefined);
+    assert.equal(created.at(-1).values.loan_number, "001500-1");
+    context.createPeriodPendingComplementary(frm, {kind: "Depósito", pending: 3});
+    assert.equal(created.at(-1).values.amount, 3);
+    assert.equal(created.at(-1).values.client_number, "");
     rpc = async () => ({message: {rows: [], count: 0, total: 0, restricted: ["CN Accounting Import"]}});
     await context.refreshPeriodPending(frm);
     assert.ok(wrapper.content.includes("Vista parcial"));
