@@ -297,7 +297,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             "CN Collection Row",
             filters={"parent": ["in", period_names]},
             fields=[
-                "name", "parent", "row_key", "client_number", "employee_number", "client_name", "national_id", "loan_number",
+                "name", "parent", "row_key", "client", "client as client_number", "employee_number", "client_name", "national_id", "loan_number",
                 "installment_number", "expected_usd", "deducted_usd",
                 "expected_nio", "deducted_nio", "applied_usd", "complementary_usd", "remitted_usd",
                 "fx_variance_usd", "rounding_adjustment_usd", "deduction_status", "deduction_match_note", "application_status",

@@ -2003,7 +2003,7 @@ def _distribute_deposits(
             {"id": "C:" + row.name, "amount_usd": loan_amount,
              "kind": "C", "row_key": row.row_key,
              "client": row.get("client"), "client_name": row.client_name,
-             "client_number": row.client_number, "employee_number": row.employee_number,
+             "client_number": row.get("client") or row.get("client_number"), "employee_number": row.employee_number,
              "national_id": row.national_id,
              "loan_number": row.loan_number,
              "installment_number": row.installment_number,

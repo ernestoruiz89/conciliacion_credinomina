@@ -72,7 +72,7 @@ def load_target_descriptions(targets, claims=()):
     definitions = {
         "H": ("CN Source Row", ["name", "client_name", "client_number", "loan_number", "installment_number",
                                 "historical_period", "event_date", "accounting_entry", "voucher", "receipt", "reference"]),
-        "C": ("CN Collection Row", ["name", "parent", "client_name", "client_number", "loan_number", "installment_number", "application_reference"]),
+        "C": ("CN Collection Row", ["name", "parent", "client_name", "client as client_number", "loan_number", "installment_number", "application_reference"]),
         "X": ("CN Complementary Item", ["name", "period", "client_number", "loan_number", "installment_number", "posting_date", "voucher", "reference", "description"]),
     }
     for kind, (doctype, fields) in definitions.items():

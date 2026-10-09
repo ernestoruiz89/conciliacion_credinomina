@@ -17,6 +17,7 @@ from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CAT
 from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.paying_employers import allowed_employers, reconciliation_companies
 from credinomina_reconciliation.remittance_periods import selected_periods
+from credinomina_reconciliation.collection_identity import collection_client_number
 
 
 def pending_application_rows(candidates, deposits, movements, current_name):
@@ -92,6 +93,7 @@ def _period_candidates(period):
             if not row.row_key:
                 frappe.throw(_("Una fila aplicada no tiene Fila ID. Actualice la conciliación del período."))
             candidates.append({**{field: row.get(field) for field in identity},
+                "client_number": collection_client_number(row),
                 "claim_id": "C:" + row.name, "period": period.name, "row_key": row.row_key,
                 "applied_usd": money_float(money(row.applied_usd) - direct[row.name]),
                 "application_reference": row.application_reference,

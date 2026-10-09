@@ -18,6 +18,7 @@ from credinomina_reconciliation.employer_naming import (
     attach_employer_aliases,
 )
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
+from credinomina_reconciliation.collection_identity import complete_collection_client_number
 
 
 def load_client_index(employers=None):
@@ -100,6 +101,7 @@ class ClientIndex:
                 changed = True
             if changed:
                 document.save(ignore_permissions=True)
+        complete_collection_client_number(record, client, employer)
         return client["name"]
 
     def ensure_from_source_import(self, record, employer):

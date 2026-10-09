@@ -9,7 +9,7 @@ from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.period_pending import get_period_pending
 
 
-def run():
+def run(*, missing_collection_client_numbers=False):
     if frappe.local.site != 'cn-reconciliation-test.local':
         raise RuntimeError('Solo para cn-reconciliation-test.local')
     frappe.set_user('Administrator')
@@ -37,7 +37,7 @@ def run():
             def application(row, amount, suffix):
                 return dict(event_type='Aplicacion', source_key=marker + suffix,
                     event_date='2026-09-15', currency='USD', amount=amount, amount_usd=amount,
-                    client=row.client, client_name=row.client_name, client_number=row.client_number,
+                    client=row.client, client_name=row.client_name, client_number=row.client,
                     loan_number=row.loan_number, effective=1, processing_route='Operativa',
                     reference='ASIENTO' + suffix, accounting_entry='ASIENTO' + suffix,
                     source_description='PAGO APLICADO MEDIANTE COBRANZA # 1621',
@@ -47,6 +47,11 @@ def run():
                 source_file=f'/private/files/{marker}.csv', currency='USD', status='Importado',
                 historical_period=period.name, rows=[application(row, row.expected_usd, f'-{index}')
                     for index, row in enumerate(period.collection_rows[:-1])])).insert()
+            if missing_collection_client_numbers and frappe.db.has_column('CN Collection Row', 'client_number'):
+                # Keep identified clients and credit numbers, as in employer files
+                # without a customer-number column. Core applications retain it.
+                for row in period.collection_rows:
+                    frappe.db.set_value('CN Collection Row', row.name, 'client_number', '')
             result = period_api.reconcile_first(period.name)
             assert result['reviewed'] == 4 and result['conforming'] == 3 and result['differences'] == 1, result
             period.reload()
@@ -58,7 +63,7 @@ def run():
                 deposit_amount=113.81, detail_periods=[dict(period=period.name)],
                 detail_file=f'/private/files/{marker}.xlsx', detail_source_file=f'/private/files/{marker}.xlsx',
                 detail_hash=marker, detail_rows=[dict(client=row.client, client_name=row.client_name,
-                    client_number=row.client_number, loan_number=row.loan_number,
+                    client_number=row.client, loan_number=row.loan_number,
                     deducted_usd=row.expected_usd, source_row=index + 2)
                     for index, row in enumerate(period.collection_rows)])).insert()
             deposit.submit()
@@ -93,6 +98,11 @@ def run():
             source.save()
             result = period_api.reconcile_first(period.name)
             assert result['conforming'] == 4 and result['differences'] == 0, result
+            period.reload()
+            if missing_collection_client_numbers:
+                assert all(row.client == f'{marker}-{index}'
+                           for index, row in enumerate(period.collection_rows, 1))
+                assert all(row.applied_usd == row.expected_usd for row in period.collection_rows)
             deposit.reload()
             assert deposit.allocation_detail == cash_before, 'First reconciliation changed cash'
             reconcile_deposit(deposit)
@@ -100,6 +110,7 @@ def run():
             assert deposit.allocated_usd == 113.81 and deposit.unclassified_usd == 0, deposit.as_dict()
             assert get_control_rows('work_items', year='Todos', employer=employer.name, work_kind='payments')['count'] == 0
             assert not any(row.get('pending_application') for row in get_period_pending(period.name)['rows'])
-            return dict(pending_usd=28.43, credit_created=False, corrected_and_reconciled=True, rolled_back=True)
+            return dict(pending_usd=28.43, credit_created=False, corrected_and_reconciled=True,
+                        missing_collection_client_numbers=missing_collection_client_numbers, rolled_back=True)
     finally:
         frappe.db.rollback()

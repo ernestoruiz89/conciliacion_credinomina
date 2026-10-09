@@ -6,7 +6,7 @@
   "engine": "InnoDB",
   "field_order": ["client_number", "employer", "client_name", "employee_number", "national_id", "aliases"],
   "fields": [
-    {"fieldname": "employer", "fieldtype": "Link", "options": "CN Employer", "label": "Empresa de convenio", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "employer", "fieldtype": "Link", "options": "CN Employer", "label": "Empresa de convenio", "reqd": 1, "in_list_view": 1, "in_standard_filter": 1},
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "reqd": 1, "in_list_view": 1},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "reqd": 1, "in_list_view": 1, "description": "Identificador único del cliente y nombre del documento. Para corregirlo después de crear el cliente, use Renombrar."},
     {"fieldname": "employee_number", "fieldtype": "Data", "label": "Nro. Empleado", "in_list_view": 1, "description": "Identificador interno de la empresa; distinto del número de cliente y único dentro de esa empresa."},

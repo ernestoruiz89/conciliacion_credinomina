@@ -19,6 +19,8 @@ from credinomina_reconciliation.cadence import (
     cycles_conflict,
 )
 from credinomina_reconciliation.client_registry import ClientIndex, load_client_index, names_for_claim
+from credinomina_reconciliation.collection_portfolio import enrich_collection_records
+from credinomina_reconciliation.collection_identity import collection_client_number, collection_record, validate_collection_clients
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.employer_naming import (
@@ -35,6 +37,8 @@ from credinomina_reconciliation.historical import (
 )
 from credinomina_reconciliation.parsers import (
     SourceFileError,
+    canonical_credit_number,
+    canonical_identifier,
     clean_text,
     file_sha256,
     normalize_credit_number,
@@ -88,6 +92,7 @@ class CNReconciliationPeriod(Document):
             frappe.throw(_("Elija la base de la primera conciliación: Cobranza o Detalle de empresa."))
         self._set_due_date()
         self._validate_unique_period()
+        validate_collection_clients(self)
         self.recalculate_totals()
         from credinomina_reconciliation.provisional_adjustments import guard_period
         guard_period(self)
@@ -385,7 +390,7 @@ def _recognition_candidates(period):
     )
     attach_employer_aliases(known_employers)
     employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
-    rows = [row.as_dict() for row in period.collection_rows]
+    rows = [collection_record(row) for row in period.collection_rows]
     candidates = []
     for account, bank in _recognition_pairs():
         if account.name in used:
@@ -556,7 +561,8 @@ def import_collection(period_name: str):
         frappe.throw(_("Revierta primero el reconocimiento por depósito antes de reemplazar la cobranza."))
     file_doc, content = _attached_file(period, period.collection_file)
     try:
-        parsed = parse_collection_file(file_doc.file_name, content, require_name=True)
+        parsed = parse_collection_file(file_doc.file_name, content, require_identity=True)
+        portfolio = enrich_collection_records(parsed, period.employer, period.cutoff_date)
     except SourceFileError as exc:
         frappe.throw(str(exc), title=_("Archivo de cobranza invalido"))
 
@@ -568,7 +574,16 @@ def import_collection(period_name: str):
         row.loan_number != normalize_credit_number(row.loan_number)
         for row in period.collection_rows
     )
-    if period.collection_import_sha256 == import_hash and period.collection_rows and not needs_credit_normalization:
+    existing_by_credit = {}
+    for row in period.collection_rows:
+        existing_by_credit.setdefault(_collection_credit_key(row), []).append(row)
+    needs_client_enrichment = any(not row.client for row in period.collection_rows) or any(
+        record.get(field) and not row.get(field)
+        for record in parsed for row in existing_by_credit.get(_collection_credit_key(record), [])
+        for field in ("client_name", "national_id")
+    )
+    if (period.collection_import_sha256 == import_hash and period.collection_rows
+            and not needs_credit_normalization and not needs_client_enrichment):
         source_summary = _reconcile_if_sources(period.employer)
         return {
             "period": period.name, "rows": len(period.collection_rows),
@@ -587,7 +602,7 @@ def import_collection(period_name: str):
     seen = set()
     amount_changed = False
     source_fields = (
-        "source_row", "client_number", "employee_number", "client_name",
+        "source_row", "employee_number", "client_name",
         "national_id", "loan_number", "installment_number", "total_installments",
         "expected_usd", "expected_nio", "comments",
     )
@@ -595,6 +610,9 @@ def import_collection(period_name: str):
         if not record.get("loan_number"):
             frappe.throw(_("La fila {0} de cobranza no tiene número de crédito.").format(record["source_row"]))
         client = clients.ensure_from_collection(record, period.employer)
+        if not client:
+            frappe.throw(_("Fila {0}: no se pudo identificar al cliente. Complete el número de cliente en la cartera o en el archivo de cobranza.").format(record["source_row"]))
+        record["client"] = client
         row_key = record.get("row_key") or _collection_identity_key(period, record)
         if not record.get("row_key") and row_key not in existing:
             candidates = existing_by_identity.get(row_key, [])
@@ -605,6 +623,20 @@ def import_collection(period_name: str):
                 ).format(record["source_row"]))
             if candidates:
                 row_key = candidates[0].row_key
+            else:
+                # Completing a client number changes the old identity hash. Keep
+                # the child ID and its applications/deposits for the same quota.
+                candidates = existing_by_credit.get(_collection_credit_key(record), [])
+                if len(candidates) > 1:
+                    frappe.throw(_("La fila {0} coincide con varias cuotas existentes. Indique Fila ID.").format(record["source_row"]))
+                if candidates:
+                    previous = candidates[0]
+                    for field in ("client_number", "employee_number", "national_id"):
+                        left = canonical_identifier(collection_client_number(previous) if field == "client_number" else previous.get(field))
+                        right = canonical_identifier(record.get(field))
+                        if left and right and left != right:
+                            frappe.throw(_("La fila {0} contradice la identidad de la cuota existente.").format(record["source_row"]))
+                    row_key = previous.row_key
         if row_key in seen:
             frappe.throw(
                 _("La fila {0} duplica cliente, credito y cuota.").format(
@@ -629,7 +661,7 @@ def import_collection(period_name: str):
             row = period.append(
                 "collection_rows",
                 {
-                    **record,
+                    **{field: value for field, value in record.items() if field != "client_number"},
                     "client": client,
                     "row_key": row_key,
                     "deduction_status": "Pendiente de detalle",
@@ -666,6 +698,10 @@ def import_collection(period_name: str):
             len(parsed), import_hash
         ),
     )
+    if portfolio["completed_rows"]:
+        period.notes = _append_note(period.notes, _(
+            "Datos de cliente completados en {0} filas desde la cartera {1}, corte {2}, según el mes de la fecha de corte del período."
+        ).format(portfolio["completed_rows"], portfolio["snapshot"], portfolio["report_date"]))
     period.flags.skip_comment_reconciliation = True
     period.save()
     # Files can arrive in any order. A corrected cobranza must be compared again
@@ -682,8 +718,13 @@ def import_collection(period_name: str):
     period.reload()
     return {
         "period": period.name, "rows": len(parsed), "status": period.status,
-        "detail_import": detail_result, "source_reconciliation": source_summary,
+        "detail_import": detail_result, "source_reconciliation": source_summary, "portfolio": portfolio,
     }
+
+
+def _collection_credit_key(record):
+    return (canonical_credit_number(record.get("loan_number")),
+            canonical_identifier(record.get("installment_number")))
 
 
 def _collection_identity_key(period, record):
@@ -691,7 +732,7 @@ def _collection_identity_key(period, record):
         period.employer,
         getdate(period.payroll_month).replace(day=1),
         period.collection_cycle,
-        record.get("client_number") or record.get("national_id") or record.get("employee_number") or record.get("client_name"),
+        collection_client_number(record) or record.get("national_id") or record.get("employee_number") or record.get("client_name"),
         normalize_credit_number(record.get("loan_number")),
         record.get("installment_number"),
     )[:24]
@@ -812,7 +853,7 @@ def import_employer_response(period_name: str):
     by_client = {client["name"]: client for client in client_catalog}
     candidates = []
     for row in period.collection_rows:
-        candidate = {**row.as_dict(), "name": row.name}
+        candidate = {**collection_record(row), "name": row.name}
         linked = by_client.get(row.get("client"))
         candidate["client_aliases"] = (
             [linked["client_name"], *(linked.get("client_aliases") or ())]
@@ -900,7 +941,7 @@ def import_employer_response(period_name: str):
                     period.name, row.row_key or row.name,
                 ),
                 source_row=response.get("source_row"),
-                client_number=row.client_number,
+                client_number=collection_client_number(row),
                 loan_number=row.loan_number,
                 amount_usd=row.deducted_usd,
                 amount_nio=row.deducted_nio,
@@ -919,7 +960,7 @@ def import_employer_response(period_name: str):
                 exception_key=_deduction_exception_key(
                     period.name, row.row_key or row.name,
                 ),
-                client_number=row.client_number,
+                client_number=collection_client_number(row),
                 loan_number=row.loan_number,
                 amount_usd=row.expected_usd,
                 amount_nio=row.expected_nio,
@@ -1244,7 +1285,7 @@ def export_collection(period_name: str):
     for row in period.collection_rows:
         sheet.append(
             [
-                row.client_number,
+                collection_client_number(row),
                 row.employee_number,
                 row.client_name,
                 row.national_id,
@@ -1340,7 +1381,7 @@ def _employer_response_import_key(period, content, client_catalog=()):
     identities = sorted(
         (
             clean_text(row.row_key or row.name),
-            clean_text(row.client), clean_text(row.client_number),
+            clean_text(row.client), collection_client_number(row),
             clean_text(row.employee_number), clean_text(row.client_name),
             clean_text(row.national_id), clean_text(row.loan_number),
             clean_text(row.installment_number), flt(row.expected_usd),

@@ -306,6 +306,7 @@ def parse_collection_file(
             )) and any(key in candidate for key in ("deducted_usd", "deducted_nio")))
             or "loan_number" in candidate and (
                 "client_number" in candidate or "national_id" in candidate
+                or "expected_usd" in candidate or "expected_nio" in candidate
             )
         ):
             mapping = candidate
