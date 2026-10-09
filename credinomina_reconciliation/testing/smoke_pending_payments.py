@@ -6,6 +6,7 @@ import frappe
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import cn_reconciliation_period as period_api
 from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_work_overview, get_control_rows
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
+from credinomina_reconciliation.period_pending import get_period_pending
 
 
 def run():
@@ -72,6 +73,15 @@ def run():
             assert actions[0]['loan_number'] == '13997-1', actions
             filtered = get_control_rows('work_items', year='Todos', employer=employer.name, work_kind='payments')
             assert filtered['count'] == 1 and filtered['rows'][0]['amount_usd'] == 28.43, filtered
+            pending_rows = get_period_pending(period.name)['rows']
+            unpaid = next(row for row in pending_rows if row['kind'] == 'Cobranza' and row['loan_number'] == '13997-1')
+            assert (unpaid['applied'], unpaid['paid'], unpaid['pending']) == (0, 28.43, 28.43), unpaid
+            assert unpaid['status'] == 'Pago pendiente de aplicar' and not unpaid['can_create_complementary'], unpaid
+            assert unpaid['deposit_evidence'][0]['name'] == deposit.name, unpaid
+            pending_deposit = next(row for row in pending_rows if row['kind'] == 'Depósito')
+            assert (pending_deposit['paid'], pending_deposit['pending']) == (113.81, 28.43), pending_deposit
+            period.reload(); deposit.reload()
+            assert period.collection_rows[-1].remitted_usd == 0 and deposit.allocation_detail == cash_before
             assert not frappe.db.exists('CN Complementary Item', {'employer': employer.name}), 'Invented a credit'
 
             source.reload()
@@ -85,6 +95,7 @@ def run():
             deposit.reload()
             assert deposit.allocated_usd == 113.81 and deposit.unclassified_usd == 0, deposit.as_dict()
             assert get_control_rows('work_items', year='Todos', employer=employer.name, work_kind='payments')['count'] == 0
+            assert not any(row.get('pending_application') for row in get_period_pending(period.name)['rows'])
             return dict(pending_usd=28.43, credit_created=False, corrected_and_reconciled=True, rolled_back=True)
     finally:
         frappe.db.rollback()

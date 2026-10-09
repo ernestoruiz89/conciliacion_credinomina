@@ -70,6 +70,11 @@ diferencia en el control de calidad.
   permanecen en revisión. **Conciliación 1: validar aplicaciones** informa las
   filas conformes, con diferencias o con base por revisar; si no hay fuentes
   para procesar, informa qué falta.
+  En los pendientes del período, la fila de cobranza también muestra el dinero
+  identificado en ese detalle y lo distingue del depósito ya asignado. El importe
+  **Por aplicar** no se confunde con **Por cubrir con depósito** ni se suma al
+  saldo del depósito completo. La consulta no cambia distribuciones ni crea
+  partidas complementarias para representar pagos pendientes de aplicación.
 - Pagos parciales, un depósito para varias cobranzas y varios depósitos para
   una cobranza. Cada **Distribución de Depósito** representa un depósito. Su
   detalle por cliente identifica automáticamente los destinos; la tabla de
