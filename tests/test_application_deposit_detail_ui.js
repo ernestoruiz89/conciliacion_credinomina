@@ -41,11 +41,17 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.js"), "utf8"), context);
 const frm = {doc: {name: "D", detail_periods: [{period: "P"}]}, is_new: () => false,
     is_dirty: () => true, save: async () => order.push("save"), reload_doc: async () => order.push("reload")};
-(async () => {
+async function run(fromCollection) {
+    calls.length = messages.length = order.length = 0;
+    frm.doc.detail_periods = [{period: "P"}];
+    const action = events["CN Remittance Allocation"][fromCollection ? "use_collection_detail" : "use_applications_detail"];
     preview = {periods: ["P", "P2"], applied_usd: 100, total_usd: 60, deposit_usd: 50,
         rows: [{claim_id: "H:A", client_name: "<Ana>", deducted_usd: 50},
             {claim_id: "H:B", client_name: "Bea", deducted_usd: 10}], fingerprint: "F", replaces_detail: true};
-    await events["CN Remittance Allocation"].use_applications_detail(frm);
+    preview.collection_usd = 100;
+    await action(frm);
+    assert.ok(calls[0].method.endsWith(fromCollection ? ".preview_collection_detail" : ".preview_application_detail"));
+    assert.ok(dialog.options.title.includes(fromCollection ? "cobranza" : "aplicaciones"));
     assert.deepEqual(order, ["save", "call"]);
     assert.equal(calls.length, 1); // Preview only, no mutation before confirmation.
     assert.ok(dialog.shown);
@@ -87,7 +93,7 @@ const frm = {doc: {name: "D", detail_periods: [{period: "P"}]}, is_new: () => fa
     assert.equal(wrapper.elements["[data-selected-total]"].value, "55.15");
     assert.equal(preview.rows[0].deducted_usd, 50);
     await dialog.options.primary_action({replace_detail: 1});
-    assert.ok(calls[1].method.endsWith(".use_application_detail"));
+    assert.ok(calls[1].method.endsWith(fromCollection ? ".use_collection_detail" : ".use_application_detail"));
     assert.equal(calls[1].args.fingerprint, "F");
     assert.equal(calls[1].args.replace_detail, 1);
     assert.deepEqual(JSON.parse(calls[1].args.selected_claim_ids), ["H:A"]);
@@ -97,12 +103,47 @@ const frm = {doc: {name: "D", detail_periods: [{period: "P"}]}, is_new: () => fa
     assert.ok(!calls.some(call => /reconcile|submit/.test(call.method)));
     preview = {rows: []};
     dialog = undefined;
-    await events["CN Remittance Allocation"].use_applications_detail(frm);
+    await action(frm);
     assert.equal(dialog, undefined);
-    assert.ok(messages.at(-1).includes("No hay aplicaciones pendientes"));
+    assert.ok(messages.at(-1).includes(fromCollection ? "No hay filas de cobranza" : "No hay aplicaciones pendientes"));
     frm.doc.detail_periods = [];
     const before = calls.length;
-    await events["CN Remittance Allocation"].use_applications_detail(frm);
+    await action(frm);
     assert.equal(calls.length, before);
     console.log("OK: preview, pending totals, explicit replacement, save-first and no automatic reconciliation.");
-})().catch(error => {console.error(error); process.exitCode = 1;});
+}
+async function visibility() {
+    const shown = {};
+    frm.toggle_display = (field, value) => {shown[field] = value;};
+    frm.get_perm = () => true;
+    const wrapper = {css() {}};
+    frm.fields_dict = {use_applications_detail: {$wrapper: wrapper}, use_collection_detail: {$wrapper: wrapper}};
+    frm.doc.employer = "EMP";
+    frm.doc.detail_periods = [{period: "P"}];
+    preview = true;
+    await context.toggleApplicationDetailAction(frm);
+    assert.equal(shown.use_collection_detail, true);
+    preview = false;
+    await context.toggleApplicationDetailAction(frm);
+    assert.equal(shown.use_collection_detail, false);
+    frm.doc.docstatus = 2;
+    const before = calls.length;
+    await context.toggleApplicationDetailAction(frm);
+    assert.equal(calls.length, before);
+    assert.equal(shown.use_collection_detail, false);
+    frm.doc.docstatus = 0;
+    const originalCall = context.frappe.call;
+    const pending = [];
+    context.frappe.call = () => new Promise(resolve => pending.push(resolve));
+    const oldSelection = context.toggleApplicationDetailAction(frm);
+    frm.doc.detail_periods = [{period: "OTHER"}];
+    const newSelection = context.toggleApplicationDetailAction(frm);
+    pending[0]({message: true});
+    await oldSelection;
+    assert.equal(shown.use_collection_detail, false);
+    pending[1]({message: false});
+    await newSelection;
+    assert.equal(shown.use_collection_detail, false);
+    context.frappe.call = originalCall;
+}
+run(false).then(() => run(true)).then(visibility).catch(error => {console.error(error); process.exitCode = 1;});

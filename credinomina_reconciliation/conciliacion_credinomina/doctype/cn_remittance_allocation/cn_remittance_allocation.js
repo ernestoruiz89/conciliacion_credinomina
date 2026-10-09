@@ -68,10 +68,11 @@ frappe.ui.form.on("CN Remittance Allocation", {
     create_complementary: createRemittanceComplementary,
     refresh_distribution: renderRemittanceDistribution,
     use_applications_detail: useApplicationsAsDetail,
+    use_collection_detail(frm) { return useApplicationsAsDetail(frm, "collection"); },
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
-    employer(frm) { loadPayingCompanies(frm); renderRemittanceOverview(frm); },
+    employer(frm) { loadPayingCompanies(frm); renderRemittanceOverview(frm); toggleApplicationDetailAction(frm); },
     notes: renderRemittanceOverview,
     deposit_amount: updateUsdEquivalent,
     deposit_currency: updateUsdEquivalent,
@@ -282,8 +283,34 @@ async function showReconciliationHistory(frm) {
 }
 
 function toggleApplicationDetailAction(frm) {
-    frm.toggle_display("use_applications_detail", (frm.doc.detail_periods || []).some(row => row.period) &&
-        frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
+    const visible = (frm.doc.detail_periods || []).some(row => row.period) &&
+        frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write");
+    frm.toggle_display("use_applications_detail", visible);
+    if (visible) frm.fields_dict.use_applications_detail?.$wrapper.css({display: "inline-block", marginRight: "8px"});
+    return toggleCollectionDetailAction(frm, visible);
+}
+
+async function toggleCollectionDetailAction(frm, enabled) {
+    const request = frm._collection_detail_request = (frm._collection_detail_request || 0) + 1;
+    frm.toggle_display("use_collection_detail", false);
+    if (!enabled || !frm.doc.employer) return;
+    const document = frm.doc;
+    const employer = document.employer;
+    const periods = () => JSON.stringify((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
+    const selection = periods();
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.collection_detail_available",
+            args: {employer, periods: selection},
+        });
+        if (request !== frm._collection_detail_request || document !== frm.doc || employer !== frm.doc.employer || selection !== periods()) return;
+        const visible = response.message === true && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write");
+        frm.toggle_display("use_collection_detail", visible);
+        if (visible) frm.fields_dict.use_collection_detail?.$wrapper.css({display: "inline-block"});
+    } catch (error) {
+        // Frappe displays request errors; keep the action hidden on lookup failure.
+        if (request === frm._collection_detail_request) frm.toggle_display("use_collection_detail", false);
+    }
 }
 
 frappe.ui.form.on("CN Remittance Period", {
@@ -302,19 +329,20 @@ frappe.ui.form.on("CN Remittance Period", {
     },
 });
 
-async function useApplicationsAsDetail(frm) {
+async function useApplicationsAsDetail(frm, source = "applications") {
+    const fromCollection = source === "collection";
     if (!(frm.doc.detail_periods || []).some(row => row.period)) {
         frappe.msgprint(__("Seleccione al menos un período del detalle."));
         return;
     }
     if (frm.is_new() || frm.is_dirty()) await frm.save();
     const method = "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.";
-    const response = await frappe.call({method: method + "preview_application_detail",
+    const response = await frappe.call({method: method + (fromCollection ? "preview_collection_detail" : "preview_application_detail"),
         args: {remittance_name: frm.doc.name}, freeze: true,
-        freeze_message: __("Consultando aplicaciones pendientes de los períodos…")});
+        freeze_message: __(fromCollection ? "Consultando cobranza de los períodos…" : "Consultando aplicaciones pendientes de los períodos…")});
     const preview = response.message;
     if (!preview.rows.length) {
-        frappe.msgprint(__("No hay aplicaciones pendientes para los períodos seleccionados."));
+        frappe.msgprint(__(fromCollection ? "No hay filas de cobranza con importe positivo en los períodos seleccionados." : "No hay aplicaciones pendientes para los períodos seleccionados."));
         return;
     }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
@@ -328,15 +356,15 @@ async function useApplicationsAsDetail(frm) {
     const invalidAmounts = () => preview.rows.some(row => selected.has(row.claim_id) && amountCents(row) === null);
     let busy = false;
     const dialog = new frappe.ui.Dialog({
-        title: __("Usar aplicaciones pendientes como detalle"), size: "extra-large",
+        title: __(fromCollection ? "Usar cobranza como detalle" : "Usar aplicaciones pendientes como detalle"), size: "extra-large",
         fields: [{fieldname: "selection_preview", fieldtype: "HTML", options: `
-            <p>${__("Se generará un archivo privado con las aplicaciones pendientes de los períodos {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.periods.join(", "))])}</p>
-            <p><strong>${__("Aplicado a los períodos")}: US$ ${remittanceMoney(preview.applied_usd)} ·
+            <p>${__(fromCollection ? "Se generará un archivo privado con la cobranza cargada de los períodos {0}. Los importes originales de cobranza se proponen completos, sin descontar otros depósitos; seleccione las filas correspondientes y ajuste los importes para este depósito." : "Se generará un archivo privado con las aplicaciones pendientes de los períodos {0}, descontando lo cubierto por otros depósitos. Las asignaciones de este depósito se conservan para poder completar su propio detalle.", [esc(preview.periods.join(", "))])}</p>
+            <p><strong>${__(fromCollection ? "Cobranza de los períodos" : "Aplicado a los períodos")}: US$ ${remittanceMoney(fromCollection ? preview.collection_usd : preview.applied_usd)} ·
                 ${__("Seleccionado")}: US$ <span data-selected-total>${remittanceMoney(preview.total_usd)}</span> ·
                 ${__("Depósito")}: US$ ${remittanceMoney(preview.deposit_usd)}</strong></p>
             <p class="text-warning" data-selection-warning>${__("El total seleccionado no coincide con el depósito. No se repartirán ni reducirán importes automáticamente; deberá revisar la diferencia y los destinos antes de conciliar.")}</p>
-            <p>${__("Este detalle procede del core, no de una confirmación de deducción de la empresa. Generarlo no confirma ni concilia el depósito.")}</p>
-            <p>${__("Marque los movimientos de este depósito y ajuste sus importes si son distintos. El pendiente original se muestra como referencia; los ajustes se registrarán en los comentarios del detalle.")}</p>
+            <p>${__(fromCollection ? "Este detalle procede de la cobranza cargada; no confirma una deducción informada por la empresa. Generarlo no modifica la cobranza ni confirma o concilia el depósito." : "Este detalle procede del core, no de una confirmación de deducción de la empresa. Generarlo no confirma ni concilia el depósito.")}</p>
+            <p>${__(fromCollection ? "Marque las filas de este depósito y ajuste sus importes si son distintos. La cobranza original se muestra como referencia; los cambios se registrarán en los comentarios del detalle." : "Marque los movimientos de este depósito y ajuste sus importes si son distintos. El pendiente original se muestra como referencia; los ajustes se registrarán en los comentarios del detalle.")}</p>
             <p class="text-danger" data-amount-error>${__("Ingrese importes mayores que cero con un máximo de dos decimales en las filas seleccionadas.")}</p>
             <p data-selection-count aria-live="polite"></p>
             <div style="max-height:40vh;overflow:auto"><table class="table table-bordered"><thead>
@@ -345,7 +373,7 @@ async function useApplicationsAsDetail(frm) {
                     <td>${esc(row.loan_number)}</td><td>${esc(row.period)}</td><td>${esc(row.application_reference)}</td><td>
                         <input type="number" class="form-control input-sm" style="min-width:120px" min="0.01" step="0.01" data-application-amount="${index}"
                             value="${esc(amounts.get(row.claim_id))}" aria-label="${esc(__("Importe del movimiento {0} en US$", [index + 1]))}">
-                        <small class="text-muted">${__("Pendiente original")}: ${remittanceMoney(row.deducted_usd)}</small></td></tr>`).join("")}</tbody></table></div>
+                        <small class="text-muted">${__(fromCollection ? "Cobranza original" : "Pendiente original")}: ${remittanceMoney(row.deducted_usd)}</small></td></tr>`).join("")}</tbody></table></div>
             ${preview.replaces_detail ? `<p class="text-warning">${__("Se reemplazarán las filas del detalle actual y se quitarán sus vínculos a destinos. Los destinos y archivos anteriores se conservarán para revisión.")}</p>` : ""}
         `}, ...(preview.replaces_detail ? [{fieldname: "replace_detail", fieldtype: "Check", reqd: 1,
             label: __("Confirmo reemplazar el detalle actual")}] : [])],
@@ -363,12 +391,12 @@ async function useApplicationsAsDetail(frm) {
             busy = true;
             dialog.get_primary_btn().prop("disabled", true);
             try {
-                await frappe.call({method: method + "use_application_detail",
+                await frappe.call({method: method + (fromCollection ? "use_collection_detail" : "use_application_detail"),
                     args: {remittance_name: frm.doc.name, fingerprint: preview.fingerprint,
                         replace_detail: values.replace_detail || 0,
                         selected_claim_ids: JSON.stringify([...selected]),
                         selected_amounts: JSON.stringify(Object.fromEntries([...selected].map(key => [key, amounts.get(key)])))}, freeze: true,
-                    freeze_message: __("Generando detalle desde aplicaciones…")});
+                    freeze_message: __(fromCollection ? "Generando detalle desde cobranza…" : "Generando detalle desde aplicaciones…")});
                 dialog.hide();
                 await frm.reload_doc();
                 frappe.msgprint(__("Detalle generado. Revise las filas y los destinos; luego confirme el depósito si es borrador y use Conciliar."));
