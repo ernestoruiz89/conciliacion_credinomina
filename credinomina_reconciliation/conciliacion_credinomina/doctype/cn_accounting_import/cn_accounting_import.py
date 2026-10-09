@@ -7,7 +7,7 @@ from contextvars import ContextVar
 
 import frappe
 from credinomina_reconciliation.application_quality import (
-    COLLECTION, EMPLOYER_DETAIL, VALID_DEDUCTION, quality_conforms, source_quality, update_collection_quality,
+    COLLECTION, EMPLOYER_DETAIL, VALID_DEDUCTION, source_quality, update_collection_quality,
 )
 from frappe import _
 from frappe.model.document import Document
@@ -2671,11 +2671,10 @@ def _operative_links(periods, source_rows, registered_deposits, complementary_it
 
 
 def _operative_period_fully_reconciled(period):
-    """A paid subset must not clear the entire payroll collection."""
+    """Payment coverage determines the period status; quality stays informational."""
     rows = list(period.collection_rows or [])
     return bool(rows) and not period.exception_count and not period.get("_direct_applications_incomplete") and all(
-        quality_conforms(row, period.get("application_basis"))
-        and row.application_status == "Aplicado y remitido"
+        row.application_status == "Aplicado y remitido"
         for row in rows
     )
 
@@ -2967,7 +2966,7 @@ def _rebuild_period_balances(
         direct = [row for row in source_rows if row.event_type == "Aplicacion" and row.effective
                   and row.historical_period == period.name]
         period._direct_applications_incomplete = any(
-            row.match_status != "Conciliado" or not str(row.get("quality_status") or "").startswith("Conforme")
+            row.match_status != "Conciliado"
             or row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in direct)
         period.unassigned_deposit_usd = money_float(sum_money(pending_deposits[period.name].values()))
         if period.status != "Cerrado":

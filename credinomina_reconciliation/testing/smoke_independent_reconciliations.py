@@ -114,7 +114,7 @@ def run():
                 if difference:
                     generate_proposals(period.name)
                     period.reload()
-                    assert period.status == "Parcial"
+                    assert period.status == "Conciliado"
                     assert period.collection_rows[0].quality_difference_usd == -difference
                     assert period.provisional_adjustments[0].state == "Pendiente de revisión"
                     assert source.rows[0].quality_status == "Con diferencias"
@@ -122,7 +122,7 @@ def run():
                 period.reload()
                 assert period.status == "Cerrado"
                 if difference:
-                    assert period.status_before_close == "Parcial"
+                    assert period.status_before_close == "Conciliado"
                     assert period.collection_rows[0].quality_difference_usd == -difference
                     assert period.provisional_adjustments[0].state == "Pendiente de revisión"
                     assert period.applied_total_usd == period.remitted_total_usd == 100
@@ -134,6 +134,7 @@ def run():
             return {"second_without_payroll": True, "first_without_deposit": True,
                     "both_required_to_close": True, "late_payroll_preserves_cash": True,
                     "informational_difference_does_not_block_close": True,
+                    "period_status_uses_application_deposit_reconciliation": True,
                     "pending_proposal_and_cash_preserved": True,
                     "no_double_counting": True, "rolled_back": True}
     finally:
