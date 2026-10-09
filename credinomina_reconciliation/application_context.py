@@ -24,7 +24,7 @@ def load_application_context(employer=None, *, include_applications=True):
             'application_adjustment_usd'])) if include_applications else []
     collections = {row.name: row for row in child_records('CN Collection Row', periods,
         'CN Reconciliation Period', 'collection_rows', fields=[
-            'name', 'parent', 'row_key', 'client', 'client_name', 'client_number', 'national_id', 'loan_number',
+            'name', 'parent', 'row_key', 'client', 'client_name', 'client as client_number', 'national_id', 'loan_number',
             'installment_number', 'remittance_detail', 'rounding_adjustment_usd', 'fx_variance_usd'])} if include_applications else {}
     names = {row.employer for row in [*periods.values(), *imports.values()] if row.employer}
     names.update(row.portfolio_employer for row in sources if row.portfolio_employer)

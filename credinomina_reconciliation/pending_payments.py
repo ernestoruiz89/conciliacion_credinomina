@@ -8,6 +8,7 @@ from collections import defaultdict
 import frappe
 
 from credinomina_reconciliation.application_quality import collection_quality
+from credinomina_reconciliation.collection_identity import collection_record
 from credinomina_reconciliation.deposit_reconciliation import entries
 from credinomina_reconciliation.parsers import canonical_credit_number
 from credinomina_reconciliation.remittance_detail import _candidate_matches
@@ -23,7 +24,7 @@ def build_pending_payments(periods, deposits, collections, details, target_links
         period = periods.get(row.get('parent'))
         if period:
             key = (period['employer'], canonical_credit_number(row.get('loan_number')))
-            candidates[key].append(dict(row, group=period['employer'], kind='C'))
+            candidates[key].append(dict(collection_record(row), group=period['employer'], kind='C'))
     links = defaultdict(set)
     for target in target_links:
         links[target['parent']].add(target['period'])
@@ -91,7 +92,7 @@ def load_pending_payments(periods, deposits, target_links=()):
         return []
     collections, details = [], []
     for parents, doctype, fields, output in (
-        (periods, 'CN Collection Row', ['name', 'parent', 'client', 'client_number', 'employee_number',
+        (periods, 'CN Collection Row', ['name', 'parent', 'client', 'client as client_number', 'employee_number',
          'national_id', 'client_name', 'loan_number', 'installment_number', 'expected_usd', 'expected_nio',
          'deducted_usd', 'deducted_nio', 'deduction_status', 'applied_usd', 'complementary_usd'], collections),
         (deposits, 'CN Remittance Detail', ['name', 'parent', 'employer', 'client', 'client_number',

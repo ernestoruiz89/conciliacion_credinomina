@@ -147,6 +147,26 @@ class ClientIdentityTests(unittest.TestCase):
             {"client_name": "PEREZ ANA MARIA", "client_number": "2"}, collection,
         ))
 
+    def test_application_matches_credit_when_collection_personal_identifiers_are_missing(self):
+        source = {"loan_number": "0012800-1", "client_number": "769",
+                  "employee_number": "7", "national_id": "4010302850004L"}
+        collection = {"loan_number": "12800-1", "client_number": "",
+                      "national_id": "4010302850004L"}
+        self.assertTrue(application_matches_collection(source, collection))
+        self.assertTrue(application_matches_collection(source, {"loan_number": "12800-1"}))
+        for field, value in (("client_number", "999"), ("employee_number", "8"),
+                             ("national_id", "OTHER"), ("loan_number", "12800-2")):
+            with self.subTest(field=field):
+                self.assertFalse(application_matches_collection(source, {**collection, field: value}))
+
+    def test_missing_identifiers_require_a_shared_match_and_never_override_credit(self):
+        source = {"client_number": "769", "national_id": "CED-A", "client_name": "ANA PEREZ"}
+        self.assertTrue(application_matches_collection(source, {"national_id": "CED-A"}))
+        self.assertFalse(application_matches_collection(source, {"client_name": "ANA PEREZ"}))
+        self.assertFalse(application_matches_collection(
+            {**source, "loan_number": "12800-1"}, {"national_id": "CED-A"},
+        ))
+
     def test_parser_accepts_name_only_company_detail(self):
         book = Workbook()
         sheet = book.active

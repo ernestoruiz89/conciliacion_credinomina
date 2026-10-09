@@ -52,7 +52,7 @@ def _candidates(employer, kind, period=None, search=None, row_id=None):
     collection_filters = {"parent": ["in", list(periods)], "parenttype": "CN Reconciliation Period"}
     collections = {r.name: r for r in frappe.get_all(
         "CN Collection Row", filters=collection_filters,
-        fields=["name", "parent", "client_name", "client_number", "loan_number", "source_row",
+        fields=["name", "parent", "client_name", "client as client_number", "loan_number", "source_row",
                 "expected_usd", "applied_usd", "application_status", "installment_number"],
         order_by="parent asc, idx asc", limit_page_length=0,
     )} if periods else {}

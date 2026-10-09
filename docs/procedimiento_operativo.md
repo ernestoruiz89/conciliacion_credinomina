@@ -151,6 +151,10 @@ En un período **Operativo**, la conciliación 1 compara las aplicaciones del co
 
 El archivo de cobranza contiene Nro. Cliente, Nombre y Apellidos del Cliente, Nro. Cédula, Nro. Crédito, Nro. Cuota, Nro. de cuotas totales, Monto de la cuota en US$, Monto de la cuota en C$, Comentarios, Referencia de Aplicación y Comentario de Aplicación. Use la plantilla actual para conservar los encabezados. La respuesta agrega Deducido C$ y Deducido US$; no reemplace la cuota solicitada por lo efectivamente descontado.
 
+En la cobranza puede dejar vacíos u omitir nombre, número de cliente y cédula. Se completan por número de crédito desde la cartera activa más reciente del mes de la fecha de corte del período, o la última anterior si no hay una en ese mes. Un período con fecha 15/09/2026 usa la cartera del 30/09/2026 si está disponible. No se consultan meses posteriores. Si no puede completar el nombre, hay créditos duplicados o la identidad contradice la cartera, la carga indica la fila y el motivo. Los importes y números de cuota se toman del archivo de cobranza.
+
+La cobranza conserva un único identificador: **Cliente** (`client`), que enlaza al registro del cliente. No guarda un segundo número de cliente; las plantillas y reportes lo obtienen de ese vínculo. Todas las filas deben quedar identificadas antes de guardar. Al actualizar el sistema, la migración conserva las filas, sus importes y vínculos, y deja los números originales en la actividad del período. Si encuentra identidades contradictorias, informa el período y la fila para corregirlos antes de continuar.
+
 Resultados posibles:
 
 - **Deducción total:** la deducción coincide con lo solicitado; no crea ni liquida por sí sola CxC.

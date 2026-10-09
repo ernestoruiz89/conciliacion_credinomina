@@ -812,9 +812,21 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
 2. **Cobranza.** Cree un período operativo para la empresa y el corte mensual
    o quincenal. En **Plantillas → Plantilla de cobranza** descargue el XLSX
    con las columnas esperadas; complételo, adjúntelo y pulse **1. Cargar cobranza**. Solo se
-   cargan las cuotas y se crean o enlazan los clientes; todavía no se afirma
+   cargan las cuotas y se crean o enlazan los clientes. El nombre, número de
+   cliente y cédula pueden omitirse: se completan por crédito desde la cartera
+   activa más reciente del mes de `cutoff_date` o, si no existe, del último
+   mes anterior disponible. Por ejemplo, el corte del período 15/09/2026 usa
+   la cartera del 30/09/2026 si está disponible, nunca la de octubre.
+   Si falta el nombre y no puede resolverse el crédito, se informa la fila y
+   el motivo. Tampoco se aceptan créditos duplicados o identificadores
+   contradictorios en la cartera seleccionada. Todavía no se afirma
    que la empresa haya deducido ni pagado nada. Cada cliente tiene nombre,
    número, cédula y una tabla de nombres alternativos.
+   La fila de cobranza guarda solo `client` como identificador; el número se
+   obtiene de ese vínculo para cruces, reportes y exportaciones. La migración
+   enlaza las filas anteriores, conserva sus IDs, claves e importes y registra
+   el número original en la actividad del período. Las identidades ambiguas
+   o contradictorias deben corregirse antes de completar la migración.
 3. **Deducción de la empresa.** En ese mismo período, adjunte el archivo
    devuelto con `Deducido C$` y/o `Deducido US$` y pulse **2. Cargar deducción
    de empresa**. Se compara con la cobranza. El nombre es obligatorio; si

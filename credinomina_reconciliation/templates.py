@@ -103,6 +103,13 @@ def build_template_xlsx(
     column_widths = _DEPOSIT_COLUMN_WIDTHS if template_type == "deposito" else _COLUMN_WIDTHS
     text_columns = _DEPOSIT_TEXT_COLUMNS if template_type == "deposito" else _TEXT_COLUMNS
     notes = dict(_HEADER_NOTES)
+    if template_type == "cobranza":
+        for header in ("Nombre y Apellidos del Cliente", "Nro. Cliente", "Nro Cédula"):
+            notes[header] = (
+                "Opcional en el archivo de cobranza. Se completa por Nro. Crédito desde la cartera "
+                "activa más reciente del mes de la fecha de corte del período o anterior. "
+                "Ejemplo: un período del 15/09 puede usar la cartera del 30/09."
+            )
     if template_type == "deposito":
         identity_note = (
             "Informe al menos uno: Nro. Crédito, Nro Cédula, Nro. Cliente, Nro. Empleado "

@@ -106,7 +106,7 @@ def _load_credit_people(deposits, periods):
             "row_key": ["in", collection_ids[offset:offset + 500]],
             "parent": ["in", sorted(periods)], "parenttype": "CN Reconciliation Period",
             "parentfield": "collection_rows",
-        }, fields=["row_key", "parent", *fields], limit_page_length=0):
+        }, fields=["row_key", "parent", "client_name", "client as client_number", "loan_number"], limit_page_length=0):
             key = ("C", row["parent"], row["row_key"])
             if key in wanted:
                 result[key] = {field: row.get(field) for field in fields}

@@ -69,10 +69,11 @@ class ApplicationQualityTests(unittest.TestCase):
         self.assertEqual(source_quality([first, second])["quality_status"], "Con diferencias")
         self.assertEqual(source_quality([])["quality_status"], "Sin cobranza vinculada")
 
-    def match(self, amount=100, other=None, reference=None, basis=COLLECTION, deduction=None, source_values=None):
+    def match(self, amount=100, other=None, reference=None, basis=COLLECTION, deduction=None, source_values=None, collection_values=None):
         row = self.row()
         row.update(name="C1", parent="P1", loan_number="109-1", client_number="1", applied_usd=0)
         row.application_reference = reference
+        row.update(collection_values or {})
         if deduction is not None:
             row.update(deducted_usd=deduction, deduction_status="Deduccion parcial")
         row.as_dict = lambda: dict(row)
@@ -150,6 +151,25 @@ class ApplicationQualityTests(unittest.TestCase):
                 source = self.match(amount, reference="1621", source_values={"reference": "ASIENTO", "historical_period": "P1"})
                 self.assertEqual(source.collection_row_id, "C1")
                 self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], amount)
+
+    def test_assigned_application_links_collection_without_client_number(self):
+        source = self.match(source_values={"historical_period": "P1", "national_id": "CED-A"},
+                            collection_values={"client_number": "", "national_id": "CED-A"})
+        self.assertEqual(source.collection_row_id, "C1")
+        self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], 100)
+
+    def test_missing_client_number_does_not_hide_conflicting_national_id(self):
+        source = self.match(source_values={"historical_period": "P1", "national_id": "CED-A"},
+                            collection_values={"client_number": "", "national_id": "CED-B"})
+        self.assertFalse(source.collection_row_id)
+        self.assertIn("Primera conciliación pendiente", source.match_reason)
+
+    def test_missing_client_number_does_not_resolve_ambiguous_credit(self):
+        other = self.row()
+        other.update(name="C2", parent="P1", loan_number="109-1", client_number="")
+        other.as_dict = lambda: dict(other)
+        source = self.match(other=other, collection_values={"client_number": ""})
+        self.assertEqual(source.match_status, "Ambiguo")
 
     def test_reference_mismatch_without_assigned_period_does_not_guess(self):
         source = self.match(reference="1621", source_values={"reference": "ASIENTO"})

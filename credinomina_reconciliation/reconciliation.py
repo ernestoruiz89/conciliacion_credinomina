@@ -4,6 +4,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from credinomina_reconciliation.client_identity import matching_name
+from credinomina_reconciliation.collection_identity import collection_client_number
 from credinomina_reconciliation.parsers import (
     canonical_credit_number, canonical_identifier,
     clean_text,
@@ -43,18 +44,22 @@ def application_matches_collection(
     national_id = canonical_identifier(application.get("national_id"))
     if loan and loan != canonical_credit_number(collection.get("loan_number")):
         return False
-    if client and client != canonical_identifier(collection.get("client_number")):
-        return False
-    if employee and employee != canonical_identifier(collection.get("employee_number")):
-        return False
-    if national_id and national_id != canonical_identifier(collection.get("national_id")):
-        return False
+    matched_identifier = bool(loan)
+    for field, value in (
+        ("client_number", client), ("employee_number", employee), ("national_id", national_id),
+    ):
+        collection_value = canonical_identifier(collection_client_number(collection) if field == "client_number" else collection.get(field))
+        # Missing employer-file data is not a conflict, but cannot prove identity.
+        if value and collection_value:
+            if value != collection_value:
+                return False
+            matched_identifier = True
     if not (loan or client or employee or national_id):
         return matching_name(application.get("client_name"), {
             "client_name": collection.get("client_name"),
             "client_aliases": tuple(client_aliases),
         })
-    return True
+    return matched_identifier
 
 
 def same_amount(left: Any, right: Any, tolerance: float = AMOUNT_TOLERANCE) -> bool:
@@ -227,7 +232,8 @@ def complementary_matches_collection(
         return False
     for field in ("client_number", "installment_number"):
         value = canonical_identifier(item.get(field))
-        if value and value != canonical_identifier(target.get(field)):
+        stored = collection_client_number(target) if field == "client_number" else target.get(field)
+        if value and value != canonical_identifier(stored):
             return False
     if item.get("period") and item.get("period") != target.get("parent"):
         return False
@@ -330,7 +336,7 @@ def match_collection_record(
             for field in ("loan_number", "client_number", "employee_number", "national_id"):
                 normalize = canonical_credit_number if field == "loan_number" else canonical_identifier
                 incoming = normalize(response.get(field))
-                stored = normalize(row.get(field))
+                stored = normalize(collection_client_number(row) if field == "client_number" else row.get(field))
                 if incoming and stored and incoming != stored:
                     return None, "La Fila ID contradice los identificadores del cliente o crédito"
             return exact[0], "Fila ID"
@@ -345,8 +351,8 @@ def match_collection_record(
     national_id = clean_text(response.get("national_id"))
     def identifiers_compatible(row):
         return not (
-            client and row.get("client_number")
-            and canonical_identifier(row.get("client_number")) != canonical_identifier(client)
+            client and collection_client_number(row)
+            and canonical_identifier(collection_client_number(row)) != canonical_identifier(client)
         ) and not (
             employee and row.get("employee_number")
             and canonical_identifier(row.get("employee_number")) != canonical_identifier(employee)
@@ -360,7 +366,7 @@ def match_collection_record(
         strategies.append(
             (
                 "cliente, credito y cuota",
-                lambda row: canonical_identifier(row.get("client_number"))
+                lambda row: canonical_identifier(collection_client_number(row))
                 == canonical_identifier(client)
                 and identifiers_compatible(row)
                 and canonical_credit_number(row.get("loan_number"))
@@ -414,7 +420,7 @@ def match_collection_record(
     if client and not loan:
         strategies.append((
             "número de cliente",
-            lambda row: canonical_identifier(row.get("client_number"))
+            lambda row: canonical_identifier(collection_client_number(row))
             == canonical_identifier(client)
             and identifiers_compatible(row)
             and (not installment or canonical_identifier(row.get("installment_number"))

@@ -34,7 +34,7 @@ def _collection_report(filters=None):
     period_map = {row.name: row for row in periods}
     row_filters = {"parent": ["in", list(period_map)]}
     if filters.client_number:
-        row_filters["client_number"] = filters.client_number
+        row_filters["client"] = filters.client_number
     if filters.national_id:
         row_filters["national_id"] = filters.national_id
     if filters.loan_number:
@@ -46,7 +46,7 @@ def _collection_report(filters=None):
         fields=[
             "name",
             "parent",
-            "client_number",
+            "client as client_number",
             "client_name",
             "national_id",
             "loan_number",

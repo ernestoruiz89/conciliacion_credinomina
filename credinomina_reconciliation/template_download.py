@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.templates import TEMPLATE_TYPES, build_template_xlsx
+from credinomina_reconciliation.collection_identity import collection_record
 
 
 @frappe.whitelist(methods=["GET"])
@@ -39,7 +40,7 @@ def download_import_template(
         for name in names:
             period = frappe.get_doc("CN Reconciliation Period", name)
             period.check_permission("read")
-            collection_rows.extend({**row.as_dict(), "employer": period.employer} for row in period.collection_rows)
+            collection_rows.extend({**collection_record(row), "employer": period.employer} for row in period.collection_rows)
 
     content = build_template_xlsx(template_type, collection_rows)
     frappe.local.response.filename = filename

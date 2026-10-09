@@ -6,6 +6,7 @@ from frappe import _
 from frappe.utils import cint
 
 from credinomina_reconciliation.control_summary import readable_imports
+from credinomina_reconciliation.collection_identity import collection_client_number
 from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.remittance_periods import selected_periods, attach_periods, deposit_names_for_periods
@@ -71,7 +72,7 @@ def collection_issue(row, basis=None, payments=()):
         "kind": "Cobranza", "source": row.get("parent"), "doctype": "CN Reconciliation Period",
         "source_row": row.get("name"), "installment_number": row.get("installment_number"),
         "row": row.get("idx"), "client_name": row.get("client_name"),
-        "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
+        "client_number": collection_client_number(row), "loan_number": row.get("loan_number"),
         "applied": money_float(applied), "paid": money_float(paid), "pending": money_float(pending),
         "paid_identified": money_float(identified), "pending_application": money_float(identified),
         "pending_deposit": money_float(pending_deposit),

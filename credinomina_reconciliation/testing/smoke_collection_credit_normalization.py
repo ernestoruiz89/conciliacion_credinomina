@@ -36,7 +36,7 @@ def run():
                                   "employer_code": marker, "payroll_frequency": "Mensual"}).insert()
         period = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
             "payroll_month": "2026-09-01", "reconciliation_mode": "Operativa",
-            "collection_cycle": "Mensual", "collection_file": "collection.xlsx"}).insert()
+            "collection_cycle": "Mensual", "collection_file": "collection.xlsx", "application_basis": "Cobranza"}).insert()
         files = {"collection.xlsx": _workbook(), "response.xlsx": _workbook(detail=True)}
 
         def attached(document, url):

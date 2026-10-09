@@ -163,11 +163,11 @@ def _execute_operational(filters):
     row_filters = {}
     for field in ("client_number", "national_id", "loan_number"):
         if filters.get(field):
-            row_filters[field] = filters[field]
+            row_filters["client" if field == "client_number" else field] = filters[field]
     collection_rows = child_records(
         "CN Collection Row", period_by_name, "CN Reconciliation Period", "collection_rows", filters=row_filters,
         fields=[
-            "name", "parent", "client", "client_number", "client_name",
+            "name", "parent", "client", "client as client_number", "client_name",
             "national_id", "loan_number", "installment_number",
             "expected_usd", "deducted_usd", "applied_usd", "remitted_usd",
             "fx_variance_usd", "rounding_adjustment_usd", "deduction_status",

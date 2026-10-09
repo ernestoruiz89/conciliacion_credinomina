@@ -10,6 +10,7 @@ from frappe.utils import now_datetime
 
 from credinomina_reconciliation.application_quality import collection_quality, PENDING_DEDUCTION, COLLECTION, EMPLOYER_DETAIL
 from credinomina_reconciliation.rounding import money, money_float, sum_money
+from credinomina_reconciliation.collection_identity import collection_client_number
 
 _trusted = ContextVar("cn_provisional_write", default=False)
 _materializing = ContextVar("cn_provisional_materializing", default=False)
@@ -51,6 +52,7 @@ def row_basis(period, row):
         "name", "row_key", "client", "client_number", "client_name", "national_id", "loan_number",
         "installment_number", "expected_usd", "expected_nio", "deducted_usd", "deducted_nio",
         "deduction_status", "application_reference")}
+    context["client_number"] = collection_client_number(row)
     # Recognition is evidence of this deposit, not a new first-stage base.
     if period.get("application_basis") == COLLECTION:
         context.update(deduction_status="Cobranza", deducted_usd=0, deducted_nio=0)
@@ -63,7 +65,7 @@ def row_basis(period, row):
                    collection_file=period.get("collection_import_sha256"),
                    response_file=period.get("employer_response_import_key") if period.get("application_basis") == EMPLOYER_DETAIL else None)
     return {"collection_row": row.get("name"), "client_name": row.get("client_name"),
-            "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
+            "client_number": collection_client_number(row), "loan_number": row.get("loan_number"),
             "basis": quality["quality_basis"], "base_usd": money_float(base),
             "applied_usd": money_float(applied), "amount_usd": money_float(base - applied),
             "fingerprint": digest(context)}
@@ -293,7 +295,7 @@ def _existing_item(proposal, period, row):
     item.check_permission("read")
     if (item.docstatus != 1 or not item.get("accounting_source_key") or item.category in CREDITS
         or item.category != proposal.category or item.employer != period.employer or item.period != period.name
-        or item.loan_number != row.loan_number or item.client_number != row.client_number
+        or item.loan_number != row.loan_number or item.client_number != collection_client_number(row)
         or money(item.amount_usd) != money(proposal.amount_usd)):
         frappe.throw(_("La partida del core debe estar confirmada, clasificada y vinculada al mismo período, cliente, crédito e importe."))
     # Planned and applied links both block reuse; they belong to another workflow.
@@ -339,7 +341,7 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                 if proposal and proposal.category == "Saldo a favor de la empresa":
                     detail_amount -= money(proposal.amount_usd)
                 records.append({key: row.get(key) for key in ("client_number", "client_name", "national_id", "loan_number", "installment_number")}
-                    | {"source_row": len(records) + 2, "row_key": row.row_key, "employer": period.employer,
+                    | {"client_number": collection_client_number(row), "source_row": len(records) + 2, "row_key": row.row_key, "employer": period.employer,
                        "deducted_usd": money_float(detail_amount), "comments": f"Base preparada: {period.name} / {base['basis']}"})
                 if period.get("application_basis") == COLLECTION and row.deduction_status in PENDING_DEDUCTION:
                     row.deducted_usd, row.deducted_nio = row.expected_usd, row.expected_nio
@@ -382,7 +384,7 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                             "reason_type": proposal.reason_type, "description": proposal.description,
                             "reference": document.deposit_reference, "posting_date": document.deposit_date,
                             "employer": period.employer, "period": period.name, "currency": "USD",
-                            "amount": proposal.amount_usd, "client_number": row.client_number,
+                            "amount": proposal.amount_usd, "client_number": collection_client_number(row),
                             "loan_number": row.loan_number, "installment_number": row.installment_number,
                             "credit_assigned_to": proposal.assigned_to, "credit_commitment_date": proposal.commitment_date})
                         if proposal.category in CREDITS:

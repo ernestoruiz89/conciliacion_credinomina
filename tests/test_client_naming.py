@@ -123,7 +123,9 @@ class ClientNamingTests(unittest.TestCase):
                     "client_aliases": [], "employer": "EMP"}
         with patch.object(registry, "load_client_index", return_value=[existing]):
             index = registry.ClientIndex()
-            self.assertEqual(index.ensure_from_collection({"client_name": "Ana Pérez"}, "EMP"), "00123")
+            record = {"client_name": "Ana Pérez"}
+            self.assertEqual(index.ensure_from_collection(record, "EMP"), "00123")
+            self.assertEqual(record["client_number"], "00123")
         frappe.get_doc.assert_not_called()
 
 
