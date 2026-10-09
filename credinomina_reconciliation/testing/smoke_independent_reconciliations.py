@@ -9,6 +9,7 @@ from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.application_deposit_detail import preview_application_detail
 from credinomina_reconciliation.remittance_selection import get_pending_targets
 from credinomina_reconciliation.provisional_adjustments import generate_proposals
+from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import _build_control_data
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import cn_reconciliation_period as period_api
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period import close_period, reconcile_first
@@ -118,11 +119,18 @@ def run():
                     assert period.collection_rows[0].quality_difference_usd == -difference
                     assert period.provisional_adjustments[0].state == "Pendiente de revisión"
                     assert source.rows[0].quality_status == "Con diferencias"
+                    for summary_only in (True, False):
+                        card = _build_control_data('Todos', summary_only=summary_only,
+                                                   detail_period=period.name)['periods'][0]
+                        assert card['control_state'] == 'conciliado', card
                 close_period(period.name)
                 period.reload()
                 assert period.status == "Cerrado"
                 if difference:
                     assert period.status_before_close == "Conciliado"
+                    card = _build_control_data('Todos', summary_only=True,
+                                               detail_period=period.name)['periods'][0]
+                    assert card['control_state'] == 'conciliado', card
                     assert period.collection_rows[0].quality_difference_usd == -difference
                     assert period.provisional_adjustments[0].state == "Pendiente de revisión"
                     assert period.applied_total_usd == period.remitted_total_usd == 100

@@ -272,6 +272,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             *([] if summary_only else ["control_cut_summary"]),
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
+            "status_before_close",
         ],
         order_by="employer asc, payroll_month asc",
         limit_page_length=_row_limit(3000, full_export),
@@ -384,7 +385,6 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         complementary = flt(period.complementary_usd)
         remitted = flt(period.remitted_usd)
         is_historical = period.reconciliation_mode == "Historica"
-        fx_variance = max(flt(period.fx_variance_usd), 0)
         period_rows = rows_by_period[period.name]
         worker_gap = sum(
             flt(row.collection_shortfall_usd)
@@ -421,21 +421,21 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 else "historico_pendiente"
             )
         elif (
-            flt(period.exception_count) or worker_gap > CASH_EPSILON
+            flt(period.exception_count)
             or flt(aggregate.get("application_difference_count"))
             or any(row.application_status == "Diferencia aplicacion vs deposito" for row in period_rows)
         ):
             control_state = "diferencia"
+        elif (period.status_before_close if period.status == "Cerrado" else period.status) == "Conciliado":
+            # Reuse the financial result instead of comparing cash to payroll
+            # again. First-stage gaps remain available in the detail and queue.
+            control_state = "conciliado"
+        elif (period.status_before_close if period.status == "Cerrado" else period.status) == "Parcial" or remitted > CASH_EPSILON:
+            control_state = "parcial"
+        elif worker_gap > CASH_EPSILON:
+            control_state = "diferencia"
         elif pending_detail > CASH_EPSILON:
             control_state = "pendiente_detalle"
-        elif (
-            deducted > CASH_EPSILON
-            and employer_gap <= CASH_EPSILON
-            and applied + complementary + fx_variance + max(adjustment, 0) + CASH_EPSILON >= deducted
-        ):
-            control_state = "conciliado"
-        elif remitted > CASH_EPSILON:
-            control_state = "parcial"
         else:
             control_state = "en_transito"
         record = dict(period)
