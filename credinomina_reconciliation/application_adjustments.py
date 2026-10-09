@@ -140,7 +140,7 @@ def assert_cash_preserved(snapshots):
             frappe.throw(_("El ajuste cambiaría la distribución existente del depósito {0}. No se guardó el cambio; revise los vínculos de la aplicación.").format(name))
 
 
-def assert_adjustable(row, item_name=None, saved_periods=(), saved_collections=()):
+def adjustment_block_reason(row, item_name=None, saved_periods=(), saved_collections=()):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _source_linked_periods
 
     periods = set(_source_linked_periods(row)) | set(saved_periods)
@@ -150,9 +150,28 @@ def assert_adjustable(row, item_name=None, saved_periods=(), saved_collections=(
             periods.add(parent)
     for period in periods:
         if frappe.db.get_value("CN Reconciliation Period", period, "status") == "Cerrado":
-            frappe.throw(_("Reabra el período {0} antes de confirmar o cancelar el ajuste.").format(period))
+            return _("Reabra el período {0} antes de confirmar o cancelar el ajuste.").format(period)
     if item_name and frappe.db.exists("CN Remittance Target", {"complementary_item": item_name, "docstatus": ["<", 2]}):
-        frappe.throw(_("Una partida de ajuste no puede ser también destino de un depósito. Retire ese destino antes de confirmar o cancelar el ajuste."))
+        return _("Una partida de ajuste no puede ser también destino de un depósito. Retire ese destino antes de confirmar o cancelar el ajuste.")
+    return None
+
+
+def assert_adjustable(row, item_name=None, saved_periods=(), saved_collections=()):
+    reason = adjustment_block_reason(row, item_name, saved_periods, saved_collections)
+    if reason:
+        frappe.throw(reason)
+
+
+def application_link_error(doc, row, parent):
+    """Shared eligibility for the picker and the actual adjustment validation."""
+    if (row.parenttype != "CN Accounting Import" or row.event_type != "Aplicacion"
+            or not row.effective or row.currency != "USD" or parent.employer != doc.employer
+            or parent.docstatus == 2 or parent.status not in {"Importado", "Importado con excepciones"}):
+        return _("Seleccione una aplicación vigente en US$ de la misma empresa.")
+    known_periods = {row.historical_period, row.collection_period} | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
+    if doc.period and doc.period not in known_periods:
+        return _("El período de la partida no corresponde a la aplicación seleccionada.")
+    return None
 
 
 def validate_adjustment(doc):
@@ -168,13 +187,9 @@ def validate_adjustment(doc):
     row = frappe.get_doc("CN Source Row", doc.related_application)
     parent = frappe.get_doc("CN Accounting Import", row.parent)
     parent.check_permission("read")
-    if (row.parenttype != "CN Accounting Import" or row.event_type != "Aplicacion"
-            or not row.effective or row.currency != "USD" or parent.employer != doc.employer
-            or parent.status not in {"Importado", "Importado con excepciones"}):
-        frappe.throw(_("Seleccione una aplicación vigente en US$ de la misma empresa."))
-    known_periods = {row.historical_period, row.collection_period} | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
-    if doc.period and doc.period not in known_periods:
-        frappe.throw(_("El período de la partida no corresponde a la aplicación seleccionada."))
+    reason = application_link_error(doc, row, parent)
+    if reason:
+        frappe.throw(reason)
     doc.related_import = parent.name
     amount = money(doc.application_adjustment_usd)
     if amount <= 0 or amount > abs(money(doc.amount_usd)):
@@ -237,3 +252,22 @@ def confirm_adjustment(item_name):
         frappe.throw(_("Guarde una partida en borrador con tratamiento Ajuste de aplicación."))
     doc.submit()
     return {"name": doc.name, "application": doc.related_application, "status": doc.review_status}
+
+
+def reconcile_adjustment(doc):
+    """Recompute the linked application and its periods, retaining deposited cash."""
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _source_linked_periods
+    from credinomina_reconciliation.complementary_cancellation import reconcile_scoped
+
+    row = frappe.get_doc("CN Source Row", doc.related_application)
+    periods = set(_source_linked_periods(row)) | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
+    if doc.period:
+        periods.add(doc.period)
+    for name in frappe.parse_json(doc.get("adjustment_collection_rows") or "[]"):
+        parent = frappe.db.get_value("CN Collection Row", name, "parent")
+        if parent:
+            periods.add(parent)
+    return reconcile_scoped(doc, {
+        "companies": [doc.employer], "periods": sorted(periods - {None, ""}),
+        "applications": [row.name], "deposits": [],
+    }, action="confirmar el ajuste")

@@ -549,21 +549,31 @@ async function cn_select_original_application(frm) {
     if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
     if (frm.is_dirty()) await frm.save();
     let rows = [];
+    let request = 0;
     const dialog = new frappe.ui.Dialog({
         title: __("Vincular a aplicación"), size: "extra-large",
         fields: [
             {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"),
-                options: "CN Accounting Import", reqd: 1, get_query: () => ({filters: {employer: frm.doc.employer}}),
+                options: "CN Accounting Import", reqd: 1, get_query: () => ({filters: {
+                    employer: frm.doc.employer, docstatus: ["!=", 2], status: ["in", ["Importado", "Importado con excepciones"]],
+                }}),
                 async onchange() {
+                    const currentRequest = ++request;
                     const selected = dialog.get_value("accounting_import");
                     rows = [];
+                    dialog.get_primary_btn().prop("disabled", true);
                     dialog.fields_dict.applications.$wrapper.empty();
                     if (!selected) return;
                     const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
                         args: {item_name: frm.doc.name, accounting_import: selected}});
-                    if (selected !== dialog.get_value("accounting_import")) return;
-                    rows = response.message || [];
+                    if (currentRequest !== request || selected !== dialog.get_value("accounting_import")) return;
+                    rows = (response.message || []).filter(row => Number(row.adjustable_usd) > 0);
                     const esc = value => frappe.utils.escape_html(String(value ?? ""));
+                    if (!rows.length) {
+                        dialog.fields_dict.applications.$wrapper.html(`<p class="text-muted">${esc(__("No hay aplicaciones válidas para vincular a esta partida en la importación seleccionada."))}</p>`);
+                        return;
+                    }
+                    dialog.get_primary_btn().prop("disabled", false);
                     dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
                         <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado original US$")}</th><th>${__("Ajustes US$")}</th><th>${__("Aplicado neto US$")}</th><th>${__("Depósitos / reservas US$")}</th><th>${__("Disponible para ajuste US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${rows.map((row, index) => `<tr>
                         <td><input type="radio" name="original_application" value="${index}" aria-label="${esc(__("Seleccionar aplicación"))}"></td>
@@ -588,4 +598,5 @@ async function cn_select_original_application(frm) {
         },
     });
     dialog.show();
+    dialog.get_primary_btn().prop("disabled", true);
 }

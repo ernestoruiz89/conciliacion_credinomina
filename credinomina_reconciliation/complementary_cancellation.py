@@ -191,6 +191,10 @@ def _scoped_items(items, periods, deposits, mapping):
 
 
 def reconcile_cancellation(item, scope):
+    return reconcile_scoped(item, scope)
+
+
+def reconcile_scoped(item, scope, *, action="cancelar la partida"):
     """One atomic pass: mutable affected deposits + frozen related bank cash."""
     if not any(scope[field] for field in ("deposits", "periods", "applications")):
         return {"companies": [], "deposits": [], "periods": [], "saved_imports": 0}
@@ -208,7 +212,7 @@ def reconcile_cancellation(item, scope):
         # Its target to the just-canceled item is intentionally invalid now;
         # the engine marks it for review rather than asking to confirm it again.
     if any(period.status == "Cerrado" for period in periods):
-        frappe.throw(_("Reabra los períodos afectados antes de cancelar la partida."))
+        frappe.throw(_("Reabra los períodos afectados antes de {0}.").format(action))
     # Application reductions do not change cash. Cancellation restores the net
     # application while retaining ALL existing deposit allocations verbatim.
     mutable = [] if item.category == ADJUSTMENT else deposits
@@ -306,6 +310,11 @@ def reconcile_cancellation(item, scope):
         status_source_ids={row.name for row in active_rows})
     engine._rebuild_historical_balances(periods, active_rows, allocation)
     mark_mixed_settlements(active_rows, [row for period in evidence for row in period.collection_rows])
+    for row in active_rows:
+        if row.effective and row.application_adjustment_usd and engine.net_amount(row) == 0:
+            row.match_status = "Conciliado"
+            row.deposit_match_status = "Aplicación compensada"
+            row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     engine._sync_registered_deposit_detail(allocation)
     saved = 0
     for document in imports:

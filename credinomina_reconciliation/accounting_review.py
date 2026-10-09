@@ -167,15 +167,45 @@ def validate_review_item(doc, previous=None):
 
 @frappe.whitelist()
 def application_candidates(item_name, accounting_import):
-    from credinomina_reconciliation.application_adjustments import cash_coverage
+    from collections import defaultdict
+    from credinomina_reconciliation.application_adjustments import (
+        CATEGORY, adjustment_block_reason, application_link_error, cash_coverage, net_amount,
+    )
+    from credinomina_reconciliation.rounding import money, money_float
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("write")
     parent = frappe.get_doc("CN Accounting Import", accounting_import)
     parent.check_permission("read")
     if not item.employer or parent.employer != item.employer:
         frappe.throw(_("Seleccione una importación de la misma empresa."))
-    return [{"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
+    if (item.docstatus != 0 or abs(money(item.amount_usd)) <= 0
+            or item.category in {"Compensación entre partidas", "Saldo a favor del cliente"}
+            or item.get("compensations")):
+        return []
+    candidates = [row for row in parent.rows if not application_link_error(item, row, parent)]
+    if not candidates:
+        return []
+    confirmed = defaultdict(lambda: money(0))
+    for adjustment in frappe.get_all("CN Complementary Item", filters={
+        "related_application": ["in", [row.name for row in candidates]],
+        "category": CATEGORY, "docstatus": 1, "name": ["!=", item.name],
+    }, fields=["related_application", "application_adjustment_usd"], limit_page_length=0):
+        confirmed[adjustment.related_application] += money(adjustment.application_adjustment_usd)
+    result = []
+    for row in candidates:
+        if adjustment_block_reason(row, item.name,
+                frappe.parse_json(item.get("adjustment_periods") or "[]"),
+                frappe.parse_json(item.get("adjustment_collection_rows") or "[]")):
+            continue
+        # Use current confirmed adjustments even if the import summary is stale.
+        current = frappe._dict(row.as_dict())
+        current.application_adjustment_usd = money_float(confirmed[row.name])
+        current.net_applied_usd = net_amount(current)
+        coverage = cash_coverage(current)
+        if money(coverage["adjustable_usd"]) <= 0:
+            continue
+        result.append({"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
              "event_date": row.event_date, "amount_usd": row.amount_usd, "voucher": row.voucher,
-             "application_adjustment_usd": row.application_adjustment_usd, "net_applied_usd": row.net_applied_usd,
-             **{key: value for key, value in cash_coverage(row).items() if key != "snapshots"}}
-            for row in parent.rows if row.event_type == "Aplicacion" and row.effective]
+             "application_adjustment_usd": current.application_adjustment_usd, "net_applied_usd": current.net_applied_usd,
+             **{key: value for key, value in coverage.items() if key != "snapshots"}})
+    return result
