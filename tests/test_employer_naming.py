@@ -80,6 +80,7 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.add_core_removal_role",
                 "credinomina_reconciliation.patches.v1_0.use_collection_client_link",
                 "credinomina_reconciliation.patches.v1_0.refresh_accounting_import_summaries",
+                "credinomina_reconciliation.patches.v1_0.repair_historical_application_statuses",
             ],
             list(patches["post_model_sync"]),
         )
