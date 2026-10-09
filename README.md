@@ -50,6 +50,14 @@ visible y no se relajan los controles de cierre. Después de actualizar la app,
 ejecute `bench --site <sitio> migrate` para los campos nuevos y recalcule las
 empresas que necesite revisar; no se redistribuye dinero mediante un parche masivo.
 
+Cuando la referencia de cobranza difiere del asiento contable, las aplicaciones
+con un período operativo asignado también se cruzan por **número de crédito**,
+si existe una única cuota compatible en ese período y coinciden los identificadores
+del cliente disponibles. Las referencias originales se conservan. Si hay varias
+cuotas posibles, no se elige una por su importe; el motivo informa que la primera
+conciliación está pendiente. Las aplicaciones parciales o en exceso mantienen su
+diferencia en el control de calidad.
+
 ### Distribución financiera y seguimiento
 
 - En **Control de Credinómina → Trabajo de conciliación**, el filtro **Pagos

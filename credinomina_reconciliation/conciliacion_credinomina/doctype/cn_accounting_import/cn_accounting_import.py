@@ -1189,9 +1189,13 @@ def _match_applications(source_rows, collection_rows, deposit_pairs, complementa
             source._assigned_operating_period = None
     for source, period_name, _backfill in direct:
         if source.effective and source.currency == "USD" and not is_historical_date(source.event_date):
+            first_stage_reason = source.match_reason
+            first_stage_linked = bool(source.collection_row_id or json.loads(source.application_allocation_detail or "[]"))
             source.collection_period = period_name
             source.match_status = "Conciliado"
             source.match_reason = _("Aplicación asignada al período operativo {0}. La conciliación con depósitos es independiente del control de la primera conciliación.").format(period_name)
+            source.match_reason += " " + (_("Primera conciliación: {0}") if first_stage_linked
+                                          else _("Primera conciliación pendiente: {0}")).format(first_stage_reason)
 
 
 def _match_applications_by_basis(
@@ -1301,6 +1305,7 @@ def _match_applications_by_basis(
         pair_candidates = []
         quality_candidates = []
         application_values = source.as_dict()
+        identity_candidates = []
         for target in collection_rows:
             if source.get("_assigned_operating_period") and target.parent != source._assigned_operating_period:
                 continue
@@ -1323,15 +1328,25 @@ def _match_applications_by_basis(
                 target.installment_number
             ) != canonical_identifier(source.installment_number):
                 continue
-            if target.application_reference and clean_text(
-                target.application_reference
-            ) != clean_text(source.reference):
-                continue
+            identity_candidates.append(target)
+        # A payroll number is not necessarily the accounting journal reference.
+        # Prefer compatible references; otherwise use a unique credit only in
+        # the explicitly assigned period. Identity/instalment guards above still
+        # apply, and capacity must not choose between repeated loan quotas.
+        reference_candidates = [target for target in identity_candidates
+                                if not target.application_reference
+                                or clean_text(target.application_reference) == clean_text(source.reference)]
+        matched_by_credit = bool(not reference_candidates and len(identity_candidates) == 1
+                                 and source.get("_assigned_operating_period") and source.loan_number)
+        for target in (identity_candidates if matched_by_credit else reference_candidates):
+            target_period = period_by_name.get(target.parent)
+            basis = target_period.get("application_basis") if target_period else None
             # Explicit credit + reference can identify an over-application for
             # quality review. It is not cash coverage and grants no extra claim
             # capacity until a real complementary adjustment is confirmed.
-            if (source_employer and source.loan_number and target.application_reference
-                and clean_text(target.application_reference) == clean_text(source.reference)
+            if (source_employer and source.loan_number
+                and (matched_by_credit or (target.application_reference
+                     and clean_text(target.application_reference) == clean_text(source.reference)))
                 and target_period and target_period.reconciliation_mode != "Historica"):
                 quality_candidates.append(target)
             if basis == EMPLOYER_DETAIL and target.deduction_status == "No deducido":
@@ -1402,6 +1417,10 @@ def _match_applications_by_basis(
                 source.match_reason += " " + _(
                     "Control contra la cobranza seleccionada. Este vínculo no acredita un depósito."
                 )
+            if matched_by_credit:
+                source.match_reason += " " + _(
+                    "Cruce único por crédito en el período asignado; la referencia de cobranza {0} y la referencia contable {1} se conservan separadas."
+                ).format(target.application_reference, source.reference or "—")
             source.collection_period = target.parent
             source.collection_row_id = target.name
             source.application_allocation_detail = json.dumps([{
@@ -1440,7 +1459,8 @@ def _match_applications_by_basis(
             target = quality_candidates[0]
             applied_by_target[target.name] += net_amount(source)
             source.match_status = "Conciliado"
-            source.match_reason = _("Aplicación identificada por empresa, crédito y referencia explícita; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito.")
+            source.match_reason = (_("Aplicación identificada de forma única por crédito en el período asignado; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito.")
+                                   if matched_by_credit else _("Aplicación identificada por empresa, crédito y referencia explícita; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito."))
             source.collection_period, source.collection_row_id = target.parent, target.name
             source.application_allocation_detail = json.dumps([{
                 "collection_row_id": target.name, "period": target.parent, "amount_usd": net_amount(source),
@@ -1452,9 +1472,10 @@ def _match_applications_by_basis(
             )
         else:
             source.match_status = "Sin coincidencia"
-            source.match_reason = _(
+            source.match_reason = (_("Las referencias de cobranza y contabilidad no coinciden. Para cruzar por crédito, asigne el período y asegúrese de que exista una única cuota compatible por cliente y crédito.")
+                                  if identity_candidates and not reference_candidates and not matched_by_credit else _(
                 "No existe una cobranza identificada con capacidad disponible para este credito e importe."
-            )
+            ))
 
 
 def _registered_deposit_pairs(rows, allocations):
