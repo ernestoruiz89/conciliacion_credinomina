@@ -69,7 +69,7 @@ class ApplicationQualityTests(unittest.TestCase):
         self.assertEqual(source_quality([first, second])["quality_status"], "Con diferencias")
         self.assertEqual(source_quality([])["quality_status"], "Sin cobranza vinculada")
 
-    def match(self, amount=100, other=None, reference=None, basis=COLLECTION, deduction=None):
+    def match(self, amount=100, other=None, reference=None, basis=COLLECTION, deduction=None, source_values=None):
         row = self.row()
         row.update(name="C1", parent="P1", loan_number="109-1", client_number="1", applied_usd=0)
         row.application_reference = reference
@@ -80,6 +80,7 @@ class ApplicationQualityTests(unittest.TestCase):
             currency="USD", amount=amount, event_date="2026-09-15", loan_number="109-1", client_number="1")
         source.as_dict = lambda: dict(source)
         source.reference = reference
+        source.update(source_values or {})
         period = frappe._dict(name="P1", employer="E1", reconciliation_mode="Operativa", application_basis=basis)
         resolver = Mock()
         resolver.resolve.return_value = ("E1", "")
@@ -134,6 +135,48 @@ class ApplicationQualityTests(unittest.TestCase):
         other.update(name="C2", parent="P1", loan_number="109-1", client_number="1")
         other.as_dict = lambda: dict(other)
         self.assertEqual(self.match(other=other).match_status, "Ambiguo")
+
+    def test_credit_matches_assigned_period_with_different_accounting_reference(self):
+        source = self.match(reference="1621", source_values={"reference": "0010148518", "historical_period": "P1"})
+        self.assertEqual(source.collection_row_id, "C1")
+        self.assertEqual(source.reference, "0010148518")
+        self.assertEqual(source.historical_period, "P1")
+        self.assertIn("Cruce único por crédito", source.match_reason)
+        self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], 100)
+
+    def test_credit_fallback_keeps_partial_and_excess_for_quality_review(self):
+        for amount in (80, 120):
+            with self.subTest(amount=amount):
+                source = self.match(amount, reference="1621", source_values={"reference": "ASIENTO", "historical_period": "P1"})
+                self.assertEqual(source.collection_row_id, "C1")
+                self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], amount)
+
+    def test_reference_mismatch_without_assigned_period_does_not_guess(self):
+        source = self.match(reference="1621", source_values={"reference": "ASIENTO"})
+        self.assertEqual(source.match_status, "Sin coincidencia")
+        self.assertIn("referencias", source.match_reason)
+
+    def test_credit_fallback_rejects_conflicting_identity_and_installment(self):
+        for conflict in ({"client_number": "OTHER"}, {"loan_number": "OTHER"}, {"installment_number": "OTHER"}):
+            with self.subTest(conflict=conflict):
+                source = self.match(reference="1621", source_values={"reference": "ASIENTO", "historical_period": "P1", **conflict})
+                self.assertFalse(source.collection_row_id)
+                self.assertIn("Primera conciliación pendiente", source.match_reason)
+
+    def test_repeated_credit_does_not_choose_by_amount_when_reference_differs(self):
+        other = self.row()
+        other.update(name="C2", parent="P1", loan_number="109-1", client_number="1", application_reference="1622", expected_usd=50)
+        other.as_dict = lambda: dict(other)
+        source = self.match(other=other, reference="1621", source_values={"reference": "ASIENTO", "historical_period": "P1"})
+        self.assertFalse(source.collection_row_id)
+        self.assertIn("única cuota", source.match_reason)
+
+    def test_compatible_reference_still_selects_between_repeated_credit(self):
+        other = self.row()
+        other.update(name="C2", parent="P1", loan_number="109-1", client_number="1", application_reference="1622")
+        other.as_dict = lambda: dict(other)
+        source = self.match(other=other, reference="1621", source_values={"historical_period": "P1"})
+        self.assertEqual(source.collection_row_id, "C1")
 
 
 if __name__ == "__main__":
