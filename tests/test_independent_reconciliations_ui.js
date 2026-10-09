@@ -4,11 +4,13 @@ const vm = require("node:vm");
 const path = require("node:path");
 let handlers;
 const events = [];
+const messages = [];
 const context = vm.createContext({
     __: text => text,
     frappe: {
         ui: {form: {on(_name, actions) {handlers = actions;}}},
-        call: async args => events.push(args),
+        call: async args => {events.push(args); return {message: {reviewed: 4, conforming: 3, differences: 1, missing_basis: 0}};},
+        msgprint: message => messages.push(message),
         session: {user: "operator"}, user: {has_role: () => false},
     },
 });
@@ -31,6 +33,46 @@ const frm = {
     assert.ok(events[1].method.endsWith(".reconcile_first"));
     assert.equal(events[1].args.period_name, "P");
     assert.equal(events[2], "reload");
+    assert.equal(messages[0].indicator, "orange");
+    assert.equal(frm._cn_reconciling_collection, false);
+    for (const response of [undefined, {}, {exc: 'error'}, {message: null}]) {
+        events.length = messages.length = 0;
+        context.frappe.call = async () => response;
+        await buttons.get("Conciliación 1: validar aplicaciones")();
+        assert.equal(messages[0].indicator, "red");
+        assert.ok(!events.includes("reload"));
+        assert.equal(frm._cn_reconciling_collection, false);
+    }
+    context.frappe.call = async () => {throw new Error("network");};
+    messages.length = 0;
+    await buttons.get("Conciliación 1: validar aplicaciones")();
+    assert.match(messages[0].message, /No se pudo completar/);
+    assert.equal(frm._cn_reconciling_collection, false);
+    let release;
+    let calls = 0;
+    context.frappe.call = () => {calls++; return new Promise(resolve => {release = resolve;});};
+    const running = buttons.get("Conciliación 1: validar aplicaciones")();
+    await Promise.resolve();
+    await buttons.get("Conciliación 1: validar aplicaciones")();
+    assert.equal(calls, 1);
+    release({message: {reviewed: 4, conforming: 4, differences: 0, missing_basis: 0}});
+    await running;
+    assert.equal(messages.at(-1).indicator, "green");
+    context.frappe.call = async () => ({message: {reviewed: 4, conforming: 4, differences: 0, missing_basis: 0}});
+    const reload = frm.reload_doc;
+    frm.reload_doc = async () => {throw new Error("reload");};
+    await buttons.get("Conciliación 1: validar aplicaciones")();
+    assert.match(messages.at(-1).message, /terminó.*actualizar/);
+    frm.reload_doc = reload;
+    const save = frm.save;
+    frm.save = async () => {throw new Error("save");};
+    calls = 0;
+    context.frappe.call = async () => {calls++;};
+    await buttons.get("Conciliación 1: validar aplicaciones")();
+    assert.equal(calls, 0);
+    assert.equal(messages.at(-1).indicator, "red");
+    assert.equal(frm._cn_reconciling_collection, false);
+    frm.save = save;
     for (const state of [{status: "Cerrado"}, {status: "Pendiente", reconciliation_mode: "Historica"},
         {status: "Pendiente", reconciliation_mode: "Operativa", collection_rows: []}]) {
         Object.assign(frm.doc, state); buttons.clear(); handlers.refresh(frm);

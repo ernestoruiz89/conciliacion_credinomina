@@ -52,6 +52,16 @@ empresas que necesite revisar; no se redistribuye dinero mediante un parche masi
 
 ### Distribución financiera y seguimiento
 
+- En **Control de Credinómina → Trabajo de conciliación**, el filtro **Pagos
+  pendientes de aplicar** identifica dinero de un depósito confirmado que tiene
+  cobranza coincidente por cliente y crédito, pero cuya aplicación falta o es
+  insuficiente. Muestra el cliente, crédito, período e importe pendiente. Es una
+  tarea de seguimiento: no crea un saldo a favor ni registra una aplicación.
+  Corrija o registre el pago en el core, importe los movimientos, valide las
+  aplicaciones del período y concilie el depósito. Las coincidencias ambiguas
+  permanecen en revisión. **Conciliación 1: validar aplicaciones** informa las
+  filas conformes, con diferencias o con base por revisar; si no hay fuentes
+  para procesar, informa qué falta.
 - Pagos parciales, un depósito para varias cobranzas y varios depósitos para
   una cobranza. Cada **Distribución de Depósito** representa un depósito. Su
   detalle por cliente identifica automáticamente los destinos; la tabla de

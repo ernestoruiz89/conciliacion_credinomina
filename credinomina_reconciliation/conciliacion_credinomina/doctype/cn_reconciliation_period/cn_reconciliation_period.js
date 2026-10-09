@@ -91,15 +91,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
 
         frm.add_custom_button(__("Cerrar período"), () => requestClose(frm));
         if (frm.get_perm?.(0, "write") && (frm.doc.collection_rows || []).length) {
-            frm.add_custom_button(__("Conciliación 1: validar aplicaciones"), async () => {
-                if (frm.is_dirty()) await frm.save();
-                await frappe.call({
-                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.reconcile_first",
-                    args: {period_name: frm.doc.name}, freeze: true,
-                    freeze_message: __("Validando aplicaciones sin redistribuir depósitos…"),
-                });
-                await frm.reload_doc();
-            });
+            frm.add_custom_button(__("Conciliación 1: validar aplicaciones"), () => reconcileCollection(frm));
         }
     },
     collection_cycle(frm) {
@@ -129,6 +121,40 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+async function reconcileCollection(frm) {
+    if (frm._cn_reconciling_collection) return;
+    frm._cn_reconciling_collection = true;
+    let completed = false;
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.reconcile_first",
+            args: {period_name: frm.doc.name}, freeze: true,
+            freeze_message: __("Conciliando cobranza y aplicaciones del core…"),
+        });
+        const result = response?.message;
+        if (response?.exc || !Number.isInteger(result?.reviewed)) {
+            throw new Error("missing_reconciliation_result");
+        }
+        completed = true;
+        await frm.reload_doc();
+        frappe.msgprint({
+            title: __("Resultado de conciliación de cobranza"),
+            indicator: result.differences || result.missing_basis ? "orange" : "green",
+            message: __("Se revisaron {0} filas: {1} conformes, {2} con diferencias y {3} con base por revisar. Consulte el Control de calidad de la aplicación del período. Las distribuciones de depósitos se conservaron.",
+                [result.reviewed, result.conforming, result.differences, result.missing_basis]),
+        });
+    } catch (error) {
+        frappe.msgprint({title: __("Conciliación de cobranza"), indicator: "red",
+            message: __(completed
+                ? "La conciliación terminó, pero no se pudo actualizar el formulario. Recargue el período para consultar el resultado."
+                : "No se pudo completar la conciliación de cobranza. Revise el error informado, la base de comparación y los movimientos importados; luego vuelva a intentar."),
+        });
+    } finally {
+        frm._cn_reconciling_collection = false;
+    }
+}
 
 async function updateProvisionalAdjustments(frm, action) {
     if (frm.is_dirty()) await frm.save();
