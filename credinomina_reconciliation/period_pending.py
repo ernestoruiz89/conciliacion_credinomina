@@ -45,7 +45,7 @@ def application_issue(row):
     }
 
 
-def collection_issue(row, basis=None):
+def collection_issue(row, basis=None, payments=()):
     reasons = []
     quality = collection_quality(row, basis)
     if not quality["quality_status"].startswith("Conforme"):
@@ -58,6 +58,13 @@ def collection_issue(row, basis=None):
         reasons.append(status)
     if pending > 0:
         reasons.append(_("Aplicación pendiente de cubrir con depósito."))
+    identified = sum((money(payment['amount_usd']) for payment in payments), money(0))
+    pending_deposit = pending
+    if identified > 0:
+        status = _("Pago pendiente de aplicar")
+        reasons.append(_("US$ {0} identificados en el detalle de depósitos confirmados, pendientes de aplicar en el core. No son saldo a favor ni una distribución ya conciliada.").format(f"{identified:,.2f}"))
+        paid += identified
+        pending = identified
     if not reasons:
         return None
     return {
@@ -66,8 +73,34 @@ def collection_issue(row, basis=None):
         "row": row.get("idx"), "client_name": row.get("client_name"),
         "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
         "applied": money_float(applied), "paid": money_float(paid), "pending": money_float(pending),
+        "paid_identified": money_float(identified), "pending_application": money_float(identified),
+        "pending_deposit": money_float(pending_deposit),
+        "pending_label": _("Por aplicar") if identified > 0 else _("Por cubrir con depósito"),
+        "can_create_complementary": not bool(identified),
+        "deposit_evidence": [{"name": payment['target_name'], "detail_row": payment.get('deposit_detail_row'),
+                              "amount_usd": payment['amount_usd']} for payment in payments],
         "status": status, "reason": " · ".join(reasons),
     }
+
+
+def period_payment_evidence(period, deposits):
+    """Use the same evidence as Control; include other linked periods to avoid guessing."""
+    from credinomina_reconciliation.deposit_reconciliation import entries
+    from credinomina_reconciliation.pending_payments import load_pending_payments
+
+    scopes = {deposit.name: set(selected_periods(deposit)) | {
+        entry.get('periodo') for entry in entries(deposit.allocation_detail) if entry.get('periodo')
+    } for deposit in deposits}
+    other_names = set().union(*scopes.values()) - {period.name} if scopes else set()
+    periods = [{'name': period.name, 'employer': period.employer,
+                'reconciliation_mode': period.reconciliation_mode, 'application_basis': period.get('application_basis')}]
+    if other_names:
+        periods.extend(frappe.get_list('CN Reconciliation Period', filters={'name': ['in', sorted(other_names)]},
+            fields=['name', 'employer', 'reconciliation_mode', 'application_basis'], limit_page_length=0))
+    visible = {item['name'] for item in periods}
+    readable = [deposit for deposit in deposits if scopes[deposit.name] <= visible]
+    tasks = load_pending_payments(periods, readable)
+    return [task for task in tasks if task['period'] == period.name], len(readable) != len(deposits)
 
 
 def deposit_issue(deposit, period_name):
@@ -118,19 +151,33 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         issues.extend(issue for row in rows if row.parent in allowed if (issue := application_issue(row)))
     else:
         restricted.append("CN Accounting Import")
-    if period.reconciliation_mode != "Historica":
-        issues.extend(issue for row in period.collection_rows if (issue := collection_issue(row, period.get("application_basis"))))
-
+    deposit_issues, payments = [], []
     if frappe.has_permission("CN Remittance Allocation", "read"):
         # Narrow to this period, then verify the exact JSON link (LIKE is only a prefilter).
         needle = json.dumps(period.name, ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         deposits = frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1},
             or_filters=[["name", "in", deposit_names_for_periods([period.name]) or [""]], ["allocation_detail", "like", f"%{needle}%"]],
-            fields=["name", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
+            fields=["name", "employer", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
             order_by="deposit_date asc, name asc", limit_page_length=0)
-        issues.extend(issue for deposit in attach_periods(deposits) if (issue := deposit_issue(deposit, period.name)))
+        linked_deposits = []
+        for deposit in attach_periods(deposits):
+            if issue := deposit_issue(deposit, period.name):
+                deposit_issues.append(issue)
+                linked_deposits.append(deposit)
+        if period.reconciliation_mode != "Historica" and linked_deposits:
+            payments, partial = period_payment_evidence(period, linked_deposits)
+            if partial:
+                restricted.append("CN Reconciliation Period")
     else:
         restricted.append("CN Remittance Allocation")
+    if period.reconciliation_mode != "Historica":
+        from collections import defaultdict
+        by_collection = defaultdict(list)
+        for payment in payments:
+            by_collection[payment['collection_row']].append(payment)
+        issues.extend(issue for row in period.collection_rows if (issue := collection_issue(
+            row, period.get("application_basis"), by_collection[row.name])))
+    issues.extend(deposit_issues)
     total = len(issues)
     if kind:
         issues = [issue for issue in issues if issue["kind"] == kind]

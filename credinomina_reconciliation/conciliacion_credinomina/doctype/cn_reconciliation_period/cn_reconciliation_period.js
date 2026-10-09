@@ -226,11 +226,14 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
                     <td>${esc(__(row.kind))}<br><a href="/app/${routes[row.doctype] || "cn-reconciliation-period"}/${encodeURIComponent(row.source)}">${esc(row.source)}</a></td>
                     <td>${esc(row.row ?? "—")}</td>
                     <td>${esc(row.client_name || "—")}<div class="text-muted">${esc(row.client_number)} ${esc(row.loan_number)}</div></td>
-                    <td class="text-right text-nowrap">${money(row.applied)}</td><td class="text-right text-nowrap">${money(row.paid)}</td><td class="text-right text-nowrap">${money(row.pending)}</td>
+                    <td class="text-right text-nowrap">${money(row.applied)}</td><td class="text-right">${money(row.paid)}${row.paid_identified > 0 ? `<div class="text-muted">${esc(__("Incluye {0} identificados en detalle, por aplicar", [format_currency(row.paid_identified, "USD", 2)]))}</div>` : ""}</td>
+                    <td class="text-right">${money(row.pending)}${row.pending_label ? `<div class="text-muted">${esc(__(row.pending_label))}</div>` : ""}${row.pending_application > 0 && row.pending_deposit > 0 ? `<div>${money(row.pending_deposit)} ${esc(__("por cubrir con depósito"))}</div>` : ""}</td>
                     <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}
-                        ${data.can_create_complementary ? `<div class="mt-2"><button type="button" class="btn btn-default btn-xs" data-pending="complementary" data-row-index="${index}">${esc(__("Crear partida complementaria"))}</button></div>` : ""}</details></td>
+                        ${(row.deposit_evidence || []).map(deposit => `<div><a href="/app/cn-remittance-allocation/${encodeURIComponent(deposit.name)}">${esc(deposit.name)}</a> · ${money(deposit.amount_usd)}</div>`).join("")}
+                        ${data.can_create_complementary && row.can_create_complementary !== false ? `<div class="mt-2"><button type="button" class="btn btn-default btn-xs" data-pending="complementary" data-row-index="${index}">${esc(__("Crear partida complementaria"))}</button></div>` : ""}</details></td>
                 </tr>`).join("")}</tbody></table></div>` : `<p>${esc(__(data.total ? "No hay pendientes que coincidan con los filtros." : "No hay pendientes detectados en los registros visibles vinculados a este período."))}</p>`}
             <p class="text-muted">${esc(__("En depósitos se muestra el importe completo y su saldo sin distribuir, que puede corresponder a otros períodos. No se suma a lo pendiente de aplicaciones o cobranzas."))}</p>
+            <p class="text-muted">${esc(__("En cobranza, Depositado incluye lo asignado y los pagos identificados en el detalle que aún esperan aplicación. Por aplicar y Por cubrir con depósito son pendientes distintos; identificar el pago no modifica la distribución."))}</p>
             <div class="d-flex justify-content-between"><button type="button" class="btn btn-default btn-sm" data-pending="previous" ${start ? "" : "disabled"}>${esc(__("Anterior"))}</button>
                 <span>${data.rows.length ? esc(__("Mostrando {0}–{1} de {2}", [start + 1, start + data.rows.length, data.count])) : ""}</span>
                 <button type="button" class="btn btn-default btn-sm" data-pending="next" ${start + data.rows.length < data.count ? "" : "disabled"}>${esc(__("Siguiente"))}</button></div>`);
@@ -253,6 +256,10 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
 }
 
 function createPeriodPendingComplementary(frm, row) {
+    if (row.can_create_complementary === false || row.pending_application > 0) {
+        frappe.msgprint(__("Este pago está pendiente de aplicar en el core. Revise la aplicación y vuelva a conciliar; no requiere crear un saldo a favor ni un ajuste desde esta fila."));
+        return;
+    }
     if (frm.is_dirty()) {
         frappe.msgprint(__("Guarde los cambios del período antes de crear la partida complementaria."));
         return;

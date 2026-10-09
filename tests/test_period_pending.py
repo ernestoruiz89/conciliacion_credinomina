@@ -7,6 +7,49 @@ from credinomina_reconciliation import period_pending as pending
 
 
 class PeriodPendingTests(unittest.TestCase):
+    def test_deposited_unapplied_payment_is_visible_without_mutating_balances(self):
+        row = dict(name='COL4', parent='P', idx=4, expected_usd=28.43, applied_usd=0,
+                   remitted_usd=0, loan_number='13997-1', client_number='7740', application_status='Pendiente')
+        original = row.copy()
+        payments = [dict(target_name='DEP', amount_usd=28.43, deposit_detail_row='DETAIL4')]
+        result = pending.collection_issue(row, 'Cobranza', payments)
+        self.assertEqual((result['applied'], result['paid'], result['pending']), (0, 28.43, 28.43))
+        self.assertEqual(result['status'], 'Pago pendiente de aplicar')
+        self.assertEqual(result['pending_label'], 'Por aplicar')
+        self.assertEqual(result['pending_deposit'], 0)
+        self.assertEqual(result['paid_identified'], 28.43)
+        self.assertFalse(result['can_create_complementary'])
+        self.assertEqual(result['deposit_evidence'][0]['name'], 'DEP')
+        self.assertEqual(row, original)
+
+    def test_pending_application_and_uncovered_application_are_separate(self):
+        row = dict(name='COL', expected_usd=50, applied_usd=20, remitted_usd=10)
+        payments = [dict(target_name='D1', amount_usd=12), dict(target_name='D2', amount_usd=18)]
+        result = pending.collection_issue(row, 'Cobranza', payments)
+        self.assertEqual((result['paid'], result['pending_application'], result['pending_deposit']), (40, 30, 10))
+        self.assertEqual(result['pending'], 30)
+        self.assertEqual(len(result['deposit_evidence']), 2)
+
+    def test_shared_deposit_uses_all_visible_periods_and_hides_restricted_evidence(self):
+        period = frappe._dict(name='P', employer='E', reconciliation_mode='Operativa', application_basis='Cobranza')
+        deposit = frappe._dict(name='D', allocation_detail='[{"periodo":"P"},{"periodo":"Q"}]')
+        other = frappe._dict(name='Q', employer='E', reconciliation_mode='Operativa', application_basis='Cobranza')
+        with patch.object(frappe, 'get_list', return_value=[other]) as query, \
+             patch('credinomina_reconciliation.pending_payments.load_pending_payments', return_value=[
+                 {'period': 'P', 'collection_row': 'C'}, {'period': 'Q', 'collection_row': 'OTHER'},
+             ]) as load:
+            tasks, partial = pending.period_payment_evidence(period, [deposit])
+            self.assertEqual(tasks, [{'period': 'P', 'collection_row': 'C'}])
+            self.assertFalse(partial)
+            self.assertEqual({p['name'] for p in load.call_args.args[0]}, {'P', 'Q'})
+            self.assertEqual(query.call_args.kwargs['filters'], {'name': ['in', ['Q']]})
+        with patch.object(frappe, 'get_list', return_value=[]), \
+             patch('credinomina_reconciliation.pending_payments.load_pending_payments', return_value=[]) as load:
+            tasks, partial = pending.period_payment_evidence(period, [deposit])
+            self.assertTrue(partial)
+            self.assertEqual(tasks, [])
+            self.assertEqual(load.call_args.args[1], [])
+
     def test_partial_payment_replaces_stale_missing_collection_message(self):
         row = dict(name="APP-80", parent="CONTA-ACEITERA-9-2025-002", idx=80, installment_number="4",
                    net_applied_usd=25.96, historical_remitted_usd=25.95,

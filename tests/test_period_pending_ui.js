@@ -64,6 +64,25 @@ const action = name => wrapper.handlers[`[data-pending="${name}"]`];
     context.createPeriodPendingComplementary(frm, {kind: "Depósito", pending: 3});
     assert.equal(created.at(-1).values.amount, 3);
     assert.equal(created.at(-1).values.client_number, "");
+    const unapplied = {kind: "Cobranza", source: "P", row: 4, applied: 0, paid: 28.43, pending: 28.43,
+        status: "Pago pendiente de aplicar", paid_identified: 28.43, pending_application: 28.43,
+        pending_deposit: 0, pending_label: "Por aplicar", can_create_complementary: false,
+        deposit_evidence: [{name: "DEP <script>", amount_usd: 28.43}]};
+    rpc = async () => ({message: {rows: [unapplied], total: 1, count: 1, can_create_complementary: true}});
+    await context.refreshPeriodPending(frm);
+    assert.ok(wrapper.content.includes("USD 28.43"));
+    assert.ok(wrapper.content.includes("Pago pendiente de aplicar"));
+    assert.ok(wrapper.content.includes("Por aplicar"));
+    assert.ok(wrapper.content.includes("/app/cn-remittance-allocation/DEP%20%3Cscript%3E"));
+    assert.ok(wrapper.content.includes("DEP &lt;script&gt;"));
+    assert.ok(!wrapper.content.includes('data-pending="complementary"'));
+    const before = created.length;
+    context.createPeriodPendingComplementary(frm, unapplied);
+    assert.equal(created.length, before);
+    assert.ok(messages.at(-1).includes("pendiente de aplicar en el core"));
+    rpc = async () => ({message: {rows: [{...unapplied, pending_deposit: 10}], total: 1, count: 1}});
+    await context.refreshPeriodPending(frm);
+    assert.ok(wrapper.content.includes("USD 10.00 por cubrir con depósito"));
     rpc = async () => ({message: {rows: [], count: 0, total: 0, restricted: ["CN Accounting Import"]}});
     await context.refreshPeriodPending(frm);
     assert.ok(wrapper.content.includes("Vista parcial"));
