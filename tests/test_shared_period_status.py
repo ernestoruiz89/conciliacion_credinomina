@@ -49,3 +49,23 @@ class SharedPeriodStatusTests(unittest.TestCase):
         self.assertEqual(rows[-2].status_before_close, "Conciliado")
         self.assertEqual(rows[-1].status, "Parcial")
         self.assertEqual(rows[-1].remitted_usd, 25)
+
+    def test_informational_difference_does_not_override_settled_payments(self):
+        period = self.period(38.89, True)
+        row = period.collection_rows[0]
+        row.update(expected_usd=38.90, deducted_usd=38.90, applied_usd=38.89,
+                   quality_status="Aplicación insuficiente", quality_difference_usd=-0.01)
+        for basis in ("Cobranza", "Detalle de empresa"):
+            period.application_basis = basis
+            self.assertEqual(_operative_period_status(period), "Conciliado")
+        self.assertEqual(row.quality_difference_usd, -0.01)
+        self.assertEqual(row.quality_status, "Aplicación insuficiente")
+        self.assertEqual(row.applied_usd, 38.89)
+        self.assertEqual(row.remitted_usd, 38.89)
+
+        period._direct_applications_incomplete = True
+        self.assertEqual(_operative_period_status(period), "Parcial")
+        period._direct_applications_incomplete = False
+        row.application_status = "Depósito parcial"
+        row.remitted_usd = 38.88
+        self.assertEqual(_operative_period_status(period), "Parcial")
