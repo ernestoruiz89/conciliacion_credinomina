@@ -60,6 +60,31 @@ class ControlLazyTests(unittest.TestCase):
                 control.get_deposit_detail("DEP")
         query.assert_not_called()
 
+    def test_operational_modal_includes_payment_evidence_without_changing_allocated_cash(self):
+        row = frappe._dict(name='C', remitted_usd=0, applied_usd=0)
+        period = dict(reconciliation_mode='Operativa', rows=[row], historical_rows=[], exceptions=[], surpluses=[], rounding_movements=[])
+        tasks = [dict(collection_row='C', target_name='DEP', amount_usd=28.43)]
+        with patch.object(control.frappe, 'get_doc', return_value=Mock()), \
+             patch.object(control, '_build_control_data', return_value={'periods': [period]}), \
+             patch.object(control.frappe, 'has_permission', return_value=True), \
+             patch('credinomina_reconciliation.period_pending.load_period_deposits', return_value=[]) as deposits, \
+             patch('credinomina_reconciliation.period_pending.period_payment_evidence', return_value=(tasks, False)):
+            result = control.get_period_detail('P')
+        deposits.assert_called_once_with('P')
+        self.assertEqual(result['pending_application_usd'], 28.43)
+        self.assertEqual(result['rows'][0]['pending_payment_usd'], 28.43)
+        self.assertEqual(result['rows'][0]['pending_payment_deposits'], [{'name': 'DEP', 'amount_usd': 28.43}])
+        self.assertEqual((row.remitted_usd, row.applied_usd), (0, 0))
+        with patch.object(control.frappe, 'get_doc', return_value=Mock()), \
+             patch.object(control, '_build_control_data', return_value={'periods': [period]}), \
+             patch.object(control.frappe, 'has_permission', return_value=False), \
+             patch('credinomina_reconciliation.period_pending.load_period_deposits') as deposits:
+            result = control.get_period_detail('P')
+        deposits.assert_not_called()
+        self.assertTrue(result['payment_evidence_restricted'])
+        self.assertIsNone(result['pending_application_usd'])
+        self.assertIsNone(result['rows'][0]['pending_payment_usd'])
+
     def test_cash_summary_does_not_resolve_people_and_keeps_all_amounts(self):
         deposit = frappe._dict(name="D", employer="A", deposit_date="2025-05-01", amount_usd=120,
             allocated_usd=110, justified_surplus_usd=10, result="Parcial con saldo a favor", allocation_detail='''[

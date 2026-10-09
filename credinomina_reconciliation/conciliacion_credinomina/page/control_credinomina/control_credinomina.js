@@ -322,23 +322,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td>${allocationLines(row.historical_detail)}</td>
                 <td>${applicationExceptionAction(period, row, currentData.can_create_exception)}</td>
             </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay aplicaciones históricas asignadas."))}</div>`;
-        const rowTable = (period.rows || []).length ? `
-            <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Cliente"))}</th><th>${esc(__("Crédito / cuota"))}</th><th>${esc(__("Cobranza US$"))}</th><th>${esc(__("Deducido"))}</th><th>${esc(__("Cobranza no deducida US$"))}</th>
-                <th>${esc(__("Aplicado"))}</th><th>${esc(__("Partidas complementarias"))}</th><th>${esc(__("Depositado"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción / antecedente"))}</th><th>${esc(__("Estado"))}</th>
-            </tr></thead><tbody>${period.rows.map((row) => `<tr>
-                <td>${esc(row.client_number)} · ${esc(row.client_name)}</td>
-                <td>${esc(row.loan_number)} / ${esc(row.installment_number)}</td>
-                <td class="cn-number">${money(row.expected_usd)}</td>
-                <td class="cn-number">${money(row.deducted_usd)}</td>
-                <td class="cn-number">${row.collection_shortfall_usd == null ? esc(__(row.deduction_pending_reason || "Pendiente de detalle")) : money(row.collection_shortfall_usd)}</td>
-                <td class="cn-number">${money(row.applied_usd)}</td>
-                <td class="cn-number">${money(Number(row.complementary_usd || 0) + Number(row.rounding_adjustment_usd || 0))}</td>
-                <td class="cn-number">${money(row.remitted_usd)}</td>
-                <td>${allocationLines(row.remittance_detail)}</td>
-                <td>${row.inherited_exception_comment ? `${esc(__("Trasladada: "))}${esc(row.inherited_exception_comment)}` : row.first_exception_comment ? `${esc(__("Primera conciliación: "))}${esc(row.first_exception_comment)}` : esc(row.application_comment || "—")}</td>
-                <td>${esc(applicationStatusLabel(row.deduction_pending_reason ? row.deduction_status : row.application_status || row.deduction_status))}${row.deduction_status === "Inferida por depósito" ? `<br><span class="cn-inherited-note">${esc(__("Deducción inferida, sin detalle de planilla"))}</span>` : ""}</td>
-            </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("Sin detalle de cobranza."))}</div>`;
+        const rowTable = renderPeriodCollectionTable(period);
         const exceptions = (period.exceptions || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
                 <th>${esc(__("Excepción"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Causa y motivo"))}</th>
@@ -391,26 +375,14 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <div class="cn-dialog cn-period-detail">
                 ${renderPeriodRemark(period)}
                 ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
-                <div class="cn-kpis cn-dialog-kpis">
-                    ${historical ? `
+                ${historical ? `<div class="cn-kpis cn-dialog-kpis">
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Asignado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
+                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Depósito asignado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Aplicaciones sin depósito"))}</div><div class="cn-kpi-value">${money(period.historical_pending_usd)}</div></div>
-                    ` : `
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Enviado"))}</div><div class="cn-kpi-value">${money(period.expected_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Deducido"))}</div><div class="cn-kpi-value">${money(period.deducted_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Depositado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Cobranza no deducida (informativo)"))}</div><div class="cn-kpi-value">${money(period.worker_gap_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-pending"><div class="cn-kpi-label">${esc(__("Detalle pendiente o por aclarar"))}</div><div class="cn-kpi-value">${money(period.pending_detail_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Deducido sin depósito asignado"))}</div><div class="cn-kpi-value">${money(period.employer_gap_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-surplus"><div class="cn-kpi-label">${esc(__("Saldo a favor"))}</div><div class="cn-kpi-value">${money(period.documented_credit_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Depósito sin asignar"))}</div><div class="cn-kpi-value">${money(period.unclassified_deposit_usd)}</div></div>
-                    `}
-                </div>
-                ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Detalle de cobranza (informativo)"))}</h4>${rowTable}<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}`}
-                <h4>${esc(__("Partidas complementarias automáticas"))}</h4>${movements}
-                <h4>${esc(__("Excedentes de depósito"))}</h4>${surplus}
+                </div>` : renderOperationalSummary(period)}
+                ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Cobranza y aplicación por cliente"))}</h4>${rowTable}${(period.exceptions || []).length ? `<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}` : ""}`}
+                ${(period.rounding_movements || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Partidas complementarias automáticas"))}</summary>${movements}</details>` : ""}
+                ${(period.surpluses || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Saldos a favor documentados"))}</summary>${surplus}</details>` : ""}
             </div>
         `);
         dialog.get_field("detail").$wrapper.on("click", "[data-exception]", function () {
@@ -954,6 +926,58 @@ function money(value) {
     }).format(Number(value || 0));
 }
 
+function renderOperationalSummary(period) {
+    const pending = period.pending_application_usd;
+    const cards = [
+        ["Cobranza enviada", period.expected_usd, "Importe solicitado a la empresa"],
+        ["Aplicado en el core", period.applied_usd, "Pagos registrados en los créditos"],
+        ["Depósito asignado", period.remitted_usd, "Dinero ya distribuido a este período"],
+        ["Pago recibido por aplicar", pending, "Identificado en el depósito; falta aplicación"],
+    ];
+    const controls = [
+        ["Deducción registrada", period.deducted_usd],
+        ["Cobranza no deducida (informativo)", period.worker_gap_usd],
+        ["Detalle pendiente o por aclarar", period.pending_detail_usd],
+        ["Deducido sin depósito asignado", period.employer_gap_usd],
+        ["Saldo a favor documentado", period.documented_credit_usd],
+        ["Depósito sin asignar", period.unclassified_deposit_usd],
+    ];
+    return `<div class="cn-kpis cn-period-summary">${cards.map(([label, amount, note], index) => `<div class="cn-kpi ${index === 3 && Number(amount) > 0 ? "cn-kpi-gap" : ""}">
+        <div class="cn-kpi-label">${esc(__(label))}</div><div class="cn-kpi-value">${amount == null ? "—" : money(amount)}</div><p>${esc(__(note))}</p></div>`).join("")}</div>
+        ${period.payment_evidence_restricted ? `<p class="cn-period-notice">${esc(__("Vista parcial: faltan permisos para consultar parte de la evidencia de depósito."))}</p>` : ""}
+        ${Number(pending) > 0 ? `<p class="cn-period-notice">${esc(__("Hay pagos recibidos pendientes de aplicar en el core. El importe ya está en el depósito; no es saldo a favor ni dinero adicional."))}</p>` : ""}
+        <details class="cn-period-secondary"><summary>${esc(__("Ver deducción y otros controles"))}</summary>
+            <dl class="cn-period-controls">${controls.map(([label, value]) => `<div><dt>${esc(__(label))}</dt><dd>${money(value)}</dd></div>`).join("")}</dl>
+            <p>${esc(__("Estos controles describen etapas diferentes y no se suman. El depósito sin asignar puede incluir el pago recibido por aplicar."))}</p>
+        </details>`;
+}
+
+function renderPeriodCollectionTable(period) {
+    if (!(period.rows || []).length) return `<div class="cn-empty">${esc(__("Sin detalle de cobranza."))}</div>`;
+    return `<p class="cn-period-table-note">${esc(__("Importes en US$. Depósito asignado y pago recibido por aplicar se muestran por separado. Abra Ver detalle para consultar depósitos, ajustes y antecedentes."))}</p>
+        <p class="cn-period-scroll-hint">${esc(__("Desplace la tabla hacia la derecha para ver todas las columnas."))} →</p>
+        <div class="cn-list-scroll" tabindex="0" role="region" aria-label="${esc(__("Cobranza y aplicación por cliente"))}"><table class="cn-detail-table cn-period-collections"><thead><tr>
+        ${["Cliente / crédito", "Cobranza", "Deducido", "Aplicado", "Depósito asignado", "Pago por aplicar", "Estado / detalle"].map(label => `<th scope="col">${esc(__(label))}</th>`).join("")}
+        </tr></thead><tbody>${period.rows.map(row => {
+            const pending = row.pending_payment_usd;
+            const note = row.inherited_exception_comment || row.first_exception_comment || row.application_comment;
+            const status = Number(pending) > 0 ? __("Pago pendiente de aplicar") : applicationStatusLabel(row.deduction_pending_reason ? row.deduction_status : row.application_status || row.deduction_status);
+            return `<tr class="${Number(pending) > 0 ? "cn-payment-pending" : ""}">
+                <td><strong>${esc(row.client_name || "—")}</strong><div class="cn-period-person">${esc(__("Cliente"))}: ${esc(row.client_number || "—")}<br>${esc(__("Crédito"))}: <span class="cn-nowrap">${esc(row.loan_number || "—")}</span> · ${esc(__("Cuota"))}: ${esc(row.installment_number || "—")}</div></td>
+                ${[row.expected_usd, row.deducted_usd, row.applied_usd, row.remitted_usd].map(value => `<td class="cn-number">${money(value)}</td>`).join("")}
+                <td class="cn-number">${pending == null ? "—" : money(pending)}</td>
+                <td><span class="cn-period-row-status">${esc(status)}</span><details class="cn-period-row-detail"><summary>${esc(__("Ver detalle"))}</summary>
+                    <div><strong>${esc(__("Depósitos vinculados"))}</strong><div>${allocationLines(row.remittance_detail)}</div></div>
+                    ${(row.pending_payment_deposits || []).map(deposit => `<div><strong>${esc(__("Pago por aplicar"))}:</strong> <a href="/app/cn-remittance-allocation/${encodeURIComponent(deposit.name)}">${esc(deposit.name)}</a> <span class="cn-nowrap">${money(deposit.amount_usd)}</span></div>`).join("")}
+                    <div>${esc(__("Partidas y ajustes"))}: <span class="cn-nowrap">${money(Number(row.complementary_usd || 0) + Number(row.rounding_adjustment_usd || 0))}</span></div>
+                    <div>${esc(__("Cobranza no deducida"))}: ${row.collection_shortfall_usd == null ? esc(__(row.deduction_pending_reason || "Pendiente de detalle")) : `<span class="cn-nowrap">${money(row.collection_shortfall_usd)}</span>`}</div>
+                    ${note && String(note).trim() !== "0" ? `<div>${esc(__("Antecedente"))}: ${esc(note)}</div>` : ""}
+                    ${row.deduction_status === "Inferida por depósito" ? `<div>${esc(__("Deducción inferida, sin detalle de planilla"))}</div>` : ""}
+                </details></td>
+            </tr>`;
+        }).join("")}</tbody></table></div>`;
+}
+
 function renderWorkClient(item) {
     if (item.category !== "Saldo a favor del cliente" && item.kind !== "pending_application") return "";
     return `<div class="cn-work-client"><strong>${esc(item.client_name || __("Nombre no informado"))}</strong>
@@ -1288,12 +1312,41 @@ function styles() {
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
         .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
-        .cn-period-detail .cn-detail-table { font-size: 12px; line-height: 1.4; }
-        .cn-period-detail .cn-detail-table th { font-size: 11px; letter-spacing: normal; }
+        .cn-period-detail .cn-detail-table { font-size: 14px; line-height: 1.45; }
+        .cn-period-detail .cn-detail-table th { font-size: 12px; letter-spacing: normal; text-transform: none; }
         .cn-period-detail .cn-detail-table th,
-        .cn-period-detail .cn-detail-table td { padding: 7px 6px; white-space: normal; overflow-wrap: anywhere; min-width: 0; }
+        .cn-period-detail .cn-detail-table td { padding: 12px 10px; white-space: normal; overflow-wrap: normal; word-break: normal; min-width: 0; }
+        .cn-period-detail .cn-detail-table .cn-number, .cn-period-detail .cn-nowrap { white-space: nowrap; overflow-wrap: normal; word-break: normal; font-variant-numeric: tabular-nums; }
+        .cn-period-detail .cn-detail-table .cn-number { min-width: 105px; }
+        .cn-period-detail .cn-period-collections { min-width: 1080px; table-layout: auto; }
+        .cn-period-collections th:first-child { width: 25%; min-width: 230px; }
+        .cn-period-collections th:last-child { width: 20%; min-width: 185px; }
+        .cn-period-collections th:not(:first-child):not(:last-child) { text-align: right; min-width: 105px; }
+        .cn-period-collections td { vertical-align: top; }
+        .cn-period-person { color: #64748b; font-size: 12px; margin-top: 5px; }
+        .cn-payment-pending { background: #fff8ec; }
+        .cn-period-row-status { display: block; font-weight: 600; }
+        .cn-period-row-detail { margin-top: 8px; font-size: 13px; }
+        .cn-period-row-detail summary { cursor: pointer; color: #2463a6; }
+        .cn-period-row-detail div { margin-top: 8px; }
+        .cn-period-secondary { margin: 18px 0 24px; padding: 14px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+        .cn-period-secondary summary { cursor: pointer; font-weight: 600; }
+        .cn-period-secondary p, .cn-period-table-note { color: #64748b; font-size: 13px; }
+        .cn-period-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 30px; margin-top: 18px; }
+        .cn-period-controls > div { display: flex; justify-content: space-between; gap: 15px; }
+        .cn-period-controls dd { white-space: nowrap; }
+        .cn-period-notice { padding: 12px 16px; border-left: 3px solid #c56b15; background: #fff8ec; }
+        .cn-kpis.cn-period-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .cn-period-summary .cn-kpi-value { white-space: nowrap; font-size: clamp(20px, 2vw, 28px); }
+        .cn-period-summary p { margin: 8px 0 0; color: #64748b; font-size: 12px; }
+        .cn-period-summary .cn-kpi-label { font-size: 12px; }
+        .cn-period-detail h4 { font-size: 16px; }
+        .cn-period-scroll-hint { display: none; color: #64748b; font-size: 12px; }
+        @media (max-width: 1200px) { .cn-period-scroll-hint { display: block; } }
+        @media (max-width: 900px) { .cn-kpis.cn-period-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 540px) { .cn-period-controls { grid-template-columns: 1fr; } .cn-kpis.cn-period-summary { grid-template-columns: 1fr; } }
         .cn-period-detail .cn-detail-table button { font-size: inherit; white-space: normal; overflow-wrap: anywhere; }
-        .cn-period-detail .cn-period-applications { table-layout: fixed; }
+        .cn-period-detail .cn-period-applications { table-layout: auto; min-width: 1000px; }
         .cn-period-applications th:nth-child(1) { width: 9%; }
         .cn-period-applications th:nth-child(2) { width: 23%; }
         .cn-period-applications th:nth-child(3),

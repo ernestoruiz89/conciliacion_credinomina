@@ -4,7 +4,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import cn_reconciliation_period as period_api
-from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_work_overview, get_control_rows
+from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina import get_work_overview, get_control_rows, get_period_detail
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.period_pending import get_period_pending
 
@@ -78,6 +78,10 @@ def run():
             assert (unpaid['applied'], unpaid['paid'], unpaid['pending']) == (0, 28.43, 28.43), unpaid
             assert unpaid['status'] == 'Pago pendiente de aplicar' and not unpaid['can_create_complementary'], unpaid
             assert unpaid['deposit_evidence'][0]['name'] == deposit.name, unpaid
+            modal = get_period_detail(period.name)
+            assert modal['pending_application_usd'] == 28.43, modal
+            modal_row = next(row for row in modal['rows'] if row['loan_number'] == '13997-1')
+            assert modal_row['pending_payment_usd'] == 28.43 and modal_row['remitted_usd'] == 0, modal_row
             pending_deposit = next(row for row in pending_rows if row['kind'] == 'Depósito')
             assert (pending_deposit['paid'], pending_deposit['pending']) == (113.81, 28.43), pending_deposit
             period.reload(); deposit.reload()

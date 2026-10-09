@@ -133,6 +133,16 @@ def deposit_issue(deposit, period_name):
     }
 
 
+def load_period_deposits(period_name):
+    """Confirmed, readable deposits with an exact link to this period."""
+    needle = json.dumps(period_name, ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    deposits = frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1},
+        or_filters=[["name", "in", deposit_names_for_periods([period_name]) or [""]], ["allocation_detail", "like", f"%{needle}%"]],
+        fields=["name", "employer", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
+        order_by="deposit_date asc, name asc", limit_page_length=0)
+    return [deposit for deposit in attach_periods(deposits) if deposit_issue(deposit, period_name)]
+
+
 @frappe.whitelist()
 def get_period_pending(period_name, start=0, search=None, kind=None):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
@@ -153,17 +163,8 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         restricted.append("CN Accounting Import")
     deposit_issues, payments = [], []
     if frappe.has_permission("CN Remittance Allocation", "read"):
-        # Narrow to this period, then verify the exact JSON link (LIKE is only a prefilter).
-        needle = json.dumps(period.name, ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        deposits = frappe.get_list("CN Remittance Allocation", filters={"docstatus": 1},
-            or_filters=[["name", "in", deposit_names_for_periods([period.name]) or [""]], ["allocation_detail", "like", f"%{needle}%"]],
-            fields=["name", "employer", "allocation_detail", "amount_usd", "unclassified_usd", "result", "detail_status"],
-            order_by="deposit_date asc, name asc", limit_page_length=0)
-        linked_deposits = []
-        for deposit in attach_periods(deposits):
-            if issue := deposit_issue(deposit, period.name):
-                deposit_issues.append(issue)
-                linked_deposits.append(deposit)
+        linked_deposits = load_period_deposits(period.name)
+        deposit_issues = [deposit_issue(deposit, period.name) for deposit in linked_deposits]
         if period.reconciliation_mode != "Historica" and linked_deposits:
             payments, partial = period_payment_evidence(period, linked_deposits)
             if partial:

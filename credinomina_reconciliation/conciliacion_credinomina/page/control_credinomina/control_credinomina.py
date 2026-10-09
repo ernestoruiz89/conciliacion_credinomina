@@ -158,16 +158,30 @@ def get_control_kpis(year=None, employer=None):
 @frappe.whitelist()
 def get_period_detail(period_name: str):
     """Load one visible period; never load the rest of the dashboard for a modal."""
-    frappe.get_doc("CN Reconciliation Period", period_name).check_permission("read")
+    document = frappe.get_doc("CN Reconciliation Period", period_name)
+    document.check_permission("read")
     data = _build_control_data("Todos", detail_period=period_name)
     if not data["periods"]:
         frappe.throw(_("El período no está disponible."), frappe.PermissionError)
     period = data["periods"][0]
-    return {"name": period_name, "detail_loaded": True, **{
+    result = {"name": period_name, "detail_loaded": True, **{
         field: period[field] for field in (
             "rows", "historical_rows", "exceptions", "surpluses", "rounding_movements",
         )
     }}
+    if period.get("reconciliation_mode") == "Operativa":
+        from credinomina_reconciliation.period_pending import load_period_deposits, period_payment_evidence
+        can_read = frappe.has_permission("CN Remittance Allocation", "read")
+        payments, partial = period_payment_evidence(document, load_period_deposits(period_name)) if can_read else ([], True)
+        result["payment_evidence_restricted"] = bool(partial)
+        result["pending_application_usd"] = money_float(sum(task['amount_usd'] for task in payments)) if not partial else None
+        by_row = defaultdict(list)
+        for task in payments:
+            by_row[task['collection_row']].append(task)
+        for row in result["rows"]:
+            row["pending_payment_usd"] = money_float(sum(task['amount_usd'] for task in by_row[row.name])) if not partial else None
+            row["pending_payment_deposits"] = [{"name": task['target_name'], "amount_usd": task['amount_usd']} for task in by_row[row.name]]
+    return result
 
 
 @frappe.whitelist()
@@ -283,7 +297,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             "CN Collection Row",
             filters={"parent": ["in", period_names]},
             fields=[
-                "parent", "row_key", "client_number", "employee_number", "client_name", "national_id", "loan_number",
+                "name", "parent", "row_key", "client_number", "employee_number", "client_name", "national_id", "loan_number",
                 "installment_number", "expected_usd", "deducted_usd",
                 "expected_nio", "deducted_nio", "applied_usd", "complementary_usd", "remitted_usd",
                 "fx_variance_usd", "rounding_adjustment_usd", "deduction_status", "deduction_match_note", "application_status",
