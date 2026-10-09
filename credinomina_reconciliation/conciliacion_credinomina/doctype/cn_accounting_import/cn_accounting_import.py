@@ -384,6 +384,15 @@ class CNAccountingImport(Document):
             frappe.throw(_("Este archivo ya fue importado en {0}.").format(duplicate))
 
     def recalculate_summary(self):
+        self.recalculate_reconciliation_summary()
+        rows = list(self.rows or [])
+        self.total_usd = sum(flt(row.amount_usd) for row in rows if row.effective)
+        self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
+        self.total_application_adjustment_usd = money_float(sum_money(row.get("application_adjustment_usd") for row in rows if row.effective and row.event_type == "Aplicacion"))
+        self.total_net_applied_usd = money_float(sum_money(net_amount(row) for row in rows if row.effective and row.event_type == "Aplicacion"))
+
+    def recalculate_reconciliation_summary(self):
+        """Synchronize the header from stored row results without reconciling money."""
         rows = list(self.rows or [])
         self.row_count = len(rows)
         self.matched_count = sum(
@@ -413,10 +422,8 @@ class CNAccountingImport(Document):
             for row in rows
         )
         self.ignored_count = sum(row.match_status == "Ignorado" for row in rows)
-        self.total_usd = sum(flt(row.amount_usd) for row in rows if row.effective)
-        self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
-        self.total_application_adjustment_usd = money_float(sum_money(row.get("application_adjustment_usd") for row in rows if row.effective and row.event_type == "Aplicacion"))
-        self.total_net_applied_usd = money_float(sum_money(net_amount(row) for row in rows if row.effective and row.event_type == "Aplicacion"))
+        if self.status in {"Importado", "Importado con excepciones"}:
+            self.status = "Importado con excepciones" if self.exception_count else "Importado"
 
 
 @frappe.whitelist()
