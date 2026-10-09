@@ -38,6 +38,8 @@ class IndependentReconciliationTests(unittest.TestCase):
     def test_close_rejects_missing_first_or_second_including_unmatched_extra_application(self):
         period = frappe._dict(name="P", collection_rows=[frappe._dict(name="ROW")])
         for values in [dict(quality_status="Sin cobranza vinculada", application_allocation_detail="[]"),
+                       dict(match_status="Excepcion"),
+                       dict(application_allocation_detail='[{"collection_row_id":"ROW","amount_usd":99}]'),
                        dict(historical_balance_usd=1, deposit_match_status="Depósito parcial"),
                        dict(application_allocation_detail='[{"collection_row_id":"OTHER","amount_usd":100}]')]:
             source = self.source(); source.update(values)
@@ -47,6 +49,14 @@ class IndependentReconciliationTests(unittest.TestCase):
                     validate_direct_applications(period)
         with patch.object(frappe, "get_all", return_value=[self.source()]):
             validate_direct_applications(period)
+
+    def test_close_accepts_informational_difference_with_complete_links_and_payment(self):
+        period = frappe._dict(name="P", collection_rows=[frappe._dict(name="ROW")])
+        source = self.source()
+        source.quality_status = "Con diferencias"
+        with patch.object(frappe, "get_all", return_value=[source]):
+            validate_direct_applications(period)
+        self.assertEqual(source.quality_status, "Con diferencias")
 
     def test_close_accepts_cash_with_confirmed_application_adjustment(self):
         period = frappe._dict(name="P", collection_rows=[frappe._dict(name="ROW")])

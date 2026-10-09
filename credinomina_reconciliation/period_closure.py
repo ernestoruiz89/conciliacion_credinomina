@@ -155,13 +155,14 @@ def validate_direct_applications(period):
     for source in frappe.get_all("CN Source Row", filters={
         "parenttype": "CN Accounting Import", "parentfield": "rows",
         "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
-    }, fields=["name", "amount", "application_adjustment_usd", "match_status", "quality_status",
+    }, fields=["name", "amount", "application_adjustment_usd", "match_status",
                "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0):
         links = entries(source.application_allocation_detail)
         linked = sum_money(link.get("amount_usd") for link in links if link.get("collection_row_id") in rows)
-        if (source.match_status != "Conciliado" or linked != money(net_application_amount(source))
-                or not str(source.quality_status or "").startswith("Conforme")):
-            frappe.throw(_("Falta completar la conciliación 1 de la aplicación {0}. El depósito conciliado no sustituye la base de cobranza o detalle de empresa.").format(source.name))
+        # The full application must be linked, but a difference against the
+        # collection is informational and does not invalidate settled cash.
+        if source.match_status != "Conciliado" or linked != money(net_application_amount(source)):
+            frappe.throw(_("Falta vincular completamente la aplicación {0} con la cobranza del período.").format(source.name))
         if money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
             "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste",
         }:

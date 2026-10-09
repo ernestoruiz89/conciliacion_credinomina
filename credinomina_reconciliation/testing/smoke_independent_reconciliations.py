@@ -8,6 +8,7 @@ import frappe
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.application_deposit_detail import preview_application_detail
 from credinomina_reconciliation.remittance_selection import get_pending_targets
+from credinomina_reconciliation.provisional_adjustments import generate_proposals
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import cn_reconciliation_period as period_api
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period import close_period, reconcile_first
@@ -29,7 +30,11 @@ def run():
     frappe.set_user("Administrator")
     try:
         with patch.object(frappe, "enqueue"), patch.object(frappe, "publish_realtime"):
-            for basis, first in (("Cobranza", False), ("Cobranza", True), ("Detalle de empresa", False), ("Detalle de empresa", True)):
+            for basis, first, difference in (
+                ("Cobranza", False, 0), ("Cobranza", True, 0),
+                ("Detalle de empresa", False, 0), ("Detalle de empresa", True, 0),
+                ("Cobranza", False, 0.01), ("Detalle de empresa", True, 0.01),
+            ):
                 marker = "INDEPENDENT-" + frappe.generate_hash(length=8)
                 employer = frappe.get_doc({"doctype": "CN Employer", "employer_name": marker,
                     "employer_code": marker, "payroll_frequency": "Mensual"}).insert()
@@ -55,7 +60,8 @@ def run():
                         writer = csv.writer(stream)
                         writer.writerow(["Nro. Cliente", "Nombre y Apellidos del Cliente", "Nro. Crédito",
                                          "Monto de la cuota en US$", "Fila ID", *(["Deducido US$"] if deduction else [])])
-                        writer.writerow([marker, marker, "109136-1", 100, marker, *([100] if deduction else [])])
+                        writer.writerow([marker, marker, "109136-1", 100 + difference, marker,
+                                         *([100 + difference] if deduction else [])])
                         return stream.getvalue().encode("utf-8")
                     with patch.object(period_api, "_attached_file", return_value=(
                         frappe._dict(file_name="cobranza.csv"), content())):
@@ -70,8 +76,8 @@ def run():
                             period_api.import_employer_response(period.name)
                     reconcile_first(period.name)
                     period.reload(); source.reload()
-                    assert period.collection_rows[0].quality_status.startswith("Conforme")
-                    assert period.collection_rows[0].deducted_usd == (100 if basis == "Detalle de empresa" else 0)
+                    assert period.collection_rows[0].quality_status.startswith("Conforme") == (not difference)
+                    assert period.collection_rows[0].deducted_usd == (100 + difference if basis == "Detalle de empresa" else 0)
 
                 if first:
                     add_collection()
@@ -105,11 +111,30 @@ def run():
                     assert period.applied_total_usd == period.remitted_total_usd == 100 and period.pending_usd == 0, period.as_dict()
                     assert period.collection_rows[0].application_status == "Aplicado y remitido", period.collection_rows[0].as_dict()
                     assert not preview_application_detail(deposit.name)["rows"] or preview_application_detail(deposit.name)["total_usd"] == 100
+                if difference:
+                    generate_proposals(period.name)
+                    period.reload()
+                    assert period.status == "Parcial"
+                    assert period.collection_rows[0].quality_difference_usd == -difference
+                    assert period.provisional_adjustments[0].state == "Pendiente de revisión"
+                    assert source.rows[0].quality_status == "Con diferencias"
                 close_period(period.name)
                 period.reload()
                 assert period.status == "Cerrado"
+                if difference:
+                    assert period.status_before_close == "Parcial"
+                    assert period.collection_rows[0].quality_difference_usd == -difference
+                    assert period.provisional_adjustments[0].state == "Pendiente de revisión"
+                    assert period.applied_total_usd == period.remitted_total_usd == 100
+                    assert period.pending_usd == 0
+                    assert not frappe.db.exists("CN Complementary Item", {"period": period.name})
+                    _reconcile_sources(employer.name, preserve_deposits=True)
+                    period.reload(); deposit.reload()
+                    assert period.status == "Cerrado" and deposit.allocation_detail == cash
             return {"second_without_payroll": True, "first_without_deposit": True,
                     "both_required_to_close": True, "late_payroll_preserves_cash": True,
+                    "informational_difference_does_not_block_close": True,
+                    "pending_proposal_and_cash_preserved": True,
                     "no_double_counting": True, "rolled_back": True}
     finally:
         frappe.db.rollback()

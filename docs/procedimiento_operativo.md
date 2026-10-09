@@ -178,7 +178,7 @@ Para realizar primero la conciliación 2, incluso sin cobranza ni detalle de emp
 
 Si cambia la distribución bancaria, use **Conciliar** en el depósito correspondiente. Actualizar la base de la conciliación 1 no redistribuye depósitos automáticamente. Los destinos ya pagados siguen protegidos; no cambie el período de una aplicación con dinero vinculado sin corregir primero esa distribución mediante las acciones autorizadas.
 
-Ejemplo: una aplicación de US$100 y un depósito de US$100 pueden completar la conciliación 2 antes de recibir cobranza. El período queda abierto por falta de conciliación 1. Si después la base elegida también indica US$100 y el vínculo es único, ambas quedan completas y puede solicitarse el cierre. Si la base indica US$80, permanece una diferencia por revisar aunque el depósito ya esté conciliado. Una aplicación adicional sin comparar también impide el cierre; no basta con que un subconjunto de filas esté conforme.
+Ejemplo: una aplicación de US$100 y un depósito de US$100 pueden completar la conciliación 2 antes de recibir cobranza. El período queda abierto hasta cargar la cobranza y completar los vínculos de las aplicaciones. Si la cobranza indica US$100.01 y los US$100 aplicados están totalmente vinculados y depositados, la diferencia de US$0.01 permanece como información y no impide el cierre. No es necesario aprobar ni materializar un ajuste provisional para eliminarla. Una aplicación adicional sin vincular o sin pagar sí impide el cierre.
 
 ## Implementación histórica y corte de septiembre de 2026
 
@@ -228,7 +228,7 @@ Esta acción no registra ni confirma un depósito y no sustituye la evidencia in
 - No se simula una deduccion para cuadrar el deposito.
 - Cuando llegue la evidencia, se importa al periodo original aunque el archivo llegue a finales de mayo.
 - Si el deposito llega antes que el detalle, puede quedar registrado y confirmado sin asignar todavía a una cobranza. Cuando llegue evidencia posterior, se recalcula la conciliación; una aplicación enlazada antes de comprobar la deducción se muestra como **provisional**, no como descuento salarial confirmado.
-- Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` exige resolver las revisiones de la primera conciliación y liquidar las aplicaciones, sin excepciones abiertas. Una diferencia de cobranza no es por sí misma deuda del empleado.
+- Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` exige aplicaciones vinculadas y liquidadas, sin excepciones abiertas ni pendientes de depósitos. Las diferencias informativas de la primera conciliación se conservan al cerrar; no son por sí mismas deuda del empleado.
 - Un período `Cerrado` queda en solo lectura. Si se descubre una corrección necesaria, un supervisor o administrador debe usar **Reabrir período** y documentar el motivo; después revisa nuevamente los saldos y ejecuta el cierre otra vez.
 
 ## Segunda conciliación de aplicaciones y depósitos
@@ -396,6 +396,8 @@ La convención del depósito es: exceso US$10 sobre una aplicación US$90, parti
 
 Las subcategorías iniciales son **CxC a la empresa**, **Por clasificar** y **Otro ajuste sin CxC**. Por clasificar mantiene el caso visible para decidir; no acredita un cobro. Una subcategoría utilizada no puede cambiar de tratamiento retroactivamente; cree otra si la política cambia.
 
+Los ajustes provisionales permiten cualquier subcategoría existente, incluida **Por clasificar**. Aprobarlos registra la revisión sin crear partidas ni aplicar dinero. Se conserva la regla de importe negativo cuando el tratamiento elegido es **CxC a la empresa**.
+
 El campo **Identificador de la partida en el asiento** es un dato corto que distingue líneas de un mismo asiento, no un espacio para escribir varias líneas de detalle. Use **Descripción** para el concepto completo. El asiento contable es opcional al preparar el ajuste, pero el registro pendiente debe tener seguimiento.
 
 ### Partida genérica para varios clientes o empresas
@@ -487,7 +489,7 @@ Ante una consulta, no se presenta la diferencia de cobranza como saldo contractu
 
 1. Revise **Pendientes detectados**, **Excepciones del período**, aplicaciones y depósitos vinculados. Un período histórico no puede cerrarse sin aplicaciones efectivas asignadas.
 2. Resuelva los destinos inválidos y los detalles de depósito por revisar. Verifique que el aplicado neto esté cubierto por depósitos o ajustes confirmados y que no haya excepciones abiertas del período.
-3. En operativo, confirme el detalle de deducción y resuelva la primera conciliación. Una diferencia de cobranza o cuota no deducida impide el cierre definitivo, aunque no sea CxC; registre un corte de control para rendir con pendientes.
+3. En operativo, cargue la cobranza y complete los vínculos de las aplicaciones. Las diferencias informativas de la primera conciliación no bloquean el cierre ni exigen aprobar ajustes provisionales. Todas las filas deben estar aplicadas y remitidas; si hay pagos o vínculos pendientes, registre un corte de control para rendir con pendientes.
 4. Guarde y pulse **Cerrar período** o **Cerrar período histórico**, según la modalidad. Lea el mensaje; si falla, corrija el caso indicado, no el campo Estado.
 5. Compruebe **Cerrado** y el resultado financiero conservado en el detalle. Cerrar bloquea edición; no garantiza que toda gestión externa de un saldo a favor o asiento contable haya terminado. Revise esas partidas en la bandeja de trabajo.
 6. Para una corrección posterior, el supervisor o administrador usa **Reabrir período**, indica motivo y revisa las operaciones afectadas. Conserve la evidencia de la reapertura y cierre nuevamente cuando proceda.

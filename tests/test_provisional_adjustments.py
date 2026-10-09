@@ -165,13 +165,45 @@ class ProvisionalTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             module.guard_period(self.period)
 
-    def test_credits_require_tracking_and_adjustments_require_definite_subcategory(self):
+    def test_credits_require_tracking_and_adjustments_require_existing_subcategory(self):
         for category in module.CREDITS:
             with self.assertRaises(ValueError):
                 module.validate_classification(self.proposal(category=category))
-        with patch.object(module.frappe, 'db', Mock(get_value=Mock(return_value='Por clasificar'))):
+        with patch.object(module.frappe, 'db', Mock(get_value=Mock(return_value=None))):
             with self.assertRaises(ValueError):
                 module.validate_classification(self.proposal(category='Ajuste de conciliación', subcategory='x'))
+            with self.assertRaises(ValueError):
+                module.validate_classification(self.proposal(category='Ajuste de conciliación', subcategory=''))
+
+    def test_all_subcategory_treatments_are_accepted_with_compatible_amounts(self):
+        for effect, amount in [('Por clasificar', 10), ('Sin CxC adicional', 10), ('CxC a la empresa', -10)]:
+            with self.subTest(effect=effect), patch.object(module.frappe, 'db', Mock(get_value=Mock(return_value=effect))):
+                module.validate_classification(self.proposal(category='Ajuste de conciliación',
+                    subcategory='Subcategoría personalizada', amount_usd=amount))
+        with patch.object(module.frappe, 'db', Mock(get_value=Mock(return_value='CxC a la empresa'))):
+            with self.assertRaises(ValueError):
+                module.validate_classification(self.proposal(category='Ajuste de conciliación', subcategory='CxC a la empresa'))
+
+    def test_approve_unclassified_adjustment_preserves_cash_and_records_approval(self):
+        proposal = self.proposal(category='Ajuste de conciliación', subcategory='Por clasificar',
+                                 state='Pendiente de revisión', approved_by=None)
+        self.period.provisional_adjustments = [proposal]
+        self.period.save = Mock()
+        self.period.add_comment = Mock()
+        before = copy.deepcopy(self.row)
+        with patch.object(module, '_lock_period_pool'), \
+             patch.object(module, '_load_period', return_value=self.period), \
+             patch.object(module.frappe, 'db', Mock(get_value=Mock(return_value='Por clasificar'))), \
+             patch.object(module.frappe, 'session', frappe._dict(user='Operator')), \
+             patch.object(module, 'now_datetime', return_value='2026-10-09 17:00:00'):
+            self.assertEqual(module.approve_proposals('P'), {'approved': 1})
+        self.assertEqual(proposal.state, 'Aprobado')
+        self.assertEqual(proposal.subcategory, 'Por clasificar')
+        self.assertEqual(proposal.approved_by, 'Operator')
+        self.assertEqual(proposal.approved_on, '2026-10-09 17:00:00')
+        self.assertFalse(proposal.complementary_item)
+        self.assertEqual(self.row, before)
+        self.period.save.assert_called_once()
 
     def test_materialized_exact_link_distinguishes_repeated_credit_rows(self):
         self.period.provisional_adjustments = [self.proposal(state='Materializado', complementary_item='X')]

@@ -9,7 +9,7 @@ from frappe.model.document import Document
 from frappe.utils import add_days, add_months, flt, getdate, now_datetime
 
 from credinomina_reconciliation.aging import collection_shortfall_usd, operational_balances
-from credinomina_reconciliation.application_quality import quality_conforms, update_collection_quality
+from credinomina_reconciliation.application_quality import update_collection_quality
 from credinomina_reconciliation.cadence import (
     EXACT_DATE,
     MONTHLY,
@@ -1208,14 +1208,8 @@ def close_period(period_name: str, progress_id: str = ""):
         frappe.throw(
             _("Hay diferencias cambiarias pendientes de revisar y aplicar en el core.")
         )
-    if any(
-        not quality_conforms(row, period.get("application_basis"))
-        for row in period.collection_rows
-    ):
-        frappe.throw(_(
-            "Hay diferencias o datos pendientes en la base elegida de la primera conciliación; no representan CxC por sí mismas. "
-            "Registre un corte de control y mantenga abierto el período para su seguimiento."
-        ))
+    # First-stage differences remain visible in the closed period. Closure
+    # requires settled applications and deposits, not equality with that base.
     if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):
         frappe.throw(_(
             "El cierre definitivo requiere todas las filas aplicadas y remitidas. "
