@@ -219,8 +219,6 @@ class CNComplementaryItem(Document):
             _reconcile_sources(self.employer)
 
     def _reconcile_application(self):
-        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
-        from credinomina_reconciliation.application_adjustments import assert_cash_preserved
+        from credinomina_reconciliation.application_adjustments import reconcile_adjustment
 
-        _reconcile_sources(self.employer)
-        assert_cash_preserved(self.flags.get("adjustment_cash_snapshot") or {})
+        reconcile_adjustment(self)
