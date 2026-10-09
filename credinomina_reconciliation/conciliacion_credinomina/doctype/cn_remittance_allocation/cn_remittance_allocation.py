@@ -708,6 +708,24 @@ def get_paying_companies(employer):
                            pluck="name", limit_page_length=0)
 
 
+@frappe.whitelist()
+def collection_detail_available(employer, periods):
+    from credinomina_reconciliation.collection_deposit_detail import collection_detail_available as available
+    return available(employer, periods)
+
+
+@frappe.whitelist()
+def preview_collection_detail(remittance_name):
+    from credinomina_reconciliation.collection_deposit_detail import preview_collection_detail as preview
+    return preview(remittance_name)
+
+
+@frappe.whitelist(methods=["POST"])
+def use_collection_detail(remittance_name, fingerprint, replace_detail=False, selected_claim_ids=None, selected_amounts=None):
+    from credinomina_reconciliation.collection_deposit_detail import use_collection_detail as apply
+    return apply(remittance_name, fingerprint, replace_detail, selected_claim_ids, selected_amounts)
+
+
 @frappe.whitelist(methods=["POST"])
 def use_application_detail(remittance_name: str, fingerprint: str, replace_detail=False, selected_claim_ids=None, selected_amounts=None):
     from credinomina_reconciliation.application_deposit_detail import use_application_detail as apply

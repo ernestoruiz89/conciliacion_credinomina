@@ -151,7 +151,7 @@ def _workbook(rows, amount_description=None):
     return output.getvalue()
 
 
-def select_application_rows(rows, selected_claim_ids, selected_amounts=None):
+def select_application_rows(rows, selected_claim_ids, selected_amounts=None, original_label="pendiente original"):
     """Validate selection against server eligibility; overrides affect detail only."""
     if selected_claim_ids is None:
         selected_claim_ids = [row["claim_id"] for row in rows]
@@ -195,8 +195,8 @@ def select_application_rows(rows, selected_claim_ids, selected_amounts=None):
             row["deducted_usd"] = money_float(amount)
             if amount != money(original["deducted_usd"]):
                 row["comments"] = " ".join(filter(None, [original.get("comments"), _(
-                    "Importe ajustado por el usuario para este depósito: pendiente original US$ {0}; detalle US$ {1}."
-                ).format(format(money(original["deducted_usd"]), ".2f"), format(amount, ".2f"))]))
+                    "Importe ajustado por el usuario para este depósito: {0} US$ {1}; detalle US$ {2}."
+                ).format(original_label, format(money(original["deducted_usd"]), ".2f"), format(amount, ".2f"))]))
         chosen.append(row)
     return chosen
 
