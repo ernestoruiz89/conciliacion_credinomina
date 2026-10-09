@@ -15,6 +15,8 @@ assert.ok(!html.includes('<script>'));
 assert.equal(context.renderWorkClient({...item, category: 'Saldo a favor de la empresa'}), '');
 assert.equal(context.renderWorkClient({...item, kind: 'accounting_registration'}), html);
 assert.equal(context.renderWorkClient({kind: 'deposit_detail'}), '');
+assert.equal(context.renderWorkClient({...item, category: undefined, kind: 'pending_application'}), html);
+assert.ok(source.includes('${renderWorkClient(action)}'));
 const missing = context.renderWorkClient({...item, client_name: '', client_number: ''});
 assert.ok(missing.includes('Nombre no informado'));
 assert.ok(missing.includes('Nro. Cliente: No informado'));

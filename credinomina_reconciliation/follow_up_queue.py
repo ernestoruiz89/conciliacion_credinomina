@@ -145,9 +145,9 @@ def filter_work(items, kind="", responsible="", due="", as_of=None):
     if grouped:
         items = [action for item in items for action in item.get('actions', [item])]
     today = str(as_of or date.today())[:10]
-    groups = {"credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification"},
+    groups = {"payments": {"pending_application"}, "credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification"},
               "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification"},
-              "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank"}}
+              "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank", "pending_application"}}
     result = []
     for item in items:
         if kind in groups and item.get("kind") not in groups[kind]:

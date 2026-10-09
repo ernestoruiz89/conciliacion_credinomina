@@ -150,7 +150,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td>${esc(item.period_label)}${item.period_context ? `<div class="cn-work-context">${esc(__(item.period_context))}</div>` : ""}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
                 <td>${esc(item.summary)}${renderWorkClient(item)}${item.action_count > 1 ? `<br><strong>${Number(item.action_count)} ${esc(__("acciones pendientes"))}</strong>` : ""}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
                 <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
-                <td>${item.action_count > 1 ? item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("") : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
+                <td>${item.action_count > 1 ? item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}${renderWorkClient(action)}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("") : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__(item.action_count > 1 ? "Revisar caso" : item.action_label || "Revisar caso"))}</button></td>
             </tr>`).join("")}</tbody></table></div>
         ` : `<div class="cn-empty">${esc(__("No hay gestiones pendientes detectadas con la evidencia cargada."))}</div>`;
@@ -264,7 +264,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 ${workReady ? `
                 <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("casos"))} · ${data.work_action_count ?? workItems.reduce((count, item) => count + (item.action_count || 1), 0)} ${esc(__("acciones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("casos vencidos"))}` : ""}</span></div>
                     <div class="row" style="margin-bottom:16px">
-                        <div class="col-sm-4"><label>${esc(__("Tipo de pendiente"))}<select class="form-control" data-work-filter="work_kind">${[["", "Todos"], ["credits", "Saldos a favor"], ["complements", "Partidas complementarias"], ["accounting", "Registro en el core"], ["exceptions", "Excepciones"], ["deposits", "Depósitos"], ["periods", "Aplicaciones y períodos"]].map(([value, label]) => `<option value="${value}" ${workFilters.work_kind === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
+                        <div class="col-sm-4"><label>${esc(__("Tipo de pendiente"))}<select class="form-control" data-work-filter="work_kind">${[["", "Todos"], ["payments", "Pagos pendientes de aplicar"], ["credits", "Saldos a favor"], ["complements", "Partidas complementarias"], ["accounting", "Registro en el core"], ["exceptions", "Excepciones"], ["deposits", "Depósitos"], ["periods", "Aplicaciones y períodos"]].map(([value, label]) => `<option value="${value}" ${workFilters.work_kind === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                         <div class="col-sm-4"><label>${esc(__("Responsable contiene"))}<input class="form-control" data-work-filter="responsible" value="${esc(workFilters.responsible)}"></label></div>
                         <div class="col-sm-4"><label>${esc(__("Compromiso"))}<select class="form-control" data-work-filter="due">${[["", "Todos"], ["overdue", "Vencidos"], ["upcoming", "Hoy o futuros"], ["undated", "Sin fecha compromiso"]].map(([value, label]) => `<option value="${value}" ${workFilters.due === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                     </div>${workTable}${workFooter}</section>
@@ -955,7 +955,7 @@ function money(value) {
 }
 
 function renderWorkClient(item) {
-    if (item.category !== "Saldo a favor del cliente") return "";
+    if (item.category !== "Saldo a favor del cliente" && item.kind !== "pending_application") return "";
     return `<div class="cn-work-client"><strong>${esc(item.client_name || __("Nombre no informado"))}</strong>
         <div>${esc(__("Nro. Cliente"))}: ${esc(item.client_number || __("No informado"))}</div></div>`;
 }

@@ -254,7 +254,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         filters=filters,
         fields=[
             "remark",
-            "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note",
+            "name", "employer", "payroll_month", "reconciliation_mode", "application_basis", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note",
             *([] if summary_only else ["control_cut_summary"]),
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
@@ -808,6 +808,20 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
     from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up, group_work_cases
     if not detail_period and detail_section in (None, "work_items", "work_overview"):
         work_items = merge_follow_up(work_items, load_follow_up(year, employer))
+        from credinomina_reconciliation.pending_payments import load_pending_payments
+        pending_payments = (load_pending_payments(output, registered, target_links)
+                            if not summary_only or detail_section in {'work_items', 'work_overview'} else [])
+        pending_by_deposit = defaultdict(float)
+        for task in pending_payments:
+            pending_by_deposit[task['target_name']] += task['amount_usd']
+        explained = {deposit.name for deposit in registered
+                     if pending_by_deposit[deposit.name] > 0
+                     and money_float(pending_by_deposit[deposit.name]) == money_float(deposit.unclassified_usd)
+                     and deposit.detail_status == 'Revisar filas'}
+        work_items = [task for task in work_items if not (
+            task.get('target_name') in explained
+            and task['kind'] in {'review_deposit_detail', 'unassigned_deposit'})]
+        work_items.extend(pending_payments)
     work_items = group_work_cases(work_items)
     if detail_section == "work_overview":
         return {"work_scope": "Todos", "work_items": work_items[:100], "work_item_count": len(work_items),

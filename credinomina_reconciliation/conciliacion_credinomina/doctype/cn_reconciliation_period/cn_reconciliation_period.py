@@ -1290,8 +1290,19 @@ def reconcile_first(period_name: str):
     _assert_editable(period)
     if period.reconciliation_mode == "Historica" or not period.collection_rows:
         frappe.throw(_("Cargue la base de la primera conciliación en un período operativo."))
+    if period.get("application_basis") not in {"Cobranza", "Detalle de empresa"}:
+        frappe.throw(_("Seleccione la base de comparación de aplicaciones y guarde el período antes de conciliar."))
     frappe.has_permission("CN Accounting Import", "write", throw=True)
-    return _reconcile_if_sources(period.employer, preserve_deposits=True)
+    result = _reconcile_if_sources(period.employer, preserve_deposits=True)
+    if result is None:
+        frappe.throw(_("No hay movimientos importados, depósitos confirmados ni partidas confirmadas para conciliar esta empresa. Importe las aplicaciones del core y vuelva a intentar."))
+    period.reload()
+    from credinomina_reconciliation.application_quality import collection_quality
+    quality = [collection_quality(row, period.application_basis) for row in period.collection_rows]
+    return {**result, "period": period.name, "reviewed": len(quality),
+            "conforming": sum(row["quality_status"].startswith("Conforme") for row in quality),
+            "differences": sum(row["quality_status"] in {"Aplicación insuficiente", "Aplicación en exceso"} for row in quality),
+            "missing_basis": sum(row["quality_status"] == "Revisar base de comparación" for row in quality)}
 
 
 def _reconcile_if_sources(employer, progress=None, preserve_deposits=True):
