@@ -155,8 +155,8 @@ def validate_classification(proposal):
         frappe.throw(_("Clasifique y describa cada ajuste provisional antes de aprobarlo."))
     if proposal.category == "Ajuste de conciliación":
         effect = frappe.db.get_value("CN Complementary Subcategory", proposal.subcategory, "effect") if proposal.subcategory else None
-        if not effect or effect == "Por clasificar":
-            frappe.throw(_("Seleccione una subcategoría definitiva para el ajuste."))
+        if not effect:
+            frappe.throw(_("Seleccione una subcategoría existente para el ajuste."))
         if effect == "CxC a la empresa" and money(proposal.amount_usd) >= 0:
             frappe.throw(_("Una CxC de ajuste requiere un importe negativo."))
     if proposal.category in CREDITS:

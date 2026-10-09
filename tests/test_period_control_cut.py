@@ -120,11 +120,31 @@ class PeriodControlCutTests(unittest.TestCase):
             before, period_module._employer_response_import_key(period, b"detail", [client])
         )
 
+    def test_definitive_close_preserves_informational_difference(self):
+        period = self._period()
+        period.status = "Parcial"
+        period.collection_rows[0].update(expected_usd=38.90, deducted_usd=38.90,
+                                         applied_usd=38.89, remitted_usd=38.89,
+                                         quality_difference_usd=-0.01)
+        period.collection_rows[0].application_status = "Aplicado y remitido"
+        period.provisional_adjustments = [frappe._dict(amount_usd=0.01, state="Pendiente de revisión")]
+        with patch.object(period_module.frappe, "get_doc", return_value=period), \
+             patch.object(period_module.frappe, "db", SimpleNamespace(count=lambda *_: 0)), \
+             patch.object(period_module.frappe, "get_all", return_value=[]), \
+             patch.object(period_module.frappe, "session", SimpleNamespace(user="auditor")), \
+             patch.object(period_module, "_reconcile_if_sources", return_value=None), \
+             patch.object(period_module, "_pending_remittance_details_for_period", return_value=[]), \
+             patch.object(period_module, "_has_operative_application", return_value=True), \
+             patch.object(period_module, "_pending_registered_targets", return_value=False):
+            result = period_module.close_period(period.name)
+        self.assertEqual(result["status"], "Cerrado")
+        self.assertEqual(period.status_before_close, "Parcial")
+        self.assertEqual(period.collection_rows[0].quality_difference_usd, -0.01)
+        self.assertEqual(period.provisional_adjustments[0].state, "Pendiente de revisión")
+        period.save.assert_called_once()
+
     def test_definitive_close_rejects_unsettled_row(self):
         period = self._period()
-        period.recalculate_totals = Mock()
-        period.collection_rows[0].application_status = "Aplicado y remitido"
-        period.collection_rows[0].remitted_usd = 30
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
              patch.object(period_module.frappe, "db", SimpleNamespace(count=lambda *_: 0)), \
              patch.object(period_module.frappe, "get_all", return_value=[]), \
@@ -135,8 +155,8 @@ class PeriodControlCutTests(unittest.TestCase):
              patch.object(period_module, "_pending_registered_targets", return_value=False):
             with self.assertRaises(ValueError):
                 period_module.close_period(period.name)
-        self.assertIn("primera conciliación", reject.call_args.args[0].lower())
-        self.assertIn("no representan cxc", reject.call_args.args[0].lower())
+        self.assertIn("filas aplicadas y remitidas", reject.call_args.args[0].lower())
+        period.save.assert_not_called()
 
     def test_empty_operative_period_cannot_close(self):
         period = SimpleNamespace(

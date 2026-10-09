@@ -134,9 +134,10 @@ depósito.
 Ambas conciliaciones pueden realizarse en cualquier orden. En el período,
 **Conciliación 1: validar aplicaciones** compara contra la base elegida y conserva
 los pagos existentes. Cargar o actualizar cobranza y detalle de empresa tampoco
-redistribuye depósitos automáticamente. **Cerrar período** exige ambas
-conciliaciones completas: no basta con que el depósito esté conciliado o con que
-la aplicación coincida con la base. Al llegar la base después del depósito, el
+redistribuye depósitos automáticamente. **Cerrar período** exige cobranza cargada,
+aplicaciones totalmente vinculadas y pagadas, sin excepciones abiertas ni pendientes
+de depósitos. Las diferencias informativas contra la base se conservan al cerrar;
+no requieren aprobar ni materializar ajustes provisionales. Al llegar la base después del depósito, el
 pago directo se conserva y se refleja en su fila identificada sin duplicar cobertura.
 
 1. Configure la empresa y cree un período **Operativo** mensual o quincenal. Descargue **Plantillas → Plantilla de cobranza** desde el período, complete las filas, adjunte el archivo y pulse **1. Cargar cobranza**. Se crean los clientes no registrados, vinculados a esa empresa; la tabla guarda nombre, cédula, número de cliente, número de empleado (si viene), crédito y cuota. El número de empleado es interno de la empresa y puede repetirse en otra. En este paso no hay conciliación ni deducción confirmada.
