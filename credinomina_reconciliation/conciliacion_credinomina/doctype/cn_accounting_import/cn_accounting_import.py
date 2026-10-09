@@ -2900,8 +2900,12 @@ def _rebuild_period_balances(
         ]
         if not source.historical_period and not source.get("_historical_backfill"):
             source.update(source_quality(targets, period_bases))
-        if source.historical_period in period_by_name:
-            source.update(source_quality(targets, period_bases))
+        if source.historical_period:
+            if source.historical_period in period_by_name:
+                source.update(source_quality(targets, period_bases))
+            # Historical periods are deliberately absent from this operative
+            # pass. Their application-level cash status was already rebuilt;
+            # looking for payroll rows here would overwrite it as unpaid.
             continue  # Application-level cash was rebuilt independently.
         if not targets:
             source.deposit_match_status = (
