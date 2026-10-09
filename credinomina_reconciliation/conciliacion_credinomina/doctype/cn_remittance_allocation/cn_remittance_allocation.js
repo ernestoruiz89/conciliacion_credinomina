@@ -510,6 +510,11 @@ function canCreateDetailClientCredit(frm, row) {
         !!row && Number.isFinite(pending) && pending > 0;
 }
 
+function creditCommitmentDateDefault() {
+    const [year, month] = frappe.datetime.get_today().split("-").map(Number);
+    return new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
+}
+
 function addBulkClientCreditButton(frm) {
     const grid = frm.fields_dict.detail_rows?.grid;
     // Frappe creates these controls when the grid renders, after form setup.
@@ -561,9 +566,9 @@ async function createBulkClientCredits(frm) {
                 {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"),
                     options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión", reqd: 1},
                 {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user, reqd: 1},
-                {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), reqd: 1},
+                {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), default: creditCommitmentDateDefault(), reqd: 1},
                 {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
-                {fieldname: "description", fieldtype: "Small Text", label: __("Comentario / justificación"), reqd: 1},
+                {fieldname: "description", fieldtype: "Small Text", label: __("Comentario / justificación"), default: "Inmaterial", reqd: 1},
             ],
             primary_action_label: __("Crear y confirmar {0} saldos", [rows.length]),
             async primary_action(values) {
@@ -733,9 +738,9 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldtype: "Column Break"},
             {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user,
                 mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
-            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
+            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), default: sourceRow || companyCredit ? creditCommitmentDateDefault() : undefined, mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
             {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
-            {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), reqd: 1},
+            {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), default: sourceRow || companyCredit ? "Inmaterial" : undefined, reqd: 1},
             {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable (opcional)"), description: __("Sin asiento quedará pendiente de registro contable. Puede completarlo después en la partida.")},
             {fieldname: "voucher_line", fieldtype: "Data", label: __("Identificador de la partida en el asiento"),
                 description: __("Ingrese el número o código de esta partida, por ejemplo 1, 2 o A. Registre cada partida del mismo asiento por separado con un identificador distinto.")},

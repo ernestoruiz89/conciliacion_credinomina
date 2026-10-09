@@ -14,6 +14,7 @@ const context = vm.createContext({__: value => value, frappe: {
     }},
     db: {get_value: () => new Promise(resolve => lookups.push(resolve))},
     utils: {escape_html: value => value},
+    datetime: {get_today: () => "2026-10-09"},
     model: {can_create: () => canCreate, can_submit: () => canSubmit},
     call: async args => {request = args; creations++; return {message: {name: "CREDIT",
         company_credit: args.args.values.category === "Saldo a favor de la empresa",
