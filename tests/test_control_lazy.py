@@ -7,6 +7,41 @@ from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomin
 
 
 class ControlLazyTests(unittest.TestCase):
+    def test_month_cards_and_detail_use_financial_period_status(self):
+        period = frappe._dict(name='P', employer='E', payroll_month='2026-09-01',
+            reconciliation_mode='Operativa', status='Conciliado', expected_usd=715.66,
+            deducted_usd=715.66, applied_usd=715.65, remitted_usd=715.65, exception_count=0)
+        row = frappe._dict(name='R', parent='P', expected_usd=38.90, deducted_usd=38.90,
+            applied_usd=38.89, remitted_usd=38.89, deduction_status='Deduccion total',
+            application_status='Aplicado y remitido')
+        def get_list(doctype, **kwargs):
+            if doctype == 'CN Reconciliation Period':
+                self.assertIn('status_before_close', kwargs['fields'])
+                return [period]
+            return []
+        def get_all(doctype, **kwargs):
+            return [row] if doctype == 'CN Collection Row' else []
+        for summary_only in (True, False):
+            for status, before, exceptions, expected in (
+                ('Conciliado', '', 0, 'conciliado'),
+                ('Cerrado', 'Conciliado', 0, 'conciliado'),
+                ('Parcial', '', 0, 'parcial'),
+                ('Cerrado', 'Parcial', 0, 'parcial'),
+                ('Conciliado', '', 1, 'diferencia'),
+            ):
+                period.update(status=status, status_before_close=before, exception_count=exceptions)
+                with self.subTest(summary=summary_only, status=status, before=before, exceptions=exceptions), \
+                     patch.object(control.frappe, 'has_permission', return_value=True), \
+                     patch.object(control.frappe, 'get_list', side_effect=get_list), \
+                     patch.object(control.frappe, 'get_all', side_effect=get_all), \
+                     patch.object(control, 'collection_summaries', return_value={'P': {'employer_gap_usd': 0.01}}), \
+                     patch.object(control, 'historical_difference_counts', return_value={'P': 0}):
+                    result = control._build_control_data('Todos', summary_only=summary_only, detail_period='P')['periods'][0]
+                self.assertEqual(result['control_state'], expected)
+                self.assertEqual(result['employer_gap_usd'], 0.01)
+                self.assertEqual((result['expected_usd'], result['applied_usd'], result['remitted_usd']),
+                                 (715.66, 715.65, 715.65))
+
     def test_historical_counts_do_not_include_unreadable_imports(self):
         rows = [frappe._dict(historical_period="P", parent="READABLE", total=3),
                 frappe._dict(historical_period="P", parent="PRIVATE", total=7)]
