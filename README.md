@@ -818,6 +818,9 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    enlaza las filas anteriores, conserva sus IDs, claves e importes y registra
    el número original en la actividad del período. Las identidades ambiguas
    o contradictorias deben corregirse antes de completar la migración.
+   Al cargar o repetir la cobranza, se recalculan únicamente las aplicaciones
+   asignadas o vinculadas a ese período, conservando las distribuciones de
+   depósitos registradas. Las aplicaciones de otros períodos no se reprocesan.
 3. **Control de cobranza.** Cargue las aplicaciones y use **Conciliación 1: validar aplicaciones**. Revise Cobranza US$, Aplicado US$, Diferencia US$ y Resultado. No se carga ni se reconoce detalle de empresa en el período.
 
 4. **Aplicación de pago.** Importe **Movimientos contables**. Al encontrar un
