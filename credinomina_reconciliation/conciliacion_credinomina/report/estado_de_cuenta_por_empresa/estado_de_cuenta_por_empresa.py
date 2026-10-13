@@ -21,7 +21,8 @@ def execute(filters=None):
         'Las partidas pendientes del core incluyen Por clasificar: débito positivo y crédito negativo. '
         'Solo se resta el remanente, sin duplicar ajustes ya utilizados. '
         'Saldo por cobrar a la empresa: ajustes manuales negativos clasificados como CxC a la empresa y efectivamente distribuidos en depósitos; '
-        'trasladan el faltante de las aplicaciones a la empresa. Su registro contable no equivale a cobro. '
+        'trasladan el faltante de las aplicaciones a la empresa. La CxC al Empleado identifica al cliente deudor y se muestra en su propia columna. '
+        'Su registro contable no equivale a cobro. '
         'Saldos a favor: documentados y aún por gestionar. Depósitos: importe sin asignar ni documentar como saldo a favor; '
         'incluye los importados del core sin confirmar, no los borradores manuales. '
         'Desde/Hasta filtran la fecha de origen, no la fecha de conciliación. '
@@ -96,7 +97,7 @@ def get_columns(filters=None):
         if (filters or {}).get('view_mode') != 'Detalle':
             labels = dict(application_pending_usd='Aplicaciones US$', core_pending_usd='Core US$',
                 company_credit_usd='A favor empresa US$', client_credit_usd='A favor clientes US$',
-                deposit_pending_usd='Depósitos US$', company_receivable_usd='CxC ajustes US$',
+                deposit_pending_usd='Depósitos US$', company_receivable_usd='CxC empresa US$', employee_receivable_usd='CxC empleados US$',
                 balance_usd='Saldo neto US$', pending_count='Pendientes')
             for column in columns:
                 if column['fieldname'] in labels:

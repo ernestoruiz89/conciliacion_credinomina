@@ -1536,3 +1536,29 @@ sin ejecutar conciliaciones ni modificar importes. El
 todavía no incorpora esta simplificación. Use el procedimiento Markdown vigente;
 el Word se regenerará mediante `tools/build_reconciliation_manual.py` cuando se pueda
 completar su validación visual.
+
+
+### CxC al Empleado por ajuste de depósito
+
+La subcategoría **CxC al Empleado**, dentro de **Ajuste de conciliación**,
+conserva el faltante como cuenta por cobrar al cliente identificado. Se utiliza
+con una partida manual negativa: aplicado US$100 y depositado US$90, ajuste
+−US$10 y CxC del empleado US$10 una vez distribuido el depósito. No genera otro
+asiento ni aumenta el importe aplicado al crédito.
+
+Requiere cliente verificado, empresa, responsable, compromiso de gestión y
+vencimiento financiero acordado con el empleado. Si se indica crédito, se
+comprueba que pertenece al cliente. No admite distribución genérica. El plazo
+de pago de la empresa no se hereda como vencimiento del empleado.
+
+La deuda se consulta en Trabajo de conciliación, estado de cuenta, antigüedad y
+exportaciones. Se separa de la CxC de empresa. **Aplicar cobro / Compensar CxC**
+conserva la identidad del cliente; la compensación exige el mismo cliente y,
+cuando corresponde, crédito. Solo los cobros efectivamente distribuidos o las
+compensaciones confirmadas reducen la deuda; sus reversiones restituyen el saldo.
+
+Al desplegar, ejecutar `bench --site <sitio> migrate`: el parche
+`add_employee_receivable_subcategory` crea la subcategoría y su tratamiento
+sin reclasificar partidas existentes. El ensayo
+`credinomina_reconciliation.testing.smoke_employee_receivable.run` está limitado
+al sitio descartable `cn-reconciliation-test.local` y revierte sus datos.

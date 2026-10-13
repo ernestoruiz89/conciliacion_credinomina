@@ -7,6 +7,7 @@ from credinomina_reconciliation.application_aging import application_balances, b
 from credinomina_reconciliation.complementary_balances import FIELDS as COMPLEMENTARY_FIELDS, cached_balance_reads, financial_balance, reconciliation_state
 from credinomina_reconciliation.core_item_position import load_core_items
 from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+from credinomina_reconciliation.complementary_subcategories import EMPLOYEE_RECEIVABLE
 from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -18,6 +19,7 @@ METRICS = (
     ('client_credit_usd', 'Saldo a favor clientes US$'),
     ('deposit_pending_usd', 'Depósito sin conciliar US$'),
     ('company_receivable_usd', 'Saldo por cobrar a la empresa US$'),
+    ('employee_receivable_usd', 'Saldo por cobrar al empleado US$'),
 )
 FIELDS = tuple(field for field, label in METRICS)
 CREDIT_CATEGORIES = {'Saldo a favor de la empresa', 'Saldo a favor del cliente'}
@@ -144,9 +146,9 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
             reference=deposit.get('deposit_reference'), observation=observation))
     for item in adjustment_receivables:
         result.append(_row(item, 'CxC por ajuste de depósito', 'CN Complementary Item', item['name'],
-            item.get('posting_date'), 'company_receivable_usd', item['receivable_usd'],
+            item.get('posting_date'), 'employee_receivable_usd' if item.get('subcategory_effect') == EMPLOYEE_RECEIVABLE else 'company_receivable_usd', item['receivable_usd'],
             status=item['receivable_status'], management_status=item['receivable_status'],
-            treatment_status=item.get('treatment_status') or 'CxC a la empresa', category=item.get('category'),
+            treatment_status=item.get('treatment_status') or item.get('subcategory_effect') or 'CxC a la empresa', category=item.get('category'),
             reference=item.get('reference'), related_deposits=item.get('related_deposits'),
             observed_usd=item.get('observed_usd'),
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
@@ -231,4 +233,4 @@ def load_detail(filters):
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',
                 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit'])) if wanted('deposit_pending_usd') else []
     return build_detail(applications, core, credits, deposits, filters,
-                        adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') else [])
+                        adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') or wanted('employee_receivable_usd') else [])

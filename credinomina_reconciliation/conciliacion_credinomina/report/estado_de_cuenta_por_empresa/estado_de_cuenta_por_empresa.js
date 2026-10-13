@@ -12,7 +12,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             {label: __("Todos"), value: ""},
             ...[["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
-                ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC por ajustes"]]
+                ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
                 .map(([value, label]) => ({value, label: __(label)}))]},
         {fieldname: "status", label: __("Estado de conciliación"), fieldtype: "Autocomplete", options: ["Conciliado", "Pendiente", "Parcial", "Revisar distribución", "Sin conversión US$", "Importado del core; sin confirmar", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros"],
             description: __("Las sugerencias se actualizan con los estados de las partidas de esta consulta.")},

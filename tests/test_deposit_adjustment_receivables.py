@@ -83,7 +83,7 @@ class AdjustmentReceivableTests(unittest.TestCase):
              patch.object(receivables, 'load_balances', return_value={item.name: {'distributions': []}}) as balances:
             self.assertEqual(receivables.load_receivables('REPSA', 2025), [])
         original_read, settlements_read = read.call_args_list
-        self.assertEqual(original_read.kwargs['filters']['subcategory_effect'], categories.RECEIVABLE)
+        self.assertEqual(original_read.kwargs['filters']['subcategory_effect'], ['in', list(categories.RECEIVABLE_EFFECTS)])
         self.assertNotIn('employer', original_read.kwargs['filters'])
         self.assertEqual(settlements_read.kwargs['filters']['receivable_origin'], ['in', [item.name]])
         self.assertNotIn('posting_date', settlements_read.kwargs['filters'])

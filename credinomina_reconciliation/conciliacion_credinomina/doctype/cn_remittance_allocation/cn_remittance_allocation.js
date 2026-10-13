@@ -804,11 +804,13 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nCuenta por Cobrar a la Empresa\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: companyCredit ? "Saldo a favor de la empresa" : sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow || companyCredit, reqd: 1},
             {fieldname: "receivable_help", fieldtype: "HTML", depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa'",
                 options: `<p>${__("Registre el faltante del depósito con importe negativo. Por ejemplo, aplicado US$100 y depositado US$90: ingrese −10. La deuda de la empresa se reconocerá al conciliar la distribución y permanecerá pendiente hasta registrar su cobro o compensación.")}</p>`},
-            {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa o corresponde a otro ajuste."),
+            {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa, al empleado o corresponde a otro ajuste."),
                 async onchange() {
                     const name = dialog.get_value("subcategory");
                     const result = name ? await frappe.db.get_value("CN Complementary Subcategory", name, "effect") : null;
-                    if (dialog.get_value("subcategory") === name) dialog.set_value("subcategory_effect", result?.message?.effect || "");
+                    if (dialog.get_value("subcategory") !== name) return;
+                    await dialog.set_value("subcategory_effect", result?.message?.effect || "");
+                    if (result?.message?.effect === "CxC al Empleado") await dialog.set_value("receivable_due_date", null);
                 }},
             {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"),
                 options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar", default: "",
@@ -822,7 +824,7 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __(companyCredit ? "Saldo a favor US$" : "Importe (+ / −)"), precision: 2, reqd: 1},
             {fieldname: "fx_rate", fieldtype: "Float", label: __("Tipo de cambio C$/US$"), precision: 8, default: frm.doc.fx_rate,
                 depends_on: "eval:doc.currency === 'NIO'", mandatory_depends_on: "eval:doc.currency === 'NIO'"},
-            {fieldtype: "Section Break", label: __("Seguimiento del saldo a favor"), depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
+            {fieldtype: "Section Break", label: __("Cliente y seguimiento"), depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || ['CxC a la empresa', 'CxC al Empleado'].includes(doc.subcategory_effect)"},
             {fieldname: "credit_detail_row", fieldtype: "Select", label: __("Fila que incluye el excedente (opcional)"),
                 depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 read_only: !!sourceRow,
@@ -832,21 +834,29 @@ async function createRemittanceComplementary(frm, options = {}) {
                     const row = (frm.doc.detail_rows || []).find(row => row.name === dialog.get_value("credit_detail_row"));
                     if (row) await dialog.set_values({credit_client: row.client || "", client_number: row.client_number || "", loan_number: row.loan_number || ""});
                 }},
-            {fieldname: "credit_client", fieldtype: "Link", options: "CN Client", label: __("Cliente beneficiario"),
-                depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
+            {fieldname: "credit_client", fieldtype: "Link", options: "CN Client", label: __("Cliente"),
+                depends_on: "eval:doc.category === 'Saldo a favor del cliente' || doc.subcategory_effect === 'CxC al Empleado'",
                 read_only: !!sourceRow?.client,
-                mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
-                get_query: () => ({query: "credinomina_reconciliation.client_credit.search_beneficiaries",
-                    filters: {registered_deposit: frm.doc.name, employer: sourceRow?.employer || ""}})},
-            {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"), options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión"},
+                mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente' || doc.subcategory_effect === 'CxC al Empleado'",
+                get_query: () => dialog.get_value("subcategory_effect") === "CxC al Empleado"
+                    ? {filters: {employer: frm.doc.employer}}
+                    : {query: "credinomina_reconciliation.client_credit.search_beneficiaries",
+                        filters: {registered_deposit: frm.doc.name, employer: sourceRow?.employer || ""}},
+                async onchange() {
+                    const client = dialog.get_value("credit_client");
+                    if (!client) return;
+                    const r = await frappe.db.get_value("CN Client", client, "client_number");
+                    if (dialog.get_value("credit_client") === client) dialog.set_value("client_number", r.message?.client_number || "");
+                }},
+            {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"), options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión", depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
             {fieldtype: "Column Break"},
             {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user,
-                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
+                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || ['CxC a la empresa', 'CxC al Empleado'].includes(doc.subcategory_effect)"},
             {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso de gestión"), default: creditCommitmentDateDefault(postingDateDefault),
                 onchange() { if (!updatingCommitmentDate) commitmentDateCustomized = true; },
-                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
+                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || ['CxC a la empresa', 'CxC al Empleado'].includes(doc.subcategory_effect)"},
             {fieldname: "subcategory_effect", fieldtype: "Data", hidden: 1},
-            {fieldname: "receivable_due_date", fieldtype: "Date", label: __("Vencimiento de la CxC"), depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa' || doc.subcategory_effect === 'CxC a la empresa'", description: __("Si el período tiene plazos registrados, se heredará su vencimiento. En otro caso indique el plazo financiero verificado, no la fecha de gestión.")},
+            {fieldname: "receivable_due_date", fieldtype: "Date", label: __("Vencimiento de la CxC"), mandatory_depends_on: "eval:doc.subcategory_effect === 'CxC al Empleado'", depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa' || ['CxC a la empresa', 'CxC al Empleado'].includes(doc.subcategory_effect)", description: __("Para CxC al Empleado indique el vencimiento acordado con el cliente. Para CxC a la empresa se hereda el plazo del período si existe; en otro caso indique el vencimiento verificado.")},
             {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
             {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), default: sourceRow || companyCredit ? "Inmaterial" : undefined, reqd: 1},
             {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable (opcional)"), description: __("Sin asiento quedará pendiente de registro contable. Puede completarlo después en la partida.")},
@@ -856,9 +866,9 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period", label: __("Período"),
                 async onchange() {
                     const period = dialog.get_value("period");
-                    if (!period) return;
+                    if (!period || dialog.get_value("subcategory_effect") === "CxC al Empleado") return;
                     const result = await frappe.call({method: "credinomina_reconciliation.receivable_terms.preview_deadline", args: {period}});
-                    if (dialog.get_value("period") === period && result.message?.due_date) dialog.set_value("receivable_due_date", result.message.due_date);
+                    if (dialog.get_value("period") === period && dialog.get_value("subcategory_effect") !== "CxC al Empleado" && result.message?.due_date) dialog.set_value("receivable_due_date", result.message.due_date);
                 },
                 get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"]}})},
             {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), read_only: !!sourceRow, depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.client_number"},
@@ -907,6 +917,8 @@ async function createRemittanceComplementary(frm, options = {}) {
                 await frm.reload_doc();
                 const message = response.message.company_credit || response.message.client_credit
                     ? __("Saldo a favor documentado y vinculado al depósito. No se aplicó a créditos.")
+                    : response.message.employee_receivable
+                        ? __("Cuenta por cobrar al empleado agregada a Destinos. Complete la distribución y use Conciliar para reconocer la deuda del cliente.")
                     : response.message.company_receivable
                         ? __("Cuenta por cobrar agregada a Destinos. Complete la distribución y use Conciliar para reconocer el saldo por cobrar a la empresa.")
                         : __("Partida agregada a Destinos. Complete la distribución y use Conciliar.");

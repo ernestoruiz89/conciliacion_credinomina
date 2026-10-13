@@ -19,8 +19,8 @@ frappe.listview_settings["CN Complementary Item"] = {
             const lines = [accounting];
             if (management) lines.push(`${__("Gestión")}: ${__(management)}`);
             if (pending != null) lines.push(`${label}: ${Number(pending).toFixed(2)}`);
-            if (balance?.company_receivable_usd) lines.push(`${__("Por cobrar US$")}: ${Number(balance.company_receivable_usd).toFixed(2)}`);
-            if (balance && balance.company_receivable_usd === null) lines.push(__("CxC con cobros por revisar · importe sin determinar"));
+            if ((balance?.receivable_usd ?? balance?.company_receivable_usd)) lines.push(`${__("Por cobrar US$")}: ${Number(balance.receivable_usd ?? balance.company_receivable_usd).toFixed(2)}`);
+            if (balance && (balance.receivable_usd === null || (balance.receivable_usd === undefined && balance.company_receivable_usd === null))) lines.push(__("CxC con cobros por revisar · importe sin determinar"));
             if (balance?.amount_issue) lines.push(__(balance.amount_issue));
             return `<span style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;padding:2px 7px;border:1px solid var(--border-color);border-radius:999px;color:var(--text-color);background-color:var(--control-bg, var(--bg-color))" title="${esc(lines.join(" · "))}">${esc(accounting)}</span>`;
         },
@@ -59,8 +59,12 @@ frappe.listview_settings["CN Complementary Item"] = {
             listview.filter_area.add([["CN Complementary Item", "category", "=", "Saldo a favor de la empresa"],
                 ["CN Complementary Item", "credit_pending_usd", ">", 0], ["CN Complementary Item", "docstatus", "=", 1]]);
         }, __("Vistas rápidas"));
-        listview.page.add_inner_button(__("CxC por ajustes pendientes"), () => {
+        listview.page.add_inner_button(__("CxC a la empresa por ajustes"), () => {
             frappe.route_options = {view_mode: "Detalle", component: "company_receivable_usd"};
+            frappe.set_route("query-report", "Estado de Cuenta por Empresa");
+        }, __("Vistas rápidas"));
+        listview.page.add_inner_button(__("CxC al empleado por ajustes"), () => {
+            frappe.route_options = {view_mode: "Detalle", component: "employee_receivable_usd"};
             frappe.set_route("query-report", "Estado de Cuenta por Empresa");
         }, __("Vistas rápidas"));
         listview.page.add_inner_button(__("Saldos de clientes pendientes"), () => {

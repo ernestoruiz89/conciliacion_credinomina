@@ -57,7 +57,7 @@ def _execute_applications(filters):
                 continue
         elif from_month or to_month:
             continue
-        data.append(dict(row, amount_status=balance_status(row)))
+        data.append(dict(row, debtor_type='Empresa', amount_status=balance_status(row)))
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
     receivables = (cutoff['receivables'] if cutoff else load_receivables(employer=filters.get('employer'))) if include_adjustments else []
     for item in receivables:
@@ -74,11 +74,12 @@ def _execute_applications(filters):
             continue
         due = item.get('receivable_due_date')
         data.append(dict(item, balance_type=ADJUSTMENT_BALANCE, amount_usd=item['receivable_usd'],
+            debtor_type='Empleado' if item.get('subcategory_effect') == 'CxC al Empleado' else 'Empresa',
             complementary_item=item['name'], payroll_month=period.get('payroll_month') or item['posting_date'],
             due_date=due, usd_currency='USD', **age_balance(item['receivable_usd'], due, as_of),
             payment_term_origin=item.get('receivable_due_origin') or 'Vencimiento pendiente de verificar',
             amount_status=item.get('receivable_status'),
-            observation=item.get('observation') or 'CxC trasladada a la empresa; el registro contable no liquida el cobro.'))
+            observation=item.get('observation') or f"{item.get('subcategory_effect') or 'CxC a la empresa'}; el registro contable no liquida el cobro."))
     data.sort(key=lambda row: (row.get("employer") or "", str(row.get("due_date") or "9999"),
                               row.get("client_name") or "", row.get("loan_number") or ""))
     total_label = ('CxC pendiente (aplicaciones y ajustes)' if include_applications and include_adjustments
@@ -281,6 +282,7 @@ def get_application_columns():
     }]
     index = next(i for i, column in enumerate(columns) if column["fieldname"] == "amount_usd")
     columns[index:index] = [
+        {"fieldname": "debtor_type", "label": _("Deudor"), "fieldtype": "Data", "width": 105},
         {"fieldname": "reconciliation_mode", "label": _("Modalidad"), "fieldtype": "Data", "width": 105},
         {"fieldname": "source_import", "label": _("Importación"), "fieldtype": "Link", "options": "CN Accounting Import", "width": 170},
         {"fieldname": "application_date", "label": _("Fecha aplicación (primera si agrupada)"), "fieldtype": "Date", "width": 160},

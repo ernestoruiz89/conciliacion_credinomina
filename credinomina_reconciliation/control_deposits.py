@@ -63,7 +63,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
             ):
                 periods[period["name"]] = period
     receivables = []
-    receivable_names = [name for name, item in items.items() if item.get('subcategory_effect') == 'CxC a la empresa']
+    receivable_names = [name for name, item in items.items() if item.get('subcategory_effect') in ('CxC a la empresa', 'CxC al Empleado')]
     if receivable_names:
         from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
         receivables = load_receivables(item_names=receivable_names)

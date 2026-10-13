@@ -12,7 +12,7 @@ def execute(filters=None):
     result = detailed.execute(filters)
     source_columns, source_rows = result[:2]
     columns = [dict(column) for column in source_columns
-               if column["fieldname"] in {"employer", "balance_type", "cutoff_date", "cutoff_warning"} or column["fieldtype"] == "Currency"]
+               if column["fieldname"] in {"employer", "debtor_type", "balance_type", "cutoff_date", "cutoff_warning"} or column["fieldtype"] == "Currency"]
     money_fields = [column["fieldname"] for column in columns if column["fieldtype"] == "Currency"]
     if any(row.get('amount_usd') is None for row in source_rows):
         columns.append({'fieldname': 'known_amount_usd', 'label': _('Subtotal conocido US$'),
@@ -25,10 +25,12 @@ def execute(filters=None):
     groups = defaultdict(list)
     for row in source_rows:
         # Never net different balance types or re-age totals with one due date.
-        groups[(row.get("employer") or "", row.get("balance_type") or "")].append(row)
+        groups[(row.get("employer") or "", row.get("balance_type") or "", row.get("debtor_type") or "")].append(row)
     data = []
-    for (employer, balance_type), rows in sorted(groups.items()):
+    for (employer, balance_type, debtor_type), rows in sorted(groups.items()):
         item = {"employer": employer or None, "usd_currency": "USD"}
+        if debtor_type:
+            item['debtor_type'] = debtor_type
         if rows[0].get('cutoff_date'):
             item.update(cutoff_date=rows[0]['cutoff_date'], cutoff_warning=rows[0].get('cutoff_warning') or '')
         if any(column["fieldname"] == "balance_type" for column in columns):
