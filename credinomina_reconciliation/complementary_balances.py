@@ -14,7 +14,7 @@ FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
           "credit_pending_usd", "credit_management_status", "credit_assigned_to", "credit_commitment_date",
           "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
-          "accounting_source_key", "source_debit", "source_credit", "source_currency", "source_fx_rate"]
+          "accounting_source_key", "source_debit", "source_credit", "source_currency", "source_fx_rate", "origin_deposit"]
 _read_scope = ContextVar('cn_complementary_balance_read_scope', default=None)
 
 
@@ -50,6 +50,8 @@ def financial_balance(item, distributions=()):
     category = item.get("category")
     if item.get("docstatus") == 2:
         state, pending = "Cancelada", money(0)
+    elif item.get('origin_deposit'):
+        state, kind, pending = 'Origen contable vinculado', 'Respaldo del depósito', money(0)
     elif item.get("registration_exception"):
         state, pending = "Registro contable verificado", money(0)
     elif category in CREDIT_CATEGORIES:
@@ -108,7 +110,7 @@ def reconciliation_state(balance):
     if pending is None:
         return "Pendiente"
     if money(pending) == 0 and status in {
-        "Conciliada", "Documentado", "Vigente", "Registro contable verificado",
+        "Conciliada", "Documentado", "Vigente", "Registro contable verificado", "Origen contable vinculado",
     }:
         return "Conciliado"
     return "Parcial" if money(used) > 0 and money(pending) > 0 else "Pendiente"

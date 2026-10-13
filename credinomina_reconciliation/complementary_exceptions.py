@@ -221,6 +221,8 @@ def _evidence(kind, name, item, voucher):
 
 def _check_evidence_item(row, origin):
     row.check_permission("read")
+    if row.get('origin_deposit'):
+        frappe.throw(_('La partida ya respalda el origen de un depósito; no puede verificar también otra gestión.'))
     if row.name == origin.name and row.accounting_source_key:
         return
     # Imported drafts are evidence of a real core posting, not a second claim.

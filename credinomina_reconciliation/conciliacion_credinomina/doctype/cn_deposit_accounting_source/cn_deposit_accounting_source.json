@@ -1,8 +1,9 @@
 {
   "doctype": "DocType", "name": "CN Deposit Accounting Source", "module": "Conciliacion Credinomina",
   "istable": 1, "engine": "InnoDB", "editable_grid": 1, "permissions": [],
-  "field_order": ["source_row", "source_date", "source_voucher", "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description", "source_file", "source_file_hash", "accounting_source_key", "accounting_reference", "accounting_classification", "tmov", "tdoc", "source_client_name", "source_loan_number"],
+  "field_order": ["source_row", "source_date", "source_voucher", "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description", "source_file", "source_file_hash", "accounting_source_key", "accounting_reference", "accounting_classification", "tmov", "tdoc", "source_client_name", "source_loan_number", "origin_complementary_item"],
   "fields": [
+    {"fieldname": "origin_complementary_item", "fieldtype": "Link", "options": "CN Complementary Item", "label": "Movimiento interno original", "read_only": 1, "no_copy": 1, "search_index": 1},
     {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila del archivo", "in_list_view": 1, "columns": 1, "read_only": 1},
     {"fieldname": "source_date", "fieldtype": "Date", "label": "Fecha contable", "in_list_view": 1, "columns": 2, "read_only": 1},
     {"fieldname": "source_voucher", "fieldtype": "Data", "label": "Asiento original", "in_list_view": 1, "columns": 2, "read_only": 1},

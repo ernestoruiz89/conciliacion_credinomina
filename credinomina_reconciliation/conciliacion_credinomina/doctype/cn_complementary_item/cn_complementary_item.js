@@ -354,6 +354,12 @@ frappe.ui.form.on("CN Complementary Item", {
             deposit_voucher: r.message.deposit_voucher, posting_date: frm.doc.posting_date || r.message.deposit_date});
     },
     refresh(frm) {
+        if (frm.doc.origin_deposit) {
+            frm.dashboard.set_headline_alert(__("Este movimiento respalda el origen contable de un depósito. No representa otro ingreso ni un destino financiero."), "blue");
+            frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.origin_deposit));
+            frm.disable_save();
+            return;
+        }
         frm.set_df_property("receivable_due_date", "read_only", frm.doc.docstatus === 1 && !!frm.doc.receivable_due_date);
         if (frm.doc.receivable_setup_pending) frm.dashboard.set_headline_alert(
             __("CxC con seguimiento incompleto: verifique responsable, compromiso de gestión y vencimiento financiero. No reprograma ni liquida la deuda."), "orange");

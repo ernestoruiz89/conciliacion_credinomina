@@ -51,6 +51,8 @@ class CNComplementaryItem(Document):
 
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        from credinomina_reconciliation.manual_origin_link import guard_item
+        guard_item(self, previous)
         from credinomina_reconciliation.receivable_recovery import guard_receipt
         guard_receipt(self, previous)
         client_credit.guard_credit_category(self, previous)
@@ -204,6 +206,8 @@ class CNComplementaryItem(Document):
         self.flags.cancellation_result = reconcile_cancellation(self, self.flags.cancellation_scope)
 
     def before_rename(self, old, new, merge=False):
+        from credinomina_reconciliation.manual_origin_link import guard_removal
+        guard_removal(self)
         from credinomina_reconciliation.receivable_recovery import guard_origin
         guard_origin(self)
         if self.get('receivable_origin'):

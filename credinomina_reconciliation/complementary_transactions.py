@@ -12,7 +12,7 @@ KINDS = {
 
 def is_active(item):
     # Direct offsets and verified accounting evidence intentionally remain docstatus=0.
-    return (item.get("docstatus") == 1 or bool(item.get("registration_exception"))
+    return (item.get("docstatus") == 1 or bool(item.get("registration_exception")) or bool(item.get('origin_deposit'))
             or (item.get("category") == "Compensación entre partidas" and money(item.get("compensated_usd")) > 0)
             or (item.get("review_action") == "No conciliatoria" and item.get("review_status") == "No conciliatoria"))
 

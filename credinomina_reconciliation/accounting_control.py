@@ -85,7 +85,9 @@ def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=
         if linked and linked not in candidates:
             candidates = [*candidates, linked]
         matches = [candidate for candidate in candidates
-                   if is_deposit(row) and same_ledger_evidence(provenance(row, parent), candidate)]
+                   if (is_deposit(row) or (candidate.get('origin_complementary_item')
+                       and row.get('accounting_classification') == 'Movimiento interno'))
+                   and same_ledger_evidence(provenance(row, parent), candidate)]
         if len(matches) == 1:
             return matches[0], ""
         warning = ("Vínculo de origen contable inconsistente: no se mezclaron los datos del depósito; revise la identidad de esta fila."
@@ -176,7 +178,10 @@ def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=
             for source in represented_evidence.get(item["accounting_source_key"], [])
         ):
             continue
-        output.append(make_row(item, item=item))
+        deposit, warning = deposit_for(item)
+        if deposit:
+            represented_deposits.add((deposit['name'], deposit.get('accounting_source_key')))
+        output.append(make_row(item, item=item, deposit=deposit, identity_warning=warning))
     for deposit in deposits:
         if not deposit.get("accounting_source_key") or (deposit["name"], deposit.get('accounting_source_key')) in represented_deposits:
             continue

@@ -1310,6 +1310,35 @@ y el archivo al depósito manual, en borrador o confirmado, y deja constancia en
 su historial. Conserva importe, tasa, detalle, destinos y resultados de conciliación,
 incluso cuando el depósito participa en un período cerrado.
 
+Si la carga no logró reconocer el depósito manual, abra ese depósito y pulse
+**Vincular origen contable**, también disponible en **Origen contable**. El modal
+permite elegir **Movimientos internos** o **Depósito del core**, buscar por
+referencia/asiento y seleccionar los registros. **Seleccionar todas las partidas**
+incluye todas las filas de la búsqueda, aunque la tabla esté paginada.
+
+Pulse **Comprobar selección**, revise total, moneda, diferencias y documente el
+comprobante. **Vincular al depósito** agrega las filas a `accounting_sources`,
+conservando archivos, asientos, códigos y débitos/créditos originales. No cambia
+el importe, tasa, detalle, destinos ni resultados del depósito y no ejecuta
+otra conciliación. Se admite un depósito manual guardado o confirmado.
+
+Un depósito registrado el 13/10 puede vincularse con contabilidad cargada el
+30/10: se compara la fecha del depósito, no la de carga ni, para los depósitos
+del core, la fecha de contabilización. El origen del core debe seguir en borrador,
+sin detalle ni destinos; queda conservado como **Origen vinculado**. Los movimientos
+internos deben estar pendientes de revisión, sin otros efectos financieros;
+conservan su clasificación y pasan a ser solo respaldo del depósito.
+
+Las diferencias de empresa, referencia, fecha del depósito, asiento, moneda o
+importe ofrecen **Dejar para revisión**: guarda la selección, diferencias y motivo
+en el depósito y su historial, sin agregar líneas ni modificar saldos. No se
+permite reutilizar una línea vinculada a otro depósito. Reintentar una vinculación
+completa no duplica filas. El Control Mensual cuenta cada movimiento original una
+vez y el estado de cuenta cuenta el efectivo una sola vez.
+
+Después de desplegar esta opción, ejecute `bench --site <sitio> migrate` y recargue
+el formulario para incorporar los campos y el botón.
+
 Varios candidatos, una cuenta o empresa desconocida, comprobantes contradictorios
 o coincidencias incompletas quedan en **Revisar identidad**, sin confirmarse como
 otro efectivo. La búsqueda también detecta referencia igual con otros datos

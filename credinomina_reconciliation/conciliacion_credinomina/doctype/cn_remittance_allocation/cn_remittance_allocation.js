@@ -1,3 +1,110 @@
+function linkAccountingOrigins(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde el depósito antes de vincular su origen contable."));
+    const depositName = frm.doc.name;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const method = action => `credinomina_reconciliation.manual_origin_link.${action}`;
+    let dialog, checked = null, loadedKind = null, sequence = 0;
+    const kind = () => dialog.get_value("kind") === "Depósito del core" ? "deposit" : "internal";
+    const invalidate = () => {
+        checked = null;
+        dialog.fields_dict.result.$wrapper.empty();
+        dialog.set_primary_action(__("Comprobar selección"), submit);
+    };
+    const reset = () => {
+        if (!dialog) return;
+        sequence++;
+        loadedKind = null;
+        dialog.fields_dict.rows.df.data = [];
+        dialog.fields_dict.rows.grid.refresh();
+        invalidate();
+    };
+    async function search() {
+        reset();
+        const current = sequence, sourceKind = kind();
+        dialog.disable_primary_action();
+        try {
+            const response = await frappe.call({method: method("candidates"), args: {
+                deposit_name: depositName, kind: sourceKind,
+                reference: dialog.get_value("reference"), voucher: dialog.get_value("voucher"),
+            }});
+            if (current !== sequence) return;
+            loadedKind = sourceKind;
+            dialog.fields_dict.rows.df.data = (response.message || []).map(row => ({
+                record_name: row.name, date: sourceKind === "internal" ? row.source_date : row.deposit_date,
+                reference: sourceKind === "internal" ? row.accounting_reference : row.deposit_reference,
+                voucher: sourceKind === "internal" ? row.source_voucher : row.deposit_voucher,
+                currency: sourceKind === "internal" ? row.source_currency : row.deposit_currency,
+                amount: sourceKind === "internal" ? row.source_credit : row.deposit_amount,
+                description: row.source_description,
+            }));
+            dialog.fields_dict.rows.grid.refresh();
+            dialog.fields_dict.result.$wrapper.html(`<p>${__("Resultados")}: ${(response.message || []).length}. ${__("Seleccione las filas y compruebe el total antes de vincular.")}</p>`);
+        } finally { if (current === sequence) dialog.enable_primary_action(); }
+    }
+    async function submit() {
+        if (frm.doc.name !== depositName || frm.is_dirty()) return frappe.msgprint(__("El depósito cambió. Cierre el modal, guarde y vuelva a abrirlo."));
+        const selection = dialog.fields_dict.rows.grid.get_selected_children().map(row => row.record_name).sort();
+        const sourceKind = kind();
+        if (!selection.length || loadedKind !== sourceKind) return frappe.msgprint(__("Busque y seleccione los movimientos que respaldan este depósito."));
+        if (sourceKind === "deposit" && selection.length !== 1) return frappe.msgprint(__("Seleccione un único depósito del core."));
+        const signature = JSON.stringify([sourceKind, selection]);
+        dialog.disable_primary_action();
+        try {
+            if (!checked || checked.signature !== signature) {
+                const response = await frappe.call({method: method("preview"), args: {deposit_name: depositName, kind: sourceKind, selection}});
+                const result = response.message;
+                checked = {signature, ...result};
+                const selectedTotal = Object.entries(result.totals_by_currency || {[result.currency]: result.total})
+                    .map(([currency, amount]) => `${esc(currency)} ${esc(Number(amount).toFixed(2))}`).join(" · ");
+                dialog.fields_dict.result.$wrapper.html(`<div class="alert alert-${result.issues.length ? "warning" : "success"}">
+                    <p>${__("Líneas contables")}: ${result.count} · ${__("Total seleccionado")}: ${selectedTotal} · ${__("Depósito")}: ${esc(result.currency)} ${esc(Number(result.deposit_amount).toFixed(2))} · ${__("Diferencia")}: ${result.difference == null ? __("No comparable: monedas distintas") : esc(Number(result.difference).toFixed(2))}</p>
+                    ${result.issues.length ? `<ul>${result.issues.map(issue => `<li>${esc(issue)}</li>`).join("")}</ul><p>${__("La selección quedará pendiente de revisión. No se agregarán líneas ni se cambiarán saldos.")}</p>` : `<p>${__("Se conservarán el depósito, sus importes y la conciliación realizada. Las líneas originales se agregarán al origen contable.")}</p>`}</div>`);
+                dialog.set_primary_action(__(result.issues.length ? "Dejar para revisión" : "Vincular al depósito"), submit);
+                return;
+            }
+            const reason = dialog.get_value("reason");
+            if (!String(reason || "").trim()) return frappe.msgprint(__("Indique cómo verificó que corresponde al mismo depósito."));
+            const response = await frappe.call({method: method("link"), args: {
+                deposit_name: depositName, kind: sourceKind, selection, token: checked.token, reason,
+            }, freeze: true, freeze_message: __("Guardando el origen contable…")});
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.show_alert({message: __(response.message.status === "Vinculado" ? "Origen contable vinculado. Se conservó la conciliación del depósito." : "Diferencias guardadas para revisión. No se modificó la conciliación."),
+                indicator: response.message.status === "Vinculado" ? "green" : "orange"});
+        } catch (error) {
+            invalidate();
+            throw error;
+        } finally { dialog.enable_primary_action(); }
+    }
+    dialog = new frappe.ui.Dialog({title: __("Vincular origen contable al depósito"), size: "extra-large", fields: [
+        {fieldtype: "HTML", options: `<p>${__("Seleccione el origen del mismo ingreso. La fecha de carga puede ser posterior; se comparan la empresa, referencia, fecha del depósito, moneda e importe. Esta acción conserva la distribución ya realizada.")}</p>`},
+        {fieldname: "kind", fieldtype: "Select", label: __("Tipo de origen"), options: "Movimientos internos\nDepósito del core", default: "Movimientos internos", onchange: reset,
+            description: __("Se muestran partidas internas pendientes y depósitos del core en borrador. El depósito del core debe estar sin detalle ni destinos.")},
+        {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset},
+        {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset},
+        {fieldname: "search", fieldtype: "Button", label: __("Buscar movimientos"), click: search},
+        {fieldname: "select_all", fieldtype: "Button", label: __("Seleccionar todas las partidas"), click() {
+            if (kind() !== "internal") return frappe.msgprint(__("Seleccione un único depósito del core."));
+            (dialog.fields_dict.rows.df.data || []).forEach(row => { row.__checked = 1; });
+            dialog.fields_dict.rows.grid.refresh();
+            invalidate();
+        }},
+        {fieldname: "rows", fieldtype: "Table", label: __("Movimientos disponibles"), cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: false, data: [], fields: [
+            {fieldname: "record_name", fieldtype: "Data", label: __("Documento"), read_only: 1, in_list_view: 1, columns: 3},
+            {fieldname: "date", fieldtype: "Date", label: __("Fecha"), read_only: 1, in_list_view: 1, columns: 2},
+            {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), read_only: 1, in_list_view: 1, columns: 2},
+            {fieldname: "currency", fieldtype: "Data", label: __("Moneda"), read_only: 1, in_list_view: 1, columns: 1},
+            {fieldname: "amount", fieldtype: "Currency", label: __("Importe"), options: "currency", read_only: 1, in_list_view: 1, columns: 2},
+            {fieldname: "voucher", fieldtype: "Data", label: __("Asiento original"), read_only: 1},
+            {fieldname: "description", fieldtype: "Small Text", label: __("Descripción original"), read_only: 1},
+        ]},
+        {fieldname: "result", fieldtype: "HTML"},
+        {fieldname: "reason", fieldtype: "Small Text", label: __("Verificación y motivo del vínculo"), description: __("Identifique el comprobante o evidencia que confirma que es el mismo ingreso.")},
+    ], primary_action_label: __("Comprobar selección"), primary_action: submit});
+    dialog.show();
+    search();
+}
+
 function reviewDepositOrigin(frm) {
     if (frm.is_dirty()) return frappe.msgprint(__("Guarde los cambios antes de revisar el origen."));
     const canLink = frm.doc.docstatus === 0 && !(frm.doc.targets || []).length && !(frm.doc.detail_rows || []).length && !frm.doc.detail_file && !!frm.doc.accounting_source_key;
@@ -53,6 +160,7 @@ async function loadPayingCompanies(frm) {
 }
 
 frappe.ui.form.on("CN Remittance Allocation", {
+    link_accounting_origins(frm) { linkAccountingOrigins(frm); },
     setup(frm) {
         // Imported rows remain intact; company and credit can disambiguate identity.
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
@@ -74,7 +182,9 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         if (!frm.is_new() && frm.doc.docstatus !== 2 && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Revisar origen del depósito"), () => reviewDepositOrigin(frm), __("Más opciones"));
+            frm.add_custom_button(__("Vincular origen contable"), () => linkAccountingOrigins(frm));
         }
+        frm.toggle_display("link_accounting_origins", !frm.is_new() && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         loadPayingCompanies(frm);
         const targetFormatter = (value, df, options, row) => {
             const label = targetDisplayLabel(row || {});
