@@ -72,7 +72,7 @@ class ControlLazyTests(unittest.TestCase):
         build.assert_not_called()
 
     def test_period_detail_is_scoped_and_returns_only_modal_data(self):
-        values = {field: [field] for field in ("rows", "historical_rows", "exceptions", "surpluses", "rounding_movements")}
+        values = {field: [field] for field in ("rows", "historical_rows", "unlinked_application_rows", "exceptions", "surpluses", "rounding_movements")}
         doc = Mock()
         with patch.object(control.frappe, "get_doc", return_value=doc), \
              patch.object(control, "_build_control_data", return_value={"periods": [{**values, "employer": "A"}]}) as build:
@@ -80,6 +80,39 @@ class ControlLazyTests(unittest.TestCase):
         doc.check_permission.assert_called_once_with("read")
         build.assert_called_once_with("Todos", detail_period="PA")
         self.assertEqual(result, {"name": "PA", "detail_loaded": True, **values})
+
+    def test_operational_detail_includes_only_readable_applications_without_collection_link(self):
+        period = frappe._dict(name='P', employer='E', payroll_month='2026-09-01',
+            reconciliation_mode='Operativa', status='Parcial', applied_usd=458.08,
+            remitted_usd=50, expected_usd=50, pending_usd=408.08)
+        unlinked = frappe._dict(name='U', parent='READABLE', historical_period='P',
+            collection_row_id='', application_allocation_detail='[]', net_applied_usd=408.08)
+        linked = frappe._dict(name='L', parent='READABLE', historical_period='P',
+            collection_row_id='', application_allocation_detail='[{"collection_row_id":"C","amount_usd":50}]',
+            net_applied_usd=50)
+        private = frappe._dict(name='PRIVATE', parent='PRIVATE', historical_period='P',
+            collection_row_id='', application_allocation_detail='[]', net_applied_usd=20)
+
+        def get_list(doctype, **kwargs):
+            return [period] if doctype == 'CN Reconciliation Period' else []
+
+        def get_all(doctype, **kwargs):
+            if doctype == 'CN Source Row':
+                self.assertIn('collection_row_id', kwargs['fields'])
+                self.assertIn('application_allocation_detail', kwargs['fields'])
+                return [unlinked, linked, private]
+            return []
+
+        with patch.object(control.frappe, 'has_permission', return_value=True), \
+             patch.object(control.frappe, 'get_list', side_effect=get_list), \
+             patch.object(control.frappe, 'get_all', side_effect=get_all), \
+             patch.object(control, 'readable_imports', return_value={'READABLE'}), \
+             patch.object(control, 'annotate_application_exceptions'):
+            detail = control._build_control_data('Todos', detail_period='P')['periods'][0]
+
+        self.assertEqual([row.name for row in detail['historical_rows']], ['U', 'L'])
+        self.assertEqual([row.name for row in detail['unlinked_application_rows']], ['U'])
+        self.assertEqual(detail['financial_applied_usd'], 458.08)
 
     def test_deposit_detail_checks_permission_and_filters_one_deposit(self):
         doc = Mock()
@@ -97,7 +130,8 @@ class ControlLazyTests(unittest.TestCase):
 
     def test_operational_modal_includes_payment_evidence_without_changing_allocated_cash(self):
         row = frappe._dict(name='C', remitted_usd=0, applied_usd=0)
-        period = dict(reconciliation_mode='Operativa', rows=[row], historical_rows=[], exceptions=[], surpluses=[], rounding_movements=[])
+        period = dict(reconciliation_mode='Operativa', rows=[row], historical_rows=[], unlinked_application_rows=[],
+            exceptions=[], surpluses=[], rounding_movements=[])
         tasks = [dict(collection_row='C', target_name='DEP', amount_usd=28.43)]
         with patch.object(control.frappe, 'get_doc', return_value=Mock()), \
              patch.object(control, '_build_control_data', return_value={'periods': [period]}), \
