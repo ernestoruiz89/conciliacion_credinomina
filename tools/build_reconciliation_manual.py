@@ -130,6 +130,8 @@ def table(doc, records):
                 paragraph.paragraph_format.keep_with_next = True
                 font(paragraph.add_run(value), size=10.5, bold=True, color="FFFFFF")
             else:
+                if re.fullmatch(r"[-−+]?\d[\d,.]*(?:\s*%)?", value):
+                    paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
                 inline(paragraph, value, size=10.5)
     doc.add_paragraph().paragraph_format.space_after = Pt(2)
     return result
@@ -142,6 +144,13 @@ def configure(doc):
     section.left_margin = section.right_margin = Inches(0.82)
     section.header_distance = section.footer_distance = Inches(0.35)
     section.different_first_page_header_footer = True
+    defaults = doc.styles.element.find(qn("w:docDefaults"))
+    run_defaults = defaults.find(qn("w:rPrDefault")).find(qn("w:rPr"))
+    language = run_defaults.find(qn("w:lang"))
+    if language is None:
+        language = node("lang")
+        run_defaults.append(language)
+    language.set(qn("w:val"), "es-NI")
     for name, size in (("Normal", 11), ("Title", 27), ("Subtitle", 14), ("Heading 1", 16), ("Heading 2", 13), ("Heading 3", 11.5), ("List Bullet", 11)):
         style = doc.styles[name]
         style.font.name = "Calibri"
