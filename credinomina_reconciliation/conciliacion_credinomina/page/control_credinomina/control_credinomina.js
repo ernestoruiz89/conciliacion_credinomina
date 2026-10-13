@@ -269,7 +269,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 ${workReady ? `
                 <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("casos"))} · ${data.work_action_count ?? workItems.reduce((count, item) => count + (item.action_count || 1), 0)} ${esc(__("acciones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("casos vencidos"))}` : ""}</span></div>
                     ${data.consulted_at ? `<p class="text-muted">${esc(__("Consulta de"))} ${esc(frappe.datetime.str_to_user(data.consulted_at))}. ${esc(__("Actualizar consulta incorpora cambios recientes; esta vista no modifica saldos."))}</p>` : ""}
-                    <button type="button" class="btn btn-default btn-sm mb-3" data-refresh-work>${esc(__("Actualizar consulta"))}</button>
+                    <div class="cn-work-toolbar"><button type="button" class="btn btn-default btn-sm" data-refresh-work>${esc(__("Actualizar consulta"))}</button>
+                    <button type="button" class="btn btn-default btn-sm" data-export-work title="${esc(__("Descarga todos los casos que coinciden con los filtros, no solo los visibles en pantalla."))}">${esc(__("Exportar Excel"))}</button></div>
                     <div class="row" style="margin-bottom:16px">
                         <div class="col-sm-4"><label>${esc(__("Tipo de pendiente"))}<select class="form-control" data-work-filter="work_kind">${[["", "Todos"], ["payments", "Pagos pendientes de aplicar"], ["credits", "Saldos a favor"], ["complements", "Partidas complementarias"], ["accounting", "Registro en el core"], ["exceptions", "Excepciones"], ["deposits", "Depósitos"], ["periods", "Aplicaciones y períodos"]].map(([value, label]) => `<option value="${value}" ${workFilters.work_kind === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                         <div class="col-sm-4"><label>${esc(__("Responsable contiene"))}<input class="form-control" data-work-filter="responsible" value="${esc(workFilters.responsible)}"></label></div>
@@ -688,6 +689,19 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         if (employerField.get_value()) params.set("employer", employerField.get_value());
         window.open(
             `/api/method/credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.export_control_excel?${params}`,
+            "_blank"
+        );
+    }
+    $root.on("click", "[data-export-work]", downloadWorkItemsExcel);
+    function downloadWorkItemsExcel() {
+        const params = new URLSearchParams();
+        if (employerField.get_value()) params.set("employer", employerField.get_value());
+        Object.entries(workFilters).forEach(([key, value]) => {
+            if (value !== "" && value != null) params.set(key, value);
+        });
+        if (currentData?.work_consultation) params.set("consultation", currentData.work_consultation);
+        window.open(
+            `/api/method/credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.export_work_items_excel?${params}`,
             "_blank"
         );
     }
@@ -1404,6 +1418,7 @@ function styles() {
         .cn-period-card-amounts strong { display: block; font-size: 15px; margin-top: 3px; }
         .cn-period-card-open { display: block; margin-top: auto; padding-top: 14px; font-size: 12px; font-weight: 600; color: var(--cn-primary); }
         .cn-work-panel { border-color: color-mix(in srgb, #3b82f6 40%, var(--cn-border)); }
+        .cn-work-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
         .cn-work-panel .cn-list-scroll { max-height: 60vh; overflow: auto; }
         .cn-work-table thead th { position: sticky; top: 0; z-index: 1; }
         .cn-work-table td { vertical-align: top; }

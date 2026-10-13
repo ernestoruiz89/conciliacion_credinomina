@@ -144,6 +144,32 @@ def get_work_overview(employer=None):
             'open_deposits': data['open_deposits'][:100], **consultation}
 
 
+@frappe.whitelist(methods=["GET"])
+def export_work_items_excel(employer=None, work_kind="", responsible="", due="", search="",
+                            min_amount=None, sort_by="", consultation=None):
+    """Export the complete follow-up queue using the same filters as its tab."""
+    data, _snapshot = _work_consultation(consultation, employer)
+    from credinomina_reconciliation.follow_up_queue import filter_work
+    items = filter_work(data.get("work_items") or [], work_kind, responsible, due,
+        as_of=now_datetime().date(), search=search, min_amount=min_amount, sort_by=sort_by)
+    from credinomina_reconciliation.control_export import build_work_items_workbook
+    employer_label = next((item.get("employer_name") for item in items
+        if item.get("employer") == employer and item.get("employer_name")), employer or "Todas las empresas")
+    filters = {"work_kind": work_kind, "responsible": responsible, "due": due,
+        "search": search, "min_amount": min_amount, "sort_by": sort_by}
+    try:
+        content = build_work_items_workbook(items, employer_label=employer_label,
+            filters=filters, generated_at=now_datetime())
+    except ValueError as exc:
+        frappe.throw(_(str(exc)))
+    suffix = re.sub(r"[^A-Za-z0-9_-]+", "-", unicodedata.normalize("NFKD", employer_label)
+        .encode("ascii", "ignore").decode("ascii")).strip("-")[:60]
+    frappe.local.response.filename = f"pendientes_control_credinomina_{suffix or 'todas'}.xlsx"
+    frappe.local.response.filecontent = content
+    frappe.local.response.type = "download"
+    frappe.local.response.content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
 def _work_consultation(token, employer):
     from credinomina_reconciliation.control_consultation import read_consultation
     return read_consultation(token, {'employer': employer or '', 'year': 'Todos'},
