@@ -4,6 +4,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
             default: Number(frappe.datetime.get_today().slice(0, 4))},
         {fieldname: "transaction_type", label: __("Tipo de transacción"), fieldtype: "Select", reqd: 1,
             options: "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable", default: "Aplicaciones"},
+        {fieldname: "state", label: __("Estado de conciliación"), fieldtype: "Select",
+            options: "Todos\nConciliado\nParcial\nPendiente\nDistribuciones inconsistentes", default: "Todos"},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "include_drafts", label: __("Incluir borradores"), fieldtype: "Check", default: 0},
     ],
@@ -57,7 +59,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         const money = value => value == null ? "—" : esc(format_currency(value, "USD"));
         const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
         let dialog, sequence = 0, offset = 0, closed = false, busy = false;
-        let activeFilters = {state: "", search: ""};
+        let activeFilters = {state: args.state || "", search: ""};
         const load = async (start = 0) => {
             const request = ++sequence;
             offset = start;
@@ -126,7 +128,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
             title: __("Transacciones del mes"), size: "extra-large",
             fields: [
                 {fieldname: "context", fieldtype: "HTML", options: `<p style="font-size:16px"><strong>${esc(args.employer || __("Sin empresa identificada"))}</strong> · ${__(months[args.month - 1])} ${esc(args.year)} · ${esc(args.transaction_type)}${Number(args.include_drafts) ? ` · ${__("Incluye borradores")}` : ""}</p>`},
-                {fieldname: "state", label: __("Estado"), fieldtype: "Select", options: "\nConciliado\nParcial\nPendiente\nRevisar distribución"},
+                {fieldname: "state", label: __("Estado"), fieldtype: "Select", default: args.state || "",
+                    options: "\nConciliado\nParcial\nPendiente\nRevisar distribución"},
                 {fieldtype: "Column Break"},
                 {fieldname: "search", label: __("Buscar"), fieldtype: "Data", description: __("Cliente, crédito, documento, referencia, asiento o cuenta bancaria.")},
                 {fieldtype: "Section Break"},

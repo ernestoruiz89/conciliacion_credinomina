@@ -10,6 +10,8 @@ const filters = Object.fromEntries(report.filters.map(field => [field.fieldname,
 assert.equal(filters.year.default, 2026);
 assert.equal(filters.transaction_type.default, "Aplicaciones");
 assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable");
+assert.equal(filters.state.default, "Todos");
+assert.ok(filters.state.options.includes("Distribuciones inconsistentes"));
 assert.equal(filters.include_drafts.default, 0);
 const formatter = (value, field, data) => report.formatter(value, null, {fieldname: field}, data, value => String(value));
 for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#fb923c"], ["Pendiente", "#fee2e2"]]) {
@@ -42,10 +44,11 @@ for (const [percentage, halfCovered, color] of [[49.99, false, "#fb923c"], [50, 
 }
 assert.ok(formatter(5, "m04", {m04_state: "Parcial", m04_percentage: null, m04_half_covered: false}).includes("Porcentaje del importe no disponible"));
 assert.ok(formatter(5, "m04", {m04_state: "Conciliado", m04_percentage: 100, m04_half_covered: true}).includes("#dcfce7"));
-const clickable = formatter(5, "m04", {m04_state: "Parcial", _detail_filters: {year: 2025, employer: 'A"<script>', transaction_type: "Aplicaciones", include_drafts: 0}});
+const clickable = formatter(5, "m04", {m04_state: "Revisar distribución", _detail_filters: {year: 2025, employer: 'A"<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución"}});
 assert.ok(clickable.startsWith('<button type="button"'));
 assert.ok(clickable.includes("cn-month-transactions"));
 assert.ok(clickable.includes("&quot;month&quot;:4"));
+assert.ok(clickable.includes("&quot;state&quot;:&quot;Revisar distribución&quot;"));
 assert.ok(!clickable.includes("<script>"));
 assert.ok(!formatter(0, "m04", {_detail_filters: {year: 2025}}).includes("<button"));
 assert.ok(!formatter(5, "m04", {_is_total: true, _detail_filters: {year: 2025}}).includes("cn-month-transactions"));

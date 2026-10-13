@@ -12,6 +12,15 @@ from credinomina_reconciliation.report_records import records as readable_record
 
 TRANSACTION_DOCTYPES = {"Aplicaciones": "CN Accounting Import", "Depósitos": "CN Remittance Allocation",
                        **{kind: "CN Complementary Item" for kind in complementary_transactions.KINDS}}
+STATE_FILTERS = {"Conciliado", "Parcial", "Pendiente", "Revisar distribución", "Distribuciones inconsistentes"}
+
+
+def normalize_state_filter(value):
+    if value in (None, "", "Todos"):
+        return ""
+    if value == "Distribuciones inconsistentes":
+        return "Revisar distribución"
+    return value if value in STATE_FILTERS else None
 
 
 def execute(filters=None):
@@ -23,6 +32,9 @@ def execute(filters=None):
     kind = filters.get("transaction_type") or "Aplicaciones"
     if kind not in TRANSACTION_DOCTYPES:
         frappe.throw(_("Seleccione un tipo de transacción válido."))
+    selected_state = normalize_state_filter(filters.get("state"))
+    if selected_state is None:
+        frappe.throw(_("Seleccione un estado de conciliación válido."))
     drafts = bool(cint(filters.get("include_drafts")))
     doctype = TRANSACTION_DOCTYPES[kind]
     if not frappe.has_permission(doctype, "read"):
@@ -31,17 +43,24 @@ def execute(filters=None):
     scoped = {"employer": filters.employer} if filters.get("employer") else {}
     records, sources, by_name = load_transactions(kind, drafts, scoped, dates)
     progress, collections = _application_progress(records, sources, by_name) if kind == "Aplicaciones" else ({}, {})
+    if selected_state:
+        selected_names = {record["name"] for record in records if record["state"] == selected_state}
+        records = [record for record in records if record["name"] in selected_names]
+        sources = [source for source in sources if source.get("name") in selected_names]
     amounts = (application_month_amounts(sources, by_name, collections, progress)
                if kind == "Aplicaciones" else complementary_transactions.month_amounts(sources)
                if kind in complementary_transactions.KINDS else deposit_month_amounts(sources))
     data = monthly_counts(records, year, amounts)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
+        if selected_state:
+            row["_detail_filters"]["state"] = selected_state
     if data:
         data.append({"employer": _("Total"), "_is_total": True,
                      **{key: sum(row[key] for row in data) for key in ["total", *[f"m{month:02}" for month in range(1, 13)]]}})
     message = _("Verde: todas las transacciones conciliadas. Parciales: naranja si el importe conciliado es menor al 50%; amarillo desde el 50%. "
                 "Rojo: todas pendientes. —: sin transacciones. Pulse una celda para ver sus transacciones. "
+                "Use Estado de conciliación para limitar la matriz a un estado, por ejemplo Distribuciones inconsistentes. "
                 "El porcentaje usa importes US$ del mes, no cantidades de transacciones. Si no se puede atribuir un pago compartido al mes "
                 "o falta conversión, el porcentaje no está disponible y se mantiene naranja. "
                 "Cada transacción permanece en el mes de su fecha y considera toda su cobertura, aunque los depósitos, aplicaciones o períodos relacionados sean de otros meses. "
@@ -186,8 +205,10 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
 
     if not str(year).isdigit() or not 1900 <= int(year) <= 9998 or not str(month).isdigit() or not 1 <= int(month) <= 12:
         frappe.throw(_("Indique un año y mes válidos."))
-    if transaction_type not in TRANSACTION_DOCTYPES or state not in {"", "Conciliado", "Parcial", "Pendiente", "Revisar distribución"}:
+    normalized_state = normalize_state_filter(state)
+    if transaction_type not in TRANSACTION_DOCTYPES or normalized_state is None:
         frappe.throw(_("Tipo de transacción o estado inválido."))
+    state = normalized_state
     doctype = TRANSACTION_DOCTYPES[transaction_type]
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("No tiene permiso para consultar estas transacciones."), frappe.PermissionError)

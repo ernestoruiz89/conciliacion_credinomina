@@ -46,11 +46,13 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.equal(clicked.include_drafts, 1);
     report.show_month_detail = originalOpen;
 
-    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0});
+    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución"});
     assert.ok(dialog.visible);
     assert.ok(dialog.html.includes("Cargando"));
     assert.ok(!dialog.fields[0].options.includes("<script>"));
     assert.equal(calls[0].args.month, 4);
+    assert.equal(calls[0].args.state, "Revisar distribución");
+    assert.equal(dialog.fields[1].default, "Revisar distribución");
     const row = {doctype: "CN Accounting Import", document: 'IMPORT A"', row_index: 3, date: "2025-04-30", state: "Parcial",
         client_name: "<script>alert(1)</script>", client_number: "1", loan_number: "100-1", original_usd: 100, adjustment_usd: 20,
         net_usd: 80, assigned_usd: 30, rounding_usd: 0, complementary_usd:20, pending_usd: 50, observations: "<b>Shared</b>"};
