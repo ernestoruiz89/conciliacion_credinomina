@@ -68,6 +68,51 @@ def append_source(document, values, *, check_cash=True):
     return True
 
 
+def record_imported_source(document, row, source_file, file_hash, group_key):
+    """Append evidence to a locked receipt without rerunning reconciliation hooks.
+
+    Only the importer calls this, after matching the bank identity and checking
+    the accounting creation lock. In particular, submitted/closed distributions
+    and their dates, FX rates, targets and results must remain byte-for-byte intact.
+    """
+    from frappe.utils import now_datetime
+    from credinomina_reconciliation.file_references import attach_existing_file
+    document.check_permission('write')
+    values = evidence_values(row, source_file, file_hash)
+    if any(source.accounting_source_key == values['accounting_source_key']
+           for source in document.get('accounting_sources') or []):
+        return False
+    source = document.append('accounting_sources', dict(values))
+    timestamp = now_datetime()
+    source.update({'docstatus': document.docstatus, 'owner': frappe.session.user,
+                   'creation': timestamp, 'modified': timestamp, 'modified_by': frappe.session.user})
+    # This narrowly scoped evidence insert deliberately avoids saving the parent:
+    # an ordinary save validates/recalculates live financial inputs, including
+    # closed periods. Source fields come only from the validated import plan.
+    source.db_insert()
+    updates = {'modified': timestamp, 'modified_by': frappe.session.user}
+    if not document.get('accounting_source_key'):
+        updates.update(values, deposit_group_key=group_key)
+    frappe.db.set_value(document.doctype, document.name, updates)
+    document.update(updates)
+    attach_existing_file(source_file, document.doctype, document.name, 'source_file')
+    document.add_comment('Comment', frappe._(
+        'Contabilidad vinculada automáticamente al depósito existente. Fila {0}; '
+        'asiento {1}. Se conserva el efectivo y la distribución registrada.'
+    ).format(values.get('source_row'), clean_text(values.get('source_voucher'))))
+    return True
+
+
+def grouped_source_fits(document, row):
+    """Never put already confirmed cash into review by appending excess turnover."""
+    from credinomina_reconciliation.rounding import money, sum_money
+    sources = [*(document.get('accounting_sources') or []), row]
+    total = sum_money(decimal_value(source.get('source_credit')) / decimal_value(source.get('source_fx_rate'))
+                      if source.get('source_currency') == 'NIO' and decimal_value(source.get('source_fx_rate')) > 0
+                      else source.get('source_credit') for source in sources)
+    return total <= money(document.amount_usd) + money('0.01')
+
+
 def preview_deposits(rows, file_hash):
     """Cash receipt counts and ledger-line counts are explicit in the preview."""
     groups = {}
@@ -81,7 +126,7 @@ def preview_deposits(rows, file_hash):
 def source_parent(key):
     names = frappe.get_all(SOURCE_DOCTYPE, filters={'accounting_source_key': key}, pluck='parent')
     active = frappe.get_all('CN Remittance Allocation', filters={'name': ['in', names],
-        'cash_identity_status': ['!=', 'Origen vinculado']}, pluck='name') if names else []
+        'consolidated_deposit': ['is', 'not set']}, pluck='name') if names else []
     if len(active) > 1:
         frappe.throw(_('La línea contable está vinculada a varios depósitos; revise su origen antes de reprocesar.'))
     return active[0] if active else None

@@ -359,6 +359,27 @@ Use **Corregir datos** para rectificar empresa pagadora, fecha del depósito o r
 
 Después de guardar, revise detalle, períodos y destinos y pulse **Conciliar**. La corrección de cabecera no demuestra que la nueva distribución sea válida. Si una validación bloquea el cambio, resuelva primero los vínculos o solicite la reapertura autorizada; no fuerce la edición en la base de datos.
 
+### Registrar depósitos diariamente y cargar contabilidad después
+
+Registre cada depósito con su empresa pagadora, cuenta bancaria, referencia,
+fecha real, moneda e importe. Puede dejar el comprobante contable vacío hasta
+recibir contabilidad. La carga individual y la masiva buscan estos depósitos:
+
+- Una coincidencia única y completa vincula automáticamente la evidencia y el
+  archivo contable al depósito existente, en borrador o confirmado. El importe
+  bancario debe estar explícito en el archivo y la cuenta debe identificarse con
+  certeza. Se conserva la tasa, el detalle, los destinos y la conciliación; la
+  vinculación queda en el historial. También conserva los períodos ya cerrados.
+- Varios candidatos, datos incompletos o comprobantes informados que no coinciden
+  dejan el origen en **Revisar identidad**. También se revisa una referencia igual
+  con fecha o importe distintos, o fecha/importe iguales con otra referencia.
+  Resuelva la identidad antes de confirmar el origen importado.
+- Sin candidatos, se crea el depósito en borrador para el flujo habitual.
+
+Repetir la misma carga no duplica el depósito ni sus líneas contables. Si otro
+archivo vuelve a incluir un depósito ya importado, revise y vincule ese nuevo
+origen antes de confirmar. La carga no ejecuta la conciliación del depósito.
+
 ### Revisar depósitos con varias líneas contables
 
 Un comprobante bancario puede representar varias líneas de la contabilidad. Si el archivo contiene evidencia explícita coincidente de empresa, banco/cuenta, referencia, comprobante, fecha e importe, el importador las guarda en **Líneas contables de origen** de un solo depósito. No elimina líneas parecidas: el Control Mensual conserva cada débito y crédito; el efectivo se cuenta una vez. La vista previa distingue depósitos de líneas contables.

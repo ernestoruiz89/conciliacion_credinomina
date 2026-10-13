@@ -1276,7 +1276,9 @@ Los otros tipos permiten consultar diferencias de cobranza contra aplicación y 
 ## Depósitos incluidos en movimientos contables
 
 La combinación **TMOV 02 / TDOC 12**, con crédito positivo y sin débito ni
-indicación de reversión, crea un **Distribución de Depósito** en borrador.
+indicación de reversión, vincula la evidencia a un depósito manual existente
+cuando la coincidencia es única y completa; en los demás casos crea un
+**Distribución de Depósito** en borrador.
 Funciona tanto en la importación individual como en **Carga masiva**; los
 depósitos no se confirman ni concilian automáticamente. La fila contable
 queda vinculada al depósito, sin aplicar efectivo una segunda vez.
@@ -1300,10 +1302,27 @@ sin moneda: conserva la moneda, tasa e importe del depósito. El motivo queda en
 Una empresa desconocida también
 puede quedar pendiente en el borrador, pero debe completarse antes de confirmar.
 
-Reprocesar conserva el vínculo por identidad contable, sin duplicar depósitos
-ni modificar sus asignaciones. Si coincide con un depósito manual o una partida
-complementaria anterior, la carga se detiene con un mensaje para revisar el
-registro previo. No se convierte evidencia anterior automáticamente.
+Puede registrar depósitos diariamente y cargar contabilidad después. La carga
+busca una coincidencia única en empresa, cuenta bancaria identificada, referencia,
+fecha real, moneda e importe bancario explícito. Acepta un comprobante manual
+vacío; si ambos comprobantes están informados, deben coincidir. Añade la evidencia
+y el archivo al depósito manual, en borrador o confirmado, y deja constancia en
+su historial. Conserva importe, tasa, detalle, destinos y resultados de conciliación,
+incluso cuando el depósito participa en un período cerrado.
+
+Varios candidatos, una cuenta o empresa desconocida, comprobantes contradictorios
+o coincidencias incompletas quedan en **Revisar identidad**, sin confirmarse como
+otro efectivo. La búsqueda también detecta referencia igual con otros datos
+distintos y, si no encuentra esa referencia, fecha/importe iguales con otra
+referencia. Revise desde **Más opciones → Revisar origen del depósito**.
+Sin candidatos, el depósito nuevo queda en borrador.
+
+Reprocesar la misma línea del mismo archivo conserva el vínculo sin duplicar
+depósitos ni evidencia. Un archivo distinto que repita un depósito ya importado
+queda para revisión. Las líneas del mismo evento bancario explícito y del mismo
+archivo pueden compartir depósito; un exceso contable requiere revisión. Si la
+línea ya existe como partida complementaria, la carga se detiene para revisar
+ese registro previo.
 
 Las importaciones `CN Accounting Import`, los depósitos y las partidas complementarias
 importados del archivo contable del core requieren el rol **Eliminar Mov. del Core**
@@ -1536,7 +1555,8 @@ autorizados.
 
 Para instrucciones detalladas, consulte la [guía de instalación y uso](docs/instalacion_y_uso.md)
 y el [procedimiento operativo](docs/procedimiento_operativo.md), actualizado a la
-versión 1.4 del 12 de octubre de 2026. Incluye depósitos con varias líneas
+versión 1.5 del 13 de octubre de 2026. Incluye la vinculación de contabilidad
+a depósitos registrados diariamente y depósitos con varias líneas
 contables de origen y vencimiento financiero separado del compromiso de gestión.
 La migración `review_financial_origins` conserva evidencias y señala revisiones
 sin ejecutar conciliaciones ni modificar importes. El

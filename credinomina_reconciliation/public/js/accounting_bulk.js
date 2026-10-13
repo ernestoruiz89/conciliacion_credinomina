@@ -15,7 +15,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
     const dialog = new frappe.ui.Dialog({
         title: __("Carga masiva de movimientos contables"), size: "extra-large",
         fields: [
-            {fieldtype: "HTML", options: `<p>${__("Cargue un archivo de varios meses. Se creará una importación por empresa y fecha exacta de aplicación, sin modificar documentos existentes ni conciliar automáticamente.")}</p>`},
+            {fieldtype: "HTML", options: `<p>${__("Cargue un archivo de varios meses. Se creará una importación por empresa y fecha exacta de aplicación. La contabilidad de depósitos se vinculará a los registros existentes cuando la coincidencia sea única y completa, conservando su conciliación.")}</p>`},
             {fieldtype: "Attach", fieldname: "source_file", label: __("Archivo de movimientos contables"), reqd: 1},
             {fieldtype: "Select", fieldname: "currency", label: __("Moneda del archivo"), options: "\nUSD\nNIO", reqd: 1},
             {fieldtype: "Float", fieldname: "manual_fx_rate", label: __("Tipo de cambio C$ por US$"), precision: 8,
@@ -270,7 +270,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             if (section.complementary_count > section.complementary.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
         if (section.deposit_count) {
-            html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe antes de confirmar; no se concilian automáticamente.")} ${__("Un depósito puede contener varias líneas contables; el efectivo se cuenta una sola vez.")}</p>`;
+            html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se vincularán a los depósitos manuales con coincidencia única de empresa, cuenta bancaria, referencia, fecha, moneda e importe. Los casos dudosos quedarán en Revisar identidad; los nuevos, en borrador. No se concilian automáticamente.")} ${__("Un depósito puede contener varias líneas contables; el efectivo se cuenta una sola vez.")}</p>`;
             html += table([__("Primera fila"), ...(unidentified ? [__("Empresa asignada")] : []), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario"), __("Líneas contables")], section.deposits.map(row => [
                 esc(row.row), ...(unidentified ? [companyChoice(row)] : []), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)), esc(row.accounting_line_count || 1),
             ]));
