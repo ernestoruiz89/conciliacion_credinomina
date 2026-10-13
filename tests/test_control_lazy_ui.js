@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
-const handlers = {}, events = {}, elements = {}, dialogs = [], requests = [];
+const handlers = {}, events = {}, elements = {}, dialogs = [], requests = [], opened = [];
 let refresh, html, year = "2026", responseData, renders = 0, controlRequests = 0, focused;
 const root = {appendTo() {return this;}, html(value) {html = value; renders++; return this;},
     on(event, selector, callback) {handlers[selector] = callback; events[`${event}:${selector}`] = callback; return this;},
@@ -21,6 +21,8 @@ const data = () => ({year: 2026, totals: {}, work_items: [], work_consultation: 
 });
 const context = vm.createContext({
     __: value => value,
+    URLSearchParams,
+    window: {open: (url, target) => opened.push({url, target})},
     $: value => typeof value === "string" ? root : {attr: key => value[key]},
     frappe: {pages: {"control-credinomina": {}}, datetime: {str_to_user: value => value},
         call(args) {
@@ -180,5 +182,13 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     assert.match(html,/value="Ana"/);
     assert.match(html,/ANA ACTUALIZADA/);
     assert.doesNotMatch(html,/Gestión UNFILTERED/);
-    console.log("OK: tabs, keyboard, refresh, lazy details, cache, deduplication, stale responses, retry, month navigation and pagination.");
+    assert.match(html, /data-export-work/, "The work queue exposes its own export action");
+    handlers["[data-export-work]"].call({});
+    assert.equal(opened.length, 1);
+    const exportUrl = new URL(opened[0].url, "http://localhost");
+    assert.match(exportUrl.pathname, /export_work_items_excel$/);
+    assert.equal(exportUrl.searchParams.get("search"), "Ana");
+    assert.equal(exportUrl.searchParams.get("consultation"), "NEW");
+    assert.equal(opened[0].target, "_blank");
+    console.log("OK: tabs, keyboard, refresh, lazy details, cache, filtered Excel export, deduplication, stale responses, retry, month navigation and pagination.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

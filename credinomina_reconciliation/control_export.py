@@ -767,6 +767,104 @@ def _safe_text(value):
     return "'" + value if value.lstrip().startswith(("=", "+", "-", "@")) else value
 
 
+def build_work_items_workbook(items, *, employer_label, filters, generated_at):
+    """Export every filtered follow-up case, including actions beyond the UI page."""
+    from credinomina_reconciliation.follow_up_queue import TASK_AMOUNT_LABELS
+
+    kind_labels = {
+        "application_cash": "Aplicaciones pendientes de depósito o compensación",
+        "quality_missing_basis": "Cobranza sin equivalente US$",
+        "difference": "Diferencias de conciliación",
+        "review_targets": "Depósito con destinos por revisar",
+        "review_deposit_detail": "Depósito con detalle por revisar",
+        "employee_shortfall": "Diferencia de control",
+        "credit_management": "Saldo a favor",
+        "company_receivable": "Cuenta por cobrar a la empresa",
+        "accounting_registration": "Registro en el core",
+        "complementary_balance": "Partida complementaria",
+        "adjustment_classification": "Ajuste por clasificar",
+        "deposit_detail": "Depósito por detallar",
+        "unassigned_deposit": "Depósito sin asignar",
+        "classify_bank": "Cuenta bancaria por identificar",
+        "pending_application": "Depósito pendiente de aplicar",
+        "historical_application": "Aplicación histórica por vincular",
+        "operational_application": "Aplicación por vincular",
+        "open_exception": "Excepción abierta",
+        "overdue_exception": "Excepción vencida",
+        "deposit_identity": "Identidad del depósito por revisar",
+        "receivable_setup": "Seguimiento de CxC por completar",
+    }
+    due_labels = {"": "Todos", "overdue": "Vencidos", "upcoming": "Hoy o futuros", "undated": "Sin fecha compromiso"}
+    kind_filter_labels = {
+        "": "Todos", "payments": "Pagos pendientes de aplicar", "credits": "Saldos a favor",
+        "complements": "Partidas complementarias", "accounting": "Registro en el core",
+        "exceptions": "Excepciones", "deposits": "Depósitos", "periods": "Aplicaciones y períodos",
+    }
+    sort_labels = {"": "Prioridad", "amount": "Mayor importe", "oldest": "Más antiguo"}
+
+    book = Workbook()
+    sheet = book.active
+    sheet.title = "Qué falta hacer"
+    _base_sheet(sheet, "Qué falta hacer · Control de Credinómina")
+    filter_summary = " · ".join((
+        f"Empresa: {employer_label or 'Todas'}",
+        f"Tipo: {kind_filter_labels.get(filters.get('work_kind') or '', filters.get('work_kind') or 'Todos')}",
+        f"Responsable contiene: {filters.get('responsible') or '—'}",
+        f"Compromiso: {due_labels.get(filters.get('due') or '', filters.get('due') or 'Todos')}",
+        f"Búsqueda: {filters.get('search') or '—'}",
+        f"Importe mínimo US$: {filters.get('min_amount') if filters.get('min_amount') not in (None, '') else '—'}",
+        f"Orden: {sort_labels.get(filters.get('sort_by') or '', filters.get('sort_by') or 'Prioridad')}",
+        f"Generado: {generated_at.strftime('%d/%m/%Y %H:%M')}",
+    ))
+    sheet["A2"] = _safe_text(filter_summary)
+    sheet["A2"].font = Font(name="Arial", size=10, italic=True, color="5A6673")
+    sheet["A3"] = "Los importes de acciones del mismo caso pueden solaparse; no deben sumarse entre sí. La exportación incluye todos los casos filtrados, no solo los cargados en pantalla."
+    sheet["A3"].font = Font(name="Arial", size=10, italic=True, color="5A6673")
+    sheet.merge_cells(start_row=2, start_column=1, end_row=2, end_column=17)
+    sheet.merge_cells(start_row=3, start_column=1, end_row=3, end_column=17)
+    sheet["A2"].alignment = Alignment(wrap_text=True, vertical="center")
+    sheet["A3"].alignment = Alignment(wrap_text=True, vertical="center")
+    sheet.row_dimensions[2].height = 30
+    sheet.row_dimensions[3].height = 30
+
+    headers = (
+        "Prioridad", "Empresa", "Período", "Tipo de pendiente", "Caso / qué falta",
+        "Nombre del cliente", "Nro. de cliente", "Nro. de crédito", "Importe US$",
+        "Tipo de importe", "Fecha de origen", "Fecha compromiso", "Responsable",
+        "Siguiente acción", "Documento relacionado", "Tipo de documento", "Acciones del caso",
+    )
+    priority_labels = {0: "Vencida", 1: "Revisar", 2: "Pendiente", 3: "Seguimiento"}
+    rows = []
+    for item in items:
+        actions = item.get("actions") or [item]
+        action_details = []
+        for action in actions:
+            line = f"{action.get('summary') or ''}: {action.get('next_action') or ''}".strip()
+            if action.get("amount_usd") is not None:
+                line += f" · {action.get('amount_kind') or TASK_AMOUNT_LABELS.get(action.get('kind'), 'Importe')}: US$ {money(action['amount_usd']):,.2f}"
+            if action.get("responsible"):
+                line += f" · Responsable: {action['responsible']}"
+            if action.get("due_date"):
+                line += f" · Compromiso: {action['due_date']}"
+            action_details.append(line)
+        rows.append((
+            priority_labels.get(item.get("priority"), "Seguimiento"), item.get("employer_name"),
+            item.get("period_label"), kind_labels.get(item.get("kind"), item.get("kind") or "Pendiente"),
+            item.get("summary"), item.get("client_name"), item.get("client_number"), item.get("loan_number"),
+            money_float(item.get("amount_usd")) if item.get("amount_usd") is not None else None,
+            item.get("amount_kind") or TASK_AMOUNT_LABELS.get(item.get("kind"), "Importe del caso"),
+            _date(item.get("event_date")), _date(item.get("due_date")), item.get("responsible"),
+            item.get("next_action"), item.get("target_name"), item.get("target_doctype"),
+            "\n".join(action_details),
+        ))
+    _table(sheet, headers, rows, header_row=5, money_columns={9}, date_columns={11, 12})
+    sheet.freeze_panes = "A6"
+    sheet.auto_filter.ref = f"A5:Q{max(5, 5 + len(rows))}"
+    output = io.BytesIO()
+    book.save(output)
+    return output.getvalue()
+
+
 def _base_sheet(sheet, title):
     sheet.sheet_view.showGridLines = False
     sheet["A1"] = title
