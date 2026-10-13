@@ -2,8 +2,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm'), path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname,
     '../credinomina_reconciliation/conciliacion_credinomina/page/control_credinomina/control_credinomina.js'), 'utf8');
-const context = vm.createContext({__: text => text, frappe: {pages: {'control-credinomina': {}}}});
-vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderUnlinkedApplicationTable, renderOperationalSummary, applyPeriodDifferenceFilter, styles}; })();'), context);
+const context = vm.createContext({__: text => text, frappe: {pages: {'control-credinomina': {}},
+    datetime: {str_to_user: value => value}}});
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderPeriodApplicationTable, renderOperationalSummary, applyPeriodDifferenceFilter, applyApplicationDifferenceFilter, hasApplicationDepositDifference, styles}; })();'), context);
 const row = {client_name: 'Cliente <script>', client_number: '7740', loan_number: '13997-1', installment_number: '1',
     expected_usd: 28.43, deducted_usd: 28.43, applied_usd: 0, remitted_usd: 0,
     pending_payment_usd: 28.43, pending_payment_deposits: [{name: 'DEP <1>', amount_usd: 28.43}],
@@ -41,19 +42,45 @@ assert.ok(summary.includes('Pago recibido por aplicar'));
 assert.ok(summary.includes('Asignado'));
 assert.ok(summary.includes('Ver control de cobranza'));
 assert.ok(summary.includes('no es saldo a favor'));
-const unlinked = {client_name: 'Cliente <script>', client_number: '7080', loan_number: '11995-1',
+const unlinked = {name: 'U', event_date: '2026-09-15', client_name: 'Cliente <script>', client_number: '7080', loan_number: '11995-1',
     parent: 'IMPORT-1', reference: 'REF-1', net_applied_usd: 408.08, historical_remitted_usd: 0,
-    historical_balance_usd: 408.08, deposit_match_status: 'Sin deposito'};
-const unlinkedPeriod = {...period, unlinked_application_rows: [unlinked]};
+    historical_balance_usd: 408.08, historical_detail: '[]', deposit_match_status: 'Sin deposito'};
+const settled = {...unlinked, name: 'S', client_name: 'Con depósito', reference: 'REF-2',
+    historical_remitted_usd: 408.08, historical_balance_usd: 0, deposit_match_status: 'Depósito conciliado'};
+const flagged = {...settled, name: 'F', reference: 'REF-3', deposit_match_status: 'Diferencia de importe'};
+const unlinkedPeriod = {...period, reconciliation_mode: 'Operativa', historical_rows: [unlinked, settled, flagged],
+    unlinked_application_rows: [unlinked]};
 const unlinkedSummary = context.helpers.renderOperationalSummary(unlinkedPeriod);
 assert.ok(unlinkedSummary.includes('1 aplicación sin cobranza vinculada'));
 assert.match(unlinkedSummary, /408[.,]08/);
-const unlinkedTable = context.helpers.renderUnlinkedApplicationTable(unlinkedPeriod);
-assert.ok(unlinkedTable.includes('Aplicaciones sin cobranza vinculada'));
-assert.ok(unlinkedTable.includes('Cliente &lt;script&gt;') && !unlinkedTable.includes('<script>'));
-assert.ok(unlinkedTable.includes('data-unlinked-import="IMPORT-1"'));
-assert.ok(unlinkedTable.includes('11995-1') && unlinkedTable.includes('Sin deposito'));
-assert.equal(context.helpers.renderUnlinkedApplicationTable(period), '');
+const applications = context.helpers.renderPeriodApplicationTable(unlinkedPeriod, false);
+assert.ok(applications.includes('Mostrar solo diferencias entre aplicación y depósito'));
+assert.ok(applications.includes('2 aplicaciones con diferencia'));
+assert.equal((applications.match(/data-application-difference="1"/g) || []).length, 2);
+assert.equal((applications.match(/data-application-difference="0"/g) || []).length, 1);
+assert.ok(applications.includes('Cliente &lt;script&gt;') && !applications.includes('<script>'));
+assert.ok(applications.includes('data-application-import="IMPORT-1"'));
+assert.ok(applications.includes('Sin cobranza vinculada') && applications.includes('Cobranza vinculada'));
+const historicApplications = context.helpers.renderPeriodApplicationTable({...unlinkedPeriod,
+    reconciliation_mode: 'Historica', unlinked_application_rows: []}, true);
+assert.ok(historicApplications.includes('<th>Excepción</th>'));
+assert.ok(historicApplications.includes('Registrar excepción'));
+assert.equal(context.helpers.hasApplicationDepositDifference(settled), false);
+assert.equal(context.helpers.hasApplicationDepositDifference(flagged), true);
+const applicationRows = [{dataset: {applicationDifference: '1'}, hidden: false},
+    {dataset: {applicationDifference: '0'}, hidden: false}];
+const applicationRegion = {hidden: false, querySelectorAll: () => applicationRows};
+const applicationEmpty = {hidden: true};
+const applicationDetail = {querySelector: selector => selector.includes('application-region') ? applicationRegion : applicationEmpty};
+assert.equal(context.helpers.applyApplicationDifferenceFilter(applicationDetail, true), 1);
+assert.deepEqual(applicationRows.map(item => item.hidden), [false, true]);
+assert.equal(context.helpers.applyApplicationDifferenceFilter(applicationDetail, false), 2);
+assert.deepEqual(applicationRows.map(item => item.hidden), [false, false]);
+applicationRows[0].dataset.applicationDifference = '0';
+assert.equal(context.helpers.applyApplicationDifferenceFilter(applicationDetail, true), 0);
+assert.equal(applicationRegion.hidden, true);
+assert.equal(applicationEmpty.hidden, false);
+assert.equal(context.helpers.renderPeriodApplicationTable({...unlinkedPeriod, historical_rows: []}, false).includes('No hay aplicaciones asignadas'), true);
 const restricted = context.helpers.renderOperationalSummary({...period, pending_application_usd: null, payment_evidence_restricted: true});
 assert.ok(restricted.includes('Vista parcial') && restricted.includes('>—</div>'));
 const css = context.helpers.styles();
@@ -64,4 +91,4 @@ assert.match(css, /\.cn-panel \{[^}]*background: var\(--cn-surface\)/);
 assert.match(css, /\.cn-matrix tbody th\.cn-company \{[^}]*background: var\(--cn-surface\)/);
 assert.match(css, /\.cn-conciliado, \.cn-historico_conciliado \{ background: var\(--cn-success-bg\)/);
 assert.doesNotMatch(css, /\.cn-panel \{[^}]*background: white/);
-console.log('OK: period modal separates cash stages, keeps seven columns, details, escaped links and nowrap amounts.');
+console.log('OK: period modal filters collection and application/deposit differences in both period modes.');
