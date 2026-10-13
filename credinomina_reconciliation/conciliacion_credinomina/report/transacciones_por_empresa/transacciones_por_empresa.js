@@ -41,7 +41,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         const progress = known
             ? `${__("Importe conciliado")}: ${percentageLabel}% · US$ ${formatAmount(data[key + "_covered_usd"])} / ${formatAmount(data[key + "_total_usd"])}`
             : __("Porcentaje del importe no disponible");
-        const description = `${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")}`;
+        const description = `${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}`;
         const escaped = frappe.utils.escape_html(description);
         // Offset DataTable's content padding so the status fills the cell.
         // Partial-state color uses the amount covered, never transaction count.
@@ -74,7 +74,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 if (!data?.rows) throw new Error("Respuesta sin detalle");
                 const cards = data.summary.map(item => `<div style="flex:1;min-width:150px;padding:12px;border:1px solid var(--border-color);border-radius:8px"><div>${esc(item.label)}</div><strong style="font-size:20px">${esc(item.value)}</strong></div>`).join("");
                 const headers = isApplication
-                    ? ["Fecha", "Documento / fila", "Cliente", "Crédito", "Aplicado US$", "Ajuste US$", "Aplicado neto US$", "Asignado US$", "Redondeo US$", "Pendiente US$", "Estado"]
+                    ? ["Fecha", "Documento / fila", "Cliente", "Crédito", "Aplicado US$", "Partidas complementarias US$", "Depositado US$", "Pendiente US$", "Estado"]
                     : isComplementary ? ["Fecha", "Partida / concepto", "Cliente", "Crédito", "Importe absoluto US$", "Resuelto US$", "Pendiente US$", "Estado"]
                     : ["Fecha", "Depósito", "Referencia / asiento", "Cuenta bancaria", "Depositado US$", "Asignado US$", "Saldo a favor US$", "Sin distribuir US$", "Estado"];
                 const body = data.rows.map(item => {
@@ -90,7 +90,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     const cells = isApplication
                         ? [date, `${link}<div>${__("Fila")} ${esc(item.row_index)}</div><div>${esc([item.reference, item.voucher, item.receipt].filter(Boolean).join(" · "))}</div>`,
                             `${esc(item.client_name || __("Sin identificar"))}<div>${__("Nro. Cliente")}: ${esc(item.client_number || "—")}</div>`, esc(item.loan_number || "—"),
-                            money(item.original_usd), money(item.adjustment_usd), money(item.net_usd), money(item.assigned_usd), money(item.rounding_usd), money(item.pending_usd), status]
+                            money(item.original_usd), money(item.complementary_usd), money(item.assigned_usd), money(item.pending_usd), status]
                         : isComplementary ? [date, `${link}<div>${esc(item.category)}</div><div>${esc([item.reference, item.voucher].filter(Boolean).join(" · "))}</div><div>${__("Importe con signo")}: ${money(item.signed_usd)}</div>`,
                             `${esc(item.client_name || __("Sin identificar"))}<div>${__("Nro. Cliente")}: ${esc(item.client_number || "—")}</div>`, esc(item.loan_number || "—"),
                             money(item.original_usd), money(item.resolved_usd), money(item.pending_usd), status]
@@ -100,7 +100,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     return `<tr>${cells.map((cell, index) => `<td style="vertical-align:top;${index >= 4 && index < cells.length - 1 ? "text-align:right;white-space:nowrap" : ""}">${cell}</td>`).join("")}</tr>`;
                 }).join("");
                 const amountFields = isApplication
-                    ? ["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
+                    ? ["original_usd", "complementary_usd", "assigned_usd", "pending_usd"]
                     : isComplementary ? ["original_usd", "resolved_usd", "pending_usd"]
                     : ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"];
                 const footer = `<tfoot><tr style="font-weight:700;background:var(--control-bg)"><th colspan="4">${__("Total filtrado")} · ${esc(data.filtered_count)} ${__("transacciones")}</th>
@@ -111,7 +111,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:12px;line-height:1.4"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
                     <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody>${footer}</table></div>
                     <p class="text-muted">${__("El total incluye todas las páginas con los filtros actuales. Importes en US$. — indica que falta conversión o atribución individual; el total de esa columna también queda sin determinar.")}</p>
-                    ${isComplementary ? `<p class="text-muted">${__("La cobertura y los totales usan importes absolutos, sin compensar signos. Resuelto incluye depósitos, ajustes, compensaciones y tratamientos no conciliatorios documentados; no equivale a efectivo recibido. La gestión de saldos a favor se muestra en Ver motivo.")}</p>` : ""}
+                    ${isApplication ? `<p class="text-muted">${__("Partidas complementarias reúne compensaciones confirmadas y ajustes de conciliación con su signo de cobertura. Aplicado menos complementarias y depositado determina el pendiente; las complementarias no representan efectivo adicional.")}</p>` : ""}
+                    ${isComplementary ? `<p class="text-muted">${__("La cobertura usa importes absolutos y vínculos reales; no equivale a efectivo recibido. Clasificar como No conciliatoria no liquida el saldo. Las distribuciones inconsistentes no acreditan cobertura. La gestión del saldo a favor es independiente de su conciliación.")}</p>` : ""}
                     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px"><span>${esc(data.rows.length ? start + 1 : 0)}–${esc(end)} / ${esc(data.filtered_count)} ${__("transacciones")}</span>
                     <div><button class="btn btn-default btn-sm cn-detail-previous" ${start === 0 ? "disabled" : ""}>${__("Anterior")}</button>
                     <button class="btn btn-default btn-sm cn-detail-next" ${end >= data.filtered_count ? "disabled" : ""}>${__("Siguiente")}</button></div></div>`);
@@ -125,7 +126,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
             title: __("Transacciones del mes"), size: "extra-large",
             fields: [
                 {fieldname: "context", fieldtype: "HTML", options: `<p style="font-size:16px"><strong>${esc(args.employer || __("Sin empresa identificada"))}</strong> · ${__(months[args.month - 1])} ${esc(args.year)} · ${esc(args.transaction_type)}${Number(args.include_drafts) ? ` · ${__("Incluye borradores")}` : ""}</p>`},
-                {fieldname: "state", label: __("Estado"), fieldtype: "Select", options: "\nConciliado\nParcial\nPendiente"},
+                {fieldname: "state", label: __("Estado"), fieldtype: "Select", options: "\nConciliado\nParcial\nPendiente\nRevisar distribución"},
                 {fieldtype: "Column Break"},
                 {fieldname: "search", label: __("Buscar"), fieldtype: "Data", description: __("Cliente, crédito, documento, referencia, asiento o cuenta bancaria.")},
                 {fieldtype: "Section Break"},

@@ -24,7 +24,7 @@ assert.equal(present({ docstatus: 2, result: "Conciliado" }).result, "No partici
 assert.equal(present({ docstatus: 1, result: "Conciliado" }).color, "green");
 assert.match(present({ docstatus: 1, result: "Conciliado" }, true).hint, /sin guardar/);
 assert.notEqual(present({ docstatus: 1, result: "Conciliado" }, true).color, "green");
-for (const result of ["Saldo a favor documentado", "Parcial con saldo a favor", "Conciliado con saldo a favor del cliente"]) {
+for (const result of ["Saldo a favor documentado", "Parcial con saldo a favor", "Conciliado con saldo a favor del cliente", "Conciliado con saldo a favor"]) {
     const state = present({docstatus: 1, result, amount_usd: 100, allocated_usd: 80, justified_surplus_usd: 20,
         unallocated_usd: 20, detail_count: 0, targets: []});
     assert.equal(state.result, "Conciliado con saldo a favor");
@@ -39,6 +39,8 @@ for (const amount of [99.99, 100.01]) {
 }
 assert.equal(present({docstatus: 1, result: "Conciliado", amount_usd: 100, allocated_usd: 100,
     detail_status: "Revisar filas"}).color, "orange");
+assert.equal(present({docstatus: 1, result: "Conciliado", amount_usd: 100, allocated_usd: 100,
+    unclassified_usd: 5}).result, "Por revisar");
 const amounts = vm.runInContext("remittanceCashAmounts", context);
 assert.equal(amounts({amount_usd: 100, allocated_usd: 80, justified_surplus_usd: 20}).pending, 0);
 assert.equal(amounts({amount_usd: 100, allocated_usd: 70, justified_surplus_usd: 20}).pending, 10);
@@ -46,8 +48,10 @@ assert.equal(amounts({amount_usd: 46.53, allocated_usd: 46.52, justified_surplus
 context.frappe.listview_settings = {};
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation_list.js"), "utf8"), context);
 const indicator = context.frappe.listview_settings["CN Remittance Allocation"].get_indicator;
+assert.deepEqual(Array.from(indicator({financial_status: "Conciliado con saldo a favor", result: "Parcial con saldo a favor"})),
+    ["Conciliado con saldo a favor", "green", "financial_status,=,Conciliado con saldo a favor"]);
 for (const docstatus of [0, 1, 2]) {
-    for (const result of ["Pendiente", "Conciliado", "Conciliado con saldo a favor del cliente", "Saldo a favor documentado", "Parcial con saldo a favor", "Revisar detalle"]) {
+    for (const result of ["Pendiente", "Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente", "Saldo a favor documentado", "Parcial con saldo a favor", "Revisar detalle"]) {
         for (const credit of [0, 20]) {
             for (const amount of [80, 100, 101]) {
                 const doc = {docstatus, result, amount_usd: amount, allocated_usd: 80, justified_surplus_usd: credit};

@@ -137,12 +137,13 @@ def validate_review_item(doc, previous=None):
     action = doc.get("review_action") or "Pendiente de revisión"
     if doc.get("related_application"):
         row = frappe.db.get_value("CN Source Row", doc.related_application,
-                                  ["parent", "parenttype", "event_type", "effective"], as_dict=True)
+                                  ["parent", "parenttype", "event_type", "effective", "historical_period", "collection_row_id", "portfolio_employer"], as_dict=True)
         if not row or row.parenttype != "CN Accounting Import" or row.event_type != "Aplicacion" or not row.effective:
             frappe.throw(_("Seleccione una aplicación contable vigente."))
         parent = frappe.get_doc("CN Accounting Import", row.parent)
         parent.check_permission("read")
-        if not doc.employer or parent.employer != doc.employer:
+        from credinomina_reconciliation.application_context import linked_application_employer
+        if not doc.employer or linked_application_employer(row, parent) != doc.employer:
             frappe.throw(_("La aplicación original debe pertenecer a la empresa de la partida."))
         doc.related_import = parent.name
     else:
@@ -176,13 +177,18 @@ def application_candidates(item_name, accounting_import):
     item.check_permission("write")
     parent = frappe.get_doc("CN Accounting Import", accounting_import)
     parent.check_permission("read")
-    if not item.employer or parent.employer != item.employer:
+    if not item.employer or (parent.employer and parent.employer != item.employer):
         frappe.throw(_("Seleccione una importación de la misma empresa."))
     if (item.docstatus != 0 or abs(money(item.amount_usd)) <= 0
             or item.category in {"Compensación entre partidas", "Saldo a favor del cliente"}
             or item.get("compensations")):
         return []
-    candidates = [row for row in parent.rows if not application_link_error(item, row, parent)]
+    from credinomina_reconciliation.application_candidate_context import CandidateContext
+    possible = [row for row in parent.rows if row.event_type == 'Aplicacion' and row.effective and row.currency == 'USD']
+    if not possible or parent.docstatus == 2 or parent.status not in {'Importado', 'Importado con excepciones'}:
+        return []
+    context = CandidateContext(possible, parent, item)
+    candidates = [row for row in possible if not application_link_error(item, row, parent, context.employer(row))]
     if not candidates:
         return []
     confirmed = defaultdict(lambda: money(0))
@@ -195,13 +201,13 @@ def application_candidates(item_name, accounting_import):
     for row in candidates:
         if adjustment_block_reason(row, item.name,
                 frappe.parse_json(item.get("adjustment_periods") or "[]"),
-                frappe.parse_json(item.get("adjustment_collection_rows") or "[]")):
+                frappe.parse_json(item.get("adjustment_collection_rows") or "[]"), context=context):
             continue
         # Use current confirmed adjustments even if the import summary is stale.
         current = frappe._dict(row.as_dict())
         current.application_adjustment_usd = money_float(confirmed[row.name])
         current.net_applied_usd = net_amount(current)
-        coverage = cash_coverage(current)
+        coverage = cash_coverage(current, context=context)
         if money(coverage["adjustable_usd"]) <= 0:
             continue
         result.append({"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
@@ -209,3 +215,20 @@ def application_candidates(item_name, accounting_import):
              "application_adjustment_usd": current.application_adjustment_usd, "net_applied_usd": current.net_applied_usd,
              **{key: value for key, value in coverage.items() if key != "snapshots"}})
     return result
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def application_import_query(doctype, txt, searchfield, start, page_len, filters):
+    """Include readable legacy imports; candidate validation checks each row."""
+    from credinomina_reconciliation.application_context import import_company_scope
+    company = (filters or {}).get('employer')
+    if not company:
+        return []
+    frappe.get_doc('CN Employer', company).check_permission('read')
+    rows = frappe.get_list('CN Accounting Import', filters={
+        'docstatus': ['!=', 2], 'status': ['in', ['Importado', 'Importado con excepciones']],
+        'name': ['like', '%' + txt + '%'],
+    }, **import_company_scope(company), fields=['name', 'employer'], order_by='modified desc',
+        limit_start=start, limit_page_length=min(int(page_len), 50))
+    return [(row.name, row.employer or _('Empresa por aplicación')) for row in rows]

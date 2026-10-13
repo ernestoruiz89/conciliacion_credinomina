@@ -14,6 +14,9 @@ def execute(filters=None):
     columns = [dict(column) for column in source_columns
                if column["fieldname"] in {"employer", "balance_type", "cutoff_date", "cutoff_warning"} or column["fieldtype"] == "Currency"]
     money_fields = [column["fieldname"] for column in columns if column["fieldtype"] == "Currency"]
+    if any(row.get('amount_usd') is None for row in source_rows):
+        columns.append({'fieldname': 'known_amount_usd', 'label': _('Subtotal conocido US$'),
+                        'fieldtype': 'Currency', 'options': 'usd_currency', 'width': 170})
     applications = "applied_usd" in money_fields
     if applications:
         columns.append({"fieldname": "missing_fx_count", "label": _("Aplicaciones sin conversión US$"),
@@ -32,18 +35,23 @@ def execute(filters=None):
             item["balance_type"] = balance_type
         for field in money_fields:
             values = [row[field] for row in rows if row.get(field) is not None]
-            item[field] = money_float(sum_money(values)) if values else None
+            unknown = any(row.get('amount_usd') is None or (field in row and row[field] is None) for row in rows)
+            item[field] = None if unknown else money_float(sum_money(values))
+        item['known_amount_usd'] = money_float(sum_money(row.get('amount_usd') for row in rows))
         notes = []
         if not employer:
             notes.append(_("Empresa pendiente de identificar"))
         if applications:
-            item["missing_fx_count"] = sum(row.get("amount_usd") is None for row in rows)
+            item["missing_fx_count"] = sum(row.get("amount_usd") is None
+                and not row.get('distribution_issue') and row.get('receivable_status') != 'Revisar cobros' for row in rows)
             if item["missing_fx_count"]:
                 notes.append(_("Totales incompletos: hay aplicaciones sin conversión a US$."))
+        if any(row.get('distribution_issue') or row.get('receivable_status') == 'Revisar cobros' for row in rows):
+            notes.append(_('Totales incompletos: hay distribuciones o cobros por revisar.'))
         item["observation"] = " ".join(notes)
         data.append(item)
     message = " ".join(filter(None, [result[2] if len(result) > 2 else None,
         _("Resumen por empresa de los mismos saldos y rangos del reporte detallado. "
-          "Las aplicaciones sin conversión no se incluyen en los importes; no equivalen a saldo cero.")]))
+          "Los importes sin determinar impiden presentar un total completo. El subtotal conocido excluye esos registros; no equivalen a saldo cero.")]))
     summary = result[4] if len(result) > 4 else []
     return columns, data, message, None, summary

@@ -28,25 +28,29 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(rows[""]["m01"], 1)
         self.assertEqual(len([key for key in rows["A"] if len(key) == 3 and key.startswith("m")]), 12)
 
-    def test_applications_use_cash_status_not_collection_match(self):
-        parent = {"status": "Importado"}
-        row = {"effective": 1, "match_status": "Conciliado"}
+    def test_applications_use_cash_evidence_not_collection_match_or_saved_label(self):
+        parent = {"status": "Importado", "historical_period": "P"}
+        row = {"event_type": "Aplicacion", "currency": "USD", "amount": 100,
+               "effective": 1, "match_status": "Conciliado"}
         self.assertEqual(application_state(row, parent), "Pendiente")
         for status in ("Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"):
-            settled = row | {"deposit_match_status": status}
+            self.assertEqual(application_state(row | {"deposit_match_status": status}, parent), "Pendiente")
+            settled = row | {"deposit_match_status": status, "historical_remitted_usd": 100}
             self.assertEqual(application_state(settled, parent), "Conciliado")
             self.assertEqual(application_state(settled, {"status": "Borrador"}), "Pendiente")
             self.assertEqual(application_state(settled | {"effective": 0}, parent), "Pendiente")
             self.assertEqual(application_state(settled | {"match_status": "Ignorado"}, parent), "Pendiente")
-        for data in ({"deposit_match_status": "Depósito parcial"}, {"application_adjustment_usd": 10}, {"historical_remitted_usd": 10}):
+        self.assertEqual(application_state(row | {"deposit_match_status": "Depósito parcial"}, parent), "Pendiente")
+        for data in ({"application_adjustment_usd": 10}, {"historical_remitted_usd": 10}):
             self.assertEqual(application_state(row | data, parent), "Parcial")
         self.assertEqual(application_state(row | {"application_adjustment_usd": -10}, parent), "Pendiente")
 
     def test_amount_percentage_is_weighted_not_based_on_count(self):
-        imports = {"I": {"status": "Importado", "employer": "A"}}
+        imports = {"I": {"status": "Importado", "employer": "A", "historical_period": "P"}}
         rows = [dict(name=str(index), parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="USD", amount=1,
-                     effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado") for index in range(9)]
-        rows.append(dict(rows[0], name="BIG", amount=991, deposit_match_status="Pendiente"))
+                     effective=1, match_status="Conciliado", historical_remitted_usd=1,
+                     deposit_match_status="Depósito conciliado") for index in range(9)]
+        rows.append(dict(rows[0], name="BIG", amount=991, historical_remitted_usd=0, deposit_match_status="Pendiente"))
         amounts = application_month_amounts(rows, imports, {})
         self.assertEqual(amounts[("A", "2025-04")], {"total_usd": 1000, "covered_usd": 9})
         records = [dict(employer="A", date=row["event_date"], state=application_state(row, imports["I"])) for row in rows]
@@ -95,7 +99,8 @@ class CompanyTransactionsTests(unittest.TestCase):
     def test_conversion_and_missing_fx_do_not_invent_percentages(self):
         imports = {"I": {"status": "Importado", "employer": "A"}}
         row = dict(name="R", parent="I", event_date="2025-04-30", event_type="Aplicacion", currency="NIO", amount=3662.43,
-                   manual_fx_rate=36.6243, effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado")
+                   manual_fx_rate=36.6243, historical_period="P", historical_remitted_usd=100,
+                   effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado")
         self.assertEqual(application_month_amounts([row], imports, {})[("A", "2025-04")], {"total_usd": 100, "covered_usd": 100})
         self.assertIsNone(application_month_amounts([dict(row, manual_fx_rate=0)], imports, {})[("A", "2025-04")]["total_usd"])
 
@@ -106,7 +111,7 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(deposit_state(row | {"allocated_usd": 80}), "Parcial")
         self.assertEqual(deposit_state(row | {"allocated_usd": 0, "result": "Pendiente"}), "Pendiente")
         self.assertEqual(deposit_state(row | {"result": "Revisar detalle"}), "Parcial")
-        self.assertEqual(deposit_state(row | {"allocated_usd": 110}), "Parcial")
+        self.assertEqual(deposit_state(row | {"allocated_usd": 110}), "Revisar distribución")
         for result in ("Parcial con saldo a favor", "Saldo a favor documentado", "Conciliado con saldo a favor del cliente"):
             self.assertEqual(deposit_state(row | {"allocated_usd": 80, "justified_surplus_usd": 20, "result": result}), "Conciliado")
             self.assertEqual(deposit_state(row | {"allocated_usd": 70, "justified_surplus_usd": 20, "result": result}), "Parcial")
@@ -114,12 +119,14 @@ class CompanyTransactionsTests(unittest.TestCase):
     def test_import_query_respects_permissions_counts_rows_not_parents_and_draft_business_status(self):
         for drafts in (0, 1):
             with self.subTest(drafts=drafts):
-                parents = [frappe._dict(name="IMPORT", employer="A", status="Importado")]
+                parents = [frappe._dict(name="IMPORT", employer="A", status="Importado", historical_period="P")]
                 rows = [frappe._dict(name=str(index), parent="IMPORT", event_date="2025-04-30", event_type="Aplicacion",
+                                    currency="USD", amount=100, historical_remitted_usd=100,
                                     effective=1, match_status="Conciliado", deposit_match_status="Depósito conciliado") for index in range(3)]
                 if drafts:
                     parents.append(frappe._dict(name="DRAFT", employer="A", status="Borrador"))
-                    rows.append(frappe._dict(parent="DRAFT", event_date="2025-04-15", effective=1, deposit_match_status="Depósito conciliado"))
+                    rows.append(frappe._dict(name="DRAFT-ROW", parent="DRAFT", event_date="2025-04-15",
+                        event_type="Aplicacion", currency="USD", amount=100, effective=1, deposit_match_status="Depósito conciliado"))
                 with patch.object(frappe, "has_permission", return_value=True), \
                         patch.object(frappe, "get_list", return_value=parents) as listed, \
                         patch.object(frappe, "get_all", return_value=rows) as children:
@@ -127,7 +134,7 @@ class CompanyTransactionsTests(unittest.TestCase):
                 self.assertEqual(data[0]["m04"], 3 + drafts)
                 self.assertEqual(data[0]["m04_state"], "Parcial" if drafts else "Conciliado")
                 self.assertEqual(len(columns), 14)
-                self.assertEqual(listed.call_args.kwargs["filters"]["employer"], "A")
+                self.assertEqual(listed.call_args.kwargs["or_filters"], [["employer", "=", "A"], ["employer", "is", "not set"]])
                 self.assertEqual("Borrador" in listed.call_args.kwargs["filters"]["status"][1], bool(drafts))
                 child_filter = children.call_args.kwargs["filters"]
                 self.assertEqual(child_filter["parent"][1], [parent.name for parent in parents])
@@ -149,14 +156,14 @@ class CompanyTransactionsTests(unittest.TestCase):
                 patch.object(frappe, "get_list", return_value=[parent]) as listed, \
                 patch.object(frappe, "get_all", return_value=rows) as children:
             result = report.get_month_detail("2024", "2", "A", state="Parcial", search="ana")
-        self.assertEqual(listed.call_args.kwargs["filters"]["employer"], "A")
-        self.assertEqual(children.call_args.kwargs["filters"]["event_date"], ["between", ["2024-02-01", "2024-02-29"]])
+        self.assertEqual(listed.call_args.kwargs["or_filters"], [["employer", "=", "A"], ["employer", "is", "not set"]])
+        self.assertEqual(children.call_args.kwargs["filters"]["event_date"], ["between", ["2024-01-01", "2024-12-31"]])
         self.assertEqual(result["filtered_count"], 1)
         row = result["rows"][0]
         self.assertEqual((row["net_usd"], row["assigned_usd"], row["pending_usd"]), (80, 30, 50))
         self.assertEqual((row["document"], row["name"], row["row_index"]), ("IMPORT", "R", 2))
         self.assertEqual(result["summary"][1]["value"], 1)
-        self.assertEqual(result["totals"], dict(original_usd=100, adjustment_usd=20, net_usd=80,
+        self.assertEqual(result["totals"], dict(original_usd=100, adjustment_usd=20, complementary_usd=20, net_usd=80,
                                                assigned_usd=30, rounding_usd=0, pending_usd=50))
 
     def test_deposit_detail_paginates_filters_and_preserves_credit_separately(self):
@@ -191,7 +198,7 @@ class CompanyTransactionsTests(unittest.TestCase):
         collections = {"C": dict(applied_usd=200, remittance_detail='[{"importe_usd":60}]')}
         with patch.object(frappe, "has_permission", return_value=True), \
                 patch.object(report, "load_transactions", return_value=([dict(name="R", state="Parcial")], [source], {"I": parent})), \
-                patch.object(report, "load_partial_collections", return_value=collections):
+                patch.object(report, "load_application_collections", return_value=collections):
             result = report.get_month_detail(2025, 4, "A")
             row = result["rows"][0]
         self.assertIsNone(row["assigned_usd"])

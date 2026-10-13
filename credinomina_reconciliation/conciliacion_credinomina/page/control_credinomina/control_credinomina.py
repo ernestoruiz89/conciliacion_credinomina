@@ -18,7 +18,7 @@ from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CAT
 from credinomina_reconciliation.reconciliation import net_application_amount
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
-from credinomina_reconciliation.rounding import CASH_EPSILON, money_float
+from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float
 from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods, deposit_names_for_periods
 
 
@@ -139,7 +139,16 @@ def get_control_data(year=None, employer=None):
 @frappe.whitelist()
 def get_work_overview(employer=None):
     """Lazy all-year work queue, independent from calendar/KPI/export filters."""
-    return _build_control_data("Todos", employer, summary_only=True, detail_section="work_overview")
+    data, consultation = _work_consultation(None, employer)
+    return {**data, 'work_items': data['work_items'][:100],
+            'open_deposits': data['open_deposits'][:100], **consultation}
+
+
+def _work_consultation(token, employer):
+    from credinomina_reconciliation.control_consultation import read_consultation
+    return read_consultation(token, {'employer': employer or '', 'year': 'Todos'},
+        lambda: _build_control_data("Todos", employer, summary_only=True,
+            detail_section="work_overview", unpaged_work=True))
 
 
 @frappe.whitelist()
@@ -194,7 +203,7 @@ def get_deposit_detail(deposit_name: str):
 
 
 @frappe.whitelist()
-def get_control_rows(section: str, year=None, employer=None, start=0, work_kind="", responsible="", due=""):
+def get_control_rows(section: str, year=None, employer=None, start=0, work_kind="", responsible="", due="", search="", min_amount=None, sort_by="", consultation=None):
     if section not in {"open_deposits", "unassigned_historical_applications", "work_items"}:
         frappe.throw(_("Sección de control inválida."))
     start = max(cint(start), 0)
@@ -206,11 +215,18 @@ def get_control_rows(section: str, year=None, employer=None, start=0, work_kind=
             frappe.throw(_("Indique un año valido."))
         from credinomina_reconciliation.control_application_pages import historical_page
         return historical_page(year, employer, start)
-    rows = _build_control_data(year, employer, summary_only=True, detail_section=section)[section]
-    if section == "work_items" and (work_kind or responsible or due):
+    snapshot = {}
+    if str(year).strip().casefold() in ('todos', 'todo', 'all'):
+        data, snapshot = _work_consultation(consultation, employer)
+        rows = data[section]
+        if snapshot['restarted']:
+            start = 0
+    else:
+        rows = _build_control_data(year, employer, summary_only=True, detail_section=section)[section]
+    if section == "work_items":
         from credinomina_reconciliation.follow_up_queue import filter_work
-        rows = filter_work(rows, work_kind, responsible, due, as_of=now_datetime().date())
-    result = {"rows": rows[start:start + 100], "count": len(rows)}
+        rows = filter_work(rows, work_kind, responsible, due, as_of=now_datetime().date(), search=search, min_amount=min_amount, sort_by=sort_by)
+    result = {"rows": rows[start:start + 100], "count": len(rows), **snapshot}
     if section == "work_items":
         result["overdue_count"] = sum(item.get("priority") == 0 for item in rows)
         result['action_count'] = sum(item.get('action_count', 1) for item in rows)
@@ -235,6 +251,14 @@ def _available_years(employer=None):
                 if row.get(field):
                     years.add(getdate(row[field]).year)
     if frappe.has_permission("CN Accounting Import", "read"):
+        if employer:
+            from credinomina_reconciliation.application_context import load_application_context, application_employer
+            sources, parents, periods, collections, _employers = load_application_context(employer)
+            for row in sources:
+                if (row.get('event_date') and application_employer(row, parents.get(row.get('parent'), {}),
+                        periods, collections) == employer):
+                    years.add(getdate(row.get('event_date')).year)
+            return sorted(years, reverse=True)
         imports = frappe.get_list("CN Accounting Import", filters={**company,
             "status": ["in", ["Importado", "Importado con excepciones"]]},
             pluck="name", limit_page_length=0)
@@ -249,7 +273,7 @@ def _available_years(employer=None):
 
 
 @cached_balance_reads
-def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False, detail_period=None, detail_section=None):
+def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False, detail_period=None, detail_section=None, unpaged_work=False):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
         frappe.throw(_("No tiene permiso para consultar la conciliacion."))
@@ -272,7 +296,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             *([] if summary_only else ["control_cut_summary"]),
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
-            "status_before_close",
+            "status_before_close", "applied_total_usd", "remitted_total_usd", "pending_usd",
         ],
         order_by="employer asc, payroll_month asc",
         limit_page_length=_row_limit(3000, full_export),
@@ -310,6 +334,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             limit_page_length=_row_limit(20000, full_export),
         )
         for row in rows:
+            from credinomina_reconciliation.application_quality import collection_quality
+            row.update(collection_quality(row))
             row["collection_shortfall_usd"] = collection_shortfall_usd(row)
             row["deduction_pending_reason"] = deduction_pending_type(row)
             rows_by_period[row.parent].append(row)
@@ -380,7 +406,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
     totals = defaultdict(float)
     for period in periods:
         expected = flt(period.expected_usd)
-        deducted = flt(period.deducted_usd)
+        deducted = 0  # Legacy evidence is never a current control metric.
         applied = flt(period.applied_usd)
         complementary = flt(period.complementary_usd)
         remitted = flt(period.remitted_usd)
@@ -390,20 +416,18 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             flt(row.collection_shortfall_usd)
             for row in period_rows
         ) if not is_historical else 0
-        pending_detail = sum(
-            flt(row.expected_usd)
-            for row in period_rows
-            if row.collection_shortfall_usd is None
-        ) if not is_historical else 0
+        missing_basis = sum(not money(row.get('expected_usd')) and bool(money(row.get('expected_nio')))
+                            for row in period_rows) if not is_historical else 0
+        pending_detail = 0
         aggregate = collection_totals.get(period.name, {})
         if summary_only:
             worker_gap = flt(aggregate.get("worker_gap_usd")) if not is_historical else 0
+            missing_basis = cint(aggregate.get("quality_missing_basis_count")) if not is_historical else 0
             pending_detail = flt(aggregate.get("pending_detail_usd")) if not is_historical else 0
         adjustment = flt(period.rounding_adjustment_usd)
         # This is an assignment gap, not a confirmed company receivable: an
         # already received deposit may still lack its per-client detail.
-        employer_gap = (flt(aggregate.get("employer_gap_usd")) if summary_only else
-                        sum(flt(unassigned_deduction_usd(row)) for row in period_rows)) if not is_historical else 0
+        employer_gap = 0  # Financial pending is provided by application balances.
         historical_pending = max(applied + adjustment - remitted, 0) if is_historical else 0
         period_surpluses = surplus_by_period[period.name]
         period_movements = movements_by_period[period.name]
@@ -412,38 +436,18 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             for item in period_surpluses
             if item.result == "Saldo a favor documentado"
         )
-        if is_historical:
-            control_state = (
-                "historico_excepcion" if exceptions_by_period[period.name]
-                else "historico_conciliado" if applied > CASH_EPSILON
-                and historical_pending <= CASH_EPSILON
-                else "historico_parcial" if remitted > CASH_EPSILON
-                else "historico_pendiente"
-            )
-        elif (
-            flt(period.exception_count)
-            or flt(aggregate.get("application_difference_count"))
-            or any(row.application_status == "Diferencia aplicacion vs deposito" for row in period_rows)
-        ):
-            control_state = "diferencia"
-        elif (period.status_before_close if period.status == "Cerrado" else period.status) == "Conciliado":
-            # Reuse the financial result instead of comparing cash to payroll
-            # again. First-stage gaps remain available in the detail and queue.
-            control_state = "conciliado"
-        elif (period.status_before_close if period.status == "Cerrado" else period.status) == "Parcial" or remitted > CASH_EPSILON:
-            control_state = "parcial"
-        elif worker_gap > CASH_EPSILON:
-            control_state = "diferencia"
-        elif pending_detail > CASH_EPSILON:
-            control_state = "pendiente_detalle"
-        else:
-            control_state = "en_transito"
+        from credinomina_reconciliation.period_presentation import financial_position
+        position = financial_position(period)
+        control_state = position['control_state']
+        historical_pending = position['financial_pending_usd'] if is_historical else 0
         record = dict(period)
+        record.update(position)
         record.update(
             {
                 "month": str(period.payroll_month)[:7],
                 "employer_name": employer_names.get(period.employer, period.employer),
                 "worker_gap_usd": money_float(worker_gap),
+                "quality_missing_basis_count": missing_basis,
                 "pending_detail_usd": money_float(pending_detail),
                 "employer_gap_usd": money_float(employer_gap),
                 "historical_pending_usd": money_float(historical_pending),
@@ -457,6 +461,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "documented_credit_usd": money_float(documented_credit),
                 "unclassified_deposit_usd": 0,
                 "control_state": control_state,
+                "open_exception_count": len(exceptions_by_period[period.name]),
                 "rounding_movement_count": len(period_movements),
                 "rows": period_rows,
                 "historical_rows": historical_rows_by_period[period.name],
@@ -838,10 +843,10 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         work_items.extend(pending_payments)
     work_items = group_work_cases(work_items)
     if detail_section == "work_overview":
-        return {"work_scope": "Todos", "work_items": work_items[:100], "work_item_count": len(work_items),
+        return {"work_scope": "Todos", "work_items": work_items if unpaged_work else work_items[:100], "work_item_count": len(work_items),
                 "work_action_count": sum(item.get('action_count', 1) for item in work_items),
                 "overdue_count": sum(item["priority"] == 0 for item in work_items),
-                "open_deposits": deposits[:100], "open_deposit_count": len(deposits),
+                "open_deposits": deposits if unpaged_work else deposits[:100], "open_deposit_count": len(deposits),
                 "unassigned_historical_applications": unassigned_historical_applications[:100],
                 "unassigned_historical_count": len(unassigned_historical_applications)}
     if detail_section:
@@ -909,7 +914,8 @@ def _build_work_items(
 
     def add(priority, kind, summary, next_action, *, period=None, employer=None,
             amount_usd=None, count=None, due_date=None, target_doctype=None,
-            target_name=None):
+            target_name=None, amount_kind=None):
+        from credinomina_reconciliation.follow_up_queue import TASK_AMOUNT_LABELS
         period_record = period_by_name.get(period)
         employer = employer or (period_record or {}).get("employer")
         items.append({
@@ -924,6 +930,7 @@ def _build_work_items(
             "summary": summary,
             "next_action": next_action,
             "amount_usd": money_float(amount_usd) if amount_usd is not None else None,
+            "amount_kind": amount_kind or TASK_AMOUNT_LABELS.get(kind, "Importe del caso"),
             "count": count,
             "due_date": str(due_date)[:10] if due_date else None,
             "target_doctype": target_doctype,
@@ -934,34 +941,31 @@ def _build_work_items(
         name = period["name"]
         target = {"period": name, "target_doctype": "CN Reconciliation Period",
                   "target_name": name}
-        if period.get("reconciliation_mode") == "Historica":
-            pending = flt(period.get("historical_pending_usd"))
-            if pending > CASH_EPSILON:
-                add(3, "historical_cash", "Aplicaciones históricas sin depósito asignado",
-                    "Ubicar el depósito y vincularlo con estas aplicaciones.",
-                    amount_usd=pending, **target)
-        else:
-            missing = flt(period.get("pending_detail_usd"))
-            if missing > CASH_EPSILON:
-                action = ("Importar y validar el detalle recibido de la empresa."
-                          if period.get("employer_response_file") else
-                          "Solicitar e importar el detalle de deducción de la empresa.")
-                add(2, "company_detail", "Detalle de empresa pendiente o por aclarar",
-                    action, amount_usd=missing, **target)
-            if period.get("deduction_basis") == "Depósito coincidente":
-                add(2, "inferred_deduction", "Deducción inferida del depósito",
-                    "Obtener el detalle de planilla para confirmar cada cliente.",
-                    amount_usd=period.get("inferred_deduction_usd"), **target)
+        pending = period.get("financial_pending_usd")
+        if pending is None:
+            from credinomina_reconciliation.period_presentation import financial_position
+            pending = financial_position(period)["financial_pending_usd"]
+        due = period.get("remittance_due_date")
+        today = as_of or now_datetime().date()
+        if money(pending) > 0:
+            add(0 if due and str(due)[:10] < today.isoformat() else 3,
+                "application_cash", "Aplicaciones pendientes de depósito o compensación",
+                "Vincular el depósito o la compensación confirmada con las aplicaciones pendientes.",
+                amount_usd=pending, due_date=due, amount_kind="Pendiente de cubrir", **target)
+        if period.get("reconciliation_mode") != "Historica":
+            missing_basis = period.get('quality_missing_basis_count', sum(
+                not money(row.get('expected_usd')) and bool(money(row.get('expected_nio')))
+                for row in period.get('rows', [])))
+            if missing_basis:
+                add(2, 'quality_missing_basis', 'Cobranza sin equivalente US$ para comparar',
+                    'Complete el equivalente US$ de la cobranza y vuelva a revisar la aplicación. No modifica la CxC.',
+                    count=missing_basis, amount_usd=None, amount_kind='Importe no determinable', **target)
             employee_gap = flt(period.get("worker_gap_usd"))
             if employee_gap > CASH_EPSILON:
-                add(3, "employee_shortfall", "Cuotas no deducidas según detalle",
-                    "Revisar motivo y seguimiento de las cuotas no deducidas.",
-                    amount_usd=employee_gap, **target)
-            employer_gap = flt(period.get("employer_gap_usd"))
-            if employer_gap > CASH_EPSILON:
-                add(2, "unlinked_remittance", "Deducción sin depósito asignado",
-                    "Ubicar el depósito o vincular el depósito; no es CxC confirmada.",
-                    amount_usd=employer_gap, **target)
+                add(3, "employee_shortfall", "Diferencia cobranza vs aplicación (informativo)",
+                    "Revisar lo solicitado frente a lo aplicado en el core; no modifica la CxC.",
+                    amount_usd=employee_gap, amount_kind="Diferencia de control (informativa)", **target)
+
 
         difference_rows = [
             row for row in period.get("rows", [])

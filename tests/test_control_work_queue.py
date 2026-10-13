@@ -34,15 +34,12 @@ class ControlWorkQueueTests(unittest.TestCase):
         )
         kinds = {item["kind"] for item in items}
         self.assertEqual(kinds, {
-            "company_detail", "employee_shortfall", "unlinked_remittance",
+            "employee_shortfall",
             "difference", "overdue_exception",
         })
         self.assertEqual(items[0]["kind"], "overdue_exception")
         self.assertEqual(items[0]["target_name"], "EX-1")
-        self.assertEqual(next(item for item in items if item["kind"] == "company_detail")["amount_usd"], 80)
-        self.assertIn("no es CxC confirmada", next(
-            item for item in items if item["kind"] == "unlinked_remittance"
-        )["next_action"])
+        self.assertEqual(next(item for item in items if item["kind"] == "employee_shortfall")["amount_usd"], 20)
 
     def test_deposit_detail_and_unassigned_cash_have_document_links(self):
         period = {

@@ -10,7 +10,7 @@ from frappe.utils import flt, getdate, nowdate
 
 from credinomina_reconciliation.aging import age_balance, operational_balances
 from credinomina_reconciliation.application_aging import (
-    APPLICATION_BALANCE, TOTAL_RECEIVABLE_BALANCE, ADJUSTMENT_BALANCE, application_balances,
+    APPLICATION_BALANCE, TOTAL_RECEIVABLE_BALANCE, ADJUSTMENT_BALANCE, application_balances, balance_status,
 )
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.rounding import money_float, sum_money
@@ -57,7 +57,7 @@ def _execute_applications(filters):
                 continue
         elif from_month or to_month:
             continue
-        data.append(row)
+        data.append(dict(row, amount_status=balance_status(row)))
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
     receivables = (cutoff['receivables'] if cutoff else load_receivables(employer=filters.get('employer'))) if include_adjustments else []
     for item in receivables:
@@ -72,35 +72,47 @@ def _execute_applications(filters):
         period = periods.get(item.get('period'), {})
         if filters.get('reconciliation_mode') and period.get('reconciliation_mode') != filters['reconciliation_mode']:
             continue
-        due = item.get('credit_commitment_date')
+        due = item.get('receivable_due_date')
         data.append(dict(item, balance_type=ADJUSTMENT_BALANCE, amount_usd=item['receivable_usd'],
             complementary_item=item['name'], payroll_month=period.get('payroll_month') or item['posting_date'],
             due_date=due, usd_currency='USD', **age_balance(item['receivable_usd'], due, as_of),
-            payment_term_origin='Fecha compromiso del ajuste' if due else 'Sin fecha compromiso',
-            observation='CxC trasladada a la empresa; el registro contable no liquida el cobro.'))
+            payment_term_origin=item.get('receivable_due_origin') or 'Vencimiento pendiente de verificar',
+            amount_status=item.get('receivable_status'),
+            observation=item.get('observation') or 'CxC trasladada a la empresa; el registro contable no liquida el cobro.'))
     data.sort(key=lambda row: (row.get("employer") or "", str(row.get("due_date") or "9999"),
                               row.get("client_name") or "", row.get("loan_number") or ""))
     total_label = ('CxC pendiente (aplicaciones y ajustes)' if include_applications and include_adjustments
                    else 'Aplicaciones pendientes' if include_applications else ADJUSTMENT_BALANCE)
-    summary = [
-        {"label": _(label), "value": money_float(sum_money(row.get(field) for row in data)),
-         "indicator": indicator, "datatype": "Currency", "currency": "USD"}
-        for label, field, indicator in (
+    summary = []
+    for label, field, indicator in (
             (total_label, "amount_usd", "orange"),
             ("No vencido", "not_due", "blue"),
             ("Sin fecha / distribución pendiente", "without_date", "red"),
-        )
-    ]
-    missing_fx = sum("amount_usd" not in row for row in data)
+        ):
+        unknown = any(row.get(field) is None for row in data)
+        summary.append({"label": _(label + ' · pendiente de determinar' if unknown else label),
+            "value": 'N/D' if unknown else money_float(sum_money(row.get(field) for row in data)),
+            "indicator": 'red' if unknown else indicator,
+            "datatype": 'Data' if unknown else 'Currency', "currency": "USD"})
+    unknown_balances = sum(row.get('amount_usd') is None for row in data)
+    if unknown_balances:
+        summary.insert(1, {'label': _('Subtotal conocido US$'),
+            'value': money_float(sum_money(row.get('amount_usd') for row in data)),
+            'indicator': 'orange', 'datatype': 'Currency', 'currency': 'USD'})
+    missing_fx = sum(row.get('amount_usd') is None and row.get('amount_status') == 'Sin conversión US$' for row in data)
     if missing_fx:
         summary.append({"label": _("Aplicaciones sin conversión US$"), "value": missing_fx,
                         "indicator": "red", "datatype": "Int"})
+    reviewing = sum(row.get('amount_usd') is None and row.get('amount_status') in {'Revisar distribución', 'Revisar cobros'} for row in data)
+    if reviewing:
+        summary.append({'label': _('Saldos con distribución o cobros por revisar'), 'value': reviewing,
+                        'indicator': 'red', 'datatype': 'Int'})
     help_text = _(
         "CxC actual: aplicaciones pendientes de cubrir y CxC por ajustes de depósito, en US$. "
         "Los ajustes usan su fecha compromiso; si falta, se muestran sin vencimiento. "
         "Solo depósitos o compensaciones vinculados liquidan la CxC del ajuste. "
         "El aplicado neto ya descuenta las compensaciones confirmadas vinculadas a la aplicación; no se restan dos veces. "
-        "La cobranza solicitada y las deducciones son controles de la primera conciliación, no crean esta CxC. "
+        "La primera conciliación compara cobranza con aplicación como control de calidad; no crea esta CxC. "
         "Incluye histórico y operativo; no depende de haber recibido el detalle de deducción. "
         "El vencimiento se calcula con grace_days de la empresa desde el primer día del mes siguiente "
         "a la fecha de aplicación: 10 significa el día 10; la mora empieza el día 11. "
@@ -128,6 +140,9 @@ def _execute_applications(filters):
             {'fieldname': 'cutoff_date', 'label': _('Fecha de corte histórico'), 'fieldtype': 'Date', 'width': 150},
             {'fieldname': 'cutoff_warning', 'label': _('Advertencias del corte'), 'fieldtype': 'Data', 'width': 350},
         ]
+    if unknown_balances:
+        message = (_('Total pendiente de determinar: hay {0} saldos sin conversión o con evidencia por revisar. '
+                     'El subtotal conocido no representa la CxC total. ').format(unknown_balances) + message)
     return columns, data, message, None, summary
 
 
@@ -169,7 +184,7 @@ def _execute_operational(filters):
         fields=[
             "name", "parent", "client", "client as client_number", "client_name",
             "national_id", "loan_number", "installment_number",
-            "expected_usd", "deducted_usd", "applied_usd", "remitted_usd",
+            "expected_usd", "expected_nio", "applied_usd", "remitted_usd",
             "fx_variance_usd", "rounding_adjustment_usd", "deduction_status",
         ],
         order_by="parent asc, idx asc",
@@ -220,10 +235,8 @@ def _execute_operational(filters):
             "indicator": indicator, "datatype": "Currency", "currency": "USD",
         }
         for label, indicator in (
-            ("Cobranza no deducida (informativo)", "red"),
-            ("Deducido sin depósito asignado", "orange"),
-            ("Detalle de empresa pendiente", "blue"),
-            ("Detalle de empresa por aclarar", "orange"),
+            ("Diferencia cobranza vs aplicación (informativo)", "orange"),
+            ("Cobranza sin conversión US$", "red"),
         )
         if summary[label] > 0
     ]
@@ -278,6 +291,7 @@ def get_application_columns():
                                ("adjustment_usd", "Ajuste conciliación US$"), ("fx_variance_usd", "Diferencia cambiaria US$"))],
     ]
     columns.append({"fieldname": "observation", "label": _("Observación"), "fieldtype": "Data", "width": 360})
+    columns.append({'fieldname': 'amount_status', 'label': _('Estado del saldo'), 'fieldtype': 'Data', 'width': 180})
     columns.append({"fieldname": "complementary_item", "label": _("Partida complementaria"), "fieldtype": "Link", "options": "CN Complementary Item", "width": 180})
     columns.append({"fieldname": "posting_date", "label": _("Fecha de ajuste"), "fieldtype": "Date", "width": 130})
     columns.append({"fieldname": "payment_term_origin", "label": _("Origen del plazo"), "fieldtype": "Data", "width": 300})

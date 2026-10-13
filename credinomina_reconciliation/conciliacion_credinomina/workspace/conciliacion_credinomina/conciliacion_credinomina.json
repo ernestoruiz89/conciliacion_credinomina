@@ -1,6 +1,6 @@
 {
   "charts": [],
-  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_flujo_ayuda\",\"type\":\"paragraph\",\"data\":{\"text\":\"Cobranza → Deducción de la empresa → Aplicaciones del core → Depósito y detalle → Revisión y cierre. La cobranza y las deducciones se cargan dentro del período.\",\"col\":12}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar aplicaciones\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Registrar depósito\",\"col\":3}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Flujo de trabajo</b></span>\",\"col\":12}},{\"id\":\"cn_etapa_1\",\"type\":\"card\",\"data\":{\"card_name\":\"1. Preparación\",\"col\":4}},{\"id\":\"cn_etapa_2\",\"type\":\"card\",\"data\":{\"card_name\":\"2. Cobranza y deducciones\",\"col\":4}},{\"id\":\"cn_etapa_3\",\"type\":\"card\",\"data\":{\"card_name\":\"3. Aplicaciones del core\",\"col\":4}},{\"id\":\"cn_etapa_4\",\"type\":\"card\",\"data\":{\"card_name\":\"4. Depósitos y distribución\",\"col\":4}},{\"id\":\"cn_etapa_5\",\"type\":\"card\",\"data\":{\"card_name\":\"5. Diferencias y seguimiento\",\"col\":4}},{\"id\":\"cn_etapa_6\",\"type\":\"card\",\"data\":{\"card_name\":\"6. Control y reportes\",\"col\":4}},{\"id\":\"cn_flujo_historico\",\"type\":\"paragraph\",\"data\":{\"text\":\"En modalidad histórica, cree el período y cargue las aplicaciones; no se requiere cobranza ni deducción. El depósito y su detalle pueden recibirse después, incluso en otro mes.\",\"col\":12}}]",
+  "content": "[{\"id\":\"cn_titulo\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Conciliación Credinómina</b></span>\",\"col\":12}},{\"id\":\"cn_flujo_ayuda\",\"type\":\"paragraph\",\"data\":{\"text\":\"1. Cobranza vs. aplicación: control de calidad. 2. Aplicación vs. depósito: control financiero. El detalle de la empresa se carga únicamente en el depósito.\",\"col\":12}},{\"id\":\"cn_cartera\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar corte de cartera\",\"col\":3}},{\"id\":\"cn_periodo\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Nuevo período\",\"col\":3}},{\"id\":\"cn_importar\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Cargar aplicaciones\",\"col\":3}},{\"id\":\"cn_distribuir\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Registrar depósito\",\"col\":3}},{\"id\":\"cn_procesos\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Flujo de trabajo</b></span>\",\"col\":12}},{\"id\":\"cn_etapa_1\",\"type\":\"card\",\"data\":{\"card_name\":\"1. Preparación\",\"col\":4}},{\"id\":\"cn_etapa_2\",\"type\":\"card\",\"data\":{\"card_name\":\"2. Cobranza y control\",\"col\":4}},{\"id\":\"cn_etapa_3\",\"type\":\"card\",\"data\":{\"card_name\":\"3. Aplicaciones del core\",\"col\":4}},{\"id\":\"cn_etapa_4\",\"type\":\"card\",\"data\":{\"card_name\":\"4. Depósitos y distribución\",\"col\":4}},{\"id\":\"cn_etapa_5\",\"type\":\"card\",\"data\":{\"card_name\":\"5. Diferencias y seguimiento\",\"col\":4}},{\"id\":\"cn_etapa_6\",\"type\":\"card\",\"data\":{\"card_name\":\"6. Control y reportes\",\"col\":4}},{\"id\":\"cn_flujo_historico\",\"type\":\"paragraph\",\"data\":{\"text\":\"En modalidad histórica, cree el período y cargue las aplicaciones; no se requiere cobranza ni deducción. El depósito y su detalle pueden recibirse después, incluso en otro mes.\",\"col\":12}},{\"id\":\"cn_administracion_cargas\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h5\\\"><b>Administración de cargas</b></span>\",\"col\":12}},{\"id\":\"cn_lotes_cargas\",\"type\":\"card\",\"data\":{\"card_name\":\"Administración de cargas\",\"col\":12}}]",
   "creation": "2026-09-22 00:00:00.000000",
   "custom_blocks": [],
   "docstatus": 0,
@@ -73,10 +73,10 @@
       "onboard": 0
     },
     {
-      "description": "Cree el período, cargue la cobranza y después el detalle de deducción de la empresa en ese mismo documento.",
+      "description": "Cree el período y cargue la cobranza para compararla con las aplicaciones del core. El detalle enviado por la empresa se carga en Distribución de Depósito.",
       "hidden": 0,
       "is_query_report": 0,
-      "label": "2. Cobranza y deducciones",
+      "label": "2. Cobranza y control",
       "link_count": 1,
       "link_type": "DocType",
       "onboard": 0,
@@ -85,7 +85,7 @@
     {
       "hidden": 0,
       "is_query_report": 0,
-      "label": "Períodos: cobranza y deducciones",
+      "label": "Períodos: cobranza y aplicación",
       "link_count": 0,
       "link_to": "CN Reconciliation Period",
       "link_type": "DocType",
@@ -258,9 +258,22 @@
       "onboard": 0,
       "type": "Link",
       "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "label": "Administración de cargas", "type": "Card Break", "link_count": 2,
+      "description": "Consulte el avance, errores y bloques de las cargas masivas. Los permisos de lectura se mantienen por usuario.",
+      "hidden": 0, "is_query_report": 0, "link_type": "DocType", "onboard": 0
+    },
+    {
+      "label": "Lotes de carga contable", "link_to": "CN Accounting Batch", "type": "Link",
+      "link_type": "DocType", "link_count": 0, "hidden": 0, "is_query_report": 0, "onboard": 0
+    },
+    {
+      "label": "Bloques de carga contable", "link_to": "CN Accounting Batch Block", "type": "Link",
+      "link_type": "DocType", "link_count": 0, "hidden": 0, "is_query_report": 0, "onboard": 0
     }
   ],
-  "modified": "2026-10-04 17:00:00.000000",
+  "modified": "2026-10-12 18:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "Conciliacion Credinomina",

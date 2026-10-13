@@ -182,6 +182,8 @@ def _plan(options):
 
 
 def _summary(plan):
+    from credinomina_reconciliation.deposit_accounting_sources import preview_deposits
+    deposits = preview_deposits(plan.get('deposits', []), plan.get('file_hash'))
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
         "file_hash": plan.get("file_hash"),
@@ -189,13 +191,13 @@ def _summary(plan):
                      for key, unidentified in (("identified", False), ("unidentified", True))},
         "groups": groups[:100], "group_count": len(groups), "rows": sum(group["count"] for group in groups),
         "complementary_count": len(plan.get("complementary", [])),
-        "deposit_count": len(plan.get("deposits", [])),
+        "deposit_count": len(deposits), "deposit_source_count": len(plan.get('deposits', [])),
         "unidentified_count": sum(group["count"] for group in groups if group["employer"] == UNIDENTIFIED_EMPLOYER)
             + sum(row.get("resolved_employer") == UNIDENTIFIED_EMPLOYER
                   for row in plan.get("complementary", []) + plan.get("deposits", [])),
         "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
                       "currency": row["deposit_currency"], "amount": row["deposit_amount"],
-                      "reference": row["bank_deposit_reference"]} for row in plan.get("deposits", [])[:100]],
+                      "reference": row["bank_deposit_reference"], 'accounting_line_count': row['accounting_line_count']} for row in deposits[:100]],
         "complementary": [{"row": row["source_row"], "classification": row["accounting_classification"],
                            "employer": row.get("resolved_employer"), "reason": row["classification_reason"]}
                           for row in plan.get("complementary", [])[:100]],
@@ -211,6 +213,9 @@ def _identification_summary(plan, unidentified):
     groups = [group for group in plan["groups"] if belongs(group["employer"])]
     items = [row for row in plan.get("complementary", []) if belongs(row.get("resolved_employer"))]
     deposits = [row for row in plan.get("deposits", []) if belongs(row.get("resolved_employer"))]
+    from credinomina_reconciliation.deposit_accounting_sources import preview_deposits
+    deposit_source_count = len(deposits)
+    deposits = preview_deposits(deposits, plan.get('file_hash'))
     applications = [row for group in groups for row in group["rows"]]
     return {
         "groups": [{key: value for key, value in group.items() if key != "rows"} for group in groups[:100]],
@@ -227,11 +232,11 @@ def _identification_summary(plan, unidentified):
                            "employer": row.get("resolved_employer"), "reason": row["classification_reason"],
                            "employer_text": row.get("employer_text"),
                            "description": row.get("source_description") or row.get("description") or ""} for row in items[:100]],
-        "deposit_count": len(deposits),
+        "deposit_count": len(deposits), 'deposit_source_count': deposit_source_count,
         "deposits": [{"row": row["source_row"], "employer": row.get("resolved_employer"),
                       "currency": row["deposit_currency"], "amount": row["deposit_amount"],
                       "reference": row["bank_deposit_reference"], "employer_text": row.get("employer_text"),
-                      "description": row.get("source_description") or row.get("description") or ""}
+                      "description": row.get("source_description") or row.get("description") or "", 'accounting_line_count': row['accounting_line_count']}
                      for row in deposits[:100]],
     }
 
@@ -499,7 +504,11 @@ def run_bulk_job(token, user, attempt=None):
             return  # Obsolete/repeated delivery; never create the block twice.
         if state["phase"] == "preview":
             plan = _plan(state["options"])
-            state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan), error="")
+            from credinomina_reconciliation.accounting_preview import save_preview
+            preview_chunks = save_preview(token, plan)
+            state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan), error="",
+                         preview_chunks=preview_chunks)
+            state['summary']['paginated_review'] = True
             _store(token, state)
             frappe.db.commit()
             return

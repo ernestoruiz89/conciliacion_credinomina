@@ -484,10 +484,6 @@ def duplicate_business_key(row: Mapping[str, Any]) -> tuple[Any, ...]:
 def operational_status(
     *, expected: float, deducted: float, applied: float, remitted: float
 ) -> str:
-    if deducted + AMOUNT_TOLERANCE < expected:
-        return "Cobranza no deducida; revisar primera conciliación"
-    if applied + AMOUNT_TOLERANCE < deducted:
-        return "Deducido, pendiente de aplicar en core"
-    if remitted + AMOUNT_TOLERANCE < deducted:
-        return "Aplicado, empresa por remitir"
-    return "Conciliado"
+    # Kept for internal callers; deduction evidence is no longer a basis.
+    from credinomina_reconciliation.application_quality import collection_quality
+    return collection_quality({"expected_usd": expected, "applied_usd": applied})["quality_status"]

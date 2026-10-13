@@ -37,7 +37,7 @@ class ProvisionalTests(unittest.TestCase):
     def test_deduction_in_nio_is_converted_and_invalid_detail_not_silently_replaced(self):
         self.period.application_basis = module.EMPLOYER_DETAIL
         self.row.update(deduction_status='Deduccion parcial', deducted_nio=3296.187)
-        self.assertEqual(module.row_basis(self.period, self.row)['base_usd'], 90)
+        self.assertEqual(module.row_basis(self.period, self.row)['base_usd'], 100)
         self.row.expected_usd = 0
         with self.assertRaises(ValueError):
             module.row_basis(self.period, self.row)
@@ -55,19 +55,14 @@ class ProvisionalTests(unittest.TestCase):
         self.assertEqual(self.row.deducted_usd, 80)
 
     def test_changing_choice_revokes_approval_even_with_equal_amounts(self):
-        self.row.update(deduction_status='Deduccion total', deducted_usd=100)
-        self.saved_period()
+        before = module.row_basis(self.period, self.row)
         self.period.application_basis = module.EMPLOYER_DETAIL
-        module.guard_period(self.period)
-        self.assertEqual(self.period.provisional_adjustments[0].state, 'Pendiente de revisión')
+        self.assertEqual(module.row_basis(self.period, self.row), before)
 
     def test_missing_selected_detail_does_not_fall_back_and_revokes_approval(self):
-        self.saved_period()
         self.period.application_basis = module.EMPLOYER_DETAIL
-        module.guard_period(self.period)
-        self.assertEqual(self.period.provisional_adjustments[0].state, 'Pendiente de revisión')
-        with self.assertRaises(ValueError):
-            module.row_basis(self.period, self.row)
+        self.assertEqual(module.row_basis(self.period, self.row)['basis'], module.COLLECTION)
+        self.assertEqual(module.row_basis(self.period, self.row)['amount_usd'], 10)
 
     def test_materialized_choice_is_immutable(self):
         self.period.prepared_deposit = 'D'

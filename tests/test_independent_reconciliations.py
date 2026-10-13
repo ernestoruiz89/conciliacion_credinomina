@@ -37,18 +37,18 @@ class IndependentReconciliationTests(unittest.TestCase):
 
     def test_close_rejects_missing_first_or_second_including_unmatched_extra_application(self):
         period = frappe._dict(name="P", collection_rows=[frappe._dict(name="ROW")])
-        for values in [dict(quality_status="Sin cobranza vinculada", application_allocation_detail="[]"),
-                       dict(match_status="Excepcion"),
-                       dict(application_allocation_detail='[{"collection_row_id":"ROW","amount_usd":99}]'),
-                       dict(historical_balance_usd=1, deposit_match_status="Depósito parcial"),
-                       dict(application_allocation_detail='[{"collection_row_id":"OTHER","amount_usd":100}]')]:
+        for values in [dict(match_status="Excepcion"),
+                       dict(historical_balance_usd=1, deposit_match_status="Depósito parcial")]:
             source = self.source(); source.update(values)
             with self.subTest(values=values), patch.object(frappe, "get_all", return_value=[source]), \
                  patch.object(frappe, "throw", side_effect=ValueError):
                 with self.assertRaises(ValueError):
                     validate_direct_applications(period)
-        with patch.object(frappe, "get_all", return_value=[self.source()]):
-            validate_direct_applications(period)
+        for links in ('[]', '[{"collection_row_id":"ROW","amount_usd":99}]'):
+            source = self.source()
+            source.update(quality_status="Sin cobranza vinculada", application_allocation_detail=links)
+            with patch.object(frappe, "get_all", return_value=[source]):
+                validate_direct_applications(period)
 
     def test_close_accepts_informational_difference_with_complete_links_and_payment(self):
         period = frappe._dict(name="P", collection_rows=[frappe._dict(name="ROW")])

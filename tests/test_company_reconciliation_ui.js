@@ -92,7 +92,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     let intro, exceptionAction;
     importFrm.set_intro = text => {intro = text;};
     importFrm.add_custom_button = (label, action) => {
-        assert.equal(label, "Ver excepciones"); exceptionAction = action;
+        assert.equal(label, "Ver pendientes detectados"); exceptionAction = action;
     };
     context.updateImportExceptionNotice(importFrm);
     assert.ok(intro.includes("3 filas"));
@@ -102,7 +102,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     events.length = 0;
     importFrm.doc.rows = [];
     context.updateImportExceptionNotice(importFrm);
-    assert.ok(intro.includes("filas actuales no muestran excepciones"));
+    assert.ok(intro.includes("filas actuales no muestran pendientes"));
     importFrm.doc.status = "Importado";
     context.updateImportExceptionNotice(importFrm);
     assert.equal(intro, "");

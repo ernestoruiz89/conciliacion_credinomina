@@ -16,12 +16,7 @@ VALID_DEDUCTION_STATUSES = (
 
 
 def deduction_pending_type(row: Mapping[str, Any]) -> str | None:
-    """Unknown/invalid deductions are evidence to review, never confirmed debt."""
-    status = row.get("deduction_status")
-    if not status or status == "Pendiente de detalle":
-        return "Detalle de empresa pendiente"
-    if status not in VALID_DEDUCTION_STATUSES:
-        return "Detalle de empresa por aclarar"
+    """Compatibility name: legacy employer deductions never gate the workflow."""
     return None
 
 
@@ -35,7 +30,8 @@ def _date(value: Any) -> date | None:
 
 def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]:
     """Put one positive USD balance into exactly one non-overlapping band."""
-    amount = money_float(max(money(amount), 0))
+    unknown = amount is None
+    amount = money_float(max(money(amount), 0)) if not unknown else None
     due = _date(due_date)
     as_of = _date(as_of_date)
     if as_of is None:
@@ -49,53 +45,28 @@ def age_balance(amount: float, due_date: Any, as_of_date: Any) -> dict[str, Any]
         "days_31_60" if days <= 60 else
         "days_61_90" if days <= 90 else "days_over_90"
     )
-    values = {name: 0.0 for name in (*BUCKETS, "without_date")}
+    values = {name: None if unknown else 0.0 for name in (*BUCKETS, "without_date")}
     values[bucket] = amount
     return {"age_days": days, "age_bucket": bucket, **values}
 
 
 def collection_shortfall_usd(row: Mapping[str, Any]) -> float | None:
-    """Requested but not deducted; this is not an account receivable."""
-    if deduction_pending_type(row):
-        return None
-    return money_float(max(
-        money(row.get("expected_usd")) - money(row.get("deducted_usd")), 0
-    ))
+    """Absolute collection/application quality gap, never a receivable."""
+    from credinomina_reconciliation.application_quality import collection_quality
+    result = collection_quality(row)
+    difference = result["quality_difference_usd"]
+    return None if difference is None else money_float(abs(money(difference)))
 
 
-def unassigned_deduction_usd(row: Mapping[str, Any]) -> float | None:
-    if deduction_pending_type(row):
-        return None
-    return money_float(max(money(row.get("deducted_usd")) - money(row.get("remitted_usd"))
-        - max(money(row.get("fx_variance_usd")), 0)
-        - max(-money(row.get("rounding_adjustment_usd")), 0), 0))
+def unassigned_deduction_usd(row: Mapping[str, Any]) -> float:
+    """Deprecated wire name; use actual application coverage, not deductions."""
+    from credinomina_reconciliation.application_quality import application_cash_covered
+    return money_float(max(money(row.get("applied_usd")) - money(application_cash_covered(row)), 0))
 
 
 def operational_balances(row: Mapping[str, Any], period: Mapping[str, Any]):
-    """First-reconciliation diagnostics only; not financial receivables."""
-    expected = money(row.get("expected_usd"))
-    worker_shortfall = collection_shortfall_usd(row)
-    if worker_shortfall is None:
-        if expected > 0:
-            yield {
-                "balance_type": deduction_pending_type(row),
-                "amount_usd": money_float(expected),
-                "due_date": period.get("cutoff_date"),
-                "provision_review_usd": 0,
-            }
-        return
-    if worker_shortfall > 0:
-        yield {
-            "balance_type": "Cobranza no deducida (informativo)",
-            "amount_usd": worker_shortfall,
-            "due_date": period.get("cutoff_date"),
-            "provision_review_usd": 0,
-        }
-    unassigned_deduction = unassigned_deduction_usd(row)
-    if unassigned_deduction > 0:
-        yield {
-            "balance_type": "Deducido sin depósito asignado",
-            "amount_usd": unassigned_deduction,
-            "due_date": period.get("remittance_due_date"),
-            "provision_review_usd": 0,
-        }
+    """Informational quality findings only; receivables come from application_aging."""
+    gap = collection_shortfall_usd(row)
+    if gap is None or gap > 0:
+        yield {"balance_type": "Cobranza sin conversión US$" if gap is None else "Diferencia cobranza vs aplicación (informativo)",
+               "amount_usd": gap or 0, "due_date": period.get("cutoff_date"), "provision_review_usd": 0}

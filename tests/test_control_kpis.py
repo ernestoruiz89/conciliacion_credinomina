@@ -107,11 +107,13 @@ class ControlKpiTests(unittest.TestCase):
 
     def test_loader_permission_scopes_children_and_does_not_filter_before_grouping(self):
         def get_list(doctype, **kwargs):
-            self.assertEqual(kwargs["limit_page_length"], 0)
+            self.assertEqual(kwargs["limit_page_length"], 500)
             if doctype == "CN Accounting Import":
                 return [frappe._dict(name="I", employer="E")]
             if doctype == "CN Reconciliation Period":
                 return [frappe._dict(name="H", employer="E", payroll_month="2025-04-01")]
+            if doctype == "CN Employer":
+                return [frappe._dict(name="E", grace_days=10)]
             return []
 
         def get_all(doctype, **kwargs):

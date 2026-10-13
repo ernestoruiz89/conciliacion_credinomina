@@ -12,7 +12,8 @@ FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
           "credit_pending_usd", "credit_management_status", "credit_assigned_to", "credit_commitment_date",
-          "registration_exception", "subcategory_effect", "receivable_origin"]
+          "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
+          "accounting_source_key", "source_debit", "source_credit", "source_currency", "source_fx_rate"]
 _read_scope = ContextVar('cn_complementary_balance_read_scope', default=None)
 
 
@@ -36,6 +37,11 @@ def cached_balance_reads(function):
 
 def financial_balance(item, distributions=()):
     original = money(item.get("amount_usd"))
+    from credinomina_reconciliation.imported_complement_amount import ledger_magnitude
+    ledger = ledger_magnitude(item)
+    amount_issue = ledger is not None and abs(original) != ledger
+    if amount_issue:
+        original = ledger * (-1 if original < 0 else 1)
     used, pending = money(0), abs(original)
     state, kind = "Pendiente", "Por clasificar"
     management = None
@@ -70,25 +76,45 @@ def financial_balance(item, distributions=()):
         used, pending = (abs(original), money(0)) if confirmed else (money(0), abs(original))
         state = "Revertida" if item.get("status") == "Revertido" else "Vigente" if confirmed else "Pendiente"
     elif item.get("review_action") == "No conciliatoria":
-        state, pending = "No conciliatoria", money(0)
+        # A descriptive classification is not a payment, offset or waiver.
+        # Keep the original ledger balance visible until a real link settles it.
+        state = "Por aclarar (no conciliatoria)"
     elif category in CASH_CATEGORIES:
         kind = "Distribuido en depósitos"
         assigned = sum((money(row.get("amount_usd")) for row in distributions), money(0))
         used = assigned if original >= 0 else -assigned
         pending = abs(original) - used
         state = "Conciliada" if not pending and confirmed else "Parcial" if used else "Pendiente" if confirmed else "Pendiente de confirmar"
-    if pending < 0 or used < 0:
+    if pending < 0 or used < 0 or (amount_issue and item.get('docstatus') != 2):
         state = "Revisar distribución"
     return {"name": item.get("name"), "original_usd": money_float(original), "used_usd": money_float(used),
             "pending_usd": money_float(pending), "financial_status": state, "used_label": kind,
             "accounting_status": item.get("accounting_status") or "Pendiente de registro",
             "management_pending_usd": money_float(management) if management is not None else None,
             "management_status": item.get("credit_management_status") or "Pendiente" if management is not None else "",
+            "amount_issue": "El importe difiere de la evidencia contable original" if amount_issue else "",
             "distributions": list(distributions)}
 
 
+def reconciliation_state(balance):
+    """Shared financial state for forms, report rows and transaction counters."""
+    status = balance.get("financial_status")
+    pending, used = balance.get("pending_usd"), balance.get("used_usd")
+    if status in {"Cancelada", "Revertida", "Parcialmente revertida"}:
+        return status
+    if status == "Revisar distribución" or (pending is not None and money(pending) < 0):
+        return "Revisar distribución"
+    if pending is None:
+        return "Pendiente"
+    if money(pending) == 0 and status in {
+        "Conciliada", "Documentado", "Vigente", "Registro contable verificado",
+    }:
+        return "Conciliado"
+    return "Parcial" if money(used) > 0 and money(pending) > 0 else "Pendiente"
+
+
 def _distribution_index(wanted=None):
-    from credinomina_reconciliation.report_records import records
+    from credinomina_reconciliation.report_records import records, require_complete_evidence
     distributions = defaultdict(list)
     if wanted is not None and not wanted:
         return distributions
@@ -104,9 +130,11 @@ def _distribution_index(wanted=None):
             tokens = {json.dumps(name, ensure_ascii=ascii_only) for name in batch for ascii_only in (True, False)}
             patterns = sorted(token.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') for token in tokens)
             kwargs['or_filters'] = [['allocation_detail', 'like', '%' + token + '%'] for token in patterns]
-        for deposit in records("CN Remittance Allocation", filters={"docstatus": 1,
-                "allocation_detail": ["like", '%"Partida complementaria"%']},
+        filters = {"docstatus": 1, "allocation_detail": ["like", '%"Partida complementaria"%']}
+        readable = set()
+        for deposit in records("CN Remittance Allocation", filters=filters,
                 fields=["name", "allocation_detail", "deposit_date"], **kwargs):
+            readable.add(deposit.name)
             if deposit.name in visited:
                 continue
             visited.add(deposit.name)
@@ -123,6 +151,20 @@ def _distribution_index(wanted=None):
                 distributions[entry["partida"]].append({"deposit": deposit.name, "date": str(deposit.deposit_date),
                     "amount_usd": money_float(entry.get("importe_usd")), "period": entry.get("periodo") or "",
                     "client": entry.get("cliente") or "", "employer": entry.get("empresa") or ""})
+        def relevant(deposit):
+            if wanted is None:
+                return True
+            try:
+                entries = json.loads(deposit.allocation_detail or "[]")
+                if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+                    raise ValueError("Invalid journal")
+                return any(entry.get("tipo") == "Partida complementaria" and entry.get("partida") in wanted
+                           for entry in entries)
+            except (ValueError, TypeError):
+                return any(json.dumps(name, ensure_ascii=ascii_only) in (deposit.allocation_detail or "")
+                           for name in wanted for ascii_only in (True, False))
+        require_complete_evidence("CN Remittance Allocation", readable, filters=filters,
+                                  fields=["allocation_detail"], relevant=relevant, **kwargs)
     return distributions
 
 
@@ -148,11 +190,45 @@ def load_balances(items):
 
 @frappe.whitelist()
 @cached_balance_reads
+def get_list_balances(names):
+    """Batch the visible list only; never trust client-supplied document data."""
+    from credinomina_reconciliation.report_records import records
+    names = frappe.parse_json(names) if isinstance(names, str) else names
+    if not isinstance(names, list) or len(names) > 500 or any(not isinstance(name, str) for name in names):
+        frappe.throw("Indique hasta 500 partidas válidas.")
+    if not names or not frappe.has_permission("CN Complementary Item", "read"):
+        return {}
+    items = list(records("CN Complementary Item", filters={"name": ["in", names]}, fields=FIELDS))
+    # Missing evidence permission must not look like an unpaid balance.
+    can_read_cash = frappe.has_permission("CN Remittance Allocation", "read")
+    available = [item for item in items if item.get('category') not in CASH_CATEGORIES or can_read_cash]
+    balances = load_balances(available)
+    receivables = {}
+    if can_read_cash:
+        from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+        from credinomina_reconciliation.receivable_recovery import is_receivable
+        origins = [item['name'] for item in available if is_receivable(item)]
+        if origins:
+            for row in load_receivables(item_names=origins):
+                previous = receivables.get(row['name'], money(0))
+                receivables[row['name']] = None if previous is None or row['receivable_usd'] is None else previous + money(row['receivable_usd'])
+    return {item['name']: {
+        'state': balances[item['name']]['financial_status'] if item.get('docstatus') == 2 else reconciliation_state(balances[item['name']]),
+        'pending_usd': balances[item['name']]['pending_usd'],
+        'management_status': balances[item['name']]['management_status'],
+        'management_pending_usd': balances[item['name']]['management_pending_usd'],
+        'company_receivable_usd': None if receivables.get(item['name'], 0) is None else money_float(receivables.get(item['name'], 0)),
+        'amount_issue': balances[item['name']]['amount_issue'],
+    } for item in available}
+
+
+@frappe.whitelist()
+@cached_balance_reads
 def get_balance(item_name):
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("read")
     balances = load_balances([item])
-    from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables
+    from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables, receivable_total
     from credinomina_reconciliation.receivable_recovery import is_receivable
     receipts = []
     if is_receivable(item):
@@ -161,7 +237,9 @@ def get_balance(item_name):
         balances.update(load_balances(receipts))
     receivables = build_receivables([item], balances, settlements=receipts, settlement_balances=balances, include_settled=True)
     value = balances[item.name]
-    value['company_receivable_usd'] = money_float(sum((money(row['receivable_usd']) for row in receivables), money(0)))
+    value['reconciliation_state'] = reconciliation_state(value)
+    value['company_receivable_usd'] = receivable_total(receivables)
+    value['receivable_issue_count'] = sum(row['receivable_usd'] is None for row in receivables)
     value['receivable_companies'] = receivables
     value['recoveries'] = [dict(receipt,
         effective_usd=money_float(money(receipt.get('compensated_usd')) if receipt.get('docstatus') == 1

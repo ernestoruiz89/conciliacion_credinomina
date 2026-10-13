@@ -64,7 +64,6 @@ class CompanyReconciliationTests(unittest.TestCase):
             patch.object(source, "_allocate_complementary_items", return_value={}),
             patch.object(source, "_operative_links", return_value={}),
             patch.object(source, "_registered_deposit_pairs", return_value=([], {})),
-            patch.object(source, "_refresh_recognition_evidence"),
             patch.object(source, "_match_applications", side_effect=match),
             patch.object(source, "_distribute_deposits", return_value=allocation),
             patch.object(source, "_rebuild_period_balances") as rebuild,

@@ -56,6 +56,7 @@ class RemittancePostSubmitTests(unittest.TestCase):
         doc = Snapshot(copy.deepcopy(dict(self.previous)) | changes)
         doc.meta = SimpleNamespace(get_field=self.fields.get)
         doc._validate_deposit = Mock()
+        doc._update_financial_status = MethodType(CNRemittanceAllocation._update_financial_status, doc)
         doc.flags = frappe._dict()
         if doc.get("detail_rows"):
             doc["detail_rows"] = [frappe._dict(row) for row in doc["detail_rows"]]

@@ -59,11 +59,16 @@ class ControlYearFilterTests(unittest.TestCase):
             if dt == "CN Remittance Allocation":
                 return [frappe._dict(deposit_date="2027-01-01")]
             return ["VISIBLE-IMPORT"]
-        with patch.object(control.frappe, "has_permission", return_value=True), \
+        context = ([dict(parent='VISIBLE-IMPORT', historical_period='P', event_date='2026-03-01'),
+                    dict(parent='OTHER', portfolio_employer='OTHER', event_date='2029-03-01')],
+                   {'VISIBLE-IMPORT': {}, 'OTHER': {}}, {'P': dict(employer='EMP')}, {}, {})
+        with patch('credinomina_reconciliation.application_context.load_application_context', return_value=context) as load, \
+             patch.object(control.frappe, "has_permission", return_value=True), \
              patch.object(control.frappe, "get_list", side_effect=get_list), \
              patch.object(control.frappe, "get_all", return_value=[frappe._dict(event_date="2026-03-01")]) as query:
             self.assertEqual(control._available_years("EMP"), [2027, 2026, 2010])
-        self.assertEqual(query.call_args.kwargs["filters"]["parent"], ["in", ["VISIBLE-IMPORT"]])
+        load.assert_called_once_with('EMP')
+        query.assert_not_called()
 
     def test_catalog_respects_doctype_read_permissions(self):
         with patch.object(control.frappe, "has_permission", return_value=False), \

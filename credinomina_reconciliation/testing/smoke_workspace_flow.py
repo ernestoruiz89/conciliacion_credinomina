@@ -24,7 +24,7 @@ def run():
             assert [row.role for row in workspace.roles] == roles
             cards = [row.label for row in workspace.links if row.type == "Card Break"]
             assert cards[:6] == [
-                "1. Preparación", "2. Cobranza y deducciones", "3. Aplicaciones del core",
+                "1. Preparación", "2. Cobranza y control", "3. Aplicaciones del core",
                 "4. Depósitos y distribución", "5. Diferencias y seguimiento", "6. Control y reportes",
             ], cards
             shortcuts = [row.label for row in workspace.shortcuts]

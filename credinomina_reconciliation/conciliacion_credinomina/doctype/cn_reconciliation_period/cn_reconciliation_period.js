@@ -10,7 +10,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
     },
     refresh(frm) {
         setPeriodEditing(frm);
-        frm.set_df_property("application_basis", "read_only", frm.doc.status === "Cerrado" || !!frm.doc.prepared_deposit);
+        refreshLegacyEmployerDetail(frm);
         setRemittanceDateEditing(frm);
         refreshPeriodExceptions(frm);
         refreshPeriodPending(frm);
@@ -58,36 +58,6 @@ frappe.ui.form.on("CN Reconciliation Period", {
                 freeze_message: __("Cargando cobranza y clientes..."),
             }).then(() => frm.reload_doc());
         });
-
-        if ((frm.doc.collection_rows || []).length) frm.add_custom_button(__("2. Cargar deducción de empresa"), async () => {
-            if (frm.is_dirty()) await frm.save();
-            frappe.call({
-                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_employer_response",
-                args: { period_name: frm.doc.name },
-                freeze: true,
-                freeze_message: __("Cargando y comparando deducciones..."),
-            }).then(() => frm.reload_doc());
-        });
-
-        if (frm.doc.deduction_basis === "Depósito coincidente" && frm.doc.status !== "Cerrado") {
-            frm.add_custom_button(__("Revertir reconocimiento por depósito"), () => {
-                frappe.confirm(
-                    __("Se retirará la deducción inferida y el depósito volverá a quedar disponible. ¿Continuar?"),
-                    () => frappe.call({
-                        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.revert_deposit_recognition",
-                        args: { period_name: frm.doc.name },
-                        freeze: true,
-                    }).then(() => frm.reload_doc())
-                );
-            }, __("Más opciones"));
-        } else if (
-            frm.doc.status !== "Cerrado" && !frm.doc.deduction_basis &&
-            !frm.doc.employer_response_file && (frm.doc.collection_rows || []).length
-        ) {
-            frm.add_custom_button(__("Reconocer cobranza como detalle de la empresa"), () => {
-                showCollectionRecognition(frm);
-            }, __("Más opciones"));
-        }
 
         frm.add_custom_button(__("Cerrar período"), () => requestClose(frm));
         if (frm.get_perm?.(0, "write") && (frm.doc.collection_rows || []).length) {
@@ -172,23 +142,28 @@ function refreshApplicationQuality(frm) {
     if (!wrapper) return;
     if (frm.doc.reconciliation_mode === "Historica") { wrapper.empty(); return; }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
-    const rows = frm.doc.collection_rows || [];
+    // Display the current quality comparison without rewriting archived/closed data.
+    const rows = (frm.doc.collection_rows || []).map(row => {
+        const expected = Number(row.expected_usd || 0);
+        const missing = !expected && Number(row.expected_nio || 0);
+        const difference = missing ? null : (Math.round(Number(row.applied_usd || 0) * 100) - Math.round(expected * 100)) / 100;
+        return {...row, quality_expected_usd: missing ? null : expected, quality_difference_usd: difference,
+            quality_status: missing ? "Revisar base de comparación" : difference < 0 ? "Aplicación insuficiente" : difference > 0 ? "Aplicación en exceso" : "Conforme según cobranza"};
+    });
     const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     wrapper.html(`<h4>${esc(__("Control de calidad de la aplicación"))}</h4>
         <p>${esc(__("Las conciliaciones 1 y 2 pueden realizarse en cualquier orden. Para conciliar depósitos sin esta base, asigne las aplicaciones del core a este período desde su importación. El cierre exige aplicaciones vinculadas y pagadas, sin pendientes de depósitos ni excepciones abiertas. Las diferencias informativas de la conciliación 1 se conservan y no requieren aprobar ajustes provisionales para cerrar."))}</p>
-        <p>${esc(__("El estado general prioriza la conciliación de aplicaciones con depósitos. Una diferencia informativa contra cobranza no mantiene el período en Parcial cuando todas las filas están aplicadas y remitidas, las aplicaciones están conciliadas y no hay excepciones abiertas."))}</p>
-        ${!rows.length ? `<div class="alert alert-warning">${esc(__("Conciliación 1 pendiente: todavía no se ha cargado su base de comparación. Los depósitos pueden conciliarse, pero el período no puede cerrarse."))}</div>` : ""}
-        <p>${esc(__("Compara la aplicación únicamente contra la base elegida para este período: {0}. Ambos detalles se conservan; el no elegido no interviene en este control. Conforme no significa depositado. Guarde y use Conciliación 1: validar aplicaciones para actualizar este control sin redistribuir depósitos.", [frm.doc.application_basis || __("Sin elegir")]))}</p>
+        <p>${esc(__("Conforme no significa depositado. El estado financiero depende de aplicaciones cubiertas por depósitos o compensaciones confirmadas, no de las diferencias de cobranza."))}</p>
+        ${!rows.length ? `<div class="alert alert-warning">${esc(__("Conciliación 1 pendiente: todavía no se ha cargado la cobranza. Esto no impide conciliar depósitos ni cerrar si se cumplen todos los controles financieros."))}</div>` : ""}
+        <p>${esc(__("Cobranza contra aplicaciones efectivas del core. El detalle de empresa se carga únicamente en el depósito. Este control no acredita pagos ni crea CxC."))}</p>
         <div class="table-responsive"><table class="table table-bordered">
-        <thead><tr>${["Cliente", "Crédito", "Comparado contra", "A aplicar US$", "Aplicado US$", "Diferencia US$", "Control de aplicación", "Evidencia de deducción"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
+        <thead><tr>${["Cliente", "Crédito", "Cobranza US$", "Aplicado US$", "Diferencia US$", "Resultado del control"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${rows.map(row => `<tr>
             <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td>
-            <td>${esc(row.quality_basis || "—")}</td>
             <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_expected_usd)}</td>
             <td class="text-right">${money(row.applied_usd)}</td>
             <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_difference_usd)}</td>
             <td><span class="indicator-pill ${String(row.quality_status || "").startsWith("Conforme") ? "green" : "orange"}">${esc(__(row.quality_status || "Pendiente de actualizar"))}</span></td>
-            <td>${esc(__(row.deduction_status || "Pendiente de detalle"))}</td>
         </tr>`).join("")}</tbody></table></div>`);
 }
 
@@ -473,9 +448,6 @@ function addTemplateButtons(frm) {
     frm.add_custom_button(__("Plantilla de cobranza"), () => {
         downloadTemplate("cobranza");
     }, __("Plantillas"));
-    frm.add_custom_button(__("Plantilla de detalle empresa"), () => {
-        downloadTemplate("empresa", frm.is_new() ? "" : frm.doc.name);
-    }, __("Plantillas"));
 }
 
 function downloadTemplate(templateType, periodName) {
@@ -519,35 +491,24 @@ function setRemittanceDateEditing(frm) {
     );
 }
 
-function showCollectionRecognition(frm) {
-    let saving = false;
-    const dialog = new frappe.ui.Dialog({
-        title: __("Reconocer cobranza como detalle de la empresa"),
-        fields: [
-            {fieldname: "warning", fieldtype: "HTML", options: `<p>${__("Se copiarán los importes de la cobranza a Deducido US$ y Deducido C$. Use esta opción solo si la empresa confirmó la deducción completa. No registra un depósito ni confirma su recepción.")}</p>`},
-            {fieldname: "evidence_date", fieldtype: "Date", label: __("Fecha de evidencia de deducción"), reqd: 1, default: frm.doc.deduction_evidence_date},
-            {fieldname: "confirmed", fieldtype: "Check", label: __("Confirmo que la empresa dedujo la cobranza completa"), reqd: 1},
-        ],
-        primary_action_label: __("Reconocer cobranza"),
-        async primary_action(values) {
-            if (saving || !values.confirmed) return;
-            saving = true;
-            dialog.get_primary_btn().prop("disabled", true);
-            try {
-                if (frm.is_dirty()) await frm.save();
-                const response = await frappe.call({
-                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.recognize_collection_as_employer_detail",
-                    args: {period_name: frm.doc.name, evidence_date: values.evidence_date, confirmed: values.confirmed},
-                    freeze: true, freeze_message: __("Reconociendo detalle de la empresa…"),
-                });
-                dialog.hide();
-                await frm.reload_doc();
-                frappe.show_alert({message: __("Cobranza reconocida como detalle de la empresa: {0} filas.", [response.message.rows]), indicator: "green"});
-            } finally {
-                saving = false;
-                dialog.get_primary_btn().prop("disabled", false);
-            }
-        },
-    });
-    dialog.show();
+function refreshLegacyEmployerDetail(frm) {
+    const wrapper = frm.fields_dict?.legacy_detail_html?.$wrapper;
+    if (!wrapper) return;
+    wrapper.empty();
+    if (!frm.doc.legacy_employer_detail) return;
+    const esc = frappe.utils.escape_html;
+    let audit;
+    try { audit = JSON.parse(frm.doc.legacy_employer_detail); }
+    catch (_) { wrapper.text(__("No se pudo leer la evidencia anterior. Solicite revisión técnica.")); return; }
+    const previous = audit.parent || {};
+    const file = previous.employer_response_file || "";
+    const link = /^\/(private\/)?files\//.test(file)
+        ? `<a href="${esc(file)}" target="_blank" rel="noopener">${esc(__("Ver archivo anterior"))}</a>` : esc(file);
+    const money = value => format_currency(value || 0, "USD");
+    wrapper.html(`<div class="alert alert-info">${esc(__("Auditoría de solo lectura. Estos datos no participan en las conciliaciones nuevas y no se trasladaron a ningún depósito."))}</div>
+        <p>${link}</p><p>${esc(previous.deduction_basis || previous.application_basis || "")}</p>
+        ${(audit.review || []).map(note => `<p class="text-warning">${esc(note)}</p>`).join("")}
+        <div class="table-responsive"><table class="table table-bordered"><thead><tr>
+        ${["Cliente", "Crédito", "Deducido US$ (anterior)", "Deducido C$ (anterior)", "Estado anterior"].map(label => `<th>${esc(__(label))}</th>`).join("")}
+        </tr></thead><tbody>${(audit.rows || []).map(row => `<tr><td>${esc(row.client_name || "")}</td><td>${esc(row.loan_number || "")}</td><td>${money(row.deducted_usd)}</td><td>${format_currency(row.deducted_nio || 0, "NIO")}</td><td>${esc(row.deduction_status || "")}</td></tr>`).join("")}</tbody></table></div>`);
 }

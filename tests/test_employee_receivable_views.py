@@ -25,7 +25,7 @@ class EmployeeReceivableViewsTest(unittest.TestCase):
             frappe._dict({
                 "parent": "PER-001", "client_number": "1", "client_name": "Ana",
                 "loan_number": "CR-1", "expected_usd": 100, "expected_nio": 3700,
-                "deducted_usd": 70, "deducted_nio": 2590,
+                "deducted_usd": 70, "deducted_nio": 2590, "applied_usd": 70,
                 "deduction_status": "Deduccion parcial",
             }),
             frappe._dict({
@@ -48,44 +48,45 @@ class EmployeeReceivableViewsTest(unittest.TestCase):
              patch.object(control_credinomina.frappe, "get_list", return_value=[self.period]), \
              patch.object(control_credinomina.frappe, "get_all", side_effect=self.get_all), \
              patch.object(control_credinomina, "collection_summaries", return_value={"PER-001": {
-                 "worker_gap_usd": 30, "pending_detail_usd": 100,
+                 "worker_gap_usd": 130, "pending_detail_usd": 0,
              }}):
             data = control_credinomina.get_control_data(year=2026)
             detail = control_credinomina._build_control_data("Todos", detail_period="PER-001")["periods"][0]
-        self.assertEqual(data["totals"]["worker_gap_usd"], 30)
-        self.assertEqual(data["totals"]["pending_detail_usd"], 100)
+        self.assertEqual(data["totals"]["worker_gap_usd"], 130)
+        self.assertEqual(data["totals"]["pending_detail_usd"], 0)
         self.assertNotIn("rows", data["periods"][0])
         self.assertEqual(detail["rows"][0]["collection_shortfall_usd"], 30)
-        self.assertIsNone(detail["rows"][1]["collection_shortfall_usd"])
+        self.assertEqual(detail["rows"][1]["collection_shortfall_usd"], 100)
 
     def test_reports_do_not_infer_worker_debt_from_missing_detail(self):
         with patch.object(frappe, "get_list", side_effect=lambda doctype, **kwargs: [self.period] if doctype == "CN Reconciliation Period" else []), patch.object(frappe, "get_all", side_effect=self.get_all):
             _columns, summary = resumen_de_conciliacion.execute()
-        self.assertEqual(summary[0]["employee_shortfall_usd"], 30)
-        self.assertEqual(summary[0]["employee_shortfall_nio"], 1110)
+        self.assertEqual(summary[0]["employee_shortfall_usd"], 130)
+        self.assertEqual(summary[0]["employee_shortfall_nio"], 4810)
 
         with patch.object(estado_de_cuenta_operativo, "get_periods", return_value=[self.period]), \
              patch.object(estado_de_cuenta_operativo.frappe, "get_all", return_value=self.rows):
             _columns, detail = estado_de_cuenta_operativo._collection_report()
         self.assertEqual(detail[0]["employee_pending_usd"], 30)
         self.assertEqual(detail[0]["employee_pending_nio"], 1110)
-        self.assertIsNone(detail[1]["employee_pending_usd"])
-        self.assertIsNone(detail[1]["employee_pending_nio"])
+        self.assertEqual(detail[1]["employee_pending_usd"], 100)
+        self.assertEqual(detail[1]["employee_pending_nio"], 3700)
 
     def test_inconsistent_detail_is_not_a_confirmed_receivable_in_reports(self):
         self.rows[1].update(deducted_usd=50, deducted_nio=3700, deduction_status="Importes inconsistentes")
         with patch.object(frappe, "get_list", side_effect=lambda doctype, **kwargs: [self.period] if doctype == "CN Reconciliation Period" else []), patch.object(frappe, "get_all", side_effect=self.get_all):
             _, summary = resumen_de_conciliacion.execute()
-        self.assertEqual(summary[0]["employee_shortfall_usd"], 30)
+        self.assertEqual(summary[0]["employee_shortfall_usd"], 130)
         self.assertEqual(summary[0]["employer_receivable_usd"], 70)
         with patch.object(estado_de_cuenta_operativo, "get_periods", return_value=[self.period]), patch.object(estado_de_cuenta_operativo.frappe, "get_all", return_value=self.rows):
             _, detail = estado_de_cuenta_operativo._collection_report()
-        self.assertEqual(detail[1]["operational_status"], "Detalle de empresa por aclarar")
-        for field in ("employee_pending_usd", "employee_pending_nio", "pending_core_usd", "pending_core_nio", "employer_receivable_usd", "employer_receivable_nio"):
-            self.assertIsNone(detail[1][field])
+        self.assertEqual(detail[1]["operational_status"], "Aplicación insuficiente")
+        self.assertEqual(detail[1]["employee_pending_usd"], 100)
+        for field in ("pending_core_usd", "pending_core_nio", "employer_receivable_usd", "employer_receivable_nio"):
+            self.assertNotIn(field, detail[1])
 
     def test_only_open_excludes_settled_rows_with_rounding(self):
-        self.rows = [frappe._dict(self.rows[0], deduction_status="Deduccion total", application_status="Aplicado y remitido", rounding_adjustment_usd=.01)]
+        self.rows = [frappe._dict(self.rows[0], applied_usd=100, deduction_status="Deduccion total", application_status="Aplicado y remitido", rounding_adjustment_usd=.01)]
         with patch.object(estado_de_cuenta_operativo, "get_periods", return_value=[self.period]), patch.object(estado_de_cuenta_operativo.frappe, "get_all", return_value=self.rows):
             _, rows = estado_de_cuenta_operativo._collection_report({"only_open": 1})
         self.assertEqual(rows, [])

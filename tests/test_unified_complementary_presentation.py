@@ -44,7 +44,7 @@ class UnifiedComplementaryPresentationTests(unittest.TestCase):
                 entries = list(book['Partidas y excepciones'].iter_rows(min_row=5, values_only=True))
                 automatic = [r for r in entries if r[0] == 'Partida complementaria']
                 self.assertEqual(len(automatic), 1)
-                self.assertEqual(automatic[0][6:10], ('AUTO-1', delta, 'Vigente', 'Diferencia por tolerancia'))
+                self.assertEqual(automatic[0][6:10], ('AUTO-1', delta, 'Conciliado', 'Diferencia por tolerancia'))
                 self.assertEqual(automatic[0][1].date().isoformat(), '2025-05-01')
 
     def test_automatic_is_a_single_complementary_row_not_an_application_column(self):

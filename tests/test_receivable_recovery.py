@@ -123,6 +123,7 @@ class ReceivableRecoveryTests(unittest.TestCase):
 
     def test_canceled_target_explains_correction_without_deleting_history(self):
         deposit = frappe._dict(name='D1', employer='E', docstatus=1, amount_usd=10,
+            _assert_open_related_periods=Mock(),
             allocated_usd=0, justified_surplus_usd=0, check_permission=Mock(),
             targets=[frappe._dict(complementary_item='CANCELED'), frappe._dict(complementary_item='ACTIVE')])
         with patch('credinomina_reconciliation.paying_employers.allowed_employers', return_value={'E'}), \

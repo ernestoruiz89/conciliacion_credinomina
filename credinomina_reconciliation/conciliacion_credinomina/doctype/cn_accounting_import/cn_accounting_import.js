@@ -171,8 +171,6 @@ async function createAccountingPeriod(frm) {
             const exactDate = !isHistorical && dialog.get_value("collection_cycle") === "Fecha exacta";
             dialog.set_df_property("cutoff_date", "hidden", !exactDate);
             dialog.set_df_property("cutoff_date", "reqd", exactDate);
-            dialog.set_df_property("application_basis", "hidden", isHistorical);
-            dialog.set_df_property("application_basis", "reqd", !isHistorical);
         };
         let saving = false;
         dialog = new frappe.ui.Dialog({
@@ -181,8 +179,6 @@ async function createAccountingPeriod(frm) {
                 {fieldtype: "HTML", options: `<p>${__("Confirme el mes de cobranza: puede ser distinto del mes de aplicación. Se creará un período vacío en Borrador, sin conciliar ni reasignar movimientos.")}</p>`},
                 {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa"), read_only: 1, default: defaults.employer},
                 {fieldname: "payroll_month", fieldtype: "Date", label: __("Mes de cobranza"), reqd: 1, default: defaults.payroll_month, onchange: updateFields},
-                {fieldname: "application_basis", fieldtype: "Select", label: __("Base de la primera conciliación"),
-                    options: "\nCobranza\nDetalle de empresa", description: __("Elija una sola base contra la aplicación. Ambos archivos pueden conservarse en el período.")},
                 {fieldname: "collection_cycle", fieldtype: "Select", label: __("Ciclo de cobranza"),
                     options: defaults.payroll_frequency === "Quincenal" ? "\nPrimera quincena\nSegunda quincena\nFecha exacta" : "Mensual\nFecha exacta",
                     default: defaults.payroll_frequency === "Quincenal" ? "" : "Mensual", onchange: updateFields},
@@ -254,9 +250,9 @@ function updateImportExceptionNotice(frm) {
         return;
     }
     frm.set_intro(exceptions.length
-        ? __("Esta carga tiene {0} filas con excepciones de conciliación. Use «Ver excepciones» para conocer los motivos; puede tratarse de depósitos pendientes, no de un error al importar.", [exceptions.length])
-        : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran excepciones. Revise el detalle y use «Conciliar período predeterminado» para actualizar el resultado."), "orange");
-    frm.add_custom_button(__("Ver excepciones"), () => showImportExceptions(frm));
+        ? __("Esta carga tiene {0} filas con pendientes detectados. Use «Ver pendientes detectados» para conocer los motivos. Una aplicación sin depósito no es un error de importación ni una excepción documentada.", [exceptions.length])
+        : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran pendientes. Revise el detalle y use «Conciliar período predeterminado» para actualizar el resultado."), "orange");
+    frm.add_custom_button(__("Ver pendientes detectados"), () => showImportExceptions(frm));
 }
 
 function importExceptionAmounts(row, doc) {
@@ -345,7 +341,7 @@ function importExceptionsHtml(frm, filters = {}, offset = 0) {
                 <span>${esc(__("Mostrando {0}–{1} de {2}", [offset + 1, Math.min(offset + 50, exceptions.length), exceptions.length]))}</span>
                 <button class="btn btn-default btn-sm" data-exception-page="next" ${offset + 50 < exceptions.length ? "" : "disabled"}>${esc(__("Siguiente"))}</button>
             </div>`
-            : `<p>${esc(total ? __("No hay filas que coincidan con los filtros.") : __("No hay excepciones en las filas actuales. Si el estado guardado no coincide, use «Conciliar período predeterminado» para recalcularlo."))}</p>`}
+            : `<p>${esc(total ? __("No hay filas que coincidan con los filtros.") : __("No hay pendientes en las filas actuales. Si el estado guardado no coincide, use «Conciliar período predeterminado» para recalcularlo."))}</p>`}
         <p class="text-muted mt-3">${esc(__("Fila corresponde al número en la tabla de esta importación. Los importes están en US$. — indica un importe no disponible por aplicación; en operativo un depósito puede cubrir aplicaciones agrupadas. Consulte Ver motivos."))}</p>
         <p class="text-muted">${esc(__("Esta consulta no modifica datos ni concilia. Una fila aparece una sola vez aunque tenga varios motivos."))}</p>`;
 }
@@ -357,7 +353,7 @@ function showImportExceptions(frm) {
     const render = () => dialog.get_field("exception_list").$wrapper.html(importExceptionsHtml(frm, values(), offset));
     const changed = () => { if (dialog) { offset = 0; render(); } };
     dialog = new frappe.ui.Dialog({
-        title: __("Excepciones de {0}", [frm.doc.name]), size: "extra-large",
+        title: __("Pendientes detectados de {0}", [frm.doc.name]), size: "extra-large",
         fields: [
             {fieldtype: "Data", fieldname: "search", label: __("Buscar"), description: __("Cliente, crédito, asiento, recibo, fila o motivo"), onchange: changed},
             {fieldtype: "Column Break"},

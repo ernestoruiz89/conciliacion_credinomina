@@ -15,14 +15,15 @@ class ComplementaryTransactionsTests(unittest.TestCase):
 
     def test_progress_uses_confirmed_distributions_and_correct_signed_direction(self):
         for amount, allocated, expected in ((100, 0, "Pendiente"), (100, 25, "Parcial"), (100, 100, "Conciliado"),
-                                            (-100, -50, "Parcial"), (-100, -100, "Conciliado"), (100, 110, "Parcial")):
+                                            (-100, -50, "Parcial"), (-100, -100, "Conciliado"), (100, 110, "Revisar distribución")):
             with self.subTest(amount=amount, allocated=allocated):
                 item = self.item(amount_usd=amount)
                 balance = financial_balance(item, [{"amount_usd": allocated}])
                 result = transactions.progress(item, balance)
                 self.assertEqual(result["state"], expected)
                 self.assertEqual(result["original_usd"], 100)
-                self.assertLessEqual(result["resolved_usd"], 100)
+                if result["resolved_usd"] is not None:
+                    self.assertLessEqual(result["resolved_usd"], 100)
 
     def test_compensation_application_adjustment_credits_and_internal_tolerance(self):
         cases = [
@@ -34,7 +35,7 @@ class ComplementaryTransactionsTests(unittest.TestCase):
             (dict(category="Saldo a favor de la empresa", result="Saldo a favor documentado", credit_pending_usd=100), "Conciliado", 100),
             (dict(category="Diferencia por tolerancia", status="Vigente"), "Conciliado", 100),
             (dict(docstatus=0, registration_exception="EXC"), "Conciliado", 100),
-            (dict(docstatus=0, review_action="No conciliatoria", review_status="No conciliatoria"), "Conciliado", 100),
+            (dict(docstatus=0, review_action="No conciliatoria", review_status="No conciliatoria"), "Pendiente", 0),
             (dict(docstatus=0, review_action="Reversión identificada", related_application="R"), "Pendiente", 0),
         ]
         for values, state, resolved in cases:

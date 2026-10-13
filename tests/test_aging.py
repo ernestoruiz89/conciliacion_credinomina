@@ -11,10 +11,10 @@ class AgingTests(unittest.TestCase):
         for status in ("Importes inconsistentes", "Moneda no coincide", "Importe invalido", "Estado desconocido"):
             with self.subTest(status=status):
                 row = {**amounts, "deduction_status": status}
-                self.assertIsNone(collection_shortfall_usd(row))
+                self.assertEqual(collection_shortfall_usd(row), 100)
                 balances = list(operational_balances(row, {}))
                 self.assertEqual(len(balances), 1)
-                self.assertEqual(balances[0]["balance_type"], "Detalle de empresa por aclarar")
+                self.assertEqual(balances[0]["balance_type"], "Diferencia cobranza vs aplicación (informativo)")
                 self.assertEqual(balances[0]["amount_usd"], 100)
                 self.assertEqual(balances[0]["provision_review_usd"], 0)
 
@@ -47,44 +47,21 @@ class AgingTests(unittest.TestCase):
         self.assertEqual(result["without_date"], 50)
 
     def test_worker_employer_and_unconfirmed_detail_are_separate(self):
-        period = {"cutoff_date": "2026-09-30", "remittance_due_date": "2026-10-10"}
-        rows = list(operational_balances({
-            "expected_usd": 60, "deducted_usd": 30, "remitted_usd": 10,
-            "deduction_status": "Deduccion parcial",
-        }, period))
-        self.assertEqual([row["amount_usd"] for row in rows], [30, 20])
-        self.assertEqual(rows[0]["balance_type"], "Cobranza no deducida (informativo)")
-        self.assertEqual(rows[1]["balance_type"], "Deducido sin depósito asignado")
-        self.assertEqual([row["due_date"] for row in rows], ["2026-09-30", "2026-10-10"])
-        self.assertEqual([row["provision_review_usd"] for row in rows], [0, 0])
-        unknown = list(operational_balances({
-            "expected_usd": 60, "deducted_usd": 0,
-            "deduction_status": "Pendiente de detalle",
-        }, period))
-        self.assertEqual(len(unknown), 1)
-        self.assertEqual(unknown[0]["balance_type"], "Detalle de empresa pendiente")
-        self.assertEqual(unknown[0]["provision_review_usd"], 0)
+        row = dict(expected_usd=60, applied_usd=30, deducted_usd=50, remitted_usd=10)
+        result = list(operational_balances(row, {}))
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["amount_usd"], 30)
+        self.assertEqual(result[0]["provision_review_usd"], 0)
+        self.assertEqual(result[0]["balance_type"], "Diferencia cobranza vs aplicación (informativo)")
 
     def test_employee_receivable_requires_company_detail(self):
-        self.assertIsNone(collection_shortfall_usd({
-            "expected_usd": 46.52, "deducted_usd": 0,
-            "deduction_status": "Pendiente de detalle",
-        }))
-        self.assertIsNone(collection_shortfall_usd({
-            "expected_usd": 46.52, "deducted_usd": 0,
-        }))
-        self.assertEqual(collection_shortfall_usd({
-            "expected_usd": 46.52, "deducted_usd": 20,
-            "deduction_status": "Deduccion parcial",
-        }), 26.52)
-        self.assertEqual(collection_shortfall_usd({
-            "expected_usd": 46.52, "deducted_usd": 46.53,
-            "deduction_status": "Deduccion en exceso",
-        }), 0)
+        for status in (None, "Pendiente de detalle", "Deduccion parcial"):
+            self.assertEqual(collection_shortfall_usd(dict(expected_usd=46.52, applied_usd=20,
+                deducted_usd=46.52, deduction_status=status)), 26.52)
 
     def test_fx_and_negative_rounding_do_not_inflate_company_balance(self):
         rows = list(operational_balances({
-            "expected_usd": 50, "deducted_usd": 50, "remitted_usd": 49.98,
+            "expected_usd": 50, "applied_usd": 50, "deducted_usd": 50, "remitted_usd": 49.98,
             "fx_variance_usd": 0.01, "rounding_adjustment_usd": -0.01,
             "deduction_status": "Deduccion total",
         }, {"cutoff_date": "2026-09-30", "remittance_due_date": "2026-10-10"}))

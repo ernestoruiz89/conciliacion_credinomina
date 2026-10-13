@@ -27,7 +27,7 @@ class ControlLazyTests(unittest.TestCase):
                 ('Cerrado', 'Conciliado', 0, 'conciliado'),
                 ('Parcial', '', 0, 'parcial'),
                 ('Cerrado', 'Parcial', 0, 'parcial'),
-                ('Conciliado', '', 1, 'diferencia'),
+                ('Conciliado', '', 1, 'conciliado'),
             ):
                 period.update(status=status, status_before_close=before, exception_count=exceptions)
                 with self.subTest(summary=summary_only, status=status, before=before, exceptions=exceptions), \
@@ -38,7 +38,7 @@ class ControlLazyTests(unittest.TestCase):
                      patch.object(control, 'historical_difference_counts', return_value={'P': 0}):
                     result = control._build_control_data('Todos', summary_only=summary_only, detail_period='P')['periods'][0]
                 self.assertEqual(result['control_state'], expected)
-                self.assertEqual(result['employer_gap_usd'], 0.01)
+                self.assertEqual(result['employer_gap_usd'], 0)
                 self.assertEqual((result['expected_usd'], result['applied_usd'], result['remitted_usd']),
                                  (715.66, 715.65, 715.65))
 
@@ -56,9 +56,9 @@ class ControlLazyTests(unittest.TestCase):
         build.assert_called_once_with("Todos", "A", summary_only=True)
 
     def test_work_overview_ignores_calendar_year_but_keeps_employer(self):
-        with patch.object(control, "_build_control_data", return_value={"work_scope": "Todos"}) as build:
+        with patch.object(control, "_work_consultation", return_value=({"work_scope": "Todos", "work_items": [], "open_deposits": []}, {})) as build:
             self.assertEqual(control.get_work_overview("A")["work_scope"], "Todos")
-        build.assert_called_once_with("Todos", "A", summary_only=True, detail_section="work_overview")
+        build.assert_called_once_with(None, "A")
         with patch.object(control, "_build_control_data", return_value={"year": 2026}):
             self.assertEqual(control.get_control_data(2026)["work_scope"], "calendar")
 
@@ -140,10 +140,10 @@ class ControlLazyTests(unittest.TestCase):
 
     def test_pagination_is_bounded_and_rejects_unknown_sections(self):
         rows = [{"name": str(i), "priority": i % 3} for i in range(250)]
-        with patch.object(control, "_build_control_data", return_value={"work_items": rows}) as build:
+        with patch.object(control, "_work_consultation", return_value=({"work_items": rows}, {'restarted': False})) as build:
             page = control.get_control_rows("work_items", "Todos", "A", 100)
-        self.assertEqual(page, {"rows": rows[100:200], "count": 250, "action_count": 250, "overdue_count": 84})
-        build.assert_called_once_with("Todos", "A", summary_only=True, detail_section="work_items")
+        self.assertEqual(page, {"rows": rows[100:200], "count": 250, "action_count": 250, "overdue_count": 84, 'restarted': False})
+        build.assert_called_once_with(None, "A")
         with patch.object(control.frappe, "throw", side_effect=ValueError), patch.object(control, "_build_control_data") as build:
             with self.assertRaises(ValueError):
                 control.get_control_rows("anything")

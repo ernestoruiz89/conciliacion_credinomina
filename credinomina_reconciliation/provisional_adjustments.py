@@ -54,16 +54,15 @@ def row_basis(period, row):
         "deduction_status", "application_reference")}
     context["client_number"] = collection_client_number(row)
     # Recognition is evidence of this deposit, not a new first-stage base.
-    if period.get("application_basis") == COLLECTION:
-        context.update(deduction_status="Cobranza", deducted_usd=0, deducted_nio=0)
+    context.update(deduction_status="Cobranza", deducted_usd=0, deducted_nio=0)
     for field in ("expected_usd", "expected_nio", "deducted_usd", "deducted_nio"):
         context[field] = str(money(context[field]))
     for field in set(context) - {"expected_usd", "expected_nio", "deducted_usd", "deducted_nio"}:
         context[field] = str(context[field] or "")
     context.update(employer=period.get("employer"), base=str(base), applied=str(applied),
-                   application_basis=period.get("application_basis"),
+                   application_basis=COLLECTION,
                    collection_file=period.get("collection_import_sha256"),
-                   response_file=period.get("employer_response_import_key") if period.get("application_basis") == EMPLOYER_DETAIL else None)
+                   response_file=None)
     return {"collection_row": row.get("name"), "client_name": row.get("client_name"),
             "client_number": collection_client_number(row), "loan_number": row.get("loan_number"),
             "basis": quality["quality_basis"], "base_usd": money_float(base),
@@ -233,7 +232,7 @@ def _verified_rows(periods):
             for link in engine._application_allocations(source):
                 if link["collection_row_id"] in applied:
                     applied[link["collection_row_id"]] += money(link["amount_usd"])
-                    evidence.append([source.name, link, source.get("modified")])
+                    evidence.append([source.name, link, source.get("modified"), source.get("historical_period")])
     if any(money(row.applied_usd) != applied[name] for name, row in rows.items()):
         frappe.throw(_("Las aplicaciones cambiaron. Actualice la conciliación de la empresa y vuelva a revisar el período."))
     return evidence
@@ -243,7 +242,7 @@ def _plan(document, periods):
     from credinomina_reconciliation.client_credit import load_credits
     if any(period.get("prepared_deposit") for period in periods):
         frappe.throw(_("Un período ya fue trasladado a un depósito. Use sus partidas reales; no genere una segunda distribución provisional."))
-    if document.targets or document.detail_rows or money(document.allocated_usd) or load_credits([document.name]):
+    if document.targets or document.detail_rows or document.get("detail_file") or money(document.allocated_usd) or load_credits([document.name]):
         frappe.throw(_("El traslado preparado requiere un depósito sin detalle, destinos ni saldos a favor previos. No se reemplazará su trabajo."))
     evidence = _verified_rows(periods)
     result = {"deposit": document.name, "modified": str(document.modified), "rows": [], "adjustments": [],
@@ -321,7 +320,7 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
     from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import _apply_remittance_detail
     if not cint(confirm_correspondence):
-        frappe.throw(_("Confirme que el depósito corresponde a esta cobranza/deducción, no solo que coincide el importe."))
+        frappe.throw(_("Confirme que el depósito corresponde a esta cobranza, no solo que coincide el importe."))
     document, periods = _deposit_context(remittance_name)
     # Safe replay of a successful double-click: never manufacture a second item.
     if all(period.get("prepared_deposit") == document.name for period in periods):
@@ -343,18 +342,9 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                 records.append({key: row.get(key) for key in ("client_number", "client_name", "national_id", "loan_number", "installment_number")}
                     | {"client_number": collection_client_number(row), "source_row": len(records) + 2, "row_key": row.row_key, "employer": period.employer,
                        "deducted_usd": money_float(detail_amount), "comments": f"Base preparada: {period.name} / {base['basis']}"})
-                if period.get("application_basis") == COLLECTION and row.deduction_status in PENDING_DEDUCTION:
-                    row.deducted_usd, row.deducted_nio = row.expected_usd, row.expected_nio
-                    row.deduction_status, row.deduction_currency = "Inferida por depósito", ""
-                    row.deduction_match_note = _("Inferida al trasladar la cobranza al depósito {0}; no es detalle recibido de la empresa.").format(document.name)
-                    period.deduction_basis = "Depósito coincidente"
-                    period.deduction_recognition_deposit = document.name
-                    period.deduction_recognition_reference = document.deposit_reference
-                    period.deduction_recognition_note = _("Correspondencia confirmada al trasladar la conciliación preparada.")
-                    period.deduction_recognition_by, period.deduction_recognition_on = frappe.session.user, now_datetime()
             period.save()
         content = _workbook(records, amount_description=(
-            "Base de cobranza o deducción revisada, expresada en US$. "
+            "Cobranza revisada, expresada en US$. "
             "Generado desde la conciliación preparada; no es un archivo recibido de la empresa. "
             "El saldo a favor de la empresa se documenta aparte; el del cliente permanece en su fila."))
         attachment = save_file("detalle_preparado.xlsx", content, document.doctype, document.name,
@@ -369,9 +359,17 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                 detail = next(details)
                 if detail.client != row.client:
                     frappe.throw(_("La identidad del detalle no coincide con la cobranza. Revise cliente y crédito."))
-                if money(row.applied_usd):
+                direct_amount = money(0)
+                for source_id, link, _modified, direct_period in plan["applications"]:
+                    if direct_period and link["collection_row_id"] == row.name:
+                        amount = money(link["amount_usd"])
+                        direct_amount += amount
+                        document.append("targets", {"historical_application": source_id,
+                            "amount_usd": money_float(amount), "detail_row": detail.name,
+                            "notes": _("Aplicación del core vinculada desde la conciliación preparada")})
+                if money(row.applied_usd) > direct_amount:
                     document.append("targets", {"period": period.name, "row_key": row.row_key,
-                        "amount_usd": row.applied_usd, "detail_row": detail.name,
+                        "amount_usd": money_float(money(row.applied_usd) - direct_amount), "detail_row": detail.name,
                         "notes": _("Aplicación vinculada desde la conciliación preparada")})
                 for proposal in period.get("provisional_adjustments") or []:
                     if proposal.collection_row != row.name:

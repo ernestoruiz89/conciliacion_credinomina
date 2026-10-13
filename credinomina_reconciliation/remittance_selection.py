@@ -117,7 +117,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
     import frappe
     from frappe import _
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        _allocate_complementary_items, _deducted_amount,
+        _allocate_complementary_items,
     )
 
     doc = frappe.get_doc("CN Remittance Allocation", remittance_name)
@@ -163,11 +163,12 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
         from credinomina_reconciliation.paying_employers import choose_detail_client
 
-        client_catalog = load_client_index(employers=allowed)
+        client_catalog = load_client_index()
         row_identity = detail_row.as_dict()
         linked_client = next((client for client in client_catalog
                               if client["name"] == detail_row.get("client")), None)
-        if linked_client:
+        if linked_client and linked_client.get('employer') in allowed and (
+                not row_identity.get('employer') or row_identity['employer'] == linked_client.get('employer')):
             # Client links were established by the import/identity workflow and
             # are authoritative; core and SIAF client numbers can differ.
             detail_client, reason = linked_client, "Cliente vinculado en la fila"
@@ -186,7 +187,8 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         ))
         if not detail_client and has_identity:
             frappe.throw(_("No se pudo verificar de forma única al cliente de esta fila: {0}.").format(reason))
-        if detail_row.get("client") and (not linked_client or linked_client.get("employer") not in allowed):
+        if detail_row.get("client") and (not detail_client or detail_client.get('name') != detail_row.get('client')
+                                        or detail_client.get('employer') not in allowed):
             frappe.throw(_("La identidad guardada en esta fila no coincide con los datos del cliente. Revise el cliente y sus identificadores."))
         detail_client = detail_client or linked_client
         if not detail_client:
@@ -247,7 +249,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
                 "period_label": period_label(period), "filter_period": period.name,
                 "row_key": row.row_key, "reference": row.application_reference or "",
                 "applied_usd": float(max(money(row.applied_usd) - direct_amounts[row.name], 0)),
-                "due_usd": float(max(money(_deducted_amount(row, "USD")) - complementary[row.name] - direct_amounts[row.name]
+                "due_usd": float(max(money(row.applied_usd) - direct_amounts[row.name]
                                      + min(money(row.rounding_adjustment_usd), money(0)), money(0)))})
             if period.name in direct_periods:
                 candidates[-1]["due_usd"] = min(candidates[-1]["due_usd"], candidates[-1]["applied_usd"])
@@ -306,9 +308,11 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
                 candidate_identity["client_name"] = candidate_identity.pop("_client_identity_name")
             linked = clients_by_name.get(candidate.get("client"))
             if linked:
-                if linked.get("employer") != company:
+                if linked['name'] != detail_client['name']:
                     continue
-                resolved = linked
+                # detail_client already proved historical company membership
+                # against portfolio/application evidence, not today's registry.
+                resolved = detail_client
             else:
                 if any(candidate_identity.get(field) for field in identity_fields):
                     # Identifiers and registered aliases identify the person;

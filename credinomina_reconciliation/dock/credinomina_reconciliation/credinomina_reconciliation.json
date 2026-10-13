@@ -1,0 +1,21 @@
+{
+  "doctype": "Dock",
+  "name": "credinomina_reconciliation",
+  "app": "credinomina_reconciliation",
+  "standard": 1,
+  "docstatus": 0,
+  "items": [
+    {
+      "link_type": "Sidebar",
+      "link_to": "Conciliacion Credinomina",
+      "title": "Credinómina",
+      "icon": "arrow-left-right",
+      "hidden": 0,
+      "added": 0
+    }
+  ],
+  "creation": "2026-10-12 00:00:00.000000",
+  "modified": "2026-10-12 22:00:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+}

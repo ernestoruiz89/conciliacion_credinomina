@@ -97,8 +97,9 @@ class WorkspaceTest(unittest.TestCase):
 
     def test_workflow_order_and_primary_actions(self):
         self.assertEqual([
-            "1. Preparación", "2. Cobranza y deducciones", "3. Aplicaciones del core",
+            "1. Preparación", "2. Cobranza y control", "3. Aplicaciones del core",
             "4. Depósitos y distribución", "5. Diferencias y seguimiento", "6. Control y reportes",
+            "Administración de cargas",
         ], [block["data"]["card_name"] for block in self.blocks if block["type"] == "card"])
         self.assertEqual([
             "CN Credit Portfolio Snapshot", "CN Reconciliation Period",
@@ -106,6 +107,8 @@ class WorkspaceTest(unittest.TestCase):
         ], [row["link_to"] for row in self.workspace["shortcuts"]])
         self.assertTrue(all(row["doc_view"] == "New" for row in self.workspace["shortcuts"]))
         self.assertNotIn("Importar fuentes", self.workspace["content"])
+        self.assertEqual({"CN Accounting Batch", "CN Accounting Batch Block"},
+                         {row.get("link_to") for row in self.workspace["links"][-2:]})
 
     def test_migration_keeps_custom_navigation_and_is_idempotent(self):
         current = deepcopy(self.workspace)

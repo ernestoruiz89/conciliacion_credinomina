@@ -40,9 +40,11 @@ class ClientIdentityIndex:
         self.names = defaultdict(set)
         for position, row in enumerate(self.records):
             for field, index in self.identifiers.items():
-                key = canonical_identifier(row.get(field))
-                if key:
-                    index[key].add(position)
+                values = [row.get(field), *(row.get('employee_numbers') or [])] if field == 'employee_number' else [row.get(field)]
+                for value in values:
+                    key = canonical_identifier(value)
+                    if key:
+                        index[key].add(position)
             for label in (row.get("client_name"), *(row.get("client_aliases") or ())):
                 key = name_key(label)
                 if key:

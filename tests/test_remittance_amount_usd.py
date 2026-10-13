@@ -47,7 +47,9 @@ class RemittanceAmountUsdTest(unittest.TestCase):
             deposit_date="2026-12-05", deposit_reference=" R-1 ",
             deposit_voucher=" V-1 ", _validate_deposit=Mock(),
             _invalidate_changed_detail_credits=Mock(),
+            _update_financial_status=Mock(),
             get_doc_before_save=Mock(return_value=None),
+            get=lambda key: None,
         )
         with patch("credinomina_reconciliation.detail_balances.update_detail_balances"):
             CNRemittanceAllocation.before_update_after_submit(document)

@@ -63,7 +63,8 @@ assert.match(breakdown, /Total resumen<\/th><th class="cn-number">[^<]*1,000\.00
 assert.ok(breakdown.includes('class="cn-kpis cn-cash-kpis"'));
 assert.equal((breakdown.match(/class="cn-kpi-label"/g) || []).length, 4);
 assert.match(breakdown, /cn-cash-result"><div class="cn-kpi-label">Estado de conciliación<\/div><div class="cn-kpi-value">Por revisar<\/div>/);
-assert.ok(breakdown.includes("Resultado registrado: Parcial con saldo a favor"));
+assert.ok(breakdown.includes("Resultado guardado (auditoría)"));
+assert.ok(breakdown.includes("Parcial con saldo a favor"));
 for (const result of ["Conciliado", "Revisar detalle", "Pendiente", "Saldo a favor documentado", "<Revisar>", ""]) {
     const markup = renderCashDistribution({...deposit, result});
     const resultCard = markup.slice(markup.indexOf('<div class="cn-kpi cn-cash-result">'), markup.indexOf('<div class="cn-list-scroll">'));

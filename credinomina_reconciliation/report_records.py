@@ -8,6 +8,25 @@ import frappe
 
 PAGE_SIZE = 500
 
+INCOMPLETE_EVIDENCE = (
+    "Saldo no determinable: evidencia restringida. No tiene acceso a todos los "
+    "documentos necesarios para comprobar este saldo. Solicite revisión a un supervisor."
+)
+
+
+def require_complete_evidence(doctype, readable_names, *, filters, fields=(), relevant=None, **kwargs):
+    """Fail closed when a financial dependency is hidden by record permissions.
+
+    This internal completeness check never returns hidden names, amounts or
+    documents. A visible origin is not proof that all of its uses are visible.
+    The optional predicate narrows broad journal scans to that visible origin.
+    """
+    names = set(readable_names)
+    for row in _pages(frappe.get_all, doctype, fields=["name", *fields],
+                      filters=filters, order_by="name asc", **kwargs):
+        if row.name not in names and (relevant is None or relevant(row)):
+            frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+
 
 def records(doctype, *, fields, filters=None, order_by="name asc", **kwargs):
     yield from _pages(frappe.get_list, doctype, fields=fields, filters=filters,

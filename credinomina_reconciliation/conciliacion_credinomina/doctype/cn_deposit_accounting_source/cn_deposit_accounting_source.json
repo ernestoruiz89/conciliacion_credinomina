@@ -1,0 +1,25 @@
+{
+  "doctype": "DocType", "name": "CN Deposit Accounting Source", "module": "Conciliacion Credinomina",
+  "istable": 1, "engine": "InnoDB", "editable_grid": 1, "permissions": [],
+  "field_order": ["source_row", "source_date", "source_voucher", "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_description", "source_file", "source_file_hash", "accounting_source_key", "accounting_reference", "accounting_classification", "tmov", "tdoc", "source_client_name", "source_loan_number"],
+  "fields": [
+    {"fieldname": "source_row", "fieldtype": "Int", "label": "Fila del archivo", "in_list_view": 1, "columns": 1, "read_only": 1},
+    {"fieldname": "source_date", "fieldtype": "Date", "label": "Fecha contable", "in_list_view": 1, "columns": 2, "read_only": 1},
+    {"fieldname": "source_voucher", "fieldtype": "Data", "label": "Asiento original", "in_list_view": 1, "columns": 2, "read_only": 1},
+    {"fieldname": "source_account", "fieldtype": "Data", "label": "Cuenta contable", "read_only": 1},
+    {"fieldname": "source_currency", "fieldtype": "Data", "label": "Moneda original", "read_only": 1},
+    {"fieldname": "source_debit", "fieldtype": "Currency", "options": "source_currency", "precision": "2", "label": "Débito original", "in_list_view": 1, "columns": 2, "read_only": 1},
+    {"fieldname": "source_credit", "fieldtype": "Currency", "options": "source_currency", "precision": "2", "label": "Crédito original", "in_list_view": 1, "columns": 2, "read_only": 1},
+    {"fieldname": "source_fx_rate", "fieldtype": "Float", "precision": "9", "label": "Tipo de cambio original", "read_only": 1},
+    {"fieldname": "source_description", "fieldtype": "Long Text", "label": "Descripción completa original", "read_only": 1},
+    {"fieldname": "source_file", "fieldtype": "Attach", "label": "Archivo contable original", "read_only": 1},
+    {"fieldname": "source_file_hash", "fieldtype": "Data", "label": "Huella del archivo", "read_only": 1},
+    {"fieldname": "accounting_source_key", "fieldtype": "Data", "label": "Identidad de la línea", "read_only": 1, "search_index": 1},
+    {"fieldname": "accounting_reference", "fieldtype": "Data", "label": "Referencia contable", "read_only": 1},
+    {"fieldname": "accounting_classification", "fieldtype": "Data", "label": "Clasificación contable", "read_only": 1},
+    {"fieldname": "tmov", "fieldtype": "Data", "label": "TMOV", "read_only": 1},
+    {"fieldname": "tdoc", "fieldtype": "Data", "label": "TDOC", "read_only": 1},
+    {"fieldname": "source_client_name", "fieldtype": "Data", "label": "Cliente en archivo", "read_only": 1},
+    {"fieldname": "source_loan_number", "fieldtype": "Data", "label": "Crédito en archivo", "read_only": 1}
+  ]
+}

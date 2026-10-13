@@ -25,7 +25,7 @@ def run():
                 for day, amount in [("15", 40), ("30", 60)]:
                     period = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
                         "payroll_month": month + "-01", "reconciliation_mode": mode,
-                        "application_basis": "Detalle de empresa" if mode == "Operativa" else "",
+                        "application_basis": "Cobranza" if mode == "Operativa" else "",
                         "collection_cycle": "Primera quincena" if day == "15" else "Segunda quincena"})
                     if mode == "Historica":
                         period.historical_scope = "Fecha exacta"
@@ -33,7 +33,7 @@ def run():
                     else:
                         period.append("collection_rows", {"row_key": marker + day, "client": client.name,
                             "client_name": client.client_name, "client_number": marker, "loan_number": marker + "-1",
-                            "expected_usd": amount, "deducted_usd": amount, "deduction_status": "Deduccion total"})
+                            "expected_usd": amount})
                     period.insert()
                     imported = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
                         "source_file": f"/private/files/{marker}-{day}.csv", "status": "Importado", "currency": "USD"})
@@ -100,13 +100,13 @@ def run():
                 later_month = "2025-06" if mode == "Historica" else "2026-10"
                 later = frappe.get_doc({"doctype": "CN Reconciliation Period", "employer": employer.name,
                     "payroll_month": later_month + "-01", "reconciliation_mode": mode,
-                    "application_basis": "Detalle de empresa" if mode == "Operativa" else "",
+                    "application_basis": "Cobranza" if mode == "Operativa" else "",
                     "collection_cycle": "Primera quincena", "historical_scope": "Fecha exacta",
                     "historical_application_date": later_month + "-15"})
                 if mode == "Operativa":
                     later.append("collection_rows", {"row_key": marker + "LATER", "client": client.name,
                         "client_name": client.client_name, "client_number": marker, "loan_number": marker + "-1",
-                        "expected_usd": 25, "deducted_usd": 25, "deduction_status": "Deduccion total"})
+                        "expected_usd": 25})
                 later.insert()
                 imported = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
                     "source_file": f"/private/files/{marker}-later.csv", "status": "Importado", "currency": "USD"})

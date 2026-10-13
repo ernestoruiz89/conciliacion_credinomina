@@ -2,11 +2,11 @@
 
 Esta guía permite cargar evidencia del core, relacionarla con los depósitos y dar seguimiento a diferencias, ajustes y saldos a favor. Está dirigida a los operadores y supervisores de conciliación de MIDESA. La app funciona sobre Frappe Framework, sin depender de ERPNext ni de Loan Manager, y no sustituye el core de crédito ni registra asientos en él.
 
-Versión del manual: 1.2. Fecha de revisión: 7 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
+Versión del manual: 1.4. Fecha de revisión: 12 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
 
 ## Cómo usar el manual
 
-Para una carga histórica, siga preparación, cartera, movimientos contables, período histórico y depósito. Para una operación nueva, agregue cobranza y detalle de deducción antes de completar las aplicaciones y depósitos. Consulte los capítulos de ajustes y saldos a favor solamente cuando el caso lo requiera.
+Para una carga histórica, siga preparación, cartera, movimientos contables, período histórico y depósito. Para una operación nueva, agregue el control de cobranza contra aplicaciones. El detalle de la empresa se carga únicamente en el depósito; las dos conciliaciones pueden realizarse en cualquier orden. Consulte los capítulos de ajustes y saldos a favor solamente cuando el caso lo requiera.
 
 Cada procedimiento explica la acción y el control posterior. Guardar un documento, adjuntar un archivo y conciliar son operaciones distintas. Antes de una confirmación, revise el importe, la empresa, el cliente y los vínculos. Una referencia parecida o un total que cuadra no demuestra por sí solo una distribución correcta.
 
@@ -79,9 +79,9 @@ Ruta: **Conciliación Credinómina → Aplicaciones del core → Importación co
 3. Elija el corte de cartera si necesita uno específico. Para histórico, marque **Carga histórica de aplicaciones** cuando corresponda y seleccione un período histórico abierto o asígnelo después por fila.
 4. Guarde y presione **3. Cargar movimientos contables**. La carga clasifica líneas: una aplicación, un depósito y un movimiento interno no son el mismo hecho financiero.
 5. En **Resultados**, revise nombre, Nro. Cliente, Nro. Crédito, fecha, monto original, monto US$, asiento, recibo, empresa y motivos. Si falta un cliente, la app puede crearlo con la información identificada; revise que su empresa y número provengan de la evidencia correcta.
-6. Abra **Ver excepciones**. Filtre por cliente, crédito, asiento, estado, etapa o rango de importes. Las alertas de importación son pendientes detectados y no necesariamente documentos de excepción ya registrados.
+6. Abra **Ver pendientes detectados**. Filtre por cliente, crédito, asiento, estado, etapa o rango de importes. Estas alertas no son necesariamente documentos de excepción: una aplicación sin depósito puede estar correctamente importada y pendiente de pago.
 7. Use **Crear período** si necesita preparar un período desde esta carga. Revise mes de cobranza y corte; el botón crea un borrador, no cierra ni liquida aplicaciones.
-8. Presione **Conciliar esta empresa** después de guardar cambios. Revise la respuesta con filas procesadas, conciliadas y pendientes. Esta acción puede actualizar el conjunto financiero relacionado de la empresa; para trabajar solo un depósito use Conciliar en ese depósito.
+8. Seleccione el período predeterminado y presione **Conciliar período predeterminado** después de guardar cambios. Revise la respuesta con filas procesadas, conciliadas y pendientes. Si la carga abarca varios períodos, trabaje cada uno desde su formulario. Para distribuir un depósito use **Conciliar** en ese depósito.
 
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.
 
@@ -92,7 +92,7 @@ El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-conse
 La acción **Carga masiva** está en la vista de lista, no en el formulario. Prepare primero el corte de cartera y los convenios para reducir los casos sin identificar.
 
 1. Abra la lista de importaciones y pulse **Carga masiva**. Adjunte el archivo, indique moneda y tasa cuando corresponda y seleccione un **Corte de cartera** importado y habilitado. Es obligatorio para analizar, confirmar o reanudar la carga. El límite es 100,000 movimientos por carga.
-2. Revise la tabla de empresas identificadas y la tabla separada de **NO IDENTIFICADA**. En estas últimas, consulte la descripción del asiento y cambie la empresa solo si tiene evidencia.
+2. Revise la tabla de empresas identificadas y la tabla separada de **NO IDENTIFICADA**. Los casos sin empresa tienen búsqueda por cliente, crédito, asiento o descripción, filtro de tipo y páginas de 50 filas; puede revisar todos, no solo los primeros 100. Al cambiar de página se conservan las empresas elegidas. Consulte la descripción del asiento y cambie la empresa solo si tiene evidencia.
 3. Repita el análisis después de corregir empresas. Las elecciones se conservan y se consideran para agrupar; verifique el resultado antes de confirmar la selección.
 4. Seleccione las empresas a importar y confirme la carga. Las aplicaciones se agrupan por empresa y fecha de aplicación. Los casos NO IDENTIFICADA se registran por separado, aunque sean del mismo día, para corregir cada caso posteriormente.
 5. La carga conserva un CSV individual para cada importación y referencias al archivo masivo original compartido. Ver el mismo original en los adjuntos de varios documentos no significa que exista una copia física por documento. Los CSV de cada grupo sí son archivos distintos. Para reprocesar un grupo use su CSV en **3. Cargar movimientos contables**; no requiere otro botón.
@@ -119,7 +119,7 @@ Una partida importada puede tener importe positivo en el formulario y ser un cr�
 La aplicación separa cuatro hechos que no deben confundirse:
 
 1. **Cobranza enviada:** importe solicitado en la planilla; es un dato de control, no una CxC.
-2. **Deducción confirmada:** evidencia de lo retenido por la empresa; permite revisar la primera conciliación, pero no genera por sí misma CxC en esta herramienta.
+2. **Deducción confirmada:** evidencia de lo retenido por la empresa; se carga como detalle del depósito, pero no genera por sí misma CxC en esta herramienta.
 3. **Aplicación en el core:** base de la CxC que se debe conciliar, tanto en modalidad histórica como operativa.
 4. **Depósito o compensación vinculada:** cobertura efectiva de la aplicación. Solo reduce su CxC el importe asignado o compensado mediante una partida complementaria confirmada y vinculada.
 
@@ -131,56 +131,50 @@ Ejemplo para una cuota deducida en abril:
 
 - En abril se crea el periodo de cobranza y se envia el archivo a la empresa.
 - La empresa devuelve el detalle definitivo de lo efectivamente deducido.
-- La deduccion confirmada se reconoce con fecha de la evidencia de planilla.
+- El detalle se adjunta al depósito cuando esté disponible, conservando su fecha de carga.
 - La empresa remite el dinero en mayo, dentro del plazo definido en su ficha (por defecto, hasta el dia 10).
 - Se importan los movimientos contables conservando la fecha real de cada aplicación, aunque sea anterior al depósito. El depósito y su detalle se registran en Distribución de Depósito; la segunda conciliación vincula aplicación y depósito/compensación.
 
 El periodo siempre se identifica por el **mes de la planilla**, no por el mes en que llega el deposito.
 
-## Primera conciliación de cobranza y deducción
+## Primera conciliación de cobranza y aplicación
 
-En un período **Operativo**, la conciliación 1 compara las aplicaciones del core con la **Base de la primera conciliación** elegida: **Cobranza** o **Detalle de empresa**. La conciliación 2 compara las aplicaciones con los depósitos. Pueden realizarse en cualquier orden; el período solo puede cerrarse cuando ambas están completas y no existen excepciones o vínculos pendientes.
+La primera conciliación es un control de calidad: compara la cobranza solicitada contra las aplicaciones efectivas vinculadas del core, considerando los ajustes confirmados a esas aplicaciones. La base siempre es **Cobranza**. No genera CxC, depósitos ni saldos a favor y sus diferencias no bloquean por sí solas el cierre financiero.
 
-1. Revise la empresa y su frecuencia y plazo de depósito.
-2. Cree el Período de Conciliación con el primer día del mes de planilla, modalidad Operativa y ciclo correspondiente. Registre Observaciones que permitan identificar el envío.
-3. En Plantillas descargue la de cobranza. Prepare el archivo, adjúntelo y presione **1. Cargar cobranza**. La app carga las filas, identifica o crea clientes cuando la evidencia lo permite y normaliza los créditos; cargar la cobranza no registra efectivo.
-4. Use **Exportar archivo empresa**. Incluye las columnas requeridas y una `Fila ID` técnica para facilitar la coincidencia exacta. Conserve esa columna cuando la empresa responda.
-5. La empresa llena `Deducido C$` o `Deducido US$` y devuelve el mismo archivo.
-6. Registrar la fecha de la planilla o constancia que sirve como evidencia de la deduccion.
-7. Adjunte el detalle devuelto en el mismo período y presione **2. Cargar deducción de empresa**. Revise importes y motivos de todas las filas que no coinciden.
+1. Revise la empresa, su frecuencia de cobranza y el mes del período operativo. Registre Observaciones para identificar el envío.
+2. Descargue **Plantilla de cobranza**, complete las filas y pulse **1. Cargar cobranza**. La app identifica o crea los clientes y normaliza los créditos. Un crédito sin sufijo se normaliza con `-1`.
+3. Use **Exportar archivo empresa** para enviar la cobranza. Conserve la Fila ID cuando la empresa responda.
+4. Importe los movimientos contables y vincule las aplicaciones al período. Pulse **Conciliación 1: validar aplicaciones** y revise por cliente y crédito: **Cobranza US$, Aplicado US$, Diferencia US$ y Resultado del control**.
+5. Investigue aplicaciones mayores o menores que lo solicitado, aplicaciones sin cobranza y filas de cobranza sin aplicación. Registre una excepción cuando se necesite gestión formal. No ajuste dinero solamente para eliminar una diferencia informativa.
 
-El archivo de cobranza contiene Nro. Cliente, Nombre y Apellidos del Cliente, Nro. Cédula, Nro. Crédito, Nro. Cuota, Nro. de cuotas totales, Monto de la cuota en US$, Monto de la cuota en C$, Comentarios, Referencia de Aplicación y Comentario de Aplicación. Use la plantilla actual para conservar los encabezados. La respuesta agrega Deducido C$ y Deducido US$; no reemplace la cuota solicitada por lo efectivamente descontado.
+La cobranza conserva los encabezados de su plantilla: identificadores, crédito, cuota, importes solicitados, comentarios y referencias. El nombre, número de cliente y cédula pueden completarse por crédito desde la cartera activa del mismo mes del corte, o la última anterior. No se usa una cartera futura ni se aceptan identidades contradictorias. La fila guarda el vínculo **Cliente**, desde el cual se obtiene su número.
 
-En la cobranza puede dejar vacíos u omitir nombre, número de cliente y cédula. Se completan por número de crédito desde la cartera activa más reciente del mes de la fecha de corte del período, o la última anterior si no hay una en ese mes. Un período con fecha 15/09/2026 usa la cartera del 30/09/2026 si está disponible. No se consultan meses posteriores. Si no puede completar el nombre, hay créditos duplicados o la identidad contradice la cartera, la carga indica la fila y el motivo. Los importes y números de cuota se toman del archivo de cobranza.
+La empresa puede devolver el mismo archivo con **Deducido C$ / Deducido US$**. Ese archivo se importa exclusivamente en **Distribución de Depósito**, no en el período. Un importe mayor que la cobranza no impide vincular una aplicación identificada de forma inequívoca; queda visible como diferencia de calidad.
 
-La cobranza conserva un único identificador: **Cliente** (`client`), que enlaza al registro del cliente. No guarda un segundo número de cliente; las plantillas y reportes lo obtienen de ese vínculo. Todas las filas deben quedar identificadas antes de guardar. Al actualizar el sistema, la migración conserva las filas, sus importes y vínculos, y deja los números originales en la actividad del período. Si encuentra identidades contradictorias, informa el período y la fila para corregirlos antes de continuar.
+### Conciliar financieramente antes de recibir la cobranza
 
-Resultados posibles:
+1. Cree el período y asígnelo a las aplicaciones del core en **CN Accounting Import**. No marque artificialmente la modalidad histórica para evitar un control operativo.
+2. Registre el depósito con su fecha real. Puede confirmarlo antes de recibir su detalle; la confirmación no distribuye dinero.
+3. Cuando reciba el detalle, cárguelo en ese depósito, seleccione los períodos y concilie. También puede generar un detalle desde aplicaciones pendientes, previa revisión de clientes e importes.
+4. Cuando llegue la cobranza, cárguela en el período abierto y ejecute la primera conciliación. El pago directo y su proyección en una fila de cobranza se cuentan una sola vez. No se redistribuyen los depósitos al actualizar este control.
 
-- **Deducción total:** la deducción coincide con lo solicitado; no crea ni liquida por sí sola CxC.
-- **Deducción parcial:** se documenta la diferencia de la primera conciliación; no se convierte automáticamente en deuda del trabajador.
-- **No deducido:** se documenta el motivo y la gestión necesaria. La CxC de aplicaciones existentes permanece hasta recibir cobertura vinculada, independientemente de esta clasificación.
-- **Deduccion en exceso:** no se aplica automaticamente; queda como excepcion.
-- **Pendiente de detalle:** la empresa aun no envio evidencia. No equivale a pago ni a falta de pago definitiva.
-- **Ambigua o sin coincidencia:** revision humana obligatoria; nunca se asigna por similitud de nombre.
+El período puede cerrarse con aplicaciones financieramente cubiertas aunque la primera conciliación tenga diferencias o no esté completa. Siguen vigentes las validaciones de aplicaciones, destinos, detalles de depósitos relacionados, saldos y excepciones bloqueantes. Para modificar un período cerrado se requiere reapertura autorizada.
 
-### Ejecutar las conciliaciones en cualquier orden
+### Ejemplos de interpretación
 
-Para realizar primero la conciliación 1, cargue la base elegida y las aplicaciones del core. En el período pulse **Conciliación 1: validar aplicaciones**. Se actualiza el control contra esa base conservando la distribución de los depósitos existentes. Puede obtener un control Conforme aunque no haya recibido ningún depósito; el cierre permanece bloqueado mientras falte la conciliación 2.
+| Cobranza US$ | Aplicado US$ | Depositado al crédito US$ | Diferencia de calidad US$ | CxC pendiente US$ |
+| --- | --- | --- | --- | --- |
+| 100 | 80 | 80 | -20 | 0 |
+| 100 | 100 | 80 | 0 | 20 |
+| 100 | 120 | 120 | 20 | 0 |
 
-Para realizar primero la conciliación 2, incluso sin cobranza ni detalle de empresa:
+Si se aplicaron US$80 y se recibieron US$100, solo US$80 cubren el crédito. Los US$20 adicionales permanecen sin clasificar hasta documentar su destino. Una compensación confirmada y vinculada puede completar la cobertura, sin registrarse como dinero bancario.
 
-1. Cree el período operativo de la empresa y mes correspondientes. Seleccione la base que utilizará posteriormente en la conciliación 1.
-2. En **CN Accounting Import**, seleccione ese período en **Período predeterminado de aplicaciones**, o en **Período asignado de aplicación** de cada fila si la carga mezcla períodos. La modalidad debe coincidir con el período; no marque la carga como histórica para evitar la primera conciliación.
-3. Guarde y use **Conciliar esta empresa** para registrar los vínculos de las aplicaciones. La asignación del período no acredita que la conciliación 1 esté completa.
-4. En el depósito seleccione el período, cargue su detalle o use **Usar aplicaciones pendientes como detalle**, revise identidades e importes, confirme el depósito y pulse **Conciliar**. También puede elegir la **Aplicación del core** desde el selector de partidas pendientes. No se requiere haber cargado la base de la conciliación 1.
-5. Revise el saldo de la aplicación y del depósito. Cuando llegue la cobranza o el detalle de empresa, cárguelo en ese mismo período y ejecute **Conciliación 1: validar aplicaciones**. El sistema conserva el pago directo de la aplicación y lo refleja en la fila identificada sin volver a distribuir ese dinero.
+### Ajustes provisionales
 
-Si cambia la distribución bancaria, use **Conciliar** en el depósito correspondiente. Actualizar la base de la conciliación 1 no redistribuye depósitos automáticamente. Los destinos ya pagados siguen protegidos; no cambie el período de una aplicación con dinero vinculado sin corregir primero esa distribución mediante las acciones autorizadas.
+Genere las propuestas exclusivamente desde cobranza contra aplicación. Revise categoría, signo, motivo y destinatario; aprobarlas no mueve saldos. La materialización exige confirmación explícita en el depósito y sus validaciones de importe, identidad, permisos y períodos abiertos. No sustituye un detalle ya cargado ni duplica partidas materializadas.
 
-Ejemplo: una aplicación de US$100 y un depósito de US$100 pueden completar la conciliación 2 antes de recibir cobranza. El período queda abierto hasta cargar la cobranza y completar los vínculos de las aplicaciones. Si la cobranza indica US$100.01 y los US$100 aplicados están totalmente vinculados y depositados, la diferencia de US$0.01 permanece como información y no impide el cierre. No es necesario aprobar ni materializar un ajuste provisional para eliminarla. Una aplicación adicional sin vincular o sin pagar sí impide el cierre.
-
-El estado general prioriza la conciliación de aplicaciones con depósitos. Con todas las filas aplicadas y remitidas, las aplicaciones conciliadas y sin excepciones abiertas, el período queda **Conciliado** aunque el control contra cobranza muestre diferencias. La diferencia original se conserva; no se modifica lo aplicado ni lo depositado. Para actualizar un período abierto que conservaba **Parcial** por esa comparación, vuelva a conciliar después de actualizar la app.
+Las propuestas anteriores basadas en detalle de empresa deben regenerarse y aprobarse nuevamente antes de usarlas. Los períodos cerrados y las partidas ya materializadas se conservan.
 
 ## Implementación histórica y corte de septiembre de 2026
 
@@ -195,14 +189,14 @@ El saldo de aplicaciones sin depósito o compensación vinculada constituye la C
 3. Para separar aplicaciones de abril del 8, 23, 28 y 30, cree cuatro cortes por fecha exacta si esa es su evidencia. Para un archivo agregado de toda la empresa y mes puede usar alcance mensual. No cree un alcance mensual y cortes superpuestos para el mismo conjunto.
 4. Guarde y revise su identificador y Observaciones. El consecutivo distingue registros permitidos, pero no habilita duplicar una empresa y corte ya existentes ni mezclar modalidades para el mismo mes.
 5. En la importación contable, seleccione **Período predeterminado de aplicaciones** para un archivo uniforme. Si mezcla cortes, asigne el período a las filas correspondientes. Las aplicaciones sin período quedan visibles para completar el vínculo.
-6. Use **Conciliar esta empresa** y revise en el período sus aplicaciones y Pendientes detectados. No cargue una cobranza ficticia para llenar collection_rows: en histórico puede estar vacía mientras las aplicaciones enlazadas son la base del saldo.
+6. Use **Conciliar período predeterminado** y revise en el período sus aplicaciones y Pendientes detectados. Si la carga abarca varios períodos, trabaje cada uno desde su formulario. No cargue una cobranza ficticia para llenar collection_rows: en histórico puede estar vacía mientras las aplicaciones enlazadas son la base del saldo.
 7. Registre o revise los depósitos de la empresa, seleccione esos períodos y cargue o genere el detalle. Concilie cada depósito y verifique cobertura y pendientes por aplicación.
 
 No use **Carga histórica de aplicaciones** como solución general para una fila que no coincide. Esa marca define el tratamiento cuando no hay período asignado; no identifica empresa ni crea cobertura. Si un depósito paga varios cortes, se registra una sola vez y se distribuye entre ellos.
 
 ## Cobranza mensual y quincenal
 
-La **Frecuencia de cobranza** se configura por empresa. Una empresa mensual tiene un solo período operativo por mes; una empresa quincenal tiene dos: primera quincena (cierre día 15) y segunda quincena (cierre el último día del mes). Cada período conserva su archivo de cobranza, respuesta de la empresa, deducción, aplicaciones, depósitos y excepciones. La misma cuota puede aparecer en dos envíos, pero el período y la `Fila ID` distinguen los registros; nunca se suman dos quincenas como si fueran un solo descuento.
+La **Frecuencia de cobranza** se configura por empresa. Una empresa mensual tiene un solo período operativo por mes; una empresa quincenal tiene dos: primera quincena (cierre día 15) y segunda quincena (cierre el último día del mes). Cada período conserva su archivo de cobranza, aplicaciones, vínculos a depósitos y excepciones. La misma cuota puede aparecer en dos envíos, pero el período y la `Fila ID` distinguen los registros; nunca se suman dos quincenas como si fueran un solo descuento.
 
 La carga **histórica** sigue agrupada por empresa y mes de cobranza asignado, pero puede separarse además por fecha exacta o rango de aplicación. No se presume que un corte sea una primera o segunda quincena: sus fechas se registran según la evidencia real.
 
@@ -212,13 +206,11 @@ El tablero agrega importes para la vista del mes y permite abrir cada quincena. 
 
 ### Reconocer la cobranza como detalle de la empresa
 
-Si la empresa confirmó la deducción completa, use **Más opciones → Reconocer cobranza como detalle de la empresa** en un período abierto. Indique la fecha de evidencia y confirme la deducción. La app copia los importes de cobranza a `Deducido US$` y `Deducido C$`, conservando quién lo reconoció y cuándo. No sobrescribe un detalle o deducciones ya registrados.
-
-Esta acción no registra ni confirma un depósito y no sustituye la evidencia individual de descuento salarial. No reconozca una deducción solo porque llegó dinero. En el depósito, **Usar aplicaciones pendientes como detalle** permite preparar filas con las aplicaciones seleccionadas de sus períodos; revise los destinatarios e importes antes de conciliar. Un detalle generado por la herramienta no debe presentarse como archivo enviado por la empresa.
+El detalle devuelto por la empresa se carga únicamente en el depósito. Si no se dispone de él, **Usar aplicaciones pendientes como detalle** permite preparar filas desde los períodos seleccionados. Revise y confirme los destinatarios e importes; ese archivo generado no acredita una deducción salarial ni debe presentarse como enviado por la empresa.
 
 ## Subsidio suspensión e ingreso insuficiente
 
-- Registrar el monto efectivamente deducido, incluso si es cero.
+- Conservar la evidencia de lo deducido en el detalle del depósito, incluso si es cero.
 - Usar la excepcion para documentar `subsidio`, `suspension`, `ingreso insuficiente` u otra causa.
 - Mantener la diferencia como pendiente de aclaración de cobranza; no sumarla a la CxC ni presentarla automáticamente como deuda del trabajador.
 - Determinar cualquier responsabilidad contractual fuera de este cálculo de conciliación, con el convenio y la evidencia correspondiente.
@@ -228,8 +220,8 @@ Esta acción no registra ni confirma un depósito y no sustituye la evidencia in
 
 - El detalle permanece pendiente de recibir; revise la alerta correspondiente y documente la gestión. No confunda este faltante de evidencia con el estado financiero del período.
 - No se simula una deduccion para cuadrar el deposito.
-- Cuando llegue la evidencia, se importa al periodo original aunque el archivo llegue a finales de mayo.
-- Si el deposito llega antes que el detalle, puede quedar registrado y confirmado sin asignar todavía a una cobranza. Cuando llegue evidencia posterior, se recalcula la conciliación; una aplicación enlazada antes de comprobar la deducción se muestra como **provisional**, no como descuento salarial confirmado.
+- Cuando llegue la evidencia, se importa en el depósito correspondiente, aunque llegue a finales del mes siguiente.
+- Si el deposito llega antes que el detalle, puede quedar registrado y confirmado sin asignar todavía a una cobranza. Cuando llegue evidencia posterior, se carga allí y se concilia; la aplicación del core y la evidencia de deducción son hechos distintos.
 - Para dejar constancia del cierre de control mensual con pendientes, use **Registrar corte de control** en el período y anote la siguiente gestión. La foto fechada no bloquea evidencia tardía ni equivale a liquidación. `Cerrar período` exige aplicaciones vinculadas y liquidadas, sin excepciones abiertas ni pendientes de depósitos. Las diferencias informativas de la primera conciliación se conservan al cerrar; no son por sí mismas deuda del empleado.
 - Un período `Cerrado` queda en solo lectura. Si se descubre una corrección necesaria, un supervisor o administrador debe usar **Reabrir período** y documentar el motivo; después revisa nuevamente los saldos y ejecuta el cierre otra vez.
 
@@ -237,7 +229,7 @@ Esta acción no registra ni confirma un depósito y no sustituye la evidencia in
 
 1. Importar solo **Movimientos contables** para las aplicaciones. Antes de cargar, indicar la moneda reportada; si el archivo está en NIO, ingresar la tasa manual C$/US$. La conciliación se realiza en US$ y el monto original en C$ queda conservado. Cada importación debe tener una sola moneda; separar archivos mixtos. Las `DISPENSAS` no se tratan como efectivo.
 2. Registrar cada depósito de convenio en **Distribución de Depósito**, con su fecha real, empresa, referencia, importe y moneda. Un supervisor lo **confirma** para que participe en la conciliación; el borrador no tiene ese efecto. **Confirmar depósito** y **Conciliar** son acciones separadas. No cargar el Excel bancario mensual como archivo de **Movimientos contables**: puede mezclar depósitos de otras empresas, clientes sin convenio y movimientos operativos. La importación contable sí puede crear depósitos desde líneas identificadas como tales; revise esos borradores antes de confirmarlos. Cuando la empresa entregue el detalle por cliente, adjuntarlo a ese mismo depósito e importarlo allí. Si el depósito es en C$, indicar una tasa C$/US$ positiva; la app calcula y redondea el equivalente a dos decimales. No exige una justificación de tasa.
-3. La aplicación del core se conserva en US$ y se enlaza a una deducción por crédito, importe y referencia cuando la empresa la informó. Si la deducción fue en C$, se usa únicamente una tasa documentada para comparar en US$.
+3. La aplicación del core se conserva en US$ y el detalle del depósito se vincula por identidad, crédito y destinos. Si viene en C$, se convierte con una tasa positiva y se redondea a dos decimales; el tipo de cambio conserva su precisión.
 4. El depósito registrado puede cotejarse con un movimiento contable de depósito por referencia e importe en su moneda original o equivalente documentado.
 5. El depósito se distribuye en US$ entre aplicaciones y partidas complementarias. Seleccione los períodos que puede cubrir y use **Seleccionar partidas pendientes** para indicar destinos e importes. Cuando la selección manual corresponde a una fila del detalle, vincule esa fila con sus destinos: cuadrar el total del depósito no demuestra por sí solo que cada cliente esté conciliado. El botón **Conciliar** recalcula ese depósito y su conjunto financiero afectado, no toda la empresa indiscriminadamente.
 
@@ -245,7 +237,7 @@ Un depósito puede cubrir parte de una cobranza, varias cobranzas o combinarse c
 
 ### Traslado de excepciones entre conciliaciones
 
-El operador puede escribir la **Excepción de cobranza vs aplicación** en la cuota tan pronto se detecte una aplicación parcial, sin esperar el depósito. Una aplicación del core puede enlazarse a la cobranza antes de que llegue el detalle de deducción, siempre que crédito, cuota y demás identificadores dejen un único destino; esto no confirma que la empresa haya descontado ni habilita distribuir un depósito sin evidencia. También se conserva el comentario del archivo de la empresa y la descripción/resolución de la excepción de deducción. Al recibir y distribuir el depósito, el sistema compara por la misma fila de cobranza los faltantes en **US$**: cobranza menos aplicación (descontando partidas complementarias atribuibles a esa fila), cobranza menos deducción y cobranza menos importe remitido. Si el faltante del depósito coincide con alguno de los faltantes ya comentados, muestra ese comentario como **antecedente trasladado** en la cuota y en el reparto del depósito, con la referencia de la excepción cuando exista. No crea otra excepción por el mismo comentario.
+El operador puede escribir la **Excepción de cobranza vs aplicación** antes de recibir el depósito. Al distribuirlo, los comentarios compatibles se muestran como antecedentes, conservando su origen y referencia. La comparación utiliza aplicaciones efectivas y su cobertura, no las deducciones archivadas del período. El traslado no crea otra excepción ni confirma dinero.
 
 Si todavía no existe depósito, no hay comentario trasladado. Si el faltante del pago es distinto, permanece para revisión por separado. Trasladar el antecedente no registra dinero, no resuelve la excepción original, no convierte un depósito parcial en completo y no altera el saldo pendiente. Editar posteriormente el comentario o la resolución recalcula el antecedente mostrado.
 
@@ -268,7 +260,7 @@ Ruta: **Conciliación Credinómina → Depósitos → Distribución de Depósito
 
 La plantilla del depósito admite identidad por al menos uno de estos datos: Nro. Crédito, Nro. Cliente, Nro. Cédula, Nro. Empleado o Nombre y Apellidos. No exige nombre si existe otro identificador resoluble. Si informa varios, todos deben identificar a la misma persona. El número de crédito sin sufijo se normaliza con -1 cuando corresponde. La plantilla usa Deducido C$ y Deducido US$ y no requiere Nro. Cuota, Referencia de Aplicación, Comentario de Aplicación ni importes esperados de cobranza.
 
-El nombre del documento se agrega al archivo de plantilla para identificarlo fácilmente. No confunda esta plantilla con la de cobranza o la del detalle de deducción de empresa.
+El nombre del documento se agrega al archivo de plantilla para identificarlo fácilmente. No confunda esta plantilla con la de cobranza.
 
 Al cargar el archivo de detalle devuelto por la empresa ya no se agregan ceros iniciales. Se conservan los dígitos recibidos y solo se incorpora el sufijo -1 cuando corresponde. La comparación interna ignora los ceros iniciales de los créditos en cartera, movimientos contables, cobranza y depósitos: 1807-1 y 001807-1 coinciden, pero 1807-2 es distinto. Los registros anteriores con ceros siguen siendo compatibles sin cambiar sus números guardados. Si hay varias filas de cartera equivalentes, deben revisarse como duplicadas antes de continuar.
 
@@ -359,7 +351,7 @@ El depósito se registra en el depósito por su importe total, aunque supere las
 
 ## Página de control
 
-**Control de Credinómina** separa **Calendario** y **Trabajo de conciliación** en pestañas. La bandeja reúne detalle de empresa, aplicaciones sin período, depósitos por revisar, complementarias, saldos a favor por gestionar y excepciones aunque no tengan período. Siempre consulta **todos los años**, independientemente del año elegido para el calendario, cifras de control y Excel. Filtre por empresa, tipo de pendiente, responsable o compromiso; el filtro considera todas las páginas. La bandeja se carga al abrir su pestaña; si falla, muestra un aviso y permite reintentar, sin presentar un conjunto parcial como completo. La celda mensual muestra por separado los depósitos completos recibidos ese mes, aunque paguen períodos anteriores. El efectivo no debe sumarse otra vez a sus asignaciones.
+**Control de Credinómina** separa **Calendario** y **Trabajo de conciliación** en pestañas. La bandeja reúne aplicaciones sin período, depósitos por revisar, complementarias, saldos a favor por gestionar y excepciones aunque no tengan período. Siempre consulta **todos los años**, independientemente del año elegido para el calendario, cifras de control y Excel. Filtre por empresa, tipo de pendiente, responsable o compromiso; el filtro considera todas las páginas. La bandeja se carga al abrir su pestaña; si falla, muestra un aviso y permite reintentar, sin presentar un conjunto parcial como completo. La celda mensual muestra por separado los depósitos completos recibidos ese mes, aunque paguen períodos anteriores. El efectivo no debe sumarse otra vez a sus asignaciones.
 
 En el formulario del depósito, **depositado = asignado + saldo a favor documentado + sin asignar ni justificar**. Un depósito completamente distribuido puede mostrar **Conciliado con saldo a favor** y, simultáneamente, una gestión de devolución o aplicación futura pendiente. El saldo a favor original se conserva aunque su gestión se complete; no se vuelve a liberar ese efectivo para pagar otra aplicación. El estado de conciliación no certifica por sí mismo el registro contable en el core. Si el importe no cuadra o el detalle sigue por revisar, no se muestra en verde aunque el resultado guardado diga «Conciliado».
 
@@ -434,8 +426,7 @@ Ejemplo: débito de US$75 en abril y crédito correctivo de US$75 en agosto pued
 
 **Estado de Cuenta Operativo** presenta la posición actual por tipo de fila:
 
-- **Cobranza**: importe solicitado, deducido, cuota no deducida y pendiente de
-  aplicación en el core. Son controles informativos, no deuda calculada.
+- **Cobranza**: solicitado, aplicado, diferencia y resultado del control. Son importes informativos, no deuda calculada.
 - **Aplicación**: aplicado neto de ajustes confirmados, depósito asignado,
   partidas complementarias y pendiente. Incluye histórico, operativo y aplicaciones sin período;
   si varias aplicaciones comparten una cobranza, su efectivo se cuenta una vez.
@@ -447,7 +438,7 @@ Ejemplo: débito de US$75 en abril y crédito correctivo de US$75 en agosto pued
   utilizado para cuadrar el depósito.
 
 Use **Tipo de posición** para reducir las columnas cuando revise una etapa.
-La cobranza solicitada y lo no deducido son datos informativos de la primera
+La cobranza solicitada y su diferencia contra aplicaciones son datos informativos de la primera
 conciliación: **no generan una cuenta por cobrar**. La CxC de esta herramienta
 es el **aplicado en el core menos depósitos asignados y compensaciones confirmadas
 vinculadas**. El aplicado neto ya descuenta los ajustes a aplicaciones; no se
@@ -469,9 +460,9 @@ sin cortar los totales en 10000 períodos o 100000 filas.
 El reporte **Estado de Cuenta Operativo** debe acompanarse del estado oficial del core cuando se requiera capital, intereses y saldo contractual. El reporte de esta app explica las partidas en transito:
 
 - cobrado en planilla;
-- deducido al trabajador;
+- evidencia de deducción aportada en el depósito;
 - diferencia de cobranza pendiente de aclarar (informativa);
-- deducido pero pendiente de aplicar en el core;
+- diferencia entre cobranza y aplicación;
 - cuenta por cobrar a la empresa;
 - aplicado y depositado/compensado.
 - partida complementaria y diferencia cambiaria, cuando existan, separadas del pago al crédito.
@@ -491,7 +482,7 @@ Ante una consulta, no se presenta la diferencia de cobranza como saldo contractu
 
 1. Revise **Pendientes detectados**, **Excepciones del período**, aplicaciones y depósitos vinculados. Un período histórico no puede cerrarse sin aplicaciones efectivas asignadas.
 2. Resuelva los destinos inválidos y los detalles de depósito por revisar. Verifique que el aplicado neto esté cubierto por depósitos o ajustes confirmados y que no haya excepciones abiertas del período.
-3. En operativo, cargue la cobranza y complete los vínculos de las aplicaciones. Las diferencias informativas de la primera conciliación no bloquean el cierre ni exigen aprobar ajustes provisionales. Todas las filas deben estar aplicadas y remitidas; si hay pagos o vínculos pendientes, registre un corte de control para rendir con pendientes.
+3. En operativo, revise el control de cobranza si está disponible. Sus diferencias, o la ausencia de cobranza, no bloquean por sí solas el cierre ni exigen ajustes provisionales. Todas las aplicaciones deben estar financieramente cubiertas; si hay pagos o destinos pendientes, registre un corte de control para rendir con pendientes.
 4. Guarde y pulse **Cerrar período** o **Cerrar período histórico**, según la modalidad. Lea el mensaje; si falla, corrija el caso indicado, no el campo Estado.
 5. Compruebe **Cerrado** y el resultado financiero conservado en el detalle. Cerrar bloquea edición; no garantiza que toda gestión externa de un saldo a favor o asiento contable haya terminado. Revise esas partidas en la bandeja de trabajo.
 6. Para una corrección posterior, el supervisor o administrador usa **Reabrir período**, indica motivo y revisa las operaciones afectadas. Conserve la evidencia de la reapertura y cierre nuevamente cuando proceda.
@@ -597,10 +588,7 @@ Para la gestión **Registrar ajuste en el core**, la excepción debe comprobar
 el asiento contra la importación antes de mostrar **Registro verificado**.
 Un depósito conciliado puede conservar una gestión contable pendiente.
 
-Un detalle de empresa ausente o inconsistente se muestra como **Detalle de
-empresa pendiente** o **Detalle de empresa por aclarar**. Ni la solicitud de
-cobranza ni la deducción crean esta CxC, incluso cuando el detalle es válido.
-La CxC nace de las aplicaciones y su cobertura confirmada, en ambas modalidades.
+Un detalle del depósito ausente o inconsistente queda para revisión en la distribución. No se exige un segundo archivo en el período. La CxC nace de las aplicaciones y su cobertura confirmada, en ambas modalidades.
 
 ## Cobrar una CxC por ajuste
 
@@ -649,6 +637,8 @@ Ruta: **Conciliación Credinómina → Diferencias y seguimiento → Excepciones
 7. Cuando exista evidencia suficiente, registre resolución y causa confirmada, revise los saldos reales y cambie el estado permitido. Resolver una excepción no registra un depósito, una compensación ni un pago al préstamo.
 
 Puede existir una excepción sin período por una partida genérica, una aplicación todavía no ubicada o un seguimiento contable. No asigne un período solo para darle nombre. El identificador usa CN-EXC-mes-año-consecutivo cuando nace con período y CN-EXC-año-consecutivo cuando nace sin él; conserva su identificación inicial aunque se relacione después.
+
+Ejemplos: `CN-EXC-4-2025-001` con período de abril de 2025 y `CN-EXC-2026-0001` sin período, creada en 2026. Al migrar, los hashes anteriores reciben esta numeración; se conservan en **Identificador anterior**, consultable en la búsqueda, y se actualizan sus vínculos e historial. Los cortes y archivos guardados no se reescriben; un enlace antiguo con el hash debe sustituirse por el nuevo identificador.
 
 ### Dar seguimiento a un asiento pendiente
 
@@ -708,10 +698,12 @@ Los dos reportes de antigüedad separan **No vencido**, **1–15**, **16–30**,
 3. No limite empresa, tipo o estado cuando quiera comprobar integridad de la carga mensual completa. Si filtra, documente el alcance del subtotal.
 4. Compare por separado total débito y total crédito en moneda original C$ con la balanza externa y los movimientos de esa cuenta. Compare también sus equivalentes US$ sin mezclar monedas ni tasas.
 5. Si falta importe, revise archivos, fechas, filas de origen, pendientes de carga y empresas no identificadas. Una clasificación pendiente no justifica que desaparezca la línea del control contable.
-6. Revise descripción completa, asiento, cliente, crédito y empresa cuando estén disponibles. Los depósitos sin cliente en la evidencia original no deben aparecer atribuidos a una persona por simple coincidencia de una clave.
+6. La vista predeterminada es compacta. Pulse **Ver origen** para consultar descripción completa, asiento, fila original, ID de fila y documento vinculado. Active **Ver auditoría** para consultar todas las columnas; **Exportar auditoría** incluye las columnas ocultas. Los depósitos sin cliente en la evidencia original no deben aparecer atribuidos a una persona por simple coincidencia de una clave.
 7. Para los depósitos, la columna Estado consulta el resultado del documento de depósito vinculado. Un depósito en borrador no prueba dinero ya utilizado en la conciliación.
 
 El reporte incluye movimientos provenientes del core. Un ajuste interno creado manualmente en la app no se suma como débito o crédito del core antes de que exista evidencia importada. El saldo de la balanza puede incluir saldo inicial y movimientos ajenos al período cargado; compare movimientos del mes con movimientos del mes, no solo el saldo final con la CxC actual.
+
+Los estados de aplicaciones se calculan desde cobertura monetaria vigente, no desde una etiqueta antigua de conciliación. **Pendiente US$** conserva N/D si falta conversión o hay vínculos inconsistentes. Los débitos y créditos son siempre la evidencia contable original, no esa cobertura. Si falta evidencia o tasa, el KPI afectado indica **No determinado**. Abra **Ver subtotales conocidos** para consultar los importes disponibles y el número de filas sin determinar; no compare ese subtotal como si fuera el total de la balanza. Las cifras originales C$ pueden seguir determinadas aunque falte su conversión US$.
 
 ### Leer Transacciones por Empresa
 
@@ -732,6 +724,12 @@ El **corte histórico** responde cuánto estaba aplicado, cubierto o pendiente a
 3. En **Antigüedad de Saldos** o **Antigüedad de Saldos por Empresa**, active **Corte histórico** y establezca **Fecha para antigüedad**. Sin ese check, la fecha solo mide la antigüedad de los pendientes actuales. La reconstrucción histórica se aplica a CxC, no a la cobranza informativa.
 4. Para obtener la posición completa, no limite los movimientos de origen a un mes con filtros Desde/Hasta. Estos filtros acotan el universo consultado; no aportan automáticamente un saldo inicial de períodos excluidos.
 5. Revise las advertencias y el detalle antes de exportar. Conserve la fecha y los filtros junto con el informe. La consulta no modifica documentos ni reabre períodos. El Excel general de Control de Credinómina sigue siendo una consulta actual; use la exportación del reporte consultado para entregar el corte histórico.
+
+El corte valida primero los vínculos actuales. Si una aplicación de US$100 tiene vínculos por US$150, conserva **Revisar distribución** y saldo N/D: no los recorta ni los corrige virtualmente. Solo reconstruye cambios sustentados en ajustes confirmados con fecha; si no puede atribuir un ajuste entre varias cobranzas, lo advierte sin inventar una distribución.
+
+### Clientes que cambiaron de convenio
+
+El detalle de un depósito histórico puede identificar al cliente de una empresa anterior con evidencia de cartera o aplicaciones de esa empresa, aunque su ficha actual pertenezca a otra. La app no cambia su empresa actual ni autoriza pagos entre empresas por semejanza de nombres. Los identificadores aportados deben corresponder a la misma persona. El número de empleado actual no acredita el número que tenía en otra empresa: para usar este último debe existir en una aplicación histórica de esa empresa. Si la empresa pagadora puede pagar ambas y hay evidencia para las dos, indique la empresa beneficiaria de la fila.
 
 ### Qué considera el corte y cuáles son sus límites
 
@@ -860,7 +858,9 @@ Revise alcance de cuenta, fechas, monedas, débitos y créditos, filas originale
 - Revisar compromisos vencidos, responsables y próximas gestiones de excepciones, CxC y saldos a favor.
 - Conservar soportes y comprobar que toda corrección tenga motivo e historial.
 
-### Revisión mensual del supervisor
+### Revisión mensual
+
+Puede realizarla la misma persona que opera la herramienta, con los permisos existentes. No hay una segunda aprobación ni se requiere otro usuario.
 
 - Cotejar débitos y créditos de la cuenta 160209013004 con los movimientos y la balanza externos.
 - Revisar aplicado original, ajustes, aplicado neto, cobertura y CxC total, sin restar dos veces un ajuste.
@@ -875,4 +875,119 @@ Revise alcance de cuenta, fechas, monedas, débitos y créditos, filas originale
 
 Revise este manual cuando cambien campos, botones, reglas de asignación, permisos o reportes. Verifique los pasos en un sitio de ensayo antes de capacitar sobre una nueva versión. La guía de instalación y uso contiene los comandos de actualización; este manual se concentra en la operación financiera y no autoriza reparaciones directas en la base de datos.
 
-El Word se genera desde este procedimiento mediante tools/build_reconciliation_manual.py. Ambos documentos deben actualizarse juntos para evitar instrucciones contradictorias.
+El Word se genera desde este procedimiento mediante tools/build_reconciliation_manual.py. La versión Word anterior aún no incorpora el flujo de dos conciliaciones de esta revisión; use este procedimiento hasta que se regenere y valide visualmente.
+
+## Clasificar y revisar pendientes sin duplicar trabajo
+
+En **Control de Credinómina → Trabajo de conciliación**, cada documento y empresa agrupan sus acciones. Una partida genérica con CxC de US$200 para una empresa y US$300 para otra produce dos casos independientes. El **importe principal** corresponde a su pendiente financiero prioritario, no a la suma de tareas: registrar US$100 en el core y devolver un remanente de US$40 no son una deuda de US$140. Expanda las acciones para consultar sus importes individuales.
+
+Busque cliente, documento o motivo; filtre el importe mínimo y ordene por mayor importe o antigüedad. La hora de consulta queda visible. **Actualizar consulta** incorpora cambios recientes y conserva esos filtros; la consulta temporal vence a los tres minutos y reinicia la paginación si cambia el alcance o los permisos. No se usa para ejecutar conciliaciones: cada operación vuelve a validar sus datos vigentes.
+
+Al abrir un caso, **Anterior / Siguiente** recorre los casos cargados de la consulta filtrada. **Abrir documento en otra pestaña** permite gestionar sin perder la bandeja. Cierre el visor y use **Actualizar consulta** después de guardar una gestión; el visor no recalcula ni confirma operaciones. Para recorrer más casos, use **Mostrar más** en la bandeja.
+
+En una partida, **Clasificar pendiente** guía hacia las acciones disponibles: identificar empresa/cliente, preparar un destino de depósito, vincular una aplicación, compensar, gestionar una CxC, abrir el depósito o documentar una excepción. Reutiliza los documentos existentes; no crea aprobaciones de otros usuarios.
+
+El asistente consulta el importe original, lo distribuido/compensado y el pendiente financiero, además de la gestión del saldo a favor y la CxC si existen. Son cifras del documento guardado, no de cambios aún sin guardar. Seleccionar una clasificación no paga ni compensa; el destino y el importe se eligen en el siguiente paso y se validan al confirmar.
+
+**No conciliatoria** significa fuera del flujo de depósitos, no pagada ni condonada. Conserva el saldo como **Por aclarar (no conciliatoria)** hasta vincular su resolución real. Una sobreasignación o un signo incompatible se muestra como **Revisar distribución**, nunca como conciliación completa.
+
+Distinga tres controles:
+
+- **Conciliación:** utilización financiera respaldada por vínculos efectivos.
+- **Registro contable:** asiento informado/importado o registro aún pendiente en el core.
+- **Gestión:** devolución o aplicación externa del saldo a favor. Documentarlo en un depósito no acredita que se haya devuelto.
+
+El formulario de complementarias organiza la información en **1. Partida y saldo**, **2. Tratamiento y gestión** y **3. Registro y evidencia**. La fila de origen del excedente muestra cliente, crédito e importe, sin obligar a interpretar su identificador interno.
+
+En la lista de complementarias, el indicador es financiero. **Registro contable** y **Gestión** son independientes: una partida conciliada puede seguir pendiente de devolución o cobro. Para saldos a favor se muestra **Por devolver/aplicar US$**; para ajustes que trasladan una CxC, **Por cobrar US$**, además de **Sin distribuir/compensar US$**. Use **Vistas rápidas → CxC por ajustes pendientes** para abrir las obligaciones por empresa. «Saldo no disponible» indica que no se pudo consultar la evidencia, no que el saldo sea cero. La búsqueda de tareas también admite número de crédito, número de cliente y descripción de excepciones.
+
+Las partidas del core conservan su magnitud contable original convertida con la tasa de importación. Puede revisar el signo, pero no reducir el importe para cuadrar: use distribución o compensación parcial y gestione el remanente. Las discrepancias antiguas de importe se señalan para revisión; la consulta no reescribe documentos ni distribuciones.
+
+Una inconsistencia puede requerir revisión aunque el saldo financiero sea cero. En la bandeja, **Importe observado** identifica el movimiento que debe revisarse: no constituye una nueva deuda ni dinero disponible. En el estado por empresa conserva su estado **Revisar distribución** y cuenta como caso pendiente, sin aumentar el saldo por cobrar. La hoja **Partidas y excepciones** conserva esas advertencias y omite evidencia contable ya verificada sin otra gestión pendiente.
+
+Cuando una consulta filtra el año de una excepción, utiliza la fecha de su partida de origen, el mes de su período o su creación si es independiente. La fecha compromiso solo determina vencimiento; cambiarla no traslada el origen de la obligación a otro año. Trabajo de conciliación conserva pendientes de todos los años.
+
+Las tarjetas, el resumen y el Excel usan los totales del período: **Aplicado total**, **Asignado total** (depósitos y compensaciones confirmadas) y **Pendiente** por aplicación. No agregue otra vez las complementarias al asignado. Las diferencias de cobranza y las excepciones abiertas se muestran aparte, sin sustituir el estado financiero. Los destinos manuales muestran descripción, período, importe y resultado; abrir la fila permite consultar sus vínculos originales.
+
+En el depósito, el resumen separa **Depositado**, **Aplicado a créditos**, **Partidas complementarias** (incluye saldos a favor documentados) y **Sin distribuir**. La acción principal indica el siguiente paso según el documento; no confirma ni concilia automáticamente.
+
+En **Estado de Cuenta por Empresa**, haga clic en un importe o en **Partidas pendientes** para abrir su detalle. Puede filtrar por componente, estado, concepto, motivo o identidad. El saldo neto cero puede contener obligaciones y créditos sin vincular: el conteo de pendientes evita interpretarlo como conciliación. Los filtros de origen no excluyen cobros posteriores al calcular los saldos actuales; para reconstruir saldos a una fecha use **Corte histórico al**.
+
+Los estados de cuenta muestran los criterios principales y agrupan los adicionales en **Más filtros**. Los filtros con valor permanecen visibles, incluido un corte histórico abierto desde otra pantalla. En la lista de complementarias, los criterios adicionales siguen disponibles mediante el filtro avanzado de Frappe.
+
+**Estado de Cuenta Operativo** abre con **Tipo: Aplicación** y columnas compactas. Puede elegir cobranza, complementarias o CxC por ajuste, o dejar Tipo vacío para consultar todos. **Más columnas** muestra referencias de auditoría y observaciones; no cambia los saldos. Una aplicación cubierta parcialmente se muestra como **Parcial** en ambos estados de cuenta. En **Estado de Cuenta por Empresa**, las sugerencias del filtro Estado incluyen los estados presentes en la consulta, como **Pendiente de cobro** o **Parcialmente cobrada**.
+
+Las partidas complementarias usan el mismo **Estado de conciliación** en formulario, lista y reportes: **Conciliado**, **Parcial**, **Pendiente** o **Revisar distribución**. Un saldo a favor documentado puede estar **Conciliado** y mantener una **Gestión externa** pendiente o parcial. **Tratamiento** conserva la explicación —por ejemplo, Documentado, Vigente o Por aclarar (no conciliatoria)—; no debe confundirse con la cobertura financiera. Las cancelaciones y reversiones mantienen su identificación.
+
+En la vista compacta de complementarias se muestra **Categoría**. Use **Más filtros** para seleccionar categoría, subcategoría, motivo, registro contable, gestión externa o tratamiento; puede combinarlos con empresa, fechas y estado financiero. **Más columnas** permite revisar esos datos y la evidencia de origen. El control contable también muestra la clasificación sin alterar sus débitos y créditos originales.
+
+Los KPI del Estado de Cuenta Operativo son **totales de la selección**. En aplicaciones muestran aplicado neto, depósito asignado y CxC; en complementarias muestran pendiente de conciliar, saldo a favor por gestionar y partidas pendientes de registro. En cobranza muestran lo solicitado, lo aplicado para control y filas con diferencias; en CxC por ajuste muestran lo pendiente de cobro. Si un importe no puede determinarse, se informa el número de casos y no se presenta un total monetario incompleto como cero.
+
+La bandeja genera **Aplicaciones pendientes de depósito o compensación** tanto para períodos históricos como operativos. Su importe es **Pendiente de cubrir**; la diferencia cobranza/aplicación queda como una acción informativa independiente. Una aplicación de US$100 cubierta con US$20 mantiene US$80 pendientes aunque la cobranza esté conforme. Un compromiso vencido se prioriza según la fecha de pago del período.
+
+En los KPI, una partida sobreasignada no reduce el pendiente de otra partida: US$50 pendientes y una sobreasignación de US$10 se muestran como **US$50 pendientes**, **una partida con inconsistencias** e **US$10 observados**. Los importes observados requieren revisión y no se suman a CxC. Una discrepancia con la evidencia del core sigue visible en el estado por empresa aunque la devolución o aplicación del saldo a favor ya esté resuelta y su gestión pendiente sea cero.
+
+Los importes de las acciones se identifican por su propósito: **Pendiente de cubrir**, **Pendiente de devolver/aplicar**, **Importe por registrar/verificar**, **Dinero sin distribuir** o **Importe del caso**. Una tarea de registro contable por US$20 no significa que existan US$20 adicionales por cobrar. Si un documento tiene varias acciones, el importe principal no suma sus obligaciones de control, registro y gestión.
+
+Los depósitos completamente distribuidos con saldo a favor muestran **Conciliado con saldo a favor**. En su lista, **Estado de conciliación** utiliza el mismo estado que el indicador y permite filtrarlo. El resultado anterior se conserva en **Resultado del motor (auditoría)**; abrir esa evidencia no modifica saldos. El control mensual usa el estado financiero actual y conserva el resultado guardado como campo de auditoría. La revisión pendiente de una fila impide presentar el depósito como conciliado.
+
+Los filtros de **Gestión externa** incluyen las CxC por ajuste, y **Subcategoría** se conserva también al consultar el corte histórico. La ayuda del signo de la complementaria cambia con su concepto: para una compensación o un ajuste de aplicación, el vínculo confirmado determina la liquidación. Los lotes y bloques técnicos se consultan desde **Administración de cargas** del workspace, con sus permisos existentes.
+
+## Actualizar al flujo de dos conciliaciones
+
+Realice respaldo y pruebe primero en un sitio aislado. Ejecute `bench --site <sitio> migrate` y reinicie los servicios de la aplicación según su despliegue. La migración conserva los archivos y datos anteriores en **Auditoría del detalle anterior**, visible solo cuando existe evidencia. Es de solo lectura y no participa en cálculos nuevos.
+
+El parche puede ejecutarse nuevamente sin duplicar evidencia. No ejecuta conciliaciones, no mueve archivos a depósitos ni modifica saldos, distribuciones ejecutadas o cortes históricos. Conserva los períodos cerrados. Las propuestas no materializadas con base anterior quedan pendientes de regeneración y aprobación en períodos abiertos; revise las advertencias de auditoría antes de reprocesar.
+
+Los métodos anteriores de carga y reconocimiento devuelven un mensaje para usar Distribución de Depósito. Una vez verificada la actualización, revise y recalcule solo los períodos abiertos que corresponda. No reabra períodos cerrados como paso automático de la migración.
+
+## Excepciones informativas y evidencia suficiente
+
+En la excepción, **Ámbito del seguimiento** distingue Financiera, Calidad de cobranza, Registro contable y Legado por revisar. **Bloquea el cierre financiero** indica si el caso abierto impide cerrar su período; no indica si el dinero está conciliado. Un supervisor puede cambiar ámbito o bloqueo con motivo obligatorio, dejando la clasificación anterior y la nueva en el historial. Quitar el bloqueo no paga, condona ni resuelve la excepción, ni elimina las validaciones financieras del período.
+
+Los casos heredados de deducción se conservan como **Legado por revisar**, sin resolverlos ni quitarles el bloqueo automáticamente. El supervisor debe revisar su evidencia y clasificarlos. Un caso informativo ya no bloqueante permite continuar responsable, fecha, gestión y resolución después del cierre, sin modificar el período cerrado. Cambiar importe, identidad o vínculo exige reabrir el período. El seguimiento de registro en el core se crea desde la partida complementaria; no convierta una excepción financiera existente para eludir su bloqueo.
+
+Si una consulta informa **Saldo no determinable: evidencia restringida**, solicite revisión a un supervisor. No interprete esa respuesta como saldo cero. El sistema no presenta como disponible el dinero cuyo uso o recuperación dependa de documentos que el usuario no puede consultar.
+
+Esta protección también se aplica al **corte histórico**: omitir un depósito o ajuste restringido no debe convertir una aplicación pagada en deuda. El mensaje no revela identificadores ni importes de documentos restringidos; un usuario autorizado debe revisar la evidencia completa.
+
+Un depósito totalmente distribuido puede seguir apareciendo con saldo **US$0.00** y estado **Revisar detalle**, **Revisar destinos** u otra revisión pendiente. Resuelva el motivo; no registre otro pago para quitar la alerta. Si la distribución supera el depósito o contiene importes inconsistentes, el reporte presenta **N/D** en ese componente y en el saldo neto de la empresa. El importe observado explica la inconsistencia, pero no se convierte en CxC ni se compensa con otras partidas.
+
+Una cobranza en C$ sin equivalente US$ aparece como **Cobranza sin equivalente US$ para comparar** en Trabajo de conciliación y como advertencia en el calendario. Complete la base de comparación por el flujo de carga autorizado; no interprete el guion o N/D como una cobranza de cero. Es control de calidad: no aumenta la CxC ni cambia por sí solo la cobertura financiera de las aplicaciones.
+
+Al recuperar una **CxC por ajuste**, el selector propone depósitos o compensaciones admisibles para esa empresa. Antes de confirmar muestra disponible, importe a utilizar y remanentes. Los destinos ya seleccionados y los saldos a favor documentados reducen el disponible. Confirmar vuelve a validar los saldos y permisos; la vista previa no reserva dinero ni sustituye esa validación.
+
+En **Estado de Cuenta por Empresa**, **Vista compacta** muestra en el detalle empresa, cliente, tipo, saldo, estado y documento. Desmárquela para consultar la matriz y trazabilidad completas; no cambia la población ni sus importes. Un neto cero sigue mostrando las partidas pendientes sin vincular.
+
+En el calendario, **Ir al mes** permite saltar directamente al mes deseado. La vista inicial prioriza el mes corriente o el primer mes con actividad del año consultado; al alternar con Trabajo de conciliación conserva el desplazamiento.
+
+## Reportes con importes pendientes de determinar
+
+**Revisar distribución** conserva una aplicación cuyo detalle de vínculos es inconsistente. Por ejemplo, una aplicación neta de US$100 con vínculos por US$150 conserva los US$100 aplicados y muestra su saldo pendiente como **N/D**. Revise el movimiento y sus destinos; esos US$150 no constituyen una nueva CxC. Los vínculos negativos o que superan el aplicado de una cuota requieren la misma revisión. No se modifican automáticamente importes originales, distribuciones ni períodos cerrados.
+
+**Revisar cobros** identifica una CxC por ajuste con recuperaciones inconsistentes. Una CxC de US$10 con US$15 de cobros o compensaciones conserva sus importes y el exceso observado de US$5, pero deja el saldo por cobrar sin determinar. El exceso no reduce otras deudas ni se reconoce como saldo a favor. Revise los cobros vinculados antes de registrar otra liquidación; la clasificación por sí sola no corrige la evidencia.
+
+Cuando falta una conversión o hay una distribución por revisar, **Antigüedad de Saldos** muestra **Total pendiente de determinar** y **Subtotal conocido US$**. El reporte por empresa conserva ambos conceptos y las observaciones. El subtotal excluye los importes no determinables y no debe usarse como CxC completa. Los estados de cuenta y el resumen de control Excel conservan N/D en los saldos afectados.
+
+En **Estado de Cuenta por Empresa**, entrar a una cifra del resumen conserva sus filtros de origen. **Volver al resumen** restaura esos filtros, incluida la selección de todas las empresas. La vista compacta coloca el saldo neto junto a Empresa y muestra encabezados cortos; desmarque Vista compacta para consultar las etiquetas completas y la matriz de detalle.
+
+En una partida con saldo a favor pendiente, use **Documentar devolución o aplicación** en la barra superior. El importe propuesto es lo pendiente de gestionar. **Revertir gestión** está en **Más acciones**, para corregir una gestión anterior. Registrar la devolución o aplicación documenta una operación externa ya realizada y conserva la distribución financiera del depósito.
+
+El detalle mensual de aplicaciones presenta **Partidas complementarias US$**: compensaciones confirmadas y ajustes de conciliación con su signo de cobertura. Su cálculo es aplicado menos complementarias menos depositado. El importe de las complementarias no representa efectivo adicional. Los datos separados se conservan como evidencia de cálculo.
+
+## Depósitos con varias líneas contables y vencimientos de CxC
+
+Un comprobante bancario puede representar varias líneas de la contabilidad. Si el archivo contiene evidencia explícita coincidente de empresa, banco/cuenta, referencia, comprobante, fecha e importe, el importador las guarda en **Líneas contables de origen** de un solo depósito. No elimina líneas parecidas: el Control Mensual conserva cada débito y crédito; el efectivo se cuenta una vez. La vista previa distingue depósitos de líneas contables.
+
+Una coincidencia incompleta se conserva para **Revisar identidad del depósito**. Aparece en Trabajo de conciliación y el estado de cuenta mantiene el saldo como **N/D**, no como otro efectivo recibido. En **Más opciones → Revisar origen del depósito**, documente la decisión:
+
+- **Vincular origen a otro depósito:** únicamente para un origen importado en borrador, sin detalle ni destinos. Seleccione el depósito que representa el mismo efectivo y documente su evidencia. El origen queda conservado y enlazado; no se borra ni redistribuye dinero. Puede vincularse a un depósito confirmado y registrar una línea contabilizada en otro mes; el Control Mensual usa la fecha de cada línea. Si el depósito elegido se registró manualmente, confírmelo primero.
+- **Verificar efectivo independiente:** úselo solo cuando comprobó que el importe corresponde realmente a ese depósito. El motivo queda en el historial. No use esta decisión para ocultar una diferencia contable.
+
+La migración no fusiona documentos ni ejecuta conciliaciones: conserva los orígenes y marca posibles repeticiones en borrador. No cambia importes, distribuciones ni períodos cerrados.
+
+Para una **CxC por ajuste**, indique Responsable, Fecha compromiso de gestión y Vencimiento de la CxC antes de confirmar. El vencimiento se hereda de los plazos registrados de las aplicaciones del período, incluyendo aplicaciones agrupadas; si no existe evidencia completa, debe verificarse e indicarse expresamente. Su origen queda visible. El compromiso sirve para gestionar la próxima acción: **cambiarlo no modifica la antigüedad financiera**. El vencimiento confirmado no se cambia desde el formulario.
+
+Las CxC anteriores sin esos datos conservan su saldo y aparecen con **Seguimiento por completar**; un vencimiento desconocido permanece en Sin fecha, no en No vencido. La migración no inventa responsables ni toma el compromiso de gestión como plazo financiero. Solo un depósito o una compensación vinculada liquida la CxC.
+
+Un saldo a favor de un cliente que cambió de empresa puede registrarse usando la pertenencia histórica verificada en cartera o aplicaciones. Seleccione su fila de detalle y crédito cuando estén disponibles. Se conserva la empresa del hecho histórico, no se modifica la ficha actual del cliente ni se amplían permisos o autorizaciones de la pagadora.

@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 WORKSPACE = "Conciliacion Credinomina"
-OLD_CARDS = {"Preparación y cobranza", "Conciliación de depósitos", "Control y consultas"}
+OLD_CARDS = {"Preparación y cobranza", "Conciliación de depósitos", "Control y consultas", "2. Cobranza y deducciones"}
 OLD_BLOCK_IDS = {
     "cn_titulo", "cn_tablero", "cn_periodo", "cn_importar", "cn_cartera",
     "cn_distribuir", "cn_estado", "cn_excepciones", "cn_movimientos",

@@ -8,6 +8,7 @@ const context = vm.createContext({__:x=>x, format_currency:x=>String(x), frappe:
         constructor(options) {dialog=this; this.options=options; this.fields_dict={applications:{$wrapper:{
             empty(){}, html: value=>{html=value;}, find:()=>({val:()=>"0"})}}};}
         get_value(){return "I";} show(){} hide(){this.hidden=true;}
+        get_primary_btn(){return {prop(){}};}
     }}, datetime:{str_to_user:x=>x}, utils:{escape_html:x=>x},
     call:async()=>({message:[row]}), msgprint:text=>{notice=text;},
 }});

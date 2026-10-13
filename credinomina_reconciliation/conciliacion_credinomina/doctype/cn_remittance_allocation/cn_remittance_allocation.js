@@ -1,3 +1,46 @@
+function reviewDepositOrigin(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde los cambios antes de revisar el origen."));
+    const canLink = frm.doc.docstatus === 0 && !(frm.doc.targets || []).length && !(frm.doc.detail_rows || []).length && !frm.doc.detail_file && !!frm.doc.accounting_source_key;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Revisar origen del depósito"),
+        fields: [
+            {fieldtype: "HTML", options: `<p>${__("Esta acción verifica si existe un solo efectivo o dos depósitos independientes. Conserva las líneas contables, archivos y documentos; no redistribuye dinero ni elimina registros.")}</p>`},
+            {fieldname: "action", fieldtype: "Select", label: __("Resultado de la revisión"),
+                options: canLink ? "Vincular origen a otro depósito\nVerificar efectivo independiente" : "Verificar efectivo independiente",
+                default: canLink ? "Vincular origen a otro depósito" : "Verificar efectivo independiente", reqd: 1},
+            {fieldname: "canonical_name", fieldtype: "Link", options: "CN Remittance Allocation", label: __("Depósito que representa el efectivo"),
+                depends_on: "eval:doc.action === 'Vincular origen a otro depósito'", mandatory_depends_on: "eval:doc.action === 'Vincular origen a otro depósito'",
+                get_query: () => ({filters: {employer: frm.doc.employer, deposit_reference: frm.doc.deposit_reference, docstatus: ["!=", 2], name: ["!=", frm.doc.name]}})},
+            {fieldname: "reason", fieldtype: "Small Text", label: __("Evidencia y motivo de la decisión"), reqd: 1,
+                description: __("Identifique cómo verificó el banco, referencia, fecha e importe. No use esta opción para ocultar una diferencia contable.")},
+        ],
+        primary_action_label: __("Guardar revisión del origen"),
+        async primary_action(values) {
+            dialog.disable_primary_action();
+            try {
+                const link = values.action === "Vincular origen a otro depósito";
+                await frappe.call({method: `credinomina_reconciliation.deposit_accounting_sources.${link ? "link_duplicate_origin" : "verify_independent_deposit"}`,
+                    args: {deposit_name: frm.doc.name, modified: frm.doc.modified, reason: values.reason,
+                        ...(link ? {canonical_name: values.canonical_name} : {})}, freeze: true});
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({message: __("Origen revisado. Se conserva la evidencia contable; no se redistribuyó dinero."), indicator: "green"});
+            } finally { dialog.enable_primary_action(); }
+        },
+    });
+    dialog.show();
+}
+
+function targetDisplayLabel(target, details = []) {
+    if (target.notes) return String(target.notes);
+    const detail = details.find(row => row.name === target.detail_row);
+    const identity = detail ? [detail.client_name, detail.loan_number && `${__("Crédito")} ${detail.loan_number}`].filter(Boolean).join(" · ") : target.detail_row_label;
+    const kind = target.complementary_item ? `${__("Partida complementaria")} · ${target.complementary_item}`
+        : target.historical_application ? __("Aplicación vinculada")
+        : target.period ? `${__("Período")} · ${target.period}` : __("Seleccione una partida pendiente");
+    return [identity, kind].filter(Boolean).join(" · ");
+}
+
 async function loadPayingCompanies(frm) {
     const payer = frm.doc.employer;
     frm.paying_companies = payer ? [payer] : [];
@@ -20,7 +63,27 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.set_query("employer", "targets", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
+        if (frm.doc.cash_identity_status === "Origen vinculado") {
+            frm.dashboard.set_headline_alert(__("Este documento conserva un origen contable; no representa otro efectivo. Consulte el depósito vinculado."), "blue");
+            frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.consolidated_deposit));
+            frm.disable_save();
+            return;
+        }
+        if (frm.doc.cash_identity_status === "Revisar identidad") {
+            frm.dashboard.set_headline_alert(__("Posible repetición de efectivo. El estado de cuenta muestra saldo no determinado hasta revisar el origen; no confirme ni concilie antes de verificarlo."), "orange");
+        }
+        if (!frm.is_new() && frm.doc.docstatus !== 2 && frm.get_perm(0, "write")) {
+            frm.add_custom_button(__("Revisar origen del depósito"), () => reviewDepositOrigin(frm), __("Más opciones"));
+        }
         loadPayingCompanies(frm);
+        const targetFormatter = (value, df, options, row) => {
+            const label = targetDisplayLabel(row || {});
+            return `<span title="${frappe.utils.escape_html(label)}">${frappe.utils.escape_html(label)}</span>`;
+        };
+        // v15 reads the grid DocField; v16 reads the shared metadata formatter.
+        const targetNotes = frappe.meta?.get_docfield?.("CN Remittance Target", "notes");
+        if (targetNotes) targetNotes.formatter = targetFormatter;
+        frm.fields_dict.targets?.grid?.update_docfield_property?.("notes", "formatter", targetFormatter);
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
         renderRemittanceDistribution(frm);
@@ -123,7 +186,7 @@ async function usePreparedReconciliation(frm) {
         title: __("Trasladar conciliación preparada al depósito"), size: "extra-large",
         fields: [
             {fieldtype: "HTML", fieldname: "preview", options: `
-                <p>${esc(__("Se usará la cobranza cuando no exista detalle de deducción. Esa evidencia quedará identificada como inferida. Las partidas reales conservarán sus obligaciones de seguimiento."))}</p>
+                <p>${esc(__("Se usará la cobranza conciliada contra aplicaciones. El detalle quedará identificado como generado, no como archivo enviado por la empresa. Las partidas reales conservarán sus obligaciones de seguimiento."))}</p>
                 <p><b>${esc(__("Base / depósito"))}: ${amount(plan.total_usd)}</b> · ${esc(__("Aplicado"))}: ${amount(plan.applied_usd)} · ${esc(__("Ajustes"))}: ${amount(plan.adjustment_usd)}</p>
                 <div class="table-responsive" style="max-height:45vh;overflow:auto"><table class="table table-bordered">
                 <thead><tr>${["Período", "Cliente", "Crédito", "Base", "Base US$", "Aplicado US$", "Ajuste US$", "Clasificación"].map(x => `<th>${esc(__(x))}</th>`).join("")}</tr></thead>
@@ -133,7 +196,7 @@ async function usePreparedReconciliation(frm) {
                     <td class="text-right">${amount(row.base_usd)}</td><td class="text-right">${amount(row.applied_usd)}</td><td class="text-right">${amount(row.amount_usd)}</td><td>${esc(adjustment?.category || "Sin diferencia")}</td></tr>`;
                 }).join("")}</tbody></table></div>`},
             {fieldname: "confirm_correspondence", fieldtype: "Check", reqd: 1,
-                label: __("Confirmo que este depósito corresponde a las cobranzas/deducciones mostradas, no solo que el monto coincide")},
+                label: __("Confirmo que este depósito corresponde a las cobranzas mostradas, no solo que el monto coincide")},
         ],
         primary_action_label: __("Crear partidas y conciliar este depósito"),
         async primary_action(values) {
@@ -707,7 +770,12 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "category", fieldtype: "Select", label: __("Concepto"), options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación\nCuenta por Cobrar a la Empresa\nSaldo a favor de la empresa\nSaldo a favor del cliente", default: companyCredit ? "Saldo a favor de la empresa" : sourceRow ? "Saldo a favor del cliente" : "Ajuste de conciliación", read_only: !!sourceRow || companyCredit, reqd: 1},
             {fieldname: "receivable_help", fieldtype: "HTML", depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa'",
                 options: `<p>${__("Registre el faltante del depósito con importe negativo. Por ejemplo, aplicado US$100 y depositado US$90: ingrese −10. La deuda de la empresa se reconocerá al conciliar la distribución y permanecerá pendiente hasta registrar su cobro o compensación.")}</p>`},
-            {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa o corresponde a otro ajuste.")},
+            {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"), depends_on: "eval:doc.category === 'Ajuste de conciliación'", mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'", description: __("Indique si el faltante queda como CxC a la empresa o corresponde a otro ajuste."),
+                async onchange() {
+                    const name = dialog.get_value("subcategory");
+                    const result = name ? await frappe.db.get_value("CN Complementary Subcategory", name, "effect") : null;
+                    if (dialog.get_value("subcategory") === name) dialog.set_value("subcategory_effect", result?.message?.effect || "");
+                }},
             {fieldname: "reason_type", fieldtype: "Select", label: __("Motivo del saldo a favor"),
                 options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar", default: "",
                 depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)",
@@ -733,12 +801,15 @@ async function createRemittanceComplementary(frm, options = {}) {
                 depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
                 read_only: !!sourceRow?.client,
                 mandatory_depends_on: "eval:doc.category === 'Saldo a favor del cliente'",
-                get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]]}})},
+                get_query: () => ({query: "credinomina_reconciliation.client_credit.search_beneficiaries",
+                    filters: {registered_deposit: frm.doc.name, employer: sourceRow?.employer || ""}})},
             {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"), options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión"},
             {fieldtype: "Column Break"},
             {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user,
-                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
-            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), default: sourceRow || companyCredit ? creditCommitmentDateDefault() : undefined, mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)"},
+                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
+            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso de gestión"), default: creditCommitmentDateDefault(), mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
+            {fieldname: "subcategory_effect", fieldtype: "Data", hidden: 1},
+            {fieldname: "receivable_due_date", fieldtype: "Date", label: __("Vencimiento de la CxC"), depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa' || doc.subcategory_effect === 'CxC a la empresa'", description: __("Si el período tiene plazos registrados, se heredará su vencimiento. En otro caso indique el plazo financiero verificado, no la fecha de gestión.")},
             {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
             {fieldname: "description", fieldtype: "Small Text", label: __("Justificación"), default: sourceRow || companyCredit ? "Inmaterial" : undefined, reqd: 1},
             {fieldname: "voucher", fieldtype: "Data", label: __("Asiento contable (opcional)"), description: __("Sin asiento quedará pendiente de registro contable. Puede completarlo después en la partida.")},
@@ -746,6 +817,12 @@ async function createRemittanceComplementary(frm, options = {}) {
                 description: __("Ingrese el número o código de esta partida, por ejemplo 1, 2 o A. Registre cada partida del mismo asiento por separado con un identificador distinto.")},
             {fieldtype: "Section Break", label: __("Vínculo con cliente (opcional)"), collapsible: 1},
             {fieldname: "period", fieldtype: "Link", options: "CN Reconciliation Period", label: __("Período"),
+                async onchange() {
+                    const period = dialog.get_value("period");
+                    if (!period) return;
+                    const result = await frappe.call({method: "credinomina_reconciliation.receivable_terms.preview_deadline", args: {period}});
+                    if (dialog.get_value("period") === period && result.message?.due_date) dialog.set_value("receivable_due_date", result.message.due_date);
+                },
                 get_query: () => ({filters: {employer: ["in", frm.paying_companies || [frm.doc.employer]], status: ["!=", "Cerrado"]}})},
             {fieldname: "client_number", fieldtype: "Data", label: __("Nro. Cliente"), read_only: !!sourceRow, depends_on: "eval:doc.category !== 'Saldo a favor de la empresa' || !!doc.client_number"},
             {fieldtype: "Column Break"},
@@ -833,8 +910,7 @@ async function linkRemittanceDetailTargets(frm) {
         grid.df.data = targets.filter(target => !target.detail_row || target.detail_row === rowName).map(target => ({
             target_id: target.name,
             linked: target.detail_row === rowName ? 1 : 0,
-            destination: target.notes || target.historical_application || target.complementary_item ||
-                `${target.period || ""} · ${target.row_key || ""}`,
+            destination: targetDisplayLabel(target, frm.doc.detail_rows || []),
             amount_usd: target.amount_usd,
         }));
         grid.grid.refresh();
@@ -1044,17 +1120,50 @@ function remittanceCashAmounts(doc) {
     return {assigned: assigned / 100, credit: credit / 100, pending: (total - assigned - credit) / 100};
 }
 
+function remittanceFinancialCards(doc) {
+    const cash = remittanceCashAmounts(doc);
+    let complementary = null;
+    try {
+        const entries = JSON.parse(doc.allocation_detail || "[]");
+        if (!Array.isArray(entries) || entries.some(row => !row || typeof row !== "object") || (cash.assigned && !entries.length)) throw new Error("Invalid journal");
+        complementary = entries.filter(row => row.tipo === "Partida complementaria")
+            .reduce((sum, row) => sum + Math.round(Number(row.importe_usd || 0) * 100), 0) / 100;
+    } catch (_) { /* Unknown evidence is not a zero distribution. */ }
+    return {credits: complementary == null ? null : Math.round((cash.assigned - complementary) * 100) / 100,
+        complementary: complementary == null ? null : Math.round((complementary + cash.credit) * 100) / 100,
+        pending: cash.pending, credit: cash.credit};
+}
+
+function remittanceNextAction(frm) {
+    if (frm.doc.docstatus === 2 || !frm.get_perm(0, "write")) return null;
+    if (frm.is_new() || frm.is_dirty()) return {label: "Guardar cambios", run: () => frm.save()};
+    if (frm.doc.docstatus === 0) return frm.get_perm(0, "submit") ? {label: "Confirmar depósito", run: () => frm.savesubmit()} : null;
+    const presentation = remittancePresentation(frm.doc);
+    if (presentation.reconciled) return {label: "Ver distribución", run: () => frm.scroll_to_field("complete_distribution")};
+    if (!(frm.doc.detail_rows || []).length && !(frm.doc.targets || []).length) {
+        const hasFile = /\.(xlsx|xls|csv)(\?|$)/i.test(frm.doc.detail_file || frm.doc.support_file || "");
+        return hasFile ? {label: "Cargar detalle", run: () => importRemittanceDetail(frm)}
+            : {label: "Agregar detalle o destinos", run: () => frm.scroll_to_field("detail_file")};
+    }
+    if ((frm.doc.detail_status || "").startsWith("Revisar") || ["Revisar destinos", "Revisar detalle"].includes(frm.doc.result)) {
+        return {label: "Resolver diferencias", run: () => frm.scroll_to_field("detail_rows")};
+    }
+    return {label: "Conciliar", run: () => reconcileRemittance(frm)};
+}
+
 function remittancePresentation(doc, dirty = false) {
     const registration = doc.docstatus === 2 ? "Cancelado" : doc.docstatus === 1 ? "Confirmado" : "Borrador";
     const cash = remittanceCashAmounts(doc);
-    const financialReview = !Number.isFinite(cash.pending) || cash.pending !== 0 || cash.credit < 0;
-    const recordedSettlement = ["Conciliado", "Conciliado con saldo a favor del cliente"].includes(doc.result)
+    const financialReview = !Number.isFinite(cash.pending) || cash.pending !== 0 || cash.credit < 0
+        || Number(doc.allocated_usd || 0) < 0 || Number(doc.unclassified_usd || 0) !== 0
+        || doc.amount_usd != null && Number(doc.amount_usd) <= 0;
+    const recordedSettlement = ["Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente"].includes(doc.result)
         || cash.credit > 0 && ["Parcial con saldo a favor", "Saldo a favor documentado"].includes(doc.result);
     const detailReview = (doc.detail_status || "").startsWith("Revisar");
     const reconciled = doc.docstatus === 1 && recordedSettlement && !financialReview && !detailReview;
     const review = doc.docstatus === 1 && (detailReview ||
         ["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(doc.result) || recordedSettlement && financialReview);
-    let hint = "Depósito en borrador: todavía no participa en la conciliación. Complete los datos y guarde; después confirme o solicite confirmación a un supervisor.";
+    let hint = "Depósito en borrador: todavía no participa en la conciliación. Complete los datos, guarde y confirme el depósito.";
     if (doc.docstatus === 2) hint = "Este depósito está cancelado y no participa en la conciliación.";
     else if (doc.docstatus === 1) {
         if (dirty) hint = "Hay cambios sin guardar. Los resultados mostrados corresponden a la última conciliación; guarde y luego use Conciliar.";
@@ -1072,7 +1181,7 @@ function remittancePresentation(doc, dirty = false) {
         else hint = "Revise el detalle o seleccione partidas en Destinos. Guarde y use Conciliar para actualizar los saldos.";
     }
     return {
-        registration, hint,
+        registration, hint, reconciled,
         result: doc.docstatus === 2 ? "No participa" : doc.docstatus !== 1 ? "Sin conciliar"
             : review && recordedSettlement ? "Por revisar" : reconciled && cash.credit > 0 ? "Conciliado con saldo a favor" : doc.result || "Pendiente",
         color: doc.docstatus === 2 ? "gray" : dirty ? "orange" : reconciled ? "green" : review ? "orange" : "blue",
@@ -1117,11 +1226,14 @@ function renderRemittanceOverview(frm) {
     const state = remittancePresentation(frm.doc, frm.is_dirty());
     const confirmed = frm.doc.docstatus === 1;
     const cash = remittanceCashAmounts(frm.doc);
+    const financial = remittanceFinancialCards(frm.doc);
+    const next = remittanceNextAction(frm);
+    const shown = value => confirmed && value != null ? `US$ ${remittanceMoney(value)}` : "—";
     const cards = [
-        ["Equivalente del depósito", `US$ ${remittanceMoney(frm.doc.amount_usd)}`],
-        ["Asignado a créditos y otros conceptos", confirmed ? `US$ ${remittanceMoney(cash.assigned)}` : "—"],
-        ["Saldo a favor documentado", confirmed ? `US$ ${remittanceMoney(cash.credit)}` : "—"],
-        ["Sin asignar ni justificar", confirmed ? `US$ ${remittanceMoney(cash.pending)}` : "—"],
+        ["Depositado US$", `US$ ${remittanceMoney(frm.doc.amount_usd)}`],
+        ["Aplicado a créditos US$", shown(financial.credits)],
+        ["Partidas complementarias US$", shown(financial.complementary)],
+        ["Sin distribuir US$", shown(financial.pending)],
     ];
     const html = `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
         <strong>${escape(frm.doc.employer || "Nuevo depósito")}</strong>
@@ -1131,12 +1243,21 @@ function renderRemittanceOverview(frm) {
         ${cards.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
             <div class="small text-muted">${escape(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${escape(value)}</div>
         </div>`).join("")}
-    </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = asignado + saldo a favor documentado + sin asignar ni justificar."))}</p>
-    <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}${state.result !== frm.doc.result && confirmed ? ` · ${escape(__("Resultado registrado"))}: ${escape(frm.doc.result || __("Pendiente"))}` : ""}</p>
-    <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>`;
+    </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = créditos + partidas complementarias + sin distribuir. Las partidas incluyen saldos a favor documentados."))}
+        ${confirmed && cash.credit ? `${escape(__("Saldo a favor documentado"))}: US$ ${remittanceMoney(cash.credit)}.` : ""}</p>
+    <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}</p>
+    ${state.result !== frm.doc.result && confirmed ? `<details class="text-muted"><summary>${escape(__("Resultado guardado (auditoría)"))}</summary><p>${escape(frm.doc.result || __("Pendiente"))}. ${escape(__("Se conserva el resultado registrado; el estado mostrado arriba considera la distribución y los saldos a favor documentados."))}</p></details>` : ""}
+    <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>
+    ${next ? `<button type="button" class="btn btn-primary btn-sm cn-deposit-next">${escape(__(next.label))}</button>` : ""}`;
     const existing = frm.$wrapper.find(".cn-remittance-overview");
     if (existing.length) existing.html(html);
     else frm.dashboard.add_section(`<div class="cn-remittance-overview">${html}</div>`);
+    frm.$wrapper.off("click.cn_deposit_next", ".cn-deposit-next").on("click.cn_deposit_next", ".cn-deposit-next", async function () {
+        const action = remittanceNextAction(frm);
+        if (!action || this.disabled) return;
+        this.disabled = true;
+        try {await action.run();} finally {this.disabled = false;}
+    });
     frm.dashboard.show();
 }
 
@@ -1479,8 +1600,8 @@ class RemittanceTargetPicker {
                 <th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente / crédito</th><th>Empresa</th><th>Origen / referencia</th>
                 <th class="text-right text-nowrap" title="Importe aplicado en el core">Aplicado US$</th>
                 <th class="text-right text-nowrap" title="Importe ya distribuido desde depósitos confirmados">Asignado US$</th>
-                <th class="text-right text-nowrap" title="Saldo disponible para asignar; considera deducciones, partidas complementarias y ajustes de conciliación">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
-            </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones históricas o las deducciones de la empresa y ejecute Conciliar para actualizar los saldos.</td></tr>'}</tbody></table>
+                <th class="text-right text-nowrap" title="Saldo disponible de aplicaciones efectivas y partidas complementarias, descontando la cobertura ya asignada">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
+            </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones y partidas complementarias de los períodos seleccionados.</td></tr>'}</tbody></table>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
             <button type="button" class="btn btn-default btn-sm" data-action="previous" ${this.page === 0 ? "disabled" : ""}>Anterior</button>

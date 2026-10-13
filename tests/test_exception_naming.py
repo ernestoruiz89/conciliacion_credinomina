@@ -54,6 +54,21 @@ class ExceptionNamingTests(unittest.TestCase):
             self.assertEqual(controller.new_exception_name(None), "CN-EXC-2027-0001")
             counter.assert_called_once_with("CN-EXC-2027-", 4)
 
+    def test_legacy_without_period_uses_original_creation_year(self):
+        with patch.object(controller.frappe, "db", Mock(exists=Mock(return_value=False))), \
+                patch.object(controller, "getseries", return_value="0003") as counter:
+            self.assertEqual(controller.new_exception_name(None, "2025-12-31 23:59:00"),
+                             "CN-EXC-2025-0003")
+            counter.assert_called_once_with("CN-EXC-2025-", 4)
+
+    def test_legacy_with_period_uses_payroll_month_not_original_year(self):
+        with patch.object(controller.frappe, "db", Mock()) as db, \
+                patch.object(controller, "getseries", return_value="001"):
+            db.get_value.return_value = "2025-04-01"
+            db.exists.return_value = False
+            self.assertEqual(controller.new_exception_name("P1", "2026-09-23 13:10:30"),
+                             "CN-EXC-4-2025-001")
+
     def test_skips_existing_names_without_overwriting_them(self):
         with patch.object(controller.frappe, "db", Mock()) as db, \
                 patch.object(controller, "getseries", side_effect=["0001", "0002"]):

@@ -5,6 +5,7 @@ import frappe
 from frappe.utils import getdate
 
 from credinomina_reconciliation.application_aging import application_balances
+from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
@@ -42,31 +43,7 @@ def _children(doctype, names, fields, **filters):
 def load_application_figures(year, employer, today):
     if not frappe.has_permission("CN Accounting Import", "read"):
         return None
-    scope = {'employer': employer} if employer else {}
-    periods = {row.name: row for row in frappe.get_list("CN Reconciliation Period", filters=scope,
-        fields=["name", "employer", "payroll_month", "collection_cycle", "reconciliation_mode"],
-        limit_page_length=0)}
-    imports = {row.name: row for row in frappe.get_list("CN Accounting Import",
-        filters={**scope, "status": ["in", ["Importado", "Importado con excepciones"]]},
-        fields=["name", "employer", "historical_backfill", "historical_period"], limit_page_length=0)}
-    sources = _children("CN Source Row", imports, [
-        "name", "parent", "event_type", "event_date", "effective", "match_status",
-        "payment_due_date", "payment_term_origin",
-        "currency", "amount", "equivalent_currency", "equivalent_amount", "fx_basis", "manual_fx_rate",
-        "processing_route", "historical_period", "portfolio_employer", "collection_row_id",
-        "application_allocation_detail", "historical_remitted_usd", "historical_detail", "application_adjustment_usd",
-    ], parenttype="CN Accounting Import", parentfield="rows", event_type="Aplicacion", effective=1)
-    collections = {row.name: row for row in _children("CN Collection Row", periods, [
-        "name", "parent", "remittance_detail", "rounding_adjustment_usd", "fx_variance_usd",
-    ], parenttype="CN Reconciliation Period", parentfield="collection_rows")}
-    employer_names = {row.get("employer") for row in [*periods.values(), *imports.values()]}
-    employer_names.update(row.get("portfolio_employer") for row in sources)
-    employers = {}
-    names = sorted(employer_names - {None, ""})
-    for offset in range(0, len(names), 500):
-        employers.update({row.name: row for row in frappe.get_all("CN Employer",
-            filters={"name": ["in", names[offset:offset + 500]]},
-            fields=["name", "grace_days"], limit_page_length=0)})
+    sources, imports, periods, collections, employers = load_application_context(employer)
     # Keep whole operative claims until cash has been subtracted ONCE. Filtering
     # source dates first can spend the same deposit again in a different year.
     rows = application_balances(sources, imports, periods, collections, employers, today, include_settled=True)
@@ -84,12 +61,17 @@ def summarize_applications(rows, year=None, employer=None, as_of=None):
         if year and (not month or getdate(month).year != year):
             continue
         selected.append(row)
+    def complete_total(rows, field):
+        rows = list(rows)
+        return None if any(row.get(field) is None for row in rows) else money_float(sum_money(row.get(field) for row in rows))
     return {
-        "net_applied_usd": money_float(sum_money(row.get("applied_usd") for row in selected)),
-        "pending_usd": money_float(sum_money(row.get("amount_usd") for row in selected)),
-        "overdue_usd": money_float(sum_money(row.get("amount_usd") for row in selected if (row.get("age_days") or 0) > 0)),
-        "without_date_usd": money_float(sum_money(row.get("without_date") for row in selected)),
-        "missing_fx_count": sum("amount_usd" not in row for row in selected),
+        "net_applied_usd": complete_total(selected, 'applied_usd'),
+        "pending_usd": complete_total(selected, 'amount_usd'),
+        "known_pending_usd": money_float(sum_money(row.get('amount_usd') for row in selected)),
+        "overdue_usd": complete_total((row for row in selected if (row.get("age_days") or 0) > 0), 'amount_usd'),
+        "without_date_usd": complete_total(selected, 'without_date'),
+        "missing_fx_count": sum(row.get('amount_usd') is None and not row.get('distribution_issue') for row in selected),
+        "review_count": sum(bool(row.get('distribution_issue')) for row in selected),
         "unlinked_usd": money_float(sum_money(row.get("applied_usd") for row in selected if not row.get("period"))),
     }
 
@@ -145,12 +127,13 @@ def get_figures(year, employer, today):
             pluck="name", limit_page_length=0)) if filters is not None else 0, "filters": filters}
     receivables = None
     if frappe.has_permission('CN Complementary Item', 'read') and frappe.has_permission('CN Remittance Allocation', 'read'):
-        from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+        from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables, receivable_total
         from credinomina_reconciliation.aging import age_balance
         rows = load_receivables(employer, year)
-        receivables = dict(pending_usd=money_float(sum_money(row['receivable_usd'] for row in rows)),
-            overdue_usd=money_float(sum_money(row['receivable_usd'] for row in rows
-                if (age_balance(row['receivable_usd'], row.get('credit_commitment_date'), today)['age_days'] or 0) > 0)),
-            without_date_usd=money_float(sum_money(row['receivable_usd'] for row in rows if not row.get('credit_commitment_date'))))
+        receivables = dict(pending_usd=receivable_total(rows),
+            overdue_usd=receivable_total(row for row in rows
+                if (age_balance(0, row.get('credit_commitment_date'), today)['age_days'] or 0) > 0),
+            without_date_usd=receivable_total(row for row in rows if not row.get('credit_commitment_date')),
+            review_count=sum(row['receivable_usd'] is None for row in rows))
     return {"applications": applications, "deposits": deposits, "credits": credits, "receivables": receivables,
             "exceptions": exceptions, "as_of_date": str(today)}

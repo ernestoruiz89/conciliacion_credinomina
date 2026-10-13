@@ -41,7 +41,7 @@ class CompanyStatementTests(unittest.TestCase):
     def test_repsa_example_and_detail_same_financial_columns(self):
         detail = self.example()
         summary = statement.summarize(detail)
-        self.assertEqual(summary, [dict(employer='REPSA', usd_currency='USD',
+        self.assertEqual(summary, [dict(employer='REPSA', usd_currency='USD', pending_count=5,
             application_pending_usd=4474.07, core_pending_usd=-7.35,
             company_credit_usd=-.18, client_credit_usd=-154.28,
             deposit_pending_usd=-3173.81, company_receivable_usd=0, balance_usd=1138.45)])
@@ -59,7 +59,9 @@ class CompanyStatementTests(unittest.TestCase):
             load.assert_called_once_with({'employer': 'REPSA'})
             self.assertEqual(len(result[1]), 1)
             self.assertEqual(result[1][0]['balance_usd'], 1138.45)
-            self.assertEqual(report.execute({'view_mode': 'Detalle'})[1], data)
+            displayed = report.execute({'view_mode': 'Detalle'})[1]
+            self.assertEqual([{key: value for key, value in row.items() if key != '_available_statuses'} for row in displayed], data)
+            self.assertTrue(displayed[0]['_available_statuses'])
 
     def test_no_duplicate_credits_or_offsets_and_no_canceled_items(self):
         core = [self.core(category='Ajuste de aplicación', docstatus=1, related_application='R',

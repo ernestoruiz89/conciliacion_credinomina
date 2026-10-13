@@ -331,3 +331,57 @@ antigüedad, calendario ampliado, retorno al mes y cifras coherentes con el
 ejemplo. Los roles reales de operador y supervisor se probaron en SQL sin editar
 DocPerm. El protocolo completo y los límites de autorización de despliegue están
 en `docs/revision_sistema.md` y `docs/production_acceptance_plan.json`.
+
+## Simplificación a dos conciliaciones del 11 de octubre de 2026
+
+Se verificó el control Cobranza vs Aplicación separado de Aplicación vs Depósito.
+El detalle de empresa del período queda archivado, no es una capacidad financiera.
+Las suites Python se ejecutaron en Frappe 15.117.0 y en el sitio aislado con
+Frappe 16.51.0; esto no sustituye una prueba de despliegue con la versión exacta
+de producción. Se aprobaron los 59 archivos de pruebas JavaScript.
+
+Antes de `migrate` se respaldó la base de `cn-reconciliation-test.local`:
+`20261011_224522-cn-reconciliation-test_local-database.sql.gz`. La migración
+se ejecutó en ese sitio de ensayo, no en producción.
+
+Las siguientes pruebas funcionales usan documentos sintéticos y rollback:
+
+- `smoke_two_stage`: 100/80/80 deja diferencia informativa 20 y CxC 0;
+  100/100/80 deja CxC 20; 100/80/100 conserva excedente 20; aplicación 120
+  frente a cobranza 100 permite cierre si está cubierta. Incluye ausencia de
+  cobranza, depósito NIO convertido, detalle posterior y doble vínculo H/C.
+- `smoke_two_stage_migration`: dos ejecuciones del parche conservan los saldos,
+  estados y referencias a archivos de los 14 períodos del ensayo; incluye
+  evidencia anterior sintética en un período abierto y otro cerrado.
+- `smoke_provisional_adjustments`: nueve escenarios, aprobación sin efectivo,
+  confirmación explícita, partidas reales, saldos a favor, ajuste negativo,
+  reutilización de complementaria y protección del detalle ya cargado.
+- `smoke_remittance_fifo`: ambas modalidades, cliente repetido, pago parcial,
+  prioridad por fecha, otro depósito intacto, reintento idempotente y protección
+  del período cerrado ante una importación posterior.
+- `smoke_paying_employers`: empresas pagadoras autorizadas, beneficiarias,
+  rechazo de empresa ajena, antigüedad de saldos y efectivo contado una sola vez.
+
+No se alteraron datos de producción ni se publicaron commits. El procedimiento
+Markdown fue actualizado. El Word previo no se regeneró porque el runtime
+integrado no contiene LibreOffice para completar la validación visual exigida.
+
+## Claridad operativa y nueva revisión del 12 de octubre de 2026
+
+Alcance, resultados y limitaciones: `docs/mejoras_operativas_2026_10.md`.
+Se aprobaron 1,223 pruebas y 816 subpruebas Python en Frappe 15.117.0
+(20.33 s) y 16.51.0 (39.72 s), además de los 61 archivos JavaScript.
+Las pruebas SQL `smoke_operational_clarity` y `smoke_accounting_control`
+pasaron en `cn-reconciliation-test.local`; no conservaron datos financieros nuevos.
+
+El respaldo `20261012_000305-cn-reconciliation-test_local-database.sql.gz`
+precedió dos migraciones. Las 26 tablas CN mantuvieron hashes idénticos en
+ambas. La inspección visual encontró dos problemas adicionales: una promesa
+jQuery sin `finally` en la bandeja y cabeceras antiguas sin empresa excluidas
+del detalle filtrado. Se corrigieron y se repitieron las pruebas y la navegación.
+
+El ensayo visual estuvo disponible solo en loopback `127.0.0.1:8002`, sin
+depurador ni modificación de credenciales. Se habilitó temporalmente el acceso
+al Desk del sitio de ensayo y se restauró su configuración al terminar.
+No se desplegó a producción. Estos resultados no acreditan aún un despliegue
+en la versión exacta Frappe 15.111.1 ni rendimiento con el volumen productivo.

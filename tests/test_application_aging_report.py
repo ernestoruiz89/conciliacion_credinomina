@@ -17,6 +17,8 @@ class ApplicationAgingReportTests(unittest.TestCase):
             calls.append(("list", doctype, kwargs))
             if doctype == "CN Employer":
                 return [frappe._dict(name="E", grace_days=10)]
+            if doctype == "CN Complementary Item":
+                return []
             return periods if doctype == "CN Reconciliation Period" else imports
 
         def get_all(doctype, **kwargs):
@@ -32,6 +34,8 @@ class ApplicationAgingReportTests(unittest.TestCase):
                 return []
             if doctype == "CN Employer":
                 return [frappe._dict(name="E", grace_days=10)]
+            if doctype == "CN Complementary Item":
+                return []
             raise AssertionError(doctype)
 
         with patch.object(report.frappe, "get_list", side_effect=get_list), \

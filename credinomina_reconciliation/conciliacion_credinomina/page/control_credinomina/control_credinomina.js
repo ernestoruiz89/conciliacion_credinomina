@@ -32,9 +32,10 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     let kpisOpen = false, controlKpis = null, kpiRequest = null, kpiError = false;
     let workLimit = 100;
     let workOverviewRequest = null, workOverviewError = false;
-    let workFilters = {work_kind: "", responsible: "", due: ""}, workFilterSequence = 0;
+    let workFilters = {work_kind: "", responsible: "", due: "", search: "", min_amount: "", sort_by: ""}, workFilterSequence = 0;
     let summaryMode = true;
     let calendarYear = currentYear;
+    let calendarScope = "", calendarMonth = "", calendarScroll = null;
     let allYearsSelected = false;
     let refreshSequence = 0;
     let navigationSequence = 0;
@@ -46,7 +47,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const requestedYear = yearField.get_value();
         const requestedEmployer = employerField.get_value() || null;
         const sequence = ++refreshSequence;
-        workFilters = {work_kind: "", responsible: "", due: ""};
+        workFilters = {work_kind: "", responsible: "", due: "", search: "", min_amount: "", sort_by: ""};
         workFilterSequence++;
         workOverviewRequest = null;
         workOverviewError = false;
@@ -96,6 +97,14 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const workCount = workReady ? data.work_item_count ?? workItems.length : "…";
         const allYears = data.year === "Todos";
         const year = allYears ? calendarYear : Number(data.year || currentYear);
+        const scope = `${year}|${employerField.get_value() || ""}`;
+        const oldScroll = $root[0]?.querySelector?.(".cn-matrix-scroll");
+        if (scope === calendarScope && oldScroll?.clientWidth) calendarScroll = oldScroll.scrollLeft;
+        if (scope !== calendarScope) {
+            calendarScope = scope;
+            calendarMonth = initialCalendarMonth(data, year);
+            calendarScroll = null;
+        }
         const calendarPeriods = periods.filter(period => String(period.month).slice(0, 4) === String(year));
         const cashDeposits = data.cash_deposits || [];
         const calendarDeposits = cashDeposits.filter(deposit => String(deposit.month).slice(0, 4) === String(year));
@@ -130,13 +139,9 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         });
         const processFigures = [
             [__("Cobranza enviada"), totals.expected_usd],
-            [__("Deducción registrada"), totals.deducted_usd],
-            [__("Deducción inferida por depósito"), totals.inferred_deduction_usd],
             [__("Asignado"), totals.remitted_usd],
             [__("Ajustes de tolerancia (valor absoluto)"), totals.rounding_movement_abs_usd],
-            [__("Cobranza no deducida (informativo)"), totals.worker_gap_usd],
-            [__("Deducido sin depósito asignado"), totals.employer_gap_usd],
-            [__("Detalle pendiente o por aclarar"), totals.pending_detail_usd],
+            [__("Diferencia cobranza/aplicación (informativo)"), totals.worker_gap_usd],
         ].map(([label, value]) => `<div><dt>${esc(label)}</dt><dd>${money(value)}</dd></div>`).join("");
         const visibleWork = workItems.slice(0, workLimit);
         const overdueCount = workReady ? data.overdue_count ?? workItems.filter((item) => item.kind === "overdue_exception").length : 0;
@@ -149,8 +154,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td>${esc(item.employer_name)}</td>
                 <td>${esc(item.period_label)}${item.period_context ? `<div class="cn-work-context">${esc(__(item.period_context))}</div>` : ""}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
                 <td>${esc(item.summary)}${renderWorkClient(item)}${item.action_count > 1 ? `<br><strong>${Number(item.action_count)} ${esc(__("acciones pendientes"))}</strong>` : ""}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
-                <td class="cn-number">${item.amount_usd == null ? "—" : money(item.amount_usd)}</td>
-                <td>${item.action_count > 1 ? item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}${renderWorkClient(action)}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("") : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
+                <td class="cn-number" title="${esc(item.amount_label || item.summary)}">${item.amount_usd == null ? "—" : money(item.amount_usd)}${item.amount_kind || item.action_count > 1 ? `<div class="text-muted">${esc(__(item.amount_kind || "Pendiente principal"))}</div>` : ""}</td>
+                <td>${item.action_count > 1 ? `<details><summary>${Number(item.action_count)} ${esc(__("acciones del caso"))}</summary>${item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("")}<p class="text-muted">${esc(__("Los importes de las acciones no se suman."))}</p></details>` : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__(item.action_count > 1 ? "Revisar caso" : item.action_label || "Revisar caso"))}</button></td>
             </tr>`).join("")}</tbody></table></div>
         ` : `<div class="cn-empty">${esc(__("No hay gestiones pendientes detectadas con la evidencia cargada."))}</div>`;
@@ -181,13 +186,13 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                         ${ordered.length > 1 ? `<div class="cn-cell-summary">${esc(__("Total del mes"))} · ${esc(__("Aplicado / Asignado"))}: ${money(monthApplied)} / ${money(monthRemitted)}</div>` : ""}
                         ${ordered.map((period) => `<button type="button" class="cn-cell-button" data-period="${esc(period.name)}">
                             <span class="cn-cell-cycle">${esc(period.reconciliation_mode === "Historica" ? historicalLabel(period) : operativeCycleLabel(period))}</span>
-                            <span class="cn-cell-amount">${money(period.applied_usd)} / ${money(period.remitted_usd)}</span>
+                            <span class="cn-cell-amount">${money(periodAmounts(period).applied_usd)} / ${money(periodAmounts(period).remitted_usd)}</span>
                             <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
-                            <span class="cn-badge">${esc(stateLabel(period.control_state))}${period.deduction_basis === "Depósito coincidente" ? ` · ${esc(__("Deducción inferida"))}` : ""}</span>
+                            <span class="cn-badge">${esc(stateLabel(period.control_state))}</span>
                             ${(period.rounding_movement_count ?? (period.rounding_movements || []).length) ? `<span class="cn-cell-credit">${esc(__("Complementarias automáticas"))}: ${signedMoney(period.rounding_adjustment_usd)}</span>` : ""}
                             ${Number(period.historical_pending_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito"))}: ${money(period.historical_pending_usd)}</span>` : ""}
-                            ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Cobranza no deducida"))}: ${money(period.worker_gap_usd)}</span>` : ""}
-                            ${Number(period.employer_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Sin depósito asignado"))}: ${money(period.employer_gap_usd)}</span>` : ""}
+                            ${Number(period.worker_gap_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Diferencia cobranza/aplicación"))}: ${money(period.worker_gap_usd)}</span>` : ""}
+                            ${renderMissingQualityBasis(period)}
                             ${Number(period.documented_credit_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Saldo a favor"))}: ${money(period.documented_credit_usd)}</span>` : ""}
                             ${Number(period.unclassified_deposit_usd) > MONEY_EPSILON ? `<span class="cn-cell-gap">${esc(__("Depósito sin asignar"))}: ${money(period.unclassified_deposit_usd)}</span>` : ""}
                         </button>`).join("")}
@@ -198,7 +203,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const matrix = companies.length ? `
             <div class="cn-matrix-scroll">
                 <table class="cn-matrix">
-                    <thead><tr><th class="cn-company">${esc(__("Empresa / convenio"))}</th>${months.map((month) => `<th>${esc(month.label)}</th>`).join("")}</tr></thead>
+                    <thead><tr><th class="cn-company">${esc(__("Empresa / convenio"))}</th>${months.map((month) => `<th data-calendar-column="${month.key}">${esc(month.label)}</th>`).join("")}</tr></thead>
                     <tbody>${matrixRows}</tbody>
                 </table>
             </div>
@@ -248,7 +253,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <summary data-kpis-toggle>${esc(__("Ver cifras de control"))}</summary>
                 <div data-kpi-content>${renderControlKpis(controlKpis, kpiError)}</div>
                 <details class="cn-process-figures"><summary>${esc(__("Detalle del proceso"))}</summary>
-                    <p>${esc(__("Cifras de los períodos de cobranza seleccionados. Son etapas distintas: no deben sumarse. La deducción inferida está incluida en la registrada."))}</p>
+                    <p>${esc(__("Cifras de los períodos de cobranza seleccionados. Son etapas distintas: no deben sumarse. La cobranza controla calidad; las aplicaciones originan la CxC."))}</p>
                     <dl>${processFigures}</dl>
                 </details>
             </details>
@@ -263,17 +268,41 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <p class="text-muted">${esc(__("Pendientes de todos los años. El filtro Año se aplica al calendario, las cifras de control y el Excel; no oculta gestiones antiguas en esta pestaña."))}</p>
                 ${workReady ? `
                 <section class="cn-panel cn-work-panel"><div class="cn-panel-head"><h3>${esc(__("Qué falta hacer"))}</h3><span>${workCount} ${esc(__("casos"))} · ${data.work_action_count ?? workItems.reduce((count, item) => count + (item.action_count || 1), 0)} ${esc(__("acciones"))}${overdueCount ? ` · ${overdueCount} ${esc(__("casos vencidos"))}` : ""}</span></div>
+                    ${data.consulted_at ? `<p class="text-muted">${esc(__("Consulta de"))} ${esc(frappe.datetime.str_to_user(data.consulted_at))}. ${esc(__("Actualizar consulta incorpora cambios recientes; esta vista no modifica saldos."))}</p>` : ""}
+                    <button type="button" class="btn btn-default btn-sm mb-3" data-refresh-work>${esc(__("Actualizar consulta"))}</button>
                     <div class="row" style="margin-bottom:16px">
                         <div class="col-sm-4"><label>${esc(__("Tipo de pendiente"))}<select class="form-control" data-work-filter="work_kind">${[["", "Todos"], ["payments", "Pagos pendientes de aplicar"], ["credits", "Saldos a favor"], ["complements", "Partidas complementarias"], ["accounting", "Registro en el core"], ["exceptions", "Excepciones"], ["deposits", "Depósitos"], ["periods", "Aplicaciones y períodos"]].map(([value, label]) => `<option value="${value}" ${workFilters.work_kind === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                         <div class="col-sm-4"><label>${esc(__("Responsable contiene"))}<input class="form-control" data-work-filter="responsible" value="${esc(workFilters.responsible)}"></label></div>
                         <div class="col-sm-4"><label>${esc(__("Compromiso"))}<select class="form-control" data-work-filter="due">${[["", "Todos"], ["overdue", "Vencidos"], ["upcoming", "Hoy o futuros"], ["undated", "Sin fecha compromiso"]].map(([value, label]) => `<option value="${value}" ${workFilters.due === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
+                        <div class="col-sm-6"><label>${esc(__("Cliente, crédito, documento o motivo"))}<input class="form-control" data-work-filter="search" value="${esc(workFilters.search)}"></label></div>
+                        <div class="col-sm-3"><label>${esc(__("Importe mínimo US$"))}<input type="number" min="0" step="0.01" class="form-control" data-work-filter="min_amount" value="${esc(workFilters.min_amount)}"></label></div>
+                        <div class="col-sm-3"><label>${esc(__("Ordenar por"))}<select class="form-control" data-work-filter="sort_by">${[["", "Prioridad"], ["amount", "Mayor importe"], ["oldest", "Más antiguo"]].map(([value, label]) => `<option value="${value}" ${workFilters.sort_by === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select></label></div>
                     </div>${workTable}${workFooter}</section>
                 ${unassignedCount ? `<details class="cn-panel cn-collapsible" data-section="unassigned_historical_applications"><summary>${esc(__("Aplicaciones sin período"))} · ${unassignedCount}</summary>${unassignedTable}${moreRows("unassigned_historical_applications", unassigned.length, unassignedCount)}</details>` : ""}
                 ${employerField.get_value() ? "" : `<details class="cn-panel cn-collapsible" data-section="open_deposits"><summary>${esc(__("Depósitos con saldo a favor o sin asignar"))} · ${depositCount}</summary>${depositTable}${moreRows("open_deposits", deposits.length, depositCount)}</details>`}
                 ` : `<section class="cn-panel"><p role="status">${esc(__(workOverviewError ? "No se pudieron cargar los pendientes de todos los años." : "Cargando pendientes de todos los años…"))}</p>${workOverviewError ? `<button type="button" class="btn btn-default" data-retry-work>${esc(__("Reintentar"))}</button>` : ""}</section>`}
             </div>
-            <p class="cn-footnote">${esc(__("La cobranza y las deducciones sirven para la primera conciliación y no generan cuentas por cobrar. La CxC es lo aplicado en el core menos lo cubierto por depósitos o compensaciones confirmadas vinculadas. El aplicado neto ya incluye los ajustes confirmados; no los descuente dos veces. Los saldos a favor y depósitos sin asignar no reducen automáticamente esa CxC. Cifras en US$."))}</p>
+            <p class="cn-footnote">${esc(__("La cobranza sirve para la primera conciliación y no genera cuentas por cobrar. La CxC es lo aplicado en el core menos lo cubierto por depósitos o compensaciones confirmadas vinculadas. El aplicado neto ya incluye los ajustes confirmados; no los descuente dos veces. Los saldos a favor y depósitos sin asignar no reducen automáticamente esa CxC. Cifras en US$."))}</p>
         `);
+        const calendarHead = $root[0]?.querySelector?.("[data-calendar-section] .cn-panel-head");
+        if (calendarHead) {
+            calendarHead.insertAdjacentHTML("beforeend", `<label class="cn-summary-toggle">${esc(__("Ir al mes"))}
+                <select class="form-control input-sm" data-calendar-month aria-label="${esc(__("Ir al mes"))}">
+                ${months.map(month => `<option value="${month.key}" ${month.key === calendarMonth ? "selected" : ""}>${esc(month.label)}</option>`).join("")}</select></label>`);
+            positionCalendar();
+        }
+    }
+
+    function positionCalendar() {
+        const root = $root[0];
+        const scroll = root?.querySelector?.(".cn-matrix-scroll");
+        if (!scroll?.clientWidth) return;
+        const month = root.querySelector(`[data-calendar-column="${calendarMonth}"]`);
+        const company = root.querySelector(".cn-matrix thead .cn-company");
+        if (calendarScroll == null && month && company) {
+            calendarScroll = month.getBoundingClientRect().left - company.getBoundingClientRect().right + scroll.scrollLeft;
+        }
+        scroll.scrollLeft = Math.max(calendarScroll || 0, 0);
     }
 
     function loadDetail(kind, name) {
@@ -376,9 +405,9 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 ${renderPeriodRemark(period)}
                 ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
                 ${historical ? `<div class="cn-kpis cn-dialog-kpis">
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(period.applied_usd)}</div></div>
-                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Depósito asignado"))}</div><div class="cn-kpi-value">${money(period.remitted_usd)}</div></div>
-                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Aplicaciones sin depósito"))}</div><div class="cn-kpi-value">${money(period.historical_pending_usd)}</div></div>
+                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Aplicado al crédito"))}</div><div class="cn-kpi-value">${money(periodAmounts(period).applied_usd)}</div></div>
+                    <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Asignado"))}</div><div class="cn-kpi-value">${money(periodAmounts(period).remitted_usd)}</div></div>
+                    <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Pendiente US$"))}</div><div class="cn-kpi-value">${money(periodAmounts(period).pending_usd)}</div></div>
                 </div>` : renderOperationalSummary(period)}
                 ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Cobranza y aplicación por cliente"))}</h4>${rowTable}${(period.exceptions || []).length ? `<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}` : ""}`}
                 ${(period.rounding_movements || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Partidas complementarias automáticas"))}</summary>${movements}</details>` : ""}
@@ -464,18 +493,34 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         }
         if (focus) $root.find(`[data-control-view="${view}"]`).trigger("focus");
         if (view === "work") loadWorkOverview();
+        if (view === "calendar") positionCalendar();
     }
     function loadWorkOverview() {
-        if (!currentData || currentData.work_scope !== "calendar" || workOverviewRequest) return workOverviewRequest;
+        if (!currentData || (currentData.work_scope !== "calendar" && currentData.work_consultation) || workOverviewRequest) return workOverviewRequest;
         const dataAtRequest = currentData, sequence = refreshSequence;
         workOverviewError = false;
-        const request = frappe.call({
+        const request = Promise.resolve(frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_work_overview",
             args: {employer: employerField.get_value() || null},
-        }).then(response => {
+        })).then(async response => {
             if (currentData !== dataAtRequest || sequence !== refreshSequence) return;
             if (response.message?.work_scope !== "Todos") throw new Error("Incomplete work overview");
-            Object.assign(currentData, response.message);
+            const overview = {...response.message};
+            if (Object.values(workFilters).some(Boolean)) {
+                const filterSequence = workFilterSequence;
+                const {message} = await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_rows",
+                    args: {section: "work_items", year: "Todos", employer: employerField.get_value() || null,
+                        start: 0, consultation: overview.consultation, ...workFilters},
+                });
+                if (currentData !== dataAtRequest || sequence !== refreshSequence || filterSequence !== workFilterSequence) return;
+                Object.assign(overview, {work_items: message.rows || [], work_item_count: message.count,
+                    work_action_count: message.action_count, overdue_count: message.overdue_count,
+                    consultation: message.consultation, consulted_at: message.consulted_at});
+            }
+            Object.assign(currentData, overview);
+            currentData.work_consultation = overview.consultation;
+            currentData.open_deposits_consultation = response.message.consultation;
             workLimit = 100;
             render(currentData);
         }).catch(() => {
@@ -487,6 +532,12 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         return request;
     }
     $root.on("click", "[data-retry-work]", () => loadWorkOverview());
+    $root.on("click", "[data-refresh-work]", () => {
+        if (!currentData) return;
+        currentData.work_consultation = null;
+        workFilterSequence++;
+        loadWorkOverview();
+    });
     $root.on("click", "[data-control-view]", function () {
         selectView($(this).attr("data-control-view"));
     });
@@ -504,6 +555,11 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     $root.on("change", "[data-calendar-year]", function () {
         calendarYear = Number(this.value);
         if (currentData) render(currentData);
+    });
+    $root.on("change", "[data-calendar-month]", function () {
+        calendarMonth = this.value;
+        calendarScroll = null;
+        positionCalendar();
     });
     $root.on("click", "[data-month]", function () {
         const employer = $(this).attr("data-employer");
@@ -548,10 +604,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     });
     $root.on("click", "[data-period]", function () { showPeriod($(this).attr("data-period")); });
     $root.on("click", "[data-work]", function () {
-        const item = (currentData?.work_items || [])[Number($(this).attr("data-work"))];
-        if (item?.target_doctype && item?.target_name) {
-            frappe.set_route("Form", item.target_doctype, item.target_name);
-        }
+        showWorkCase((currentData?.work_items || []).slice(0, workLimit), Number($(this).attr("data-work")), currentData?.consulted_at);
     });
     $root.on("change", "[data-work-filter]", async function () {
         if (!currentData) return;
@@ -561,7 +614,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         try {
         const {message} = await frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_rows",
-            args: {section: "work_items", year: "Todos", employer: employerField.get_value() || null, start: 0, ...workFilters},
+            args: {section: "work_items", year: "Todos", employer: employerField.get_value() || null, start: 0, consultation: currentData.work_consultation, ...workFilters},
             freeze: true, freeze_message: __("Filtrando todos los pendientes…"),
         });
         if (sequence !== workFilterSequence || currentData !== dataAtRequest) return;
@@ -569,6 +622,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         currentData.work_item_count = message.count;
         currentData.work_action_count = message.action_count;
         currentData.overdue_count = message.overdue_count;
+        currentData.work_consultation = message.consultation;
+        currentData.consulted_at = message.consulted_at;
         workLimit = 100;
         render(currentData);
         } catch (_) {
@@ -597,15 +652,22 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             const response = await frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.page.control_credinomina.control_credinomina.get_control_rows",
                 args: {section, year: "Todos", employer: employerField.get_value() || null,
-                    start: (currentData[section] || []).length, ...(section === "work_items" ? workFilters : {})},
+                    start: (currentData[section] || []).length, consultation: currentData[section === "work_items" ? "work_consultation" : "open_deposits_consultation"], ...(section === "work_items" ? workFilters : {})},
                 freeze: true, freeze_message: __("Cargando más registros…"),
             });
             if (dataAtRequest !== currentData || sequence !== refreshSequence || (section === "work_items" && filterSequence !== workFilterSequence)) return;
-            currentData[section] = [...(currentData[section] || []), ...(response.message?.rows || [])];
+            currentData[section] = [...(response.message?.restarted ? [] : currentData[section] || []), ...(response.message?.rows || [])];
+            if (response.message.consultation) currentData[section === "work_items" ? "work_consultation" : "open_deposits_consultation"] = response.message.consultation;
+            if (response.message.restarted) frappe.show_alert({message: __("La consulta cambió o venció; se muestra la primera página actualizada."), indicator: "blue"});
             const countField = {work_items: "work_item_count", open_deposits: "open_deposit_count",
                 unassigned_historical_applications: "unassigned_historical_count"}[section];
             currentData[countField] = response.message.count;
-            if (section === "work_items") workLimit += 100;
+            if (section === "work_items") {
+                workLimit = currentData.work_items.length;
+                currentData.work_action_count = response.message.action_count;
+                currentData.overdue_count = response.message.overdue_count;
+                currentData.consulted_at = response.message.consulted_at;
+            }
             render(currentData);
             if (section !== "work_items") $root.find(`[data-section="${section}"]`).prop("open", true);
         } finally { sectionRequests.delete(section); }
@@ -645,6 +707,48 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
     controlsReady = true;
     refresh();
 };
+
+function initialCalendarMonth(data, year, today = new Date()) {
+    const prefix = `${year}-`;
+    const active = [...new Set([...(data.periods || []), ...(data.cash_deposits || [])]
+        .map(row => String(row.month || "")).filter(month => month.startsWith(prefix)))].sort();
+    const current = `${year}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    return Number(year) === today.getFullYear() && (!active.length || active.includes(current))
+        ? current : active[0] || `${year}-01`;
+}
+
+function showWorkCase(items, index, consultedAt) {
+    if (!items[index]) return;
+    const dialog = new frappe.ui.Dialog({title: __("Revisar pendientes"), size: "large",
+        fields: [{fieldname: "case_detail", fieldtype: "HTML"}],
+        primary_action_label: __("Volver a la bandeja"), primary_action() {dialog.hide();}});
+    const wrapper = dialog.get_field("case_detail").$wrapper;
+    const render = () => {
+        const item = items[index];
+        wrapper.html(`<div class="d-flex justify-content-between mb-3">
+            <button type="button" class="btn btn-default btn-sm" data-case-step="-1" ${index === 0 ? "disabled" : ""}>${esc(__("Anterior"))}</button>
+            <strong>${index + 1} / ${items.length} ${esc(__("casos cargados"))}</strong>
+            <button type="button" class="btn btn-default btn-sm" data-case-step="1" ${index === items.length - 1 ? "disabled" : ""}>${esc(__("Siguiente"))}</button></div>
+            <h4>${esc(item.employer_name || item.employer || "")}</h4><p>${esc(item.period_label || "")}</p>
+            ${renderWorkClient(item)}
+            ${(item.actions || [item]).map(action => `<div class="border rounded p-3 mb-3">
+                <strong>${esc(action.summary)}</strong><p>${action.amount_usd == null ? "—" : money(action.amount_usd)} · ${esc(__(action.amount_kind || "Importe del caso"))}</p>
+                <p>${esc(action.next_action)}</p>
+                ${action.responsible ? `<div>${esc(__("Responsable"))}: ${esc(action.responsible)}</div>` : ""}
+                ${action.due_date ? `<div>${esc(__("Compromiso"))}: ${esc(displayDate(action.due_date))}</div>` : ""}
+                ${action.target_doctype && action.target_name ? `<a target="_blank" rel="noopener noreferrer" href="${esc(frappe.utils.get_form_link(action.target_doctype, action.target_name))}">${esc(__("Abrir documento en otra pestaña"))} · ${esc(action.target_name)}</a>` : ""}
+            </div>`).join("")}
+            <p class="text-muted">${esc(__("Los importes de las acciones no se suman. La bandeja conserva sus filtros; después de gestionar un caso use Actualizar consulta."))}</p>
+            ${consultedAt ? `<p class="text-muted">${esc(__("Consulta"))}: ${esc(displayDate(consultedAt))}</p>` : ""}`);
+    };
+    wrapper.on("click", "[data-case-step]", function () {
+        index = Math.max(0, Math.min(items.length - 1, index + Number($(this).attr("data-case-step"))));
+        render();
+    });
+    render();
+    dialog.show();
+    return dialog;
+}
 
 function applicationExceptionAction(period, row, canCreate) {
     if (row.exception_name) return `<button type="button" class="btn btn-default btn-xs" data-exception="${esc(row.exception_name)}" title="${esc(row.exception_status || "")}">${esc(__("Ver excepción"))}</button>`;
@@ -702,24 +806,36 @@ async function showApplicationException(period, row, onSaved) {
     dialog.show();
 }
 
+function periodAmounts(period) {
+    return {...period, applied_usd: period.financial_applied_usd ?? period.applied_total_usd ?? period.applied_usd,
+        remitted_usd: period.financial_covered_usd ?? period.remitted_total_usd ?? period.remitted_usd,
+        pending_usd: period.financial_pending_usd ?? period.pending_usd ?? period.historical_pending_usd ?? period.employer_receivable_usd};
+}
+
 function renderPeriodCard(period) {
+    period = periodAmounts(period);
     const historical = period.reconciliation_mode === "Historica";
     return `<button type="button" class="cn-period-card cn-${esc(period.control_state || "en_transito")}" data-month-period="${esc(period.name)}">
         <span class="cn-period-card-name">${esc(period.name)}</span>
         <span class="cn-cell-cycle">${esc(historical ? historicalLabel(period) : operativeCycleLabel(period))}</span>
         <span class="cn-badge">${esc(stateLabel(period.control_state))}</span>
+        ${Number(period.open_exception_count || (period.exceptions || []).length) ? `<span class="cn-cell-sub">${esc(__("Excepciones abiertas"))}: ${Number(period.open_exception_count || period.exceptions.length)}</span>` : ""}
         ${renderPeriodRemark(period)}
+        ${renderMissingQualityBasis(period)}
         <span class="cn-period-card-amounts">
             <span>${esc(__("Aplicado"))}<strong>${money(period.applied_usd)}</strong></span>
             <span>${esc(__("Asignado"))}<strong>${money(period.remitted_usd)}</strong></span>
-            ${!historical ? `<span>${esc(__("Deducido"))}<strong>${money(period.deducted_usd)}</strong></span>` : ""}
         </span>
-        ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("Cobranza no deducida")],
-            ["employer_gap_usd", __("Deducido sin depósito asignado")], ["pending_detail_usd", __("Detalle pendiente o por aclarar")]]
+        ${[["pending_usd", __("Pendiente US$")], ["worker_gap_usd", __("Diferencia cobranza/aplicación")]]
             .filter(([field]) => Number(period[field]) > MONEY_EPSILON)
             .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(period[field])}</span>`).join("")}
         <span class="cn-period-card-open">${esc(__("Ver detalle del período"))} →</span>
     </button>`;
+}
+
+function renderMissingQualityBasis(period) {
+    const count = Number(period.quality_missing_basis_count || 0);
+    return count ? `<span class="cn-cell-gap">${esc(__("Cobranza sin equivalente US$"))}: ${count} · ${esc(__("Revisar base de comparación"))}</span>` : "";
 }
 
 function renderPeriodRemark(period) {
@@ -729,6 +845,7 @@ function renderPeriodRemark(period) {
 }
 
 function summarizeMonth(periods) {
+    periods = periods.map(periodAmounts);
     const sum = field => periods.reduce((cents, period) => cents + Math.round(Number(period[field] || 0) * 100), 0) / 100;
     const states = periods.map(period => period.control_state);
     const state = states.some(value => ["diferencia", "historico_excepcion"].includes(value)) ? "diferencia"
@@ -739,10 +856,9 @@ function summarizeMonth(periods) {
     return {state, count: periods.length,
         historical: periods.every(period => period.reconciliation_mode === "Historica"),
         operative: periods.every(period => period.reconciliation_mode !== "Historica"),
-        ...Object.fromEntries(["applied_usd", "deducted_usd", "remitted_usd", "worker_gap_usd",
-            "historical_pending_usd", "employer_gap_usd", "pending_detail_usd", "rounding_adjustment_usd"]
+        ...Object.fromEntries(["applied_usd", "remitted_usd", "worker_gap_usd",
+            "historical_pending_usd", "pending_usd", "rounding_adjustment_usd", "quality_missing_basis_count"]
             .map(field => [field, sum(field)])),
-        inferred: periods.some(period => period.deduction_basis === "Depósito coincidente"),
         // Deposits can relate to several periods: do not sum their surplus here.
         hasDepositBalance: periods.some(period => Number(period.documented_credit_usd) > MONEY_EPSILON || Number(period.unclassified_deposit_usd) > MONEY_EPSILON),
     };
@@ -755,11 +871,9 @@ function renderMonthSummary(periods, employer, month, receipts = []) {
         <span class="cn-cell-cycle">${esc(__("Períodos registrados en el mes"))} · ${total.count}</span>
         <span class="cn-cell-amount">${money(total.applied_usd)} / ${money(total.remitted_usd)}</span>
         <span class="cn-cell-sub">${esc(__("Aplicado / Asignado"))}</span>
-        ${!total.historical ? `<span class="cn-cell-sub">${esc(__("Deducido operativo"))}: ${money(total.deducted_usd)}</span>` : ""}
         <span class="cn-badge">${esc(stateLabel(total.state))}</span>
-        ${total.inferred ? `<span class="cn-cell-sub">${esc(__("Incluye deducción inferida"))}</span>` : ""}
-        ${[["historical_pending_usd", __("Aplicado sin depósito")], ["worker_gap_usd", __("Cobranza no deducida")],
-            ["employer_gap_usd", __("Deducido sin depósito asignado")], ["pending_detail_usd", __("Detalle pendiente o por aclarar")]]
+        ${renderMissingQualityBasis(total)}
+        ${[["pending_usd", __("Pendiente US$")], ["worker_gap_usd", __("Diferencia cobranza/aplicación")]]
             .filter(([field]) => total[field] > MONEY_EPSILON)
             .map(([field, label]) => `<span class="cn-cell-gap">${esc(label)}: ${money(total[field])}</span>`).join("")}
         ${Math.abs(total.rounding_adjustment_usd) > MONEY_EPSILON ? `<span class="cn-cell-credit">${esc(__("Complementarias automáticas"))}: ${signedMoney(total.rounding_adjustment_usd)}</span>` : ""}
@@ -800,6 +914,7 @@ function cashStatus(deposit) {
 function renderCashReceivables(receipts) {
     const rows = [...new Map(receipts.flatMap(deposit => deposit.receivable_entries || [])
         .map(row => [`${row.name}|${row.employer}`, row])).values()];
+    if (rows.some(row => row.amount_usd == null)) return `<span class="cn-cell-gap cn-management-warning">${esc(__("Gestión: CxC con cobros por revisar"))} · N/D</span>`;
     const amount = rows.reduce((sum, row) => sum + Math.round(Number(row.amount_usd || 0) * 100), 0) / 100;
     return amount > MONEY_EPSILON ? `<span class="cn-cell-gap cn-management-warning">${esc(__("Gestión: CxC pendiente"))} ${money(amount)}</span>` : "";
 }
@@ -876,7 +991,7 @@ function renderCashDistribution(deposit) {
             <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Referencia del depósito"))}</div><div class="cn-kpi-value">${esc(deposit.reference || deposit.name)}</div><div class="cn-cash-kpi-note">${esc(displayDate(deposit.date))}<br>${esc(deposit.name)}</div></div>
             <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Cuenta bancaria"))}</div><div class="cn-kpi-value">${esc(deposit.bank_account || __("Sin cuenta asignada"))}</div>${deposit.currency ? `<div class="cn-cash-kpi-note">${esc(__("Original"))}: ${esc(deposit.currency)} ${original}</div>` : ""}</div>
             <div class="cn-kpi cn-kpi-remitted"><div class="cn-kpi-label">${esc(__("Depositado total USD"))}</div><div class="cn-kpi-value">${money(deposit.total_usd)}</div></div>
-            <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(cashStatus(deposit))}</div><div class="cn-cash-kpi-note">${esc(__("Resultado registrado"))}: ${esc(deposit.result || __("Pendiente"))}</div></div>
+            <div class="cn-kpi cn-cash-result"><div class="cn-kpi-label">${esc(__("Estado de conciliación"))}</div><div class="cn-kpi-value">${esc(cashStatus(deposit))}</div>${cashStatus(deposit) !== deposit.result ? `<details class="cn-cash-kpi-note"><summary>${esc(__("Resultado guardado (auditoría)"))}</summary>${esc(deposit.result || __("Pendiente"))}</details>` : ""}</div>
         </div>
         ${renderCashReceivables([deposit])}
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
@@ -930,15 +1045,12 @@ function renderOperationalSummary(period) {
     const pending = period.pending_application_usd;
     const cards = [
         ["Cobranza enviada", period.expected_usd, "Importe solicitado a la empresa"],
-        ["Aplicado en el core", period.applied_usd, "Pagos registrados en los créditos"],
-        ["Depósito asignado", period.remitted_usd, "Dinero ya distribuido a este período"],
+        ["Aplicado en el core", periodAmounts(period).applied_usd, "Pagos registrados en los créditos antes de compensaciones"],
+        ["Asignado", periodAmounts(period).remitted_usd, "Cobertura con depósitos y partidas complementarias confirmadas"],
         ["Pago recibido por aplicar", pending, "Identificado en el depósito; falta aplicación"],
     ];
     const controls = [
-        ["Deducción registrada", period.deducted_usd],
-        ["Cobranza no deducida (informativo)", period.worker_gap_usd],
-        ["Detalle pendiente o por aclarar", period.pending_detail_usd],
-        ["Deducido sin depósito asignado", period.employer_gap_usd],
+        ["Diferencia cobranza/aplicación (informativo)", period.worker_gap_usd],
         ["Saldo a favor documentado", period.documented_credit_usd],
         ["Depósito sin asignar", period.unclassified_deposit_usd],
     ];
@@ -946,7 +1058,8 @@ function renderOperationalSummary(period) {
         <div class="cn-kpi-label">${esc(__(label))}</div><div class="cn-kpi-value">${amount == null ? "—" : money(amount)}</div><p>${esc(__(note))}</p></div>`).join("")}</div>
         ${period.payment_evidence_restricted ? `<p class="cn-period-notice">${esc(__("Vista parcial: faltan permisos para consultar parte de la evidencia de depósito."))}</p>` : ""}
         ${Number(pending) > 0 ? `<p class="cn-period-notice">${esc(__("Hay pagos recibidos pendientes de aplicar en el core. El importe ya está en el depósito; no es saldo a favor ni dinero adicional."))}</p>` : ""}
-        <details class="cn-period-secondary"><summary>${esc(__("Ver deducción y otros controles"))}</summary>
+        <details class="cn-period-secondary"><summary>${esc(__("Ver control de cobranza"))}</summary>
+            ${renderMissingQualityBasis(period)}
             <dl class="cn-period-controls">${controls.map(([label, value]) => `<div><dt>${esc(__(label))}</dt><dd>${money(value)}</dd></div>`).join("")}</dl>
             <p>${esc(__("Estos controles describen etapas diferentes y no se suman. El depósito sin asignar puede incluir el pago recibido por aplicar."))}</p>
         </details>`;
@@ -957,22 +1070,22 @@ function renderPeriodCollectionTable(period) {
     return `<p class="cn-period-table-note">${esc(__("Importes en US$. Depósito asignado y pago recibido por aplicar se muestran por separado. Abra Ver detalle para consultar depósitos, ajustes y antecedentes."))}</p>
         <p class="cn-period-scroll-hint">${esc(__("Desplace la tabla hacia la derecha para ver todas las columnas."))} →</p>
         <div class="cn-list-scroll" tabindex="0" role="region" aria-label="${esc(__("Cobranza y aplicación por cliente"))}"><table class="cn-detail-table cn-period-collections"><thead><tr>
-        ${["Cliente / crédito", "Cobranza", "Deducido", "Aplicado", "Depósito asignado", "Pago por aplicar", "Estado / detalle"].map(label => `<th scope="col">${esc(__(label))}</th>`).join("")}
+        ${["Cliente / crédito", "Cobranza US$", "Aplicado US$", "Diferencia US$", "Depósito asignado", "Pago por aplicar", "Resultado del control / detalle"].map(label => `<th scope="col">${esc(__(label))}</th>`).join("")}
         </tr></thead><tbody>${period.rows.map(row => {
             const pending = row.pending_payment_usd;
             const note = row.inherited_exception_comment || row.first_exception_comment || row.application_comment;
-            const status = Number(pending) > 0 ? __("Pago pendiente de aplicar") : applicationStatusLabel(row.deduction_pending_reason ? row.deduction_status : row.application_status || row.deduction_status);
+            const difference = row.quality_difference_usd;
+            const status = row.quality_status || (difference == null ? __("Revisar conversión") : Number(difference) === 0 ? __("Conforme según cobranza") : __("Con diferencias"));
             return `<tr class="${Number(pending) > 0 ? "cn-payment-pending" : ""}">
                 <td><strong>${esc(row.client_name || "—")}</strong><div class="cn-period-person">${esc(__("Cliente"))}: ${esc(row.client_number || "—")}<br>${esc(__("Crédito"))}: <span class="cn-nowrap">${esc(row.loan_number || "—")}</span> · ${esc(__("Cuota"))}: ${esc(row.installment_number || "—")}</div></td>
-                ${[row.expected_usd, row.deducted_usd, row.applied_usd, row.remitted_usd].map(value => `<td class="cn-number">${money(value)}</td>`).join("")}
+                ${[row.quality_status === "Revisar base de comparación" ? null : row.expected_usd, row.applied_usd, difference, row.remitted_usd].map(value => `<td class="cn-number">${value == null ? "—" : money(value)}</td>`).join("")}
                 <td class="cn-number">${pending == null ? "—" : money(pending)}</td>
                 <td><span class="cn-period-row-status">${esc(status)}</span><details class="cn-period-row-detail"><summary>${esc(__("Ver detalle"))}</summary>
                     <div><strong>${esc(__("Depósitos vinculados"))}</strong><div>${allocationLines(row.remittance_detail)}</div></div>
                     ${(row.pending_payment_deposits || []).map(deposit => `<div><strong>${esc(__("Pago por aplicar"))}:</strong> <a href="/app/cn-remittance-allocation/${encodeURIComponent(deposit.name)}">${esc(deposit.name)}</a> <span class="cn-nowrap">${money(deposit.amount_usd)}</span></div>`).join("")}
                     <div>${esc(__("Partidas y ajustes"))}: <span class="cn-nowrap">${money(Number(row.complementary_usd || 0) + Number(row.rounding_adjustment_usd || 0))}</span></div>
-                    <div>${esc(__("Cobranza no deducida"))}: ${row.collection_shortfall_usd == null ? esc(__(row.deduction_pending_reason || "Pendiente de detalle")) : `<span class="cn-nowrap">${money(row.collection_shortfall_usd)}</span>`}</div>
+                    <div>${esc(__("Control financiero"))}: ${esc(applicationStatusLabel(row.application_status))}</div>
                     ${note && String(note).trim() !== "0" ? `<div>${esc(__("Antecedente"))}: ${esc(note)}</div>` : ""}
-                    ${row.deduction_status === "Inferida por depósito" ? `<div>${esc(__("Deducción inferida, sin detalle de planilla"))}</div>` : ""}
                 </details></td>
             </tr>`;
         }).join("")}</tbody></table></div>`;
@@ -1158,6 +1271,7 @@ function renderControlKpis(data, failed = false) {
         ? "No se pudieron cargar las cifras. No se muestran importes en cero para sustituir el error."
         : "Calculando cifras de control..."))}${failed ? ` <button type="button" class="btn btn-default btn-sm" data-kpis-retry>${esc(__("Reintentar"))}</button>` : ""}</div>`;
     const a = data.applications, d = data.deposits, c = data.credits, e = data.exceptions, r = data.receivables;
+    const knownMoney = value => value == null ? "N/D" : money(value);
     const card = (label, value, note, kind, available, action = "", actionLabel = "") => `
         <div class="cn-kpi cn-kpi-${kind}"><div class="cn-kpi-label">${esc(__(label))}</div>
             <div class="cn-kpi-value">${available ? esc(value) : "—"}</div>
@@ -1165,14 +1279,17 @@ function renderControlKpis(data, failed = false) {
             ${available && action ? `<button type="button" class="cn-text-link" data-kpi-action="${action}">${esc(__(actionLabel))}</button>` : ""}
         </div>`;
     const notes = [];
-    if (a?.missing_fx_count) notes.push(`${a.missing_fx_count} ${__("aplicaciones sin conversión US$: aplicado y pendiente son parciales. Complete el tipo de cambio.")}`);
+    if (a?.missing_fx_count) notes.push(`${a.missing_fx_count} ${__("aplicaciones sin conversión US$. Total pendiente de determinar; complete el tipo de cambio.")}`);
+    if (a?.review_count) notes.push(`${a.review_count} ${__("aplicaciones con vínculos inconsistentes. Revise su distribución para determinar el saldo.")}`);
+    if (a?.pending_usd == null && a) notes.push(`${__("Subtotal conocido pendiente US$")}: ${money(a.known_pending_usd)}.`);
+    if (r?.review_count) notes.push(`${r.review_count} ${__("CxC por ajustes con cobros o compensaciones inconsistentes. Su total queda sin determinar.")}`);
     if (a?.without_date_usd > MONEY_EPSILON) notes.push(`${__("Pendiente sin vencimiento determinado")}: ${money(a.without_date_usd)}. ${__("No se incluye en el vencido.")}`);
     if (d?.overallocated_count) notes.push(`${d.overallocated_count} ${__("depósitos con distribución superior al importe recibido; revisar. No compensan los saldos sin asignar de otros depósitos.")}`);
     return `<div class="cn-kpis cn-control-kpis">
-        ${card("Aplicado neto US$", money(a?.net_applied_usd), `${__("Sin período")}: ${money(a?.unlinked_usd)}. ${__("Incluye ajustes confirmados de aplicación.")}`, "applied", a)}
+        ${card("Aplicado neto US$", knownMoney(a?.net_applied_usd), `${__("Sin período")}: ${money(a?.unlinked_usd)}. ${__("Incluye ajustes confirmados de aplicación.")}`, "applied", a)}
         ${card("Depósitos recibidos US$", money(d?.received_usd), `${d?.deposit_count || 0} ${__("depósitos confirmados, por su importe completo.")}`, "remitted", d)}
-        ${card("Aplicado pendiente de conciliar US$", money(a?.pending_usd), `${__("Vencido")}: ${money(a?.overdue_usd)}. ${__("Solo descuenta distribuciones vinculadas.")}`, "gap", a, "aging", "Ver antigüedad")}
-        ${card("CxC por ajustes US$", money(r?.pending_usd), `${__("Vencido")}: ${money(r?.overdue_usd)} · ${__("Sin fecha compromiso")}: ${money(r?.without_date_usd)}. ${__("Pendiente de cobro o compensación vinculada.")}`, "gap", r, "receivable-aging", "Ver antigüedad de ajustes")}
+        ${card("Aplicado pendiente de conciliar US$", knownMoney(a?.pending_usd), `${__("Vencido")}: ${knownMoney(a?.overdue_usd)}. ${__("Solo descuenta distribuciones vinculadas.")}`, "gap", a, "aging", "Ver antigüedad")}
+        ${card("CxC por ajustes US$", knownMoney(r?.pending_usd), `${__("Vencido")}: ${knownMoney(r?.overdue_usd)} · ${__("Sin fecha compromiso")}: ${knownMoney(r?.without_date_usd)}. ${__("Pendiente de cobro o compensación vinculada.")}`, "gap", r, "receivable-aging", "Ver antigüedad de ajustes")}
         ${card("Depósitos sin asignar US$", money(d?.unassigned_usd), `${d?.unassigned_count || 0} ${__("depósitos con dinero sin destino identificado.")}`, "gap", d)}
         ${card("Saldos a favor por gestionar US$", money(c?.credit_pending_usd), `${__("Clientes pendientes")}: ${money(c?.client_pending_usd)} · ${__("Empresas pendientes")}: ${money(c?.company_documented_usd)}. ${__("Importes documentados que aún requieren devolución o aplicación futura.")}`, "surplus", c)}
         ${card("Excepciones vencidas", String(e?.count || 0), __("Abiertas o en revisión, con fecha compromiso vencida. Incluye casos sin período."), "gap", e,

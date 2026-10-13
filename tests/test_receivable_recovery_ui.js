@@ -7,7 +7,8 @@ class Dialog {
         this.values = Object.fromEntries(options.fields.map(field => [field.fieldname, field.default]));
         // Some Frappe controls call onchange while setting their initial value.
         options.fields.find(field => field.fieldname === 'employer').onchange();
-        this.fields_dict = {cxc_info: {$wrapper: {html: value => {this.info = value;}}}};
+        this.fields_dict = {cxc_info: {$wrapper: {html: value => {this.info = value;}}},
+            destination_info: {$wrapper: {html: value => {this.destinationInfo = value;}}}};
         this.button = {prop: (key, value) => {this.disabled = value;}};
         dialog = this;
     }
@@ -22,7 +23,9 @@ const context = vm.createContext({__: text => text, format_currency: value => `U
     frappe: {ui: {Dialog}, datetime: {get_today: () => '2026-10-04'}, utils: {escape_html: escape},
         msgprint: value => messages.push(value), show_alert: value => alerts.push(value),
         call: async args => {requests.push(args); return args.method.endsWith('preview_recovery')
-            ? {message: await preview} : {message: {name: 'RECEIPT'}};}}});
+            ? {message: await preview} : args.method.endsWith('get_recovery_destination')
+                ? {message: {name: args.args.destination, available_usd: 7, receivable_usd: 3, suggested_usd: 3}}
+                : {message: {name: 'RECEIPT'}};}}});
 const source = fs.readFileSync(path.join(__dirname,
     '../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_complementary_item/cn_complementary_item.js'), 'utf8');
 vm.runInContext(source.slice(0, source.indexOf('frappe.ui.form.on(')), context);
@@ -47,6 +50,12 @@ const form = () => ({doc: {name: 'ORIGIN'}, is_dirty: () => false,
     await dialog.options.primary_action(values);
     assert.equal(requests.length, 1, 'Excess must be rejected before sending a mutation');
     values.amount_usd = 3;
+    dialog.values.deposit = 'D';
+    const destinationField = () => dialog.options.fields.find(field => field.fieldname === 'deposit');
+    assert.equal(destinationField().get_query().filters.employer, 'B');
+    await destinationField().onchange();
+    assert.match(dialog.destinationInfo, /Restará en el destino/);
+    assert.match(dialog.destinationInfo, /4.00/);
     await dialog.options.primary_action(values);
     assert.equal(requests.at(-1).args.item_name, 'ORIGIN');
     assert.equal(requests.at(-1).args.destination, 'D');
@@ -66,6 +75,8 @@ const form = () => ({doc: {name: 'ORIGIN'}, is_dirty: () => false,
     assert.equal(requests.length, before, 'An open dialog must not mutate a newly navigated form');
     // Network errors retain the selection and make the button usable again.
     const fresh = form(); await context.cn_receivable_recovery_dialog(fresh);
+    dialog.values.deposit = 'D';
+    await destinationField().onchange();
     context.frappe.call = async () => {throw new Error('Unavailable');};
     await assert.rejects(dialog.options.primary_action({...values, employer: 'A'}), /Unavailable/);
     assert.equal(dialog.disabled, false); assert.ok(!dialog.hidden);

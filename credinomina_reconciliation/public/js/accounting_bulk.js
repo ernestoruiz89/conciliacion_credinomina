@@ -137,6 +137,57 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         picker.show();
     });
     let lastSummary;
+    let reviewStart = 0, reviewSearch = '', reviewKind = '', reviewPage = null, reviewBusy = false;
+    result.on('click', '.cn-review-page', async function() {
+        if (reviewBusy) return;
+        reviewStart = Number(this.getAttribute('data-start')) || 0;
+        await loadReviewPage();
+    });
+    result.on('click', '.cn-review-search', async function() {
+        if (reviewBusy) return;
+        reviewSearch = result.find('.cn-review-query').val() || '';
+        reviewKind = result.find('.cn-review-kind').val() || '';
+        reviewStart = 0;
+        await loadReviewPage();
+    });
+    result.on('keydown', '.cn-review-query', function(event) {
+        if (event.key === 'Enter') { event.preventDefault(); result.find('.cn-review-search').trigger('click'); }
+    });
+    async function loadReviewPage() {
+        const batch = token;
+        if (!batch || running || reviewBusy || currentPhase !== 'preview') return;
+        reviewBusy = true;
+        result.find('.cn-review-page, .cn-review-search').prop('disabled', true);
+        try {
+            const response = await frappe.call({method: 'credinomina_reconciliation.accounting_preview.get_unidentified_page',
+                args: {token: batch, start: reviewStart, search: reviewSearch, kind: reviewKind}});
+            if (token !== batch || closed) return;
+            reviewPage = response.message;
+            renderSummary(lastSummary);
+        } catch (_) {
+            frappe.msgprint(__('No se pudo consultar la página. Sus selecciones se conservan; vuelva a intentar.'));
+        } finally {
+            reviewBusy = false;
+            result.find('.cn-review-page, .cn-review-search').prop('disabled', false);
+        }
+    }
+    function reviewControls(section) {
+        const page = reviewPage || {rows: [], count: section.rows + section.complementary_count + section.deposit_count, start: 0, page_size: 50};
+        let html = `<div class="d-flex flex-wrap align-items-center mb-2" style="gap:8px">
+            <input class="form-control cn-review-query" style="max-width:300px" aria-label="${__('Buscar casos no identificados')}" placeholder="${__('Cliente, crédito, asiento o descripción')}" value="${attr(reviewSearch)}">
+            <select class="form-control cn-review-kind" style="max-width:210px" aria-label="${__('Tipo de caso')}">
+            ${['', 'Aplicación', 'Partida complementaria', 'Depósito'].map(kind => `<option value="${attr(kind)}" ${kind === reviewKind ? 'selected' : ''}>${esc(kind || __('Todos los tipos'))}</option>`).join('')}</select>
+            <button type="button" class="btn btn-default cn-review-search">${__('Buscar')}</button></div>`;
+        html += table([__('Fila'), __('Tipo'), __('Empresa asignada'), __('Fecha'), __('Cliente'), __('Crédito'), __('Asiento / referencia'), __('US$'), __('Motivo')], page.rows.map(row => [
+            esc(row.row), esc(row.kind), companyChoice(row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : '—'),
+            esc(row.client_name || '—'), esc(row.loan_number || '—'), esc(row.voucher || row.reference || '—'),
+            row.total_usd == null ? '—' : esc(format_currency(row.total_usd, 'USD')), esc(row.reason || '')]));
+        html += `<div class="d-flex align-items-center mt-2" style="gap:12px">
+            <button type="button" class="btn btn-default cn-review-page" data-start="${Math.max(page.start - page.page_size, 0)}" ${!page.start ? 'disabled' : ''}>${__('Anterior')}</button>
+            <span>${page.count ? page.start + 1 : 0}–${Math.min(page.start + page.rows.length, page.count)} / ${esc(page.count)}</span>
+            <button type="button" class="btn btn-default cn-review-page" data-start="${page.start + page.page_size}" ${page.start + page.page_size >= page.count ? 'disabled' : ''}>${__('Siguiente')}</button></div>`;
+        return html;
+    }
     result.on("click", ".cn-clear-employers", async function () {
         if (running || currentPhase === "create") return;
         choices = {}; choicesDirty = true;
@@ -197,6 +248,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (!count) return html + `<p class="text-muted">${__("No hay movimientos en este grupo.")}</p></section>`;
         if (unidentified) html += `<p class="alert alert-warning">${__("Los casos sin empresa se cargarán como NO IDENTIFICADA; se creará al confirmar si no existe. Cada aplicación tendrá su propia importación, aunque coincida la fecha, para corregir la empresa caso por caso. Se conservarán los datos originales.")}</p><p><button type="button" class="btn btn-sm btn-default cn-add-employer-alias">${__("Agregar alias")}</button></p>`;
         html += `<p><strong>${__("Aplicaciones")}: ${esc(section.rows)} · ${__("Importaciones")}: ${esc(section.group_count ?? section.groups.length)} · ${__("Total aplicado US$")}: ${esc(format_currency(section.application_total_usd, "USD"))}</strong><br>${__("Partidas en revisión")}: ${esc(section.complementary_count)} · ${__("Depósitos detectados")}: ${esc(section.deposit_count)}</p>`;
+        if (unidentified && lastSummary.paginated_review) return html + reviewControls(section) + '</section>';
         if (section.rows && unidentified) {
             html += table([__("Fila"), __("Empresa asignada"), __("Fecha"), __("Cliente"), __("Crédito"), __("Empresa en archivo"), __("Asiento"), __("US$"), __("Validación de cartera")], section.applications.map(row => [
                 esc(row.row), companyChoice(row), esc(row.event_date ? frappe.datetime.str_to_user(row.event_date) : "—"),
@@ -218,9 +270,9 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             if (section.complementary_count > section.complementary.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
         if (section.deposit_count) {
-            html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe antes de confirmar; no se concilian automáticamente.")}</p>`;
-            html += table([__("Fila"), ...(unidentified ? [__("Empresa asignada")] : []), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario")], section.deposits.map(row => [
-                esc(row.row), ...(unidentified ? [companyChoice(row)] : []), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)),
+            html += `<h5>${__("Depósitos detectados")}</h5><p>${__("Se crearán en borrador o se vincularán a los ya importados. Revise empresa, cuenta e importe antes de confirmar; no se concilian automáticamente.")} ${__("Un depósito puede contener varias líneas contables; el efectivo se cuenta una sola vez.")}</p>`;
+            html += table([__("Primera fila"), ...(unidentified ? [__("Empresa asignada")] : []), unidentified ? __("Empresa en archivo") : __("Empresa"), __("Referencia"), __("Importe bancario"), __("Líneas contables")], section.deposits.map(row => [
+                esc(row.row), ...(unidentified ? [companyChoice(row)] : []), esc((unidentified ? row.employer_text : row.employer) || __("Por identificar")), esc(row.reference), esc(format_currency(row.amount, row.currency)), esc(row.accounting_line_count || 1),
             ]));
             if (section.deposit_count > section.deposits.length) html += `<p>${__("Se muestran las primeras 100 filas.")}</p>`;
         }
@@ -299,6 +351,10 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
                 else if (!choicesDirty) choices = analyzed;
                 saveChoices();
                 renderSummary(state.summary);
+                if (state.summary.paginated_review) {
+                    reviewPage = null; reviewStart = 0;
+                    await loadReviewPage();
+                }
                 dialog.set_primary_action(__("Crear importaciones"), confirm);
                 dialog.get_primary_btn().prop("disabled", choicesDirty || !state.summary.sections || !!state.summary.issues_count || !(state.summary.rows || state.summary.complementary_count || state.summary.deposit_count));
             } else if (state.status === "Completado") {

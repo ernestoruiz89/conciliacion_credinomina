@@ -87,9 +87,8 @@ class CNReconciliationPeriod(Document):
         if self.payroll_month:
             self.payroll_month = getdate(self.payroll_month).replace(day=1)
         self._validate_mode()
-        from credinomina_reconciliation.application_quality import BASES
-        if self.reconciliation_mode != "Historica" and self.get("application_basis") not in BASES:
-            frappe.throw(_("Elija la base de la primera conciliación: Cobranza o Detalle de empresa."))
+        from credinomina_reconciliation.legacy_employer_detail import guard_legacy_evidence
+        guard_legacy_evidence(self)
         self._set_due_date()
         self._validate_unique_period()
         validate_collection_clients(self)
@@ -299,8 +298,6 @@ class CNReconciliationPeriod(Document):
         for fieldname in (
             "expected_usd",
             "expected_nio",
-            "deducted_usd",
-            "deducted_nio",
             "applied_usd",
             "applied_nio",
             "complementary_usd",
@@ -433,114 +430,17 @@ def _recognition_candidates(period):
 
 @frappe.whitelist()
 def get_recognizable_deposits(period_name: str):
-    period = frappe.get_doc("CN Reconciliation Period", period_name)
-    period.check_permission("read")
-    if not (frappe.has_permission("CN Accounting Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
-        frappe.throw(_("No tiene permiso para consultar depósitos."))
-    return [
-        {key: value for key, value in candidate.items() if key not in {"account", "bank"}}
-        for candidate in _recognition_candidates(period)
-    ]
+    frappe.throw(_("Este paso fue retirado. Cargue el detalle de la empresa en Distribución de Depósito; el período compara cobranza contra aplicaciones."))
 
 
 @frappe.whitelist(methods=["POST"])
 def recognize_collection_from_deposit(period_name: str, source_row_id: str, justification: str):
-    # Serialize competing recognitions of the same cash row, then recheck all
-    # conditions inside the current transaction.
-    lock_table = "tabCN Remittance Allocation" if frappe.db.exists(
-        "CN Remittance Allocation", source_row_id
-    ) else "tabCN Source Row"
-    frappe.db.sql(
-        f"SELECT name FROM `{lock_table}` WHERE name = %s FOR UPDATE",
-        (source_row_id,),
-    )
-    period = frappe.get_doc("CN Reconciliation Period", period_name)
-    period.check_permission("write")
-    if not (frappe.has_permission("CN Accounting Import", "read") or frappe.has_permission("CN Remittance Allocation", "read")):
-        frappe.throw(_("No tiene permiso para consultar depósitos."))
-    justification = clean_text(justification)
-    if len(justification) < 12:
-        frappe.throw(_("Explique por qué el depósito permite reconocer la cobranza completa (mínimo 12 caracteres)."))
-    matches = [
-        candidate for candidate in _recognition_candidates(period)
-        if candidate["source_row_id"] == source_row_id
-    ]
-    if len(matches) != 1:
-        frappe.throw(_("El depósito no coincide de forma única con esta cobranza o ya fue usado."))
-    chosen = matches[0]
-    evidence_date = getdate(chosen["event_date"])
-    if period.deduction_evidence_date:
-        period.notes = _append_note(
-            period.notes,
-            _("Fecha de evidencia de planilla previamente indicada ({0}); no usada para la inferencia por depósito.").format(
-                display_date(period.deduction_evidence_date)
-            ),
-        )
-    period.deduction_evidence_date = None
-    for row in period.collection_rows:
-        row.deducted_usd = flt(row.expected_usd)
-        row.deducted_nio = flt(row.expected_nio)
-        row.deduction_currency = ""  # The payment currency does not prove payroll currency.
-        row.deduction_status = "Inferida por depósito"
-        row.deduction_evidence_date = evidence_date
-        row.deduction_match_note = _(
-            "Deducción inferida, no confirmada por planilla. Depósito {0}; respaldo: {1}."
-        ).format(chosen["reference"], chosen["source_row_id"])
-    period.deduction_basis = "Depósito coincidente"
-    period.deduction_recognition_deposit = chosen["source_row_id"]
-    period.deduction_recognition_reference = chosen["reference"]
-    period.deduction_recognition_note = justification
-    period.deduction_recognition_on = now_datetime()
-    period.deduction_recognition_by = frappe.session.user
-    period.status = "Pendiente"
-    period.notes = _append_note(
-        period.notes,
-        _("Cobranza reconocida provisionalmente por depósito {0} ({1}) el {2} por {3}: {4}").format(
-            chosen["reference"], chosen["source_row_id"],
-            period.deduction_recognition_on, frappe.session.user, justification,
-        ),
-    )
-    period.flags.skip_comment_reconciliation = True
-    period.save()
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        _reconcile_sources,
-    )
-
-    summary = _reconcile_sources(period.employer)
-    return {"period": period.name, "source_reconciliation": summary}
+    frappe.throw(_("Este paso fue retirado. Cargue el detalle de la empresa en Distribución de Depósito; el período compara cobranza contra aplicaciones."))
 
 
 @frappe.whitelist(methods=["POST"])
 def revert_deposit_recognition(period_name: str):
-    period = frappe.get_doc("CN Reconciliation Period", period_name)
-    period.check_permission("write")
-    _assert_editable(period)
-    if period.deduction_basis != "Depósito coincidente":
-        frappe.throw(_("Este período no usa un depósito como detalle de deducción."))
-    old_reference = period.deduction_recognition_reference
-    _clear_deposit_recognition(period)
-    for row in period.collection_rows:
-        row.deducted_usd = 0
-        row.deducted_nio = 0
-        row.deduction_currency = ""
-        row.deduction_status = "Pendiente de detalle"
-        row.deduction_evidence_date = None
-        row.deduction_match_note = ""
-    period.status = "Pendiente"
-    period.notes = _append_note(
-        period.notes,
-        _("Reconocimiento provisional por depósito {0} revertido el {1} por {2}.").format(
-            old_reference, now_datetime(), frappe.session.user,
-        ),
-    )
-    period.flags.skip_comment_reconciliation = True
-    period.save()
-    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
-        _reconcile_sources,
-    )
-
-    summary = _reconcile_sources(period.employer)
-    return {"period": period.name, "source_reconciliation": summary}
+    frappe.throw(_("Este paso fue retirado. Cargue el detalle de la empresa en Distribución de Depósito; el período compara cobranza contra aplicaciones."))
 
 
 def _clear_deposit_recognition(period):
@@ -557,8 +457,6 @@ def import_collection(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
     _assert_editable(period)
-    if period.deduction_basis == "Depósito coincidente":
-        frappe.throw(_("Revierta primero el reconocimiento por depósito antes de reemplazar la cobranza."))
     file_doc, content = _attached_file(period, period.collection_file)
     try:
         parsed = parse_collection_file(file_doc.file_name, content, require_identity=True)
@@ -681,17 +579,11 @@ def import_collection(period_name: str):
             "La nueva cobranza elimina cuotas con aplicaciones o depósitos relacionados. "
             "Revise esos enlaces antes de reemplazarla."
         ))
-    if amount_changed and period.deduction_basis == "Detalle de empresa" and not period.employer_response_file:
-        frappe.throw(_(
-            "La cobranza cambia importes ya comparados. Adjunte el detalle de empresa "
-            "para recalcular la deducción junto con la nueva cobranza."
-        ))
     period.set("collection_rows", ordered_rows)
     for index, row in enumerate(period.collection_rows, 1):
         row.idx = index
     period.collection_import_sha256 = import_hash
-    if not period.employer_response_file:
-        period.status = "Pendiente"
+    period.status = "Pendiente"
     period.notes = _append_note(
         period.notes,
         _("Cobranza importada: {0} filas; SHA-256 {1}.").format(
@@ -704,21 +596,11 @@ def import_collection(period_name: str):
         ).format(portfolio["completed_rows"], portfolio["snapshot"], portfolio["report_date"]))
     period.flags.skip_comment_reconciliation = True
     period.save()
-    # Files can arrive in any order. A corrected cobranza must be compared again
-    # with the existing employer detail before reconciling core applications.
-    detail_result = (
-        import_employer_response(period.name)
-        if period.employer_response_file and period.deduction_evidence_date
-        else None
-    )
-    source_summary = (
-        detail_result.get("source_reconciliation") if detail_result
-        else _reconcile_if_sources(period.employer)
-    )
+    source_summary = _reconcile_if_sources(period.employer, preserve_deposits=True)
     period.reload()
     return {
         "period": period.name, "rows": len(parsed), "status": period.status,
-        "detail_import": detail_result, "source_reconciliation": source_summary, "portfolio": portfolio,
+        "source_reconciliation": source_summary, "portfolio": portfolio,
     }
 
 
@@ -740,260 +622,12 @@ def _collection_identity_key(period, record):
 
 @frappe.whitelist(methods=["POST"])
 def recognize_collection_as_employer_detail(period_name: str, evidence_date: str, confirmed: int = 0):
-    period = frappe.get_doc("CN Reconciliation Period", period_name)
-    period.check_permission("write")
-    frappe.db.sql("SELECT name FROM `tabCN Reconciliation Period` WHERE name = %s FOR UPDATE", (period_name,))
-    period.reload()
-    _assert_editable(period)
-    if str(confirmed) != "1":
-        frappe.throw(_("Confirme que la empresa dedujo la cobranza completa."))
-    if not evidence_date:
-        frappe.throw(_("Indique la fecha de evidencia de deducción."))
-    evidence_date = getdate(evidence_date)
-    if not period.collection_rows:
-        frappe.throw(_("Cargue primero la cobranza del período."))
-    if period.deduction_basis or period.employer_response_file or any(
-        flt(row.deducted_usd) or flt(row.deducted_nio)
-        or row.deduction_status not in (None, "", "Pendiente de detalle")
-        for row in period.collection_rows
-    ):
-        frappe.throw(_("El período ya tiene detalle o deducciones registradas; no se sobrescribirán."))
-    if any(flt(row.expected_usd) < 0 or flt(row.expected_nio) < 0 for row in period.collection_rows):
-        frappe.throw(_("Revise los importes negativos de la cobranza antes de reconocerla."))
-    if not any(money_float(row.expected_usd) or money_float(row.expected_nio) for row in period.collection_rows):
-        frappe.throw(_("La cobranza no tiene importes para reconocer."))
-    note = _("Cobranza reconocida como detalle de la empresa el {0} por {1}; deducción completa confirmada por el usuario.").format(now_datetime(), frappe.session.user)
-    for row in period.collection_rows:
-        row.deducted_usd = money_float(row.expected_usd)
-        row.deducted_nio = money_float(row.expected_nio)
-        row.deduction_currency = (
-            "Ambas" if row.deducted_usd and row.deducted_nio
-            else "USD" if row.deducted_usd else "NIO" if row.deducted_nio else ""
-        )
-        row.deduction_status = classify_deduction(
-            expected_usd=row.expected_usd, expected_nio=row.expected_nio,
-            deducted_usd=row.deducted_usd, deducted_nio=row.deducted_nio,
-        )
-        row.deduction_evidence_date = evidence_date
-        row.deduction_match_note = note
-    period.deduction_basis = "Detalle de empresa"
-    period.deduction_evidence_date = evidence_date
-    period.employer_response_import_key = ""
-    period.status = "Pendiente"
-    period.notes = _append_note(period.notes, note)
-    period.flags.skip_comment_reconciliation = True
-    period.save()
-    source_summary = _reconcile_if_sources(period.employer)
-    return {"period": period.name, "rows": len(period.collection_rows), "source_reconciliation": source_summary}
+    frappe.throw(_("Este paso fue retirado. Cargue el detalle de la empresa en Distribución de Depósito; el período compara cobranza contra aplicaciones."))
 
 
 @frappe.whitelist(methods=["POST"])
 def import_employer_response(period_name: str):
-    period = frappe.get_doc("CN Reconciliation Period", period_name)
-    period.check_permission("write")
-    _assert_editable(period)
-    if not period.collection_rows:
-        frappe.throw(_("Importe primero el archivo de cobranza."))
-    if not period.deduction_evidence_date:
-        frappe.throw(
-            _(
-                "Indique la fecha de evidencia de deduccion antes de importar el detalle de la empresa."
-            )
-        )
-    file_doc, content = _attached_file(period, period.employer_response_file)
-    try:
-        responses = parse_collection_file(
-            file_doc.file_name, content,
-            require_deduction=True, require_name=True, keep_zero_rows=True,
-        )
-    except SourceFileError as exc:
-        frappe.throw(str(exc), title=_("Detalle de empresa invalido"))
-
-    for response in responses:
-        response["loan_number"] = normalize_credit_number(response.get("loan_number"))
-    needs_credit_normalization = any(
-        row.loan_number != normalize_credit_number(row.loan_number)
-        for row in period.collection_rows
-    )
-    for row in period.collection_rows:
-        row.loan_number = normalize_credit_number(row.loan_number)
-
-    client_catalog = load_client_index()
-    import_key = _employer_response_import_key(period, content, client_catalog)
-    if (
-        period.employer_response_import_key == import_key
-        and period.deduction_basis == "Detalle de empresa"
-        and not needs_credit_normalization
-    ):
-        source_summary = _reconcile_if_sources(period.employer)
-        return {
-            "period": period.name, "status": period.status,
-            "unchanged": True, "source_reconciliation": source_summary,
-        }
-
-    if period.deduction_basis == "Depósito coincidente":
-        period.notes = _append_note(
-            period.notes,
-            _("El detalle real de la empresa reemplazó el reconocimiento provisional por depósito {0}.").format(
-                period.deduction_recognition_reference
-            ),
-        )
-        _clear_deposit_recognition(period)
-        for row in period.collection_rows:
-            if row.deduction_status == "Inferida por depósito":
-                row.deducted_usd = 0
-                row.deducted_nio = 0
-                row.deduction_currency = ""
-                row.deduction_status = "Pendiente de detalle"
-                row.deduction_evidence_date = None
-                row.deduction_match_note = ""
-    period.deduction_basis = "Detalle de empresa"
-
-    rows_by_name = {row.name: row for row in period.collection_rows}
-    by_client = {client["name"]: client for client in client_catalog}
-    candidates = []
-    for row in period.collection_rows:
-        candidate = {**collection_record(row), "name": row.name}
-        linked = by_client.get(row.get("client"))
-        candidate["client_aliases"] = (
-            [linked["client_name"], *(linked.get("client_aliases") or ())]
-            if linked else names_for_claim(candidate, client_catalog, period.employer)
-        )
-        candidates.append(candidate)
-    matched_names = set()
-    seen_exceptions = set()
-    unmatched_keys = set()
-    unmatched = 0
-    for response in responses:
-        match, reason = match_collection_record(response, candidates)
-        if not match or match["name"] in matched_names:
-            unmatched += 1
-            exceptional_identity = (
-                response.get("row_key") or response.get("client_number")
-                or response.get("national_id") or response.get("employee_number")
-                or response.get("client_name"),
-                response.get("loan_number"), response.get("installment_number"),
-            )
-            exception_key = _deduction_exception_key(
-                period.name, "Detalle de empresa sin coincidencia", *exceptional_identity,
-            )
-            if exception_key in unmatched_keys:
-                exception_key = _deduction_exception_key(
-                    period.name, "Detalle de empresa sin coincidencia",
-                    *exceptional_identity, response.get("source_row"),
-                )
-            unmatched_keys.add(exception_key)
-            seen_exceptions.add(_create_exception(
-                period,
-                exception_type="Detalle de empresa sin coincidencia",
-                exception_key=exception_key,
-                source_row=response.get("source_row"),
-                client_number=response.get("client_number"),
-                loan_number=response.get("loan_number"),
-                amount_usd=response.get("deducted_usd"),
-                amount_nio=response.get("deducted_nio"),
-                description=(
-                    "Fila duplicada en la respuesta"
-                    if match and match["name"] in matched_names
-                    else reason
-                ),
-            ))
-            continue
-        row = rows_by_name[match["name"]]
-        matched_names.add(row.name)
-        deducted_usd, deducted_nio, conversion_note = _deduction_equivalents(
-            row, response
-        )
-        row.deducted_usd = deducted_usd
-        row.deducted_nio = deducted_nio
-        if flt(response.get("deducted_usd")) and flt(response.get("deducted_nio")):
-            row.deduction_currency = "Ambas"
-        elif flt(response.get("deducted_nio")):
-            row.deduction_currency = "NIO"
-        elif flt(response.get("deducted_usd")):
-            row.deduction_currency = "USD"
-        else:
-            row.deduction_currency = ""
-        row.deduction_evidence_date = period.deduction_evidence_date
-        row.deduction_match_note = " ".join(
-            part
-            for part in (
-                _("Coincidencia exacta por {0}.").format(reason),
-                conversion_note,
-            )
-            if part
-        )
-        row.deduction_status = classify_deduction(
-            expected_usd=row.expected_usd,
-            expected_nio=row.expected_nio,
-            deducted_usd=row.deducted_usd,
-            deducted_nio=row.deducted_nio,
-        )
-        if response.get("application_reference"):
-            row.application_reference = response["application_reference"]
-        if response.get("application_comment"):
-            row.application_comment = response["application_comment"]
-        if row.deduction_status in EXCEPTION_STATES:
-            seen_exceptions.add(_create_exception(
-                period,
-                exception_type=row.deduction_status,
-                exception_key=_deduction_exception_key(
-                    period.name, row.row_key or row.name,
-                ),
-                source_row=response.get("source_row"),
-                client_number=collection_client_number(row),
-                loan_number=row.loan_number,
-                amount_usd=row.deducted_usd,
-                amount_nio=row.deducted_nio,
-                description=row.application_comment or row.comments,
-                collection_row_id=row.name,
-            ))
-
-    missing = 0
-    for row in period.collection_rows:
-        if row.name not in matched_names:
-            missing += 1
-            row.deduction_status = "Pendiente de detalle"
-            seen_exceptions.add(_create_exception(
-                period,
-                exception_type="Pendiente de detalle de empresa",
-                exception_key=_deduction_exception_key(
-                    period.name, row.row_key or row.name,
-                ),
-                client_number=collection_client_number(row),
-                loan_number=row.loan_number,
-                amount_usd=row.expected_usd,
-                amount_nio=row.expected_nio,
-                description=_(
-                    "La respuesta de la empresa no incluyo esta fila de cobranza."
-                ),
-                collection_row_id=row.name,
-            ))
-
-    _retire_obsolete_deduction_exceptions(period.name, seen_exceptions)
-    period.status = _deduction_stage_status(period.collection_rows, unmatched, missing)
-    period.employer_response_import_key = import_key
-    period.notes = _append_note(
-        period.notes,
-        _(
-            "Detalle de empresa importado: {0} coincidencias, {1} filas sin enlace y {2} cuotas ausentes."
-        ).format(
-            len(matched_names), unmatched, missing
-        ),
-    )
-    period.flags.skip_comment_reconciliation = True
-    period.save()
-    source_summary = _reconcile_if_sources(period.employer)
-    if source_summary is not None:
-        period.reload()
-    return {
-        "period": period.name,
-        "matched": len(matched_names),
-        "unmatched": unmatched,
-        "missing": missing,
-        "status": period.status,
-        "source_reconciliation": source_summary,
-    }
+    frappe.throw(_("Este paso fue retirado. Cargue el detalle de la empresa en Distribución de Depósito; el período compara cobranza contra aplicaciones."))
 
 
 def _pending_registered_targets(target_filters):
@@ -1017,27 +651,14 @@ def _pending_remittance_details_for_period(period, scope=None):
 def _control_cut_summary(period, open_exceptions, pending_details):
     """A dated operational snapshot, not a claim that balances are settled."""
     rows = list(period.collection_rows or []) if period.reconciliation_mode != "Historica" else []
-    awaiting_detail = sum(
-        row.deduction_status in (None, "", "Pendiente de detalle") for row in rows
-    )
-    worker_receivable = sum(
-        collection_shortfall_usd(row) or 0 for row in rows
-    )
-    deducted_unremitted = sum(
-        balance["amount_usd"]
-        for row in rows
-        for balance in operational_balances(row, {
-            "cutoff_date": getattr(period, "cutoff_date", None),
-            "remittance_due_date": getattr(period, "remittance_due_date", None),
-        })
-        if balance["balance_type"] == "Deducido sin depósito asignado"
-    )
+    worker_receivable = sum(collection_shortfall_usd(row) or 0 for row in rows)
+    from credinomina_reconciliation.application_quality import application_cash_covered
+    applied_pending = sum(max(flt(row.applied_usd) - application_cash_covered(row), 0) for row in rows)
     unsettled_rows = sum(
         row.application_status != "Aplicado y remitido" for row in rows
     )
     figures = (
         f"Cobranza US$ {flt(period.expected_usd):.2f}; "
-        f"deducido US$ {flt(period.deducted_usd):.2f}; "
         f"aplicado US$ {flt(period.applied_usd):.2f}; "
         f"depositado US$ {flt(period.remitted_usd):.2f}; "
         f"excepciones abiertas {open_exceptions}; "
@@ -1046,10 +667,10 @@ def _control_cut_summary(period, open_exceptions, pending_details):
     if period.reconciliation_mode == "Historica":
         return figures
     return (
-        f"{figures}; cuotas sin detalle {awaiting_detail}; "
+        f"{figures}; "
         f"cuotas sin liquidar {unsettled_rows}; "
-        f"Cobranza no deducida confirmada US$ {worker_receivable:.2f}; "
-        f"deducido sin depósito asignado US$ {deducted_unremitted:.2f}"
+        f"Diferencia cobranza/aplicación (informativo) US$ {worker_receivable:.2f}; "
+        f"Aplicado pendiente US$ {applied_pending:.2f}"
     )
 
 
@@ -1126,15 +747,13 @@ def close_period(period_name: str, progress_id: str = ""):
     from credinomina_reconciliation.period_closure import ClosureScope
     scope = ClosureScope(period)
     report(75, _("Validando los depósitos y excepciones relacionados con este período…"))
-    if period.reconciliation_mode != "Historica" and not period.collection_rows:
-        frappe.throw(_("Cargue la cobranza antes de cerrar el período operativo."))
     if _pending_remittance_details_for_period(period, scope=scope):
         frappe.throw(_("Hay detalles de depósito por cliente pendientes de revisión para este período."))
     if frappe.db.count(
         "CN Reconciliation Exception",
-        {"period": period.name, "status": ["in", ["Abierta", "En revision"]]},
+        {"period": period.name, "status": ["in", ["Abierta", "En revision"]], "blocks_closure": 1},
     ):
-        frappe.throw(_("Resuelva las excepciones antes de cerrar el periodo."))
+        frappe.throw(_("Resuelva las excepciones que bloquean el cierre. Un supervisor puede clasificar las informativas sin alterar los saldos."))
     if period.reconciliation_mode == "Historica":
         application_ids = scope.application_ids()
         if not application_ids:
@@ -1159,7 +778,7 @@ def close_period(period_name: str, progress_id: str = ""):
     period.recalculate_totals()
     if not _has_operative_application(period, scope=scope):
         frappe.throw(_(
-            "No se puede cerrar el período sin aplicaciones efectivas del core enlazadas a la cobranza."
+            "No se puede cerrar el período sin aplicaciones efectivas del core vinculadas al período."
         ))
     from credinomina_reconciliation.period_closure import validate_direct_applications
     validate_direct_applications(period)
@@ -1210,10 +829,10 @@ def close_period(period_name: str, progress_id: str = ""):
         )
     # First-stage differences remain visible in the closed period. Closure
     # requires settled applications and deposits, not equality with that base.
-    if any(row.application_status != "Aplicado y remitido" for row in period.collection_rows):
+    if any(row.application_status != "Aplicado y remitido" and (flt(row.applied_usd) or flt(row.remitted_usd)) for row in period.collection_rows):
         frappe.throw(_(
-            "El cierre definitivo requiere todas las filas aplicadas y remitidas. "
-            "Si hay cuotas no deducidas o pagos pendientes, registre un corte de control y continúe el seguimiento."
+            "El cierre definitivo requiere las aplicaciones cubiertas por depósitos o compensaciones confirmadas. "
+            "Las diferencias de cobranza permanecen como control informativo."
         ))
     report(95, _("Guardando el resultado y bloqueando el período…"))
     _mark_period_closed(period)
@@ -1325,8 +944,6 @@ def reconcile_first(period_name: str):
     _assert_editable(period)
     if period.reconciliation_mode == "Historica" or not period.collection_rows:
         frappe.throw(_("Cargue la base de la primera conciliación en un período operativo."))
-    if period.get("application_basis") not in {"Cobranza", "Detalle de empresa"}:
-        frappe.throw(_("Seleccione la base de comparación de aplicaciones y guarde el período antes de conciliar."))
     frappe.has_permission("CN Accounting Import", "write", throw=True)
     result = _reconcile_if_sources(period.employer, preserve_deposits=True)
     if result is None:

@@ -66,11 +66,12 @@ class PeriodPendingTests(unittest.TestCase):
         operative = pending.application_issue({**row, "processing_route": "Operativa",
                                                "quality_status": "Pendiente de detalle"})
         self.assertEqual(operative["status"], "Conciliación 1 pendiente")
-        self.assertEqual(operative["reason"], "Pendiente de detalle")
+        self.assertIn('Pendiente de detalle', operative['reason'])
+        self.assertIn('0.01 pendientes', operative['reason'])
         unpaid = pending.application_issue({**row, "historical_remitted_usd": 0,
                                             "historical_balance_usd": 25.96})
-        self.assertEqual(unpaid["status"], "Sin deposito")
-        self.assertEqual(unpaid["reason"], row["deposit_match_reason"])
+        self.assertEqual(unpaid["status"], "Pendiente")
+        self.assertEqual(unpaid["reason"], 'Aplicación pendiente de conciliar.')
 
     def test_historical_partial_and_mixed_settlement(self):
         row = dict(parent="I", idx=9, net_applied_usd=137.33, historical_remitted_usd=111.32,
@@ -78,7 +79,9 @@ class PeriodPendingTests(unittest.TestCase):
         result = pending.application_issue(row)
         self.assertEqual((result["row"], result["applied"], result["paid"], result["pending"]), (9, 137.33, 111.32, 26.01))
         for status in pending.SETTLED:
-            self.assertIsNone(pending.application_issue({**row, "deposit_match_status": status}))
+            self.assertEqual(pending.application_issue({**row, "deposit_match_status": status})['pending'], 26.01)
+            self.assertIsNone(pending.application_issue({**row, "historical_remitted_usd": 137.33,
+                                                        "deposit_match_status": status}))
 
     def test_only_selected_quality_issue_survives_cash_settlement(self):
         row = dict(parent="P", idx=1, expected_usd=100, deducted_usd=90,
@@ -87,13 +90,13 @@ class PeriodPendingTests(unittest.TestCase):
         result = pending.collection_issue(row, "Cobranza")
         self.assertEqual(result["pending"], 0)
         self.assertIn("Aplicación insuficiente", result["reason"])
-        self.assertIsNone(pending.collection_issue(row, "Detalle de empresa"))
+        self.assertEqual(pending.collection_issue(row, "Detalle de empresa")["pending"], 0)
         self.assertEqual(pending.collection_issue({**row, "remitted_usd": 80}, "Detalle de empresa")["pending"], 10)
 
     def test_signed_rounding_and_complementary_do_not_invent_a_shortfall(self):
         row = dict(expected_usd=100, applied_usd=90, complementary_usd=10, remitted_usd=99.99,
                    rounding_adjustment_usd=-0.01, deduction_status="Deduccion total", application_status="Aplicado y remitido")
-        self.assertIsNone(pending.collection_issue(row, "Cobranza"))
+        self.assertIn("Aplicación insuficiente", pending.collection_issue(row, "Cobranza")["reason"])
 
     def test_deposit_exact_link_and_separate_global_balance(self):
         deposit = dict(name="D", amount_usd=1601.63, unclassified_usd=118.99, result="Revisar detalle",

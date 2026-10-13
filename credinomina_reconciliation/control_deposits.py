@@ -184,7 +184,8 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         result = deposit.get("result") or "Pendiente"
         needs_review = bool(
             review or unclassified or credit_balance < 0
-            or (result not in {"Conciliado", "Conciliado con saldo a favor del cliente"} and not (
+            or str(deposit.get('detail_status') or '').startswith('Revisar')
+            or (result not in {"Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente"} and not (
                 credit_balance > 0 and result in {"Parcial con saldo a favor", "Saldo a favor documentado"}
             ))
         )
