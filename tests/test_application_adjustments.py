@@ -86,6 +86,32 @@ class ApplicationAdjustmentTests(unittest.TestCase):
              patch.object(frappe, "db", Mock(get_value=Mock(return_value=collection))):
             self.assertEqual(adjustments.cash_coverage(row)["adjustable_usd"], 80)
 
+    def test_stale_payroll_balance_is_not_a_cash_reservation(self):
+        row = frappe._dict(name="A", amount=697.91,
+            application_allocation_detail='[{"collection_row_id":"C","amount_usd":697.91}]')
+        for total in (0, 50, 697.91):
+            collection = frappe._dict(name="C", parent="P", row_key="K", applied_usd=total)
+            with self.subTest(total=total), patch.object(frappe, "get_all", return_value=[]), \
+                 patch.object(frappe, "db", Mock(get_value=Mock(return_value=collection))):
+                coverage = adjustments.cash_coverage(row)
+            self.assertEqual(coverage["protected_usd"], 0)
+            self.assertEqual(coverage["adjustable_usd"], 697.91)
+            self.assertEqual(coverage["snapshots"], {})
+
+    def test_real_draft_target_still_protects_stale_payroll(self):
+        row = frappe._dict(name="A", amount=100,
+            application_allocation_detail='[{"collection_row_id":"C","amount_usd":100}]')
+        collection = frappe._dict(name="C", parent="P", row_key="K", applied_usd=0)
+        target = frappe._dict(parent="DRAFT", period="P", row_key="K", amount_usd=20)
+        def get_all(doctype, **kwargs):
+            if doctype == "CN Remittance Target":
+                self.assertEqual(kwargs["filters"]["docstatus"], ["<", 2])
+                return [target] if kwargs["filters"].get("period") == "P" else []
+            return []
+        with patch.object(frappe, "get_all", side_effect=get_all), \
+             patch.object(frappe, "db", Mock(get_value=Mock(return_value=collection))):
+            self.assertGreater(adjustments.cash_coverage(row)["protected_usd"], 0)
+
     def test_mixed_status_requires_positive_cash_and_zero_pending(self):
         row = frappe._dict(name="A", event_type="Aplicacion", effective=1, match_status="Conciliado",
             amount=137.33, application_adjustment_usd=26.01, historical_period="P", historical_remitted_usd=111.32,

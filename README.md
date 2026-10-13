@@ -836,6 +836,11 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    nombre, número de cliente, crédito, monto aplicado en US$, asiento contable
    y recibo cuando la fuente los proporciona. La aplicación puede registrarse
    antes o después de que llegue la deducción de la empresa.
+   Cargar o recargar movimientos recalcula solo esa importación y los períodos
+   que tenía vinculados o tiene asignados. Las demás importaciones se consultan
+   como evidencia sin modificarlas, y se conservan los depósitos registrados.
+   Si se retira el período predeterminado, se actualizan los saldos anteriores
+   y las aplicaciones recargadas quedan sin asignar.
 5. **Depósito y detalle integrador.** Registre una **Distribución de Depósito**
    por depósito, con empresa, fecha real, moneda, importe y justificación. El
    soporte es opcional al registrarlo. Puede dejarlo pendiente hasta que la

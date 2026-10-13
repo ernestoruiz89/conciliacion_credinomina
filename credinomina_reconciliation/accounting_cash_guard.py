@@ -78,10 +78,10 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
         coverage = cash_coverage(old)
         if coverage['snapshots'] or money(coverage['protected_usd']) > 0:
             frappe.throw(_(
-                'La aplicación {0} tiene dinero asignado o destinos reservados en depósitos. '
+                'La aplicación {0} de {1} tiene dinero asignado o destinos reservados en depósitos. '
                 'Desconcilie y retire esos destinos antes de borrar la fila, ocultarla de los reportes '
                 'o cambiar su origen, identidad o importe.'
-            ).format(old.get('idx') or old.name))
+            ).format(old.get('idx') or old.name, document.get('name') or _('esta importación')))
         row = current.get(old.name)
         if row and not verified_reconciliation and not unpaid_refresh and _derived_changed(old, row):
             frappe.throw(_('Los resultados de conciliación de la aplicación {0} se calculan desde sus vínculos reales. Use Conciliar período predeterminado para actualizarlos.').format(old.get('idx') or old.name))

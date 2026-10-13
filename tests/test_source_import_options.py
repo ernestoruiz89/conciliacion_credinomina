@@ -70,7 +70,8 @@ class SourceImportOptionsTest(unittest.TestCase):
         ):
             result = source.import_source_file("IMPORT")
         parser.assert_called_once_with("movimientos.xlsx", b"data")
-        reconcile.assert_called_once_with("Empresa", preserve_deposits=True, unassigned_import="IMPORT")
+        reconcile.assert_called_once_with("Empresa", preserve_deposits=True, unassigned_import="IMPORT",
+                                          import_name="IMPORT", previous_periods=[])
         document.check_permission.assert_called_once_with("write")
         document.append.assert_called_once()
         document.save.assert_called_once()
