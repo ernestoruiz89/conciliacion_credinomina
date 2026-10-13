@@ -190,7 +190,7 @@ def create_deposits(records, source_file, file_hash):
 def validate_evidence(doc, previous):
     from credinomina_reconciliation.deposit_accounting_sources import validate_sources
     validate_sources(doc, previous)
-    if not previous or not previous.get("accounting_source_key"):
+    if not previous or not (previous.get("accounting_source_key") or previous.get('accounting_sources')):
         return
     for field in EVIDENCE_FIELDS:
         normalize = decimal_value if field in {"source_debit", "source_credit", "source_fx_rate", "source_row"} else clean_text

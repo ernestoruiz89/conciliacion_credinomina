@@ -12,7 +12,8 @@ from credinomina_reconciliation.rounding import decimal_value
 
 SOURCE_DOCTYPE = 'CN Deposit Accounting Source'
 _writing = ContextVar('cn_deposit_source_writer', default=False)
-IDENTITY_FIELDS = ('deposit_group_key', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit')
+IDENTITY_FIELDS = ('deposit_group_key', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit',
+                   'origin_link_status', 'origin_link_notes', 'linked_core_deposit')
 
 
 @contextmanager
@@ -140,7 +141,7 @@ def attach_sources(deposits):
     for row in by_name.values():
         row['accounting_sources'] = []
     for source in child_records(SOURCE_DOCTYPE, list(by_name), 'CN Remittance Allocation',
-            'accounting_sources', fields=['parent', *EVIDENCE_FIELDS]):
+            'accounting_sources', fields=['parent', *EVIDENCE_FIELDS, 'origin_complementary_item']):
         by_name[source['parent']]['accounting_sources'].append(source)
     return deposits
 
@@ -179,7 +180,7 @@ def validate_sources(doc, previous):
             frappe.throw(_('El origen vinculado conserva la identidad bancaria original y no admite otros destinos ni detalle. Modifique el depósito que representa el efectivo.'))
     from credinomina_reconciliation.accounting_deposits import EVIDENCE_FIELDS
     def fingerprint(rows):
-        return [{field: str(row.get(field) or '') for field in EVIDENCE_FIELDS} for row in rows or []]
+        return [{field: str(row.get(field) or '') for field in (*EVIDENCE_FIELDS, 'origin_complementary_item')} for row in rows or []]
     if fingerprint(doc.get('accounting_sources')) != fingerprint(previous.get('accounting_sources') if previous else []):
         frappe.throw(_('Las líneas contables de origen son inmutables; use la importación o la revisión de identidad del depósito.'))
     if any(clean_text(doc.get(field)) != clean_text(previous.get(field) if previous else '') for field in IDENTITY_FIELDS):
@@ -205,6 +206,8 @@ def link_duplicate_origin(deposit_name, canonical_name, modified, reason):
         documents = {name: frappe.get_doc('CN Remittance Allocation', name, for_update=True)
                      for name in sorted([deposit_name, canonical_name])}
         origin, canonical = documents[deposit_name], documents[canonical_name]
+        if any(source.get('origin_complementary_item') for source in origin.get('accounting_sources') or []):
+            frappe.throw(_('El depósito ya respalda movimientos internos. Conserve ese depósito y sus vínculos de origen.'))
         for document in documents.values():
             document.check_permission('write')
         if str(origin.modified) != str(modified):

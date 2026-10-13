@@ -94,6 +94,8 @@ def guard_imported_removal(document, action):
     from frappe import _
 
     if not _is_core_import(document) or has_core_removal_role():
+        from credinomina_reconciliation.manual_origin_link import guard_removal
+        guard_removal(document)
         return
     message = _("No se puede {0} un registro importado del histórico contable sin tener asignado el rol {1}.").format(action, CORE_REMOVAL_ROLE)
     if document.get("doctype") == "CN Remittance Allocation":

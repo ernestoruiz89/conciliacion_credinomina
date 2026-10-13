@@ -78,6 +78,8 @@ def guard_delete(doc):
 
 
 def _eligible(doc):
+    if doc.get('origin_deposit'):
+        frappe.throw(_('La partida ya respalda el origen de un depósito y no se puede compensar también.'))
     if doc.get("registration_exception"):
         frappe.throw(_("La partida ya verifica un registro contable. No puede compensarse también."))
     if doc.category in CREDIT_CATEGORIES:

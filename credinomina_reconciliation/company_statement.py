@@ -110,7 +110,7 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
         if deposit.get('cash_identity_status') == 'Origen vinculado':
             continue  # Its ledger origins remain on the canonical bank receipt.
         confirmed = deposit.get('docstatus') == 1
-        if deposit.get('docstatus') == 2 or not (confirmed or deposit.get('accounting_source_key')):
+        if deposit.get('docstatus') == 2 or not (confirmed or deposit.get('accounting_source_key') or deposit.get('linked_core_deposit')):
             continue
         # Imported core deposits are real ledger movements even before confirmation.
         # Manual drafts are not treated as received funds. Unconfirmed targets do not
@@ -231,6 +231,6 @@ def load_detail(filters):
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',
-                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit'])) if wanted('deposit_pending_usd') else []
+                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit'])) if wanted('deposit_pending_usd') else []
     return build_detail(applications, core, credits, deposits, filters,
                         adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') or wanted('employee_receivable_usd') else [])

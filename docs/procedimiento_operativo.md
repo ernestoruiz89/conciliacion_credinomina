@@ -382,6 +382,30 @@ origen antes de confirmar. La carga no ejecuta la conciliación del depósito.
 
 ### Revisar depósitos con varias líneas contables
 
+Desde el **depósito manual** puede usar **Vincular origen contable**, en la barra
+de acciones o en la pestaña **Origen contable**:
+
+1. Elija **Movimientos internos** para las partidas pendientes que componen el
+   depósito, o **Depósito del core** para un depósito importado que la carga no
+   logró vincular automáticamente.
+2. Busque por referencia o asiento y marque las filas. **Seleccionar todas las
+   partidas** abarca todas las páginas del resultado, hasta 2.000 partidas; para
+   un depósito del core seleccione un solo documento.
+3. Pulse **Comprobar selección**. Verifique total, moneda, fecha y advertencias,
+   e indique el comprobante que respalda su decisión.
+4. Si coincide, pulse **Vincular al depósito**. Las filas aparecen en **Líneas
+   contables de origen** y se conserva la conciliación que ya tenía el depósito,
+   incluso en períodos cerrados. No debe conciliar de nuevo para registrar el origen.
+5. Si hay diferencias, use **Dejar para revisión**. La selección y los motivos
+   quedan guardados sin incorporar las líneas ni alterar los saldos.
+
+La fecha de carga puede ser posterior: por ejemplo, un depósito manual del
+13/10 y contabilidad cargada el 30/10. Se compara la fecha del depósito; la fecha
+contable original sigue visible en cada línea. El depósito del core debe estar
+en borrador y sin detalle ni destinos. Si ya fue conciliado por separado, revise
+primero su distribución. Las partidas internas vinculadas quedan como evidencia,
+no disponibles para generar otra aplicación, compensación o distribución.
+
 Un comprobante bancario puede representar varias líneas de la contabilidad. Si el archivo contiene evidencia explícita coincidente de empresa, banco/cuenta, referencia, comprobante, fecha e importe, el importador las guarda en **Líneas contables de origen** de un solo depósito. No elimina líneas parecidas: el Control Mensual conserva cada débito y crédito; el efectivo se cuenta una vez. La vista previa distingue depósitos de líneas contables.
 
 Una coincidencia incompleta se conserva para **Revisar identidad del depósito**. Aparece en Trabajo de conciliación y el estado de cuenta mantiene el saldo como **N/D**, no como otro efectivo recibido. En **Más opciones → Revisar origen del depósito**, documente la decisión:
