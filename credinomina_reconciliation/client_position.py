@@ -84,7 +84,9 @@ def build_position(collections, applications, items, balances, clients, filters,
             period=item.get('period'), client_name=item.get('client_name'), client_number=item.get('client_number'),
             loan_number=item.get('loan_number'), category=item.get('category'), subcategory=item.get('subcategory'),
             reason_type=item.get('reason_type'),
-            company_receivable_usd=item['receivable_usd'], operational_status=item['receivable_status'],
+            company_receivable_usd=0 if item.get('subcategory_effect') == 'CxC al Empleado' else item['receivable_usd'],
+            employee_receivable_usd=item['receivable_usd'] if item.get('subcategory_effect') == 'CxC al Empleado' else 0,
+            treatment_status=item.get('subcategory_effect'), operational_status=item['receivable_status'],
             accounting_status=item.get('accounting_status'), management_status=item['receivable_status'],
             observed_usd=item.get('observed_usd'),
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
@@ -167,5 +169,7 @@ def summary(data, filters=None):
             row.get('accounting_status') in {'Pendiente de registro', 'Asiento informado'} for row in rows))
     if 'CxC por ajuste' in kinds:
         total([row for row in data if row['position_type'] == 'CxC por ajuste'],
-              'company_receivable_usd', 'CxC por ajustes US$', 'orange')
+              'company_receivable_usd', 'CxC a la empresa por ajustes US$', 'orange')
+        total([row for row in data if row['position_type'] == 'CxC por ajuste'],
+              'employee_receivable_usd', 'CxC al empleado por ajustes US$', 'orange')
     return figures

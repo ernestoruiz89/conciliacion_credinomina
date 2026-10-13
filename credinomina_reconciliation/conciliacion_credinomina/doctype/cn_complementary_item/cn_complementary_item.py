@@ -16,6 +16,8 @@ from credinomina_reconciliation.tolerance_items import (
 
 def _complete_client_name(doc, previous=None):
     """Fill a descriptive name only; never infer or change financial identities."""
+    if doc.get('subcategory_effect') == 'CxC al Empleado' and doc.get('client_name'):
+        return  # Already verified, including historical employer membership.
     identity_changed = previous and any(
         clean_text(doc.get(field)) != clean_text(previous.get(field))
         for field in ("credit_client", "client_number", "employer")

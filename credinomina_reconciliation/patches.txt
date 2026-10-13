@@ -49,3 +49,5 @@ credinomina_reconciliation.patches.v1_0.rename_hash_exceptions
 credinomina_reconciliation.patches.v1_0.backfill_deposit_financial_status
 credinomina_reconciliation.patches.v1_0.classify_exception_closure
 credinomina_reconciliation.patches.v1_0.review_financial_origins
+
+credinomina_reconciliation.patches.v1_0.add_employee_receivable_subcategory

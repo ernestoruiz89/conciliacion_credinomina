@@ -12,12 +12,14 @@ from credinomina_reconciliation.receivable_recovery import apply_recovery
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import create_complementary_item
 
 
-def fixture(marker):
+def fixture(marker, employee=False):
     if frappe.local.site != 'cn-reconciliation-test.local':
         raise RuntimeError('Solo para cn-reconciliation-test.local')
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
     seed_subcategories()
     company = frappe.get_doc(dict(doctype='CN Employer', employer_name=marker, employer_code=marker)).insert()
+    client = frappe.get_doc(dict(doctype='CN Client', employer=company.name,
+        client_name=marker, client_number=marker)).insert() if employee else None
     period = frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=company.name,
         payroll_month='2025-04-01', reconciliation_mode='Historica', historical_scope='Fecha exacta',
         historical_application_date='2025-04-30')).insert()
@@ -32,12 +34,16 @@ def fixture(marker):
         posting_date='2025-05-01', currency='USD', amount=-10,
         credit_assigned_to='Administrator', credit_commitment_date='2025-05-10',
         subcategory='Otro ajuste sin CxC', description='CxC de ensayo por depósito insuficiente')
+    if employee:
+        values.update(category='Ajuste de conciliación', subcategory='CxC al Empleado',
+            credit_client=client.name, client_number=client.client_number, loan_number=marker + '-1',
+            receivable_due_date='2025-05-15')
     for amount in (0, 10):
         rejects(lambda: create_complementary_item(deposit.name, str(deposit.modified), values | {'amount': amount}))
     created = create_complementary_item(deposit.name, str(deposit.modified), values)
     item = frappe.get_doc('CN Complementary Item', created['name'])
-    assert created['company_receivable'] and item.docstatus == 1
-    assert item.category == 'Ajuste de conciliación' and item.subcategory_effect == 'CxC a la empresa'
+    assert created['employee_receivable' if employee else 'company_receivable'] and item.docstatus == 1
+    assert item.category == 'Ajuste de conciliación' and item.subcategory_effect == ('CxC al Empleado' if employee else 'CxC a la empresa')
     deposit.reload()
     assert len(deposit.targets) == 1 and deposit.targets[0].amount_usd == -10
     deposit.append('targets', dict(historical_application=imported.rows[0].name, amount_usd=100))
@@ -45,7 +51,7 @@ def fixture(marker):
     reconcile_deposit(deposit)
     deposit.reload()
     assert deposit.result == 'Conciliado' and deposit.allocated_usd == 90, deposit.as_dict()
-    assert get_balance(item.name)['company_receivable_usd'] == 10
+    assert get_balance(item.name)['employee_receivable_usd' if employee else 'company_receivable_usd'] == 10
     return company, period, imported, item, deposit
 
 

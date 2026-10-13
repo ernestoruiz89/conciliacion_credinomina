@@ -10,6 +10,7 @@ TASK_AMOUNT_LABELS = {
     'employee_shortfall': 'Diferencia de control (informativa)',
     'credit_management': 'Pendiente de devolver/aplicar',
     'company_receivable': 'Pendiente de cobrar',
+    'employee_receivable': 'Pendiente de cobrar',
     'accounting_registration': 'Importe por registrar/verificar',
     'complementary_balance': 'Pendiente de distribuir/compensar',
     'adjustment_classification': 'Importe por clasificar',
@@ -49,7 +50,7 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
             "description": item.get("description") or "",
             "responsible": responsible or "", "target_doctype": "CN Reconciliation Exception" if exception else "CN Complementary Item",
             "target_name": item["name"], "action_label": {
-                'company_receivable': 'Aplicar cobro / Compensar CxC', 'credit_management': 'Gestionar saldo',
+                'company_receivable': 'Aplicar cobro / Compensar CxC', 'employee_receivable': 'Aplicar cobro / Compensar CxC', 'credit_management': 'Gestionar saldo',
                 'accounting_registration': 'Verificar asiento', 'complementary_balance': 'Revisar partida',
                 'adjustment_classification': 'Clasificar ajuste', 'open_exception': 'Gestionar excepción',
             }.get(kind, 'Revisar caso')})
@@ -80,7 +81,9 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
                 amount_kind='Importe por registrar/verificar')
     for item in adjustment_receivables:
         reviewing = item.get('receivable_usd') is None
-        add(item, 'company_receivable', 'CxC por ajuste · Revisar cobros' if reviewing else 'CxC a la empresa por ajuste pendiente de cobro',
+        employee = item.get('subcategory_effect') == 'CxC al Empleado'
+        add(item, 'employee_receivable' if employee else 'company_receivable',
+            'CxC por ajuste · Revisar cobros' if reviewing else ('CxC al empleado' if employee else 'CxC a la empresa') + ' por ajuste pendiente de cobro',
             item.get('observation') if reviewing else 'Gestionar depósito o compensación vinculada. Registrar el asiento en el core no liquida esta deuda.',
             item.get('observed_usd') if reviewing else item['receivable_usd'],
             amount_kind='Importe observado' if reviewing else 'Pendiente de cobrar')
@@ -224,8 +227,8 @@ def filter_work(items, kind="", responsible="", due="", as_of=None, search="", m
     if grouped:
         items = [action for item in items for action in item.get('actions', [item])]
     today = str(as_of or date.today())[:10]
-    groups = {"payments": {"pending_application"}, "credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification", "receivable_setup"},
-              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification", "receivable_setup"},
+    groups = {"payments": {"pending_application"}, "credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "employee_receivable", "adjustment_classification", "receivable_setup"},
+              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "employee_receivable", "adjustment_classification", "receivable_setup"},
               "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank", "pending_application", "deposit_identity"}}
     result = []
     for item in items:
@@ -271,7 +274,7 @@ def group_work_cases(tasks):
         first = actions[0]
         # One principal pending amount, not a sum of overlapping financial and
         # accounting tasks. Every secondary amount remains in the expandable detail.
-        ranking = {'company_receivable': 0, 'application_cash': 0, 'credit_management': 1, 'complementary_balance': 2,
+        ranking = {'company_receivable': 0, 'employee_receivable': 0, 'application_cash': 0, 'credit_management': 1, 'complementary_balance': 2,
                    'accounting_registration': 9, 'adjustment_classification': 8}
         primary = min(actions, key=lambda action: (action.get('amount_usd') is None, ranking.get(action.get('kind'), 3)))
         group = dict(first, actions=actions, action_count=len(actions),

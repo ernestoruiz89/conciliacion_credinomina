@@ -508,7 +508,8 @@ def create_complementary_item(remittance_name: str, modified: str, values):
         document.save()
     return {"name": item.name, "accounting_status": item.accounting_status,
             "company_credit": company_credit, "client_credit": client_credit,
-            "company_receivable": company_receivable, "result": item.result}
+            "company_receivable": item.get("subcategory_effect") == "CxC a la empresa",
+            "employee_receivable": item.get("subcategory_effect") == "CxC al Empleado", "result": item.result}
 
 
 @frappe.whitelist(methods=["POST"])

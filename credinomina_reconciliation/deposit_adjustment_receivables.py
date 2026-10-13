@@ -9,7 +9,7 @@ import frappe
 from frappe.utils import getdate
 
 from credinomina_reconciliation.complementary_balances import load_balances
-from credinomina_reconciliation.complementary_subcategories import RECEIVABLE
+from credinomina_reconciliation.complementary_subcategories import RECEIVABLE_EFFECTS
 from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float
 
@@ -18,7 +18,7 @@ def build_receivables(items, balances, employer=None, year=None, *, settlements=
     output = []
     for item in items:
         if (item.get('docstatus') != 1 or item.get('category') != 'Ajuste de conciliación'
-                or item.get('subcategory_effect') != RECEIVABLE
+                or item.get('subcategory_effect') not in RECEIVABLE_EFFECTS
                 or item.get('accounting_source_key') or money(item.get('amount_usd')) >= 0
                 or item.get('review_action') == 'No conciliatoria'):
             continue
@@ -93,11 +93,11 @@ def load_receivables(employer=None, year=None, item_names=None):
     items = list(records('CN Complementary Item', filters={
         **({'name': ['in', list(item_names)]} if item_names is not None else {}),
         'docstatus': 1, 'category': 'Ajuste de conciliación', 'amount_usd': ['<', 0],
-        'subcategory_effect': RECEIVABLE,
+        'subcategory_effect': ['in', list(RECEIVABLE_EFFECTS)],
         'accounting_source_key': ['is', 'not set'],
     }, fields=['name', 'employer', 'docstatus', 'category', 'accounting_source_key',
         'amount_usd', 'posting_date', 'review_action', 'accounting_status', 'period',
-        'client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'description',
+        'credit_client', 'client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'description',
         'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type',
         'receivable_due_date', 'receivable_due_origin', 'receivable_setup_pending']))
     settlements = load_settlements(items)
@@ -115,7 +115,7 @@ def load_receivables(employer=None, year=None, item_names=None):
             client = clients.get(row.get('client_number'))
             # Do not attribute a generic cross-company adjustment to a client
             # belonging to another employer, or read an inaccessible identity.
-            if client and client.employer == row.get('employer'):
+            if client and (client.employer == row.get('employer') or client.name == row.get('credit_client')):
                 row.update(client=client.name, client_name=row.get('client_name') or client.client_name,
                            national_id=client.national_id)
     return values

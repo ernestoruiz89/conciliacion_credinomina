@@ -18,7 +18,7 @@ CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliaci
               "Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CREDITS = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CLASSIFICATION = ("category", "subcategory", "reason_type", "description", "assigned_to",
-                  "commitment_date", "existing_item")
+                  "commitment_date", "receivable_due_date", "existing_item")
 PROTECTED = ("collection_row", "client_name", "client_number", "loan_number", "basis",
              "base_usd", "applied_usd", "amount_usd", "fingerprint", "state", "approved_by",
              "approved_on", "complementary_item", "deposit")
@@ -156,8 +156,11 @@ def validate_classification(proposal):
         effect = frappe.db.get_value("CN Complementary Subcategory", proposal.subcategory, "effect") if proposal.subcategory else None
         if not effect:
             frappe.throw(_("Seleccione una subcategoría existente para el ajuste."))
-        if effect == "CxC a la empresa" and money(proposal.amount_usd) >= 0:
+        if effect in {"CxC a la empresa", "CxC al Empleado"} and money(proposal.amount_usd) >= 0:
             frappe.throw(_("Una CxC de ajuste requiere un importe negativo."))
+        if effect == "CxC al Empleado" and not all(proposal.get(field) for field in (
+                "client_number", "assigned_to", "commitment_date", "receivable_due_date")):
+            frappe.throw(_("Para CxC al Empleado identifique el cliente y complete responsable, compromiso y vencimiento financiero."))
     if proposal.category in CREDITS:
         if money(proposal.amount_usd) <= 0 or not proposal.reason_type or not proposal.assigned_to or not proposal.commitment_date:
             frappe.throw(_("Para un saldo a favor indique importe positivo, motivo, responsable y fecha compromiso."))
@@ -384,7 +387,8 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                             "employer": period.employer, "period": period.name, "currency": "USD",
                             "amount": proposal.amount_usd, "client_number": collection_client_number(row),
                             "loan_number": row.loan_number, "installment_number": row.installment_number,
-                            "credit_assigned_to": proposal.assigned_to, "credit_commitment_date": proposal.commitment_date})
+                            "credit_assigned_to": proposal.assigned_to, "credit_commitment_date": proposal.commitment_date,
+                            "receivable_due_date": proposal.get("receivable_due_date")})
                         if proposal.category in CREDITS:
                             item.registered_deposit = document.name
                             item.credit_treatment = "Pendiente de decisión"

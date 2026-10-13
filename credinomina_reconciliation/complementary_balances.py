@@ -4,6 +4,7 @@ from contextvars import ContextVar
 from functools import wraps
 import json
 import frappe
+from credinomina_reconciliation.complementary_subcategories import EMPLOYEE_RECEIVABLE
 from credinomina_reconciliation.rounding import money, money_float
 
 CREDIT_CATEGORIES = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
@@ -217,7 +218,11 @@ def get_list_balances(names):
         'pending_usd': balances[item['name']]['pending_usd'],
         'management_status': balances[item['name']]['management_status'],
         'management_pending_usd': balances[item['name']]['management_pending_usd'],
-        'company_receivable_usd': None if receivables.get(item['name'], 0) is None else money_float(receivables.get(item['name'], 0)),
+        'receivable_usd': None if receivables.get(item['name'], 0) is None else money_float(receivables.get(item['name'], 0)),
+        'company_receivable_usd': 0 if item.get('subcategory_effect') == EMPLOYEE_RECEIVABLE else (
+            None if receivables.get(item['name'], 0) is None else money_float(receivables.get(item['name'], 0))),
+        'employee_receivable_usd': 0 if item.get('subcategory_effect') != EMPLOYEE_RECEIVABLE else (
+            None if receivables.get(item['name'], 0) is None else money_float(receivables.get(item['name'], 0))),
         'amount_issue': balances[item['name']]['amount_issue'],
     } for item in available}
 
@@ -238,7 +243,9 @@ def get_balance(item_name):
     receivables = build_receivables([item], balances, settlements=receipts, settlement_balances=balances, include_settled=True)
     value = balances[item.name]
     value['reconciliation_state'] = reconciliation_state(value)
-    value['company_receivable_usd'] = receivable_total(receivables)
+    value['receivable_usd'] = receivable_total(receivables)
+    value['company_receivable_usd'] = receivable_total(row for row in receivables if row.get('subcategory_effect') != EMPLOYEE_RECEIVABLE)
+    value['employee_receivable_usd'] = receivable_total(row for row in receivables if row.get('subcategory_effect') == EMPLOYEE_RECEIVABLE)
     value['receivable_issue_count'] = sum(row['receivable_usd'] is None for row in receivables)
     value['receivable_companies'] = receivables
     value['recoveries'] = [dict(receipt,

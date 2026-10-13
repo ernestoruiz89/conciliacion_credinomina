@@ -3,11 +3,11 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from credinomina_reconciliation.complementary_subcategories import ADJUSTMENT, RECEIVABLE
+from credinomina_reconciliation.complementary_subcategories import ADJUSTMENT, EMPLOYEE_RECEIVABLE, RECEIVABLE_EFFECTS
 
 
 def is_receivable(doc):
-    return doc.get('category') == ADJUSTMENT and doc.get('subcategory_effect') == RECEIVABLE
+    return doc.get('category') == ADJUSTMENT and doc.get('subcategory_effect') in RECEIVABLE_EFFECTS
 
 
 @frappe.whitelist()
@@ -20,6 +20,8 @@ def preview_deadline(period):
 
 def inherited_deadline(doc):
     """Use recorded application deadlines, never a task's commitment date."""
+    if doc.get('subcategory_effect') == EMPLOYEE_RECEIVABLE:
+        return None, ''  # The employer's payment term is not the employee's agreed deadline.
     period = doc.get('period')
     if not period or not frappe.has_permission('CN Accounting Import', 'read'):
         return None, ''

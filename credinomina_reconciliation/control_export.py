@@ -164,7 +164,7 @@ def build_control_workbook(
         issue_rows.append((*row, None, item.get('source_debit'), item.get('source_credit'),
                            item.get('source_currency'), balance.get('used_usd')))
     for item in data.get('adjustment_receivables') or []:
-        row = _issue('Saldo por cobrar a la empresa', None, item.get('client_number'),
+        row = _issue('Saldo por cobrar al empleado' if item.get('subcategory_effect') == 'CxC al Empleado' else 'Saldo por cobrar a la empresa', None, item.get('client_number'),
             item.get('loan_number'), item['name'], NA if item['receivable_usd'] is None else item['receivable_usd'], item['receivable_status'],
             employer=item.get('employer'), cause='Ajuste negativo de depósito',
             event_date=item.get('posting_date'), external_reference=item.get('voucher'),
@@ -466,7 +466,7 @@ def _write_guide(book, scope):
         ("Control de cobranza", "La diferencia compara cobranza contra aplicaciones efectivas; es informativa y no modifica la CxC. El detalle de empresa pertenece únicamente al depósito."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
         ("Partidas complementarias del core", "En Partidas y excepciones se omiten las conciliadas sin saldo ni gestión pendiente; su distribución se conserva en las hojas de detalle y depósitos. Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
-        ("CxC por ajuste de depósito", "Ajustes manuales negativos con subcategoría de tratamiento CxC a la empresa y distribuidos en depósitos confirmados: se muestran positivos como saldo trasladado a la empresa, aunque la partida esté totalmente distribuida. Contabilizar no equivale a cobrar. Al desconciliar el depósito desaparece el traslado; la aplicación vuelve a pendiente."),
+        ("CxC por ajuste de depósito", "Ajustes manuales negativos con subcategoría de tratamiento CxC a la empresa o CxC al Empleado y distribuidos en depósitos confirmados: se muestran positivos como saldo trasladado al deudor identificado, aunque la partida esté totalmente distribuida. Contabilizar no equivale a cobrar. Al desconciliar el depósito desaparece el traslado; la aplicación vuelve a pendiente."),
         ("Excepciones sin período", "Se incluyen por año de creación y empresa. Excepciones vinculadas: por mes de cobranza del período. Compromiso es fecha de gestión, no vencimiento del pago."),
         ("Cruces y distribución", "Cruces parte de los períodos seleccionados, incluso con depósitos de otro año. Distribución parte de los depósitos recibidos en el año, incluso hacia períodos de otro año."),
         ("Trazabilidad", "Datos de Períodos, Importaciones contables, Distribuciones de depósito y Excepciones de Credinómina, respetando permisos del usuario."),
@@ -780,6 +780,7 @@ def build_work_items_workbook(items, *, employer_label, filters, generated_at):
         "employee_shortfall": "Diferencia de control",
         "credit_management": "Saldo a favor",
         "company_receivable": "Cuenta por cobrar a la empresa",
+        "employee_receivable": "Cuenta por cobrar al empleado",
         "accounting_registration": "Registro en el core",
         "complementary_balance": "Partida complementaria",
         "adjustment_classification": "Ajuste por clasificar",

@@ -13,18 +13,19 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, nowdate
 
-from credinomina_reconciliation.complementary_subcategories import RECEIVABLE
+from credinomina_reconciliation.complementary_subcategories import EMPLOYEE_RECEIVABLE, RECEIVABLE_EFFECTS
 from credinomina_reconciliation.rounding import money, money_float, decimal_value
 
 CATEGORY = 'Cobro de CxC'
 _WRITE_TOKEN = object()
 FROZEN = ('receivable_origin', 'receivable_operation', 'employer', 'posting_date', 'amount',
-          'currency', 'fx_rate', 'reference', 'receivable_method', 'receivable_counterpart')
+          'currency', 'fx_rate', 'reference', 'receivable_method', 'receivable_counterpart',
+          'credit_client', 'client_number', 'loan_number')
 
 
 def is_receivable(item):
     return (item.get('docstatus') == 1 and item.get('category') == 'Ajuste de conciliación'
-        and item.get('subcategory_effect') == RECEIVABLE and money(item.get('amount_usd')) < 0
+        and item.get('subcategory_effect') in RECEIVABLE_EFFECTS and money(item.get('amount_usd')) < 0
         and not item.get('accounting_source_key'))
 
 
@@ -129,6 +130,7 @@ def validate_compensation_recovery(documents, amount):
             frappe.throw(_('La partida para compensar la CxC debe pertenecer a la misma empresa.'))
         original = frappe.get_doc('CN Complementary Item', receipt.receivable_origin)
         original.check_permission('read')
+        _check_employee_counterpart(original, other)
         preview = preview_recovery(original.name)
         row = next((row for row in preview['companies'] if row.get('employer') == receipt.employer), None)
         own_reservation = (money(receipt.amount_usd) if receipt.docstatus == 0 and receipt.category == CATEGORY else money(0))
@@ -142,7 +144,7 @@ def preview_recovery(item_name):
     item.check_permission('read')
     item.check_permission('write')
     if not is_receivable(item):
-        frappe.throw(_('Seleccione un ajuste confirmado con subcategoría CxC a la empresa.'))
+        frappe.throw(_('Seleccione un ajuste confirmado con tratamiento CxC a la empresa o CxC al Empleado.'))
     rows, receipts, balances = position(item)
     # Planned receipt destinations reserve capacity, but do not settle the debt.
     companies = []
@@ -184,13 +186,26 @@ def cash_available(deposit):
                - money(deposit.justified_surplus_usd) - reserved, money(0))
 
 
-def _candidate_value(document, employer, method):
+def _check_employee_counterpart(original, counterpart):
+    if original.get('subcategory_effect') != EMPLOYEE_RECEIVABLE:
+        return
+    from credinomina_reconciliation.parsers import canonical_credit_number, clean_text
+    if (not original.get('client_number')
+            or clean_text(original.get('client_number')) != clean_text(counterpart.get('client_number'))
+            or (counterpart.get('credit_client') and counterpart.get('credit_client') != original.get('credit_client'))
+            or (original.get('loan_number') and canonical_credit_number(original.get('loan_number')) != canonical_credit_number(counterpart.get('loan_number')))):
+        frappe.throw(_('La contrapartida debe pertenecer al mismo cliente y crédito de la CxC al Empleado.'))
+
+
+def _candidate_value(document, employer, method, origin=None):
     if method == 'Depósito':
         _check_cash_destination(document, employer, money('0.01'))
         return cash_available(document)
     from credinomina_reconciliation.complementary_compensation import _eligible, _direction, balance, CREDIT_CATEGORIES
     document.check_permission('read')
     document.check_permission('write')
+    if origin:
+        _check_employee_counterpart(origin, document)
     if (document.employer != employer or document.get('receivable_origin')
             or document.category in CREDIT_CATEGORIES or _direction(document) != -1):
         frappe.throw(_('Seleccione una contrapartida de crédito de la misma empresa.'))
@@ -218,7 +233,7 @@ def get_recovery_destination(item_name, employer, method, destination):
     company = _recovery_scope(item_name, employer, method)
     doctype = 'CN Remittance Allocation' if method == 'Depósito' else 'CN Complementary Item'
     document = frappe.get_doc(doctype, destination)
-    available = _candidate_value(document, employer, method)
+    available = _candidate_value(document, employer, method, company)
     return dict(name=document.name, available_usd=money_float(available),
                 receivable_usd=company['available_usd'],
                 suggested_usd=money_float(min(available, money(company['available_usd']))))
@@ -312,7 +327,7 @@ def search_recovery_destinations(doctype, txt, searchfield, start, page_len, fil
     from credinomina_reconciliation.paying_employers import load_payer_map
     filters = frappe.parse_json(filters) if isinstance(filters, str) else (filters or {})
     employer, method = filters.get('employer'), filters.get('method')
-    _recovery_scope(filters.get('item_name'), employer, method)
+    origin = _recovery_scope(filters.get('item_name'), employer, method)
     expected = 'CN Remittance Allocation' if method == 'Depósito' else 'CN Complementary Item'
     if doctype != expected:
         frappe.throw(_('Tipo de destino no válido.'))
@@ -339,7 +354,7 @@ def search_recovery_destinations(doctype, txt, searchfield, start, page_len, fil
         document = frappe.get_doc(doctype, row.name)
         message_count = len(frappe.local.message_log or [])
         try:
-            available = _candidate_value(document, employer, method)
+            available = _candidate_value(document, employer, method, origin)
         except (frappe.ValidationError, frappe.PermissionError):
             # Rejected candidates are omitted, not shown as errors in a search dropdown.
             frappe.local.message_log = (frappe.local.message_log or [])[:message_count]
@@ -403,6 +418,9 @@ def apply_recovery(item_name, employer, method, destination, amount_usd, recover
         receivable_operation=request_key, receivable_method=method, receivable_counterpart=destination,
         employer=employer, posting_date=date, currency='USD', amount=money_float(amount),
         reference=destination, description=reason, accounting_status='No requiere registro'))
+    if item.get('subcategory_effect') == EMPLOYEE_RECEIVABLE:
+        for field in ('credit_client', 'client_number', 'client_name', 'loan_number'):
+            receipt.set(field, item.get(field))
     receipt.flags.receivable_write_token = _WRITE_TOKEN
     receipt.flags.defer_reconciliation = True
     receipt.insert()
