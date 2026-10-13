@@ -339,21 +339,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             }
         }
         const historical = period.reconciliation_mode === "Historica";
-        const historicalTable = (period.historical_rows || []).length ? `
-            <div class="cn-list-scroll"><table class="cn-detail-table cn-period-applications"><thead><tr>
-                <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th>
-                <th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th><th>${esc(__("Excepción"))}</th>
-            </tr></thead><tbody>${(period.historical_rows || []).map((row) => `<tr>
-                <td>${esc(displayDate(row.event_date))}</td>
-                <td>${esc(row.client_number)} · ${esc(row.client_name)} / ${esc(row.loan_number)}${row.reference ? `<br><span class="text-muted">${esc(__("Referencia"))}: ${esc(row.reference)}</span>` : ""}</td>
-                <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
-                <td class="cn-number">${money(row.historical_remitted_usd)}</td>
-                <td class="cn-number">${money(row.historical_balance_usd)}</td>
-                <td>${allocationLines(row.historical_detail)}</td>
-                <td>${applicationExceptionAction(period, row, currentData.can_create_exception)}</td>
-            </tr>`).join("")}</tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay aplicaciones históricas asignadas."))}</div>`;
+        const applicationTable = renderPeriodApplicationTable(period, currentData.can_create_exception);
         const rowTable = renderPeriodCollectionTable(period);
-        const unlinkedApplicationTable = historical ? "" : renderUnlinkedApplicationTable(period);
         const exceptions = (period.exceptions || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
                 <th>${esc(__("Excepción"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Causa y motivo"))}</th>
@@ -412,7 +399,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                     <div class="cn-kpi"><div class="cn-kpi-label">${esc(__("Asignado"))}</div><div class="cn-kpi-value">${money(periodAmounts(period).remitted_usd)}</div></div>
                     <div class="cn-kpi cn-kpi-gap"><div class="cn-kpi-label">${esc(__("Pendiente US$"))}</div><div class="cn-kpi-value">${money(periodAmounts(period).pending_usd)}</div></div>
                 </div>` : renderOperationalSummary(period)}
-                ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${historicalTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Cobranza y aplicación por cliente"))}</h4>${rowTable}${unlinkedApplicationTable}${(period.exceptions || []).length ? `<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}` : ""}`}
+                ${historical ? `<p>${esc(__("Sin reconstruir deducciones de planilla. La CxC nace de las aplicaciones pendientes de cubrir, igual que en operativo."))}</p><h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${applicationTable}${(period.exceptions || []).length ? `<h4>${esc(__("Incidencias documentadas"))}</h4>${exceptions}` : ""}` : `<h4>${esc(__("Cobranza y aplicación por cliente"))}</h4>${rowTable}<h4>${esc(__("Aplicaciones contra depósitos"))}</h4>${applicationTable}${(period.exceptions || []).length ? `<h4>${esc(__("Excepciones abiertas"))}</h4>${exceptions}` : ""}`}
                 ${(period.rounding_movements || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Partidas complementarias automáticas"))}</summary>${movements}</details>` : ""}
                 ${(period.surpluses || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Saldos a favor documentados"))}</summary>${surplus}</details>` : ""}
             </div>
@@ -420,13 +407,16 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         detailWrapper.on("change", "[data-period-difference-filter]", function () {
             applyPeriodDifferenceFilter(detailWrapper[0], this.checked);
         });
+        detailWrapper.on("change", "[data-application-difference-filter]", function () {
+            applyApplicationDifferenceFilter(detailWrapper[0], this.checked);
+        });
         detailWrapper.on("click", "[data-exception]", function () {
             dialog.hide();
             frappe.set_route("Form", "CN Reconciliation Exception", $(this).attr("data-exception"));
         });
-        detailWrapper.on("click", "[data-unlinked-import]", function () {
+        detailWrapper.on("click", "[data-application-import]", function () {
             dialog.hide();
-            frappe.set_route("Form", "CN Accounting Import", $(this).attr("data-unlinked-import"));
+            frappe.set_route("Form", "CN Accounting Import", $(this).attr("data-application-import"));
         });
         detailWrapper.on("click", "[data-register-exception]", function () {
             const row = (period.historical_rows || []).find(r => r.name === $(this).attr("data-register-exception"));
@@ -1091,37 +1081,59 @@ function renderOperationalSummary(period) {
         </details>`;
 }
 
-function renderUnlinkedApplicationTable(period) {
-    const rows = period.unlinked_application_rows || [];
-    if (!rows.length) return "";
-    return `<h4>${esc(__("Aplicaciones sin cobranza vinculada"))} · ${rows.length}</h4>
-        <p class="cn-period-table-note">${esc(__("Estas aplicaciones están incluidas en Aplicado en el core, aunque no tienen una fila de cobranza relacionada. Su cobertura con depósitos se muestra por separado."))}</p>
-        <div class="cn-list-scroll"><table class="cn-detail-table cn-period-applications"><thead><tr>
-            <th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Aplicado neto US$"))}</th>
-            <th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Control"))}</th>
-        </tr></thead><tbody>${rows.map(row => `<tr>
-            <td><strong>${esc(row.client_name || "—")}</strong><div class="cn-period-person">${esc(__("Cliente"))}: ${esc(row.client_number || "—")}<br>${esc(__("Crédito"))}: ${esc(row.loan_number || "—")}</div></td>
-            <td><button type="button" class="cn-text-link" data-unlinked-import="${esc(row.parent)}">${esc(row.reference || row.voucher || row.parent)}</button></td>
-            <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
-            <td class="cn-number">${money(row.historical_remitted_usd)}</td>
-            <td class="cn-number">${money(row.historical_balance_usd)}</td>
-            <td>${esc(__("Sin cobranza vinculada"))}<div class="text-muted">${esc(__(row.deposit_match_status || "Pendiente de depósito"))}</div></td>
-        </tr>`).join("")}</tbody></table></div>`;
+function hasApplicationDepositDifference(row) {
+    return Number(row.historical_balance_usd || 0) > MONEY_EPSILON
+        || ["Diferencia de importe", "Falta tipo de cambio", "Ambiguo"].includes(row.deposit_match_status);
 }
 
-function applyPeriodDifferenceFilter(detail, filtered) {
-    const region = detail.querySelector("[data-period-collection-region]");
-    const rows = [...(region?.querySelectorAll("tbody tr[data-quality-difference]") || [])];
+function renderPeriodApplicationTable(period, canCreateException) {
+    const rows = period.historical_rows || [];
+    if (!rows.length) return `<div class="cn-empty">${esc(__("No hay aplicaciones asignadas al período."))}</div>`;
+    const historical = period.reconciliation_mode === "Historica";
+    const unlinked = new Set((period.unlinked_application_rows || []).map(row => row.name));
+    const differenceCount = rows.filter(hasApplicationDepositDifference).length;
+    return `<div class="cn-period-difference-filter"><label><input type="checkbox" data-application-difference-filter> ${esc(__("Mostrar solo diferencias entre aplicación y depósito"))}</label>
+            <span>${differenceCount} ${esc(__(differenceCount === 1 ? "aplicación con diferencia" : "aplicaciones con diferencia"))}</span></div>
+        <div class="cn-list-scroll" data-period-application-region tabindex="0" role="region" aria-label="${esc(__("Aplicaciones contra depósitos"))}"><table class="cn-detail-table cn-period-applications"><thead><tr>
+            <th>${esc(__("Fecha"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th>
+            <th>${esc(__("Depósito asignado US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Depósitos"))}</th>
+            <th>${esc(__(historical ? "Excepción" : "Cobranza"))}</th>
+        </tr></thead><tbody>${rows.map(row => `<tr data-application-difference="${hasApplicationDepositDifference(row) ? "1" : "0"}">
+            <td>${esc(displayDate(row.event_date))}</td>
+            <td>${esc(row.client_number || "—")} · ${esc(row.client_name || "—")} / ${esc(row.loan_number || "—")}
+                <br><button type="button" class="cn-text-link" data-application-import="${esc(row.parent)}">${esc(__("Referencia"))}: ${esc(row.reference || row.voucher || row.parent)}</button></td>
+            <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
+            <td class="cn-number">${money(row.historical_remitted_usd)}</td>
+            <td class="cn-number">${money(row.historical_balance_usd)}${row.deposit_match_status ? `<div class="text-muted">${esc(__(row.deposit_match_status))}</div>` : ""}</td>
+            <td>${allocationLines(row.historical_detail)}</td>
+            <td>${historical ? applicationExceptionAction(period, row, canCreateException) : esc(__(unlinked.has(row.name) ? "Sin cobranza vinculada" : "Cobranza vinculada"))}</td>
+        </tr>`).join("")}</tbody></table></div>
+        <div class="cn-empty" data-application-difference-empty hidden>${esc(__("No hay diferencias entre aplicaciones y depósitos en este período."))}</div>`;
+}
+
+function applyTableDifferenceFilter(detail, filtered, regionSelector, rowSelector, differenceKey, emptySelector) {
+    const region = detail.querySelector(regionSelector);
+    const rows = [...(region?.querySelectorAll(rowSelector) || [])];
     let visible = 0;
     rows.forEach(row => {
-        const show = !filtered || row.dataset.qualityDifference === "1";
+        const show = !filtered || row.dataset[differenceKey] === "1";
         row.hidden = !show;
         if (show) visible++;
     });
     if (region) region.hidden = filtered && visible === 0;
-    const empty = detail.querySelector("[data-period-difference-empty]");
+    const empty = detail.querySelector(emptySelector);
     if (empty) empty.hidden = !filtered || visible > 0;
     return visible;
+}
+
+function applyPeriodDifferenceFilter(detail, filtered) {
+    return applyTableDifferenceFilter(detail, filtered, "[data-period-collection-region]",
+        "tbody tr[data-quality-difference]", "qualityDifference", "[data-period-difference-empty]");
+}
+
+function applyApplicationDifferenceFilter(detail, filtered) {
+    return applyTableDifferenceFilter(detail, filtered, "[data-period-application-region]",
+        "tbody tr[data-application-difference]", "applicationDifference", "[data-application-difference-empty]");
 }
 
 function renderPeriodCollectionTable(period) {
@@ -1367,23 +1379,23 @@ function styles() {
     return `<style>
         .cn-control, .modal {
             --cn-surface: var(--bg-color, #fff);
-            --cn-muted-surface: var(--control-bg, #f8fafc);
+            --cn-muted-surface: color-mix(in srgb, var(--control-bg, #f8fafc) 40%, var(--cn-surface));
             --cn-border: var(--border-color, #e2e8f0);
-            --cn-text: var(--text-color, #334155);
-            --cn-muted: var(--text-muted, #64748b);
+            --cn-text: color-mix(in srgb, var(--text-color, #334155) 82%, var(--cn-surface));
+            --cn-muted: color-mix(in srgb, var(--text-muted, #64748b) 85%, var(--cn-surface));
             --cn-primary: var(--primary, #2563eb);
             --cn-success: color-mix(in srgb, #15803d 65%, var(--cn-text));
-            --cn-success-bg: color-mix(in srgb, #16a34a 12%, var(--cn-surface));
+            --cn-success-bg: color-mix(in srgb, #16a34a 7%, var(--cn-surface));
             --cn-info: color-mix(in srgb, #1d4ed8 65%, var(--cn-text));
-            --cn-info-bg: color-mix(in srgb, #3b82f6 12%, var(--cn-surface));
+            --cn-info-bg: color-mix(in srgb, #3b82f6 7%, var(--cn-surface));
             --cn-warning: color-mix(in srgb, #b45309 65%, var(--cn-text));
-            --cn-warning-bg: color-mix(in srgb, #f59e0b 12%, var(--cn-surface));
+            --cn-warning-bg: color-mix(in srgb, #f59e0b 7%, var(--cn-surface));
             --cn-orange: color-mix(in srgb, #c2410c 65%, var(--cn-text));
-            --cn-orange-bg: color-mix(in srgb, #f97316 12%, var(--cn-surface));
+            --cn-orange-bg: color-mix(in srgb, #f97316 7%, var(--cn-surface));
             --cn-danger: color-mix(in srgb, #b91c1c 65%, var(--cn-text));
-            --cn-danger-bg: color-mix(in srgb, #ef4444 12%, var(--cn-surface));
+            --cn-danger-bg: color-mix(in srgb, #ef4444 7%, var(--cn-surface));
             --cn-purple: color-mix(in srgb, #7c3aed 65%, var(--cn-text));
-            --cn-purple-bg: color-mix(in srgb, #8b5cf6 12%, var(--cn-surface));
+            --cn-purple-bg: color-mix(in srgb, #8b5cf6 7%, var(--cn-surface));
         }
         .cn-control { padding: 12px 4px 32px; color: var(--cn-text); }
         .cn-intro { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin: 6px 0 18px; }
