@@ -239,8 +239,39 @@ class CompanyTransactionsTests(unittest.TestCase):
             self.assertEqual(listed.call_args.kwargs["filters"]["docstatus"], ["in", [0, 1]] if drafts else 1)
             children.assert_not_called()
 
+    def test_report_state_filter_can_isolate_inconsistent_distributions(self):
+        rows = [
+            frappe._dict(name="D1", employer="A", deposit_date="2025-04-01", docstatus=1,
+                         amount_usd=100, allocated_usd=120, justified_surplus_usd=0, unclassified_usd=0,
+                         result="Revisar detalle", detail_status="Revisar filas"),
+            frappe._dict(name="D2", employer="A", deposit_date="2025-04-02", docstatus=1,
+                         amount_usd=100, allocated_usd=100, justified_surplus_usd=0, unclassified_usd=0,
+                         result="Conciliado", detail_status="Conciliado"),
+            frappe._dict(name="D3", employer="B", deposit_date="2025-05-01", docstatus=1,
+                         amount_usd=50, allocated_usd=60, justified_surplus_usd=0, unclassified_usd=0,
+                         result="Revisar detalle", detail_status="Revisar filas"),
+        ]
+        records = [
+            {"name": "D1", "employer": "A", "date": "2025-04-01", "state": "Revisar distribución"},
+            {"name": "D2", "employer": "A", "date": "2025-04-02", "state": "Conciliado"},
+            {"name": "D3", "employer": "B", "date": "2025-05-01", "state": "Revisar distribución"},
+        ]
+        with patch.object(frappe, "has_permission", return_value=True), \
+                patch.object(report, "load_transactions", return_value=(records, rows, {})):
+            _, data, _, _, summary = report.execute({"year": 2025, "transaction_type": "Depósitos",
+                                                       "state": "Distribuciones inconsistentes"})
+        by_employer = {row["employer"]: row for row in data if not row.get("_is_total")}
+        self.assertEqual(set(by_employer), {"A", "B"})
+        self.assertEqual(by_employer["A"]["m04"], 1)
+        self.assertEqual(by_employer["A"]["m04_state"], "Revisar distribución")
+        self.assertEqual(by_employer["B"]["m05"], 1)
+        self.assertEqual(by_employer["A"]["_detail_filters"]["state"], "Revisar distribución")
+        self.assertEqual(sum(item["value"] for item in summary), 2)
+        self.assertEqual(data[-1]["total"], 2)
+
     def test_no_permission_or_invalid_filters_never_load_data(self):
         for filters in ({"year": "2025 OR 1"}, {"year": 2025, "transaction_type": "Otro"},
+                        {"year": 2025, "transaction_type": "Depósitos", "state": "Inexistente"},
                         {"year": 2025}, {"year": 2025, "transaction_type": "Depósitos"}):
             with patch.object(frappe, "has_permission", return_value=False), \
                     patch.object(frappe, "throw", side_effect=ValueError), \
