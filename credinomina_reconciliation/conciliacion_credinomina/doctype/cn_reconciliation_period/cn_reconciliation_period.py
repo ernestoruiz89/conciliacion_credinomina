@@ -482,7 +482,7 @@ def import_collection(period_name: str):
     )
     if (period.collection_import_sha256 == import_hash and period.collection_rows
             and not needs_credit_normalization and not needs_client_enrichment):
-        source_summary = _reconcile_if_sources(period.employer)
+        source_summary = _reconcile_if_sources(period.employer, period_name=period.name)
         return {
             "period": period.name, "rows": len(period.collection_rows),
             "status": period.status, "unchanged": True,
@@ -596,7 +596,9 @@ def import_collection(period_name: str):
         ).format(portfolio["completed_rows"], portfolio["snapshot"], portfolio["report_date"]))
     period.flags.skip_comment_reconciliation = True
     period.save()
-    source_summary = _reconcile_if_sources(period.employer, preserve_deposits=True)
+    # Loading one payroll must not normalize or rematch paid applications in
+    # other periods. Reconcile only this period and preserve its stored cash.
+    source_summary = _reconcile_if_sources(period.employer, period_name=period.name)
     period.reload()
     return {
         "period": period.name, "rows": len(parsed), "status": period.status,
@@ -957,7 +959,7 @@ def reconcile_first(period_name: str):
             "missing_basis": sum(row["quality_status"] == "Revisar base de comparación" for row in quality)}
 
 
-def _reconcile_if_sources(employer, progress=None, preserve_deposits=True):
+def _reconcile_if_sources(employer, progress=None, preserve_deposits=True, *, period_name=None):
     if not employer:
         frappe.throw(_("Indique la empresa antes de actualizar sus conciliaciones."))
     from credinomina_reconciliation.paying_employers import reconciliation_companies
@@ -976,6 +978,10 @@ def _reconcile_if_sources(employer, progress=None, preserve_deposits=True):
     if not (imported_core or confirmed_cash or confirmed_complement):
         return None
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+    if period_name:
+        return _reconcile_sources(
+            employer, progress=progress, preserve_deposits=True, period_name=period_name,
+        )
     if preserve_deposits:
         return _reconcile_sources(
             employer, progress=progress, preserve_deposits=True,
