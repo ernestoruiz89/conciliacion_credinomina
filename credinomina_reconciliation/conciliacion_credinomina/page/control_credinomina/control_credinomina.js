@@ -401,7 +401,8 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             } : {}),
         });
         dialog.show();
-        dialog.get_field("detail").$wrapper.html(`
+        const detailWrapper = dialog.get_field("detail").$wrapper;
+        detailWrapper.html(`
             <div class="cn-dialog cn-period-detail">
                 ${renderPeriodRemark(period)}
                 ${period.control_cut_on ? `<p class="cn-cut-banner">${esc(__("Corte de control registrado"))}: ${esc(displayDate(period.control_cut_on))}. ${esc(__("Los pendientes siguen abiertos y pueden recibir evidencia posterior."))}${period.control_cut_note ? `<br>${esc(period.control_cut_note)}` : ""}</p>` : ""}
@@ -415,11 +416,14 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 ${(period.surpluses || []).length ? `<details class="cn-period-secondary"><summary>${esc(__("Saldos a favor documentados"))}</summary>${surplus}</details>` : ""}
             </div>
         `);
-        dialog.get_field("detail").$wrapper.on("click", "[data-exception]", function () {
+        detailWrapper.on("change", "[data-period-difference-filter]", function () {
+            applyPeriodDifferenceFilter(detailWrapper[0], this.checked);
+        });
+        detailWrapper.on("click", "[data-exception]", function () {
             dialog.hide();
             frappe.set_route("Form", "CN Reconciliation Exception", $(this).attr("data-exception"));
         });
-        dialog.get_field("detail").$wrapper.on("click", "[data-register-exception]", function () {
+        detailWrapper.on("click", "[data-register-exception]", function () {
             const row = (period.historical_rows || []).find(r => r.name === $(this).attr("data-register-exception"));
             if (!row) return;
             showApplicationException(period, row, async () => {
@@ -1079,18 +1083,37 @@ function renderOperationalSummary(period) {
         </details>`;
 }
 
+function applyPeriodDifferenceFilter(detail, filtered) {
+    const region = detail.querySelector("[data-period-collection-region]");
+    const rows = [...(region?.querySelectorAll("tbody tr[data-quality-difference]") || [])];
+    let visible = 0;
+    rows.forEach(row => {
+        const show = !filtered || row.dataset.qualityDifference === "1";
+        row.hidden = !show;
+        if (show) visible++;
+    });
+    if (region) region.hidden = filtered && visible === 0;
+    const empty = detail.querySelector("[data-period-difference-empty]");
+    if (empty) empty.hidden = !filtered || visible > 0;
+    return visible;
+}
+
 function renderPeriodCollectionTable(period) {
     if (!(period.rows || []).length) return `<div class="cn-empty">${esc(__("Sin detalle de cobranza."))}</div>`;
+    const differenceCount = period.rows.filter(row => row.quality_difference_usd != null && Number(row.quality_difference_usd) !== 0).length;
     return `<p class="cn-period-table-note">${esc(__("Importes en US$. Depósito asignado y pago recibido por aplicar se muestran por separado. Abra Ver detalle para consultar depósitos, ajustes y antecedentes."))}</p>
+        <div class="cn-period-difference-filter"><label><input type="checkbox" data-period-difference-filter> ${esc(__("Mostrar solo diferencias de cobranza/aplicación"))}</label>
+            <span>${differenceCount} ${esc(__(differenceCount === 1 ? "fila con diferencia" : "filas con diferencia"))}</span></div>
         <p class="cn-period-scroll-hint">${esc(__("Desplace la tabla hacia la derecha para ver todas las columnas."))} →</p>
-        <div class="cn-list-scroll" tabindex="0" role="region" aria-label="${esc(__("Cobranza y aplicación por cliente"))}"><table class="cn-detail-table cn-period-collections"><thead><tr>
+        <div class="cn-list-scroll" data-period-collection-region tabindex="0" role="region" aria-label="${esc(__("Cobranza y aplicación por cliente"))}"><table class="cn-detail-table cn-period-collections"><thead><tr>
         ${["Cliente / crédito", "Cobranza US$", "Aplicado US$", "Diferencia US$", "Depósito asignado", "Pago por aplicar", "Resultado del control / detalle"].map(label => `<th scope="col">${esc(__(label))}</th>`).join("")}
         </tr></thead><tbody>${period.rows.map(row => {
             const pending = row.pending_payment_usd;
             const note = row.inherited_exception_comment || row.first_exception_comment || row.application_comment;
             const difference = row.quality_difference_usd;
+            const hasDifference = difference != null && Number(difference) !== 0;
             const status = row.quality_status || (difference == null ? __("Revisar conversión") : Number(difference) === 0 ? __("Conforme según cobranza") : __("Con diferencias"));
-            return `<tr class="${Number(pending) > 0 ? "cn-payment-pending" : ""}">
+            return `<tr data-quality-difference="${hasDifference ? "1" : "0"}" class="${Number(pending) > 0 ? "cn-payment-pending" : ""}">
                 <td><strong>${esc(row.client_name || "—")}</strong><div class="cn-period-person">${esc(__("Cliente"))}: ${esc(row.client_number || "—")}<br>${esc(__("Crédito"))}: <span class="cn-nowrap">${esc(row.loan_number || "—")}</span> · ${esc(__("Cuota"))}: ${esc(row.installment_number || "—")}</div></td>
                 ${[row.quality_status === "Revisar base de comparación" ? null : row.expected_usd, row.applied_usd, difference, row.remitted_usd].map(value => `<td class="cn-number">${value == null ? "—" : money(value)}</td>`).join("")}
                 <td class="cn-number">${pending == null ? "—" : money(pending)}</td>
@@ -1102,7 +1125,8 @@ function renderPeriodCollectionTable(period) {
                     ${note && String(note).trim() !== "0" ? `<div>${esc(__("Antecedente"))}: ${esc(note)}</div>` : ""}
                 </details></td>
             </tr>`;
-        }).join("")}</tbody></table></div>`;
+        }).join("")}</tbody></table></div>
+        <div class="cn-empty" data-period-difference-empty hidden>${esc(__("No hay diferencias de cobranza contra aplicación en este período."))}</div>`;
 }
 
 function renderWorkClient(item) {
@@ -1481,6 +1505,9 @@ function styles() {
         .cn-period-row-detail { margin-top: 8px; font-size: 13px; }
         .cn-period-row-detail summary { cursor: pointer; color: var(--cn-primary); }
         .cn-period-row-detail div { margin-top: 8px; }
+        .cn-period-difference-filter { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; color: var(--cn-muted); font-size: 13px; }
+        .cn-period-difference-filter label { display: flex; align-items: center; gap: 8px; color: var(--cn-text); cursor: pointer; }
+        .cn-period-difference-filter input { margin: 0; }
         .cn-period-secondary { margin: 18px 0 24px; padding: 14px 16px; background: var(--cn-muted-surface); color: var(--cn-text); border: 1px solid var(--cn-border); border-radius: 10px; }
         .cn-period-secondary summary { cursor: pointer; font-weight: 600; }
         .cn-period-secondary p, .cn-period-table-note { color: var(--cn-muted); font-size: 13px; }
