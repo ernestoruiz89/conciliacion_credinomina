@@ -400,10 +400,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "status": ["in", ["Abierta", "En revision"]],
             },
             fields=[
-                "name", "period", "exception_type", "client_number",
+                "name", "period", "exception_type", "client_name", "client_number",
                 "loan_number", "amount_usd", "description", "status",
-                "cause_category", "assigned_to", "next_action", "commitment_date",
-                "evidence_file", "external_reference",
+                "cause_category", "next_action", "commitment_date",
             ] if not summary_only else ["name", "period", "amount_usd", "next_action", "commitment_date"],
             limit_page_length=_row_limit(10000, full_export),
         ) if frappe.has_permission("CN Reconciliation Exception", "read") else []

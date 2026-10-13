@@ -1,4 +1,5 @@
 import unittest
+from datetime import datetime
 from unittest.mock import Mock, patch
 
 import frappe
@@ -18,6 +19,10 @@ class ControlLazyTests(unittest.TestCase):
             if doctype == 'CN Reconciliation Period':
                 self.assertIn('status_before_close', kwargs['fields'])
                 return [period]
+            if doctype == 'CN Reconciliation Exception' and not summary_only:
+                self.assertIn('client_name', kwargs['fields'])
+                self.assertNotIn('assigned_to', kwargs['fields'])
+                self.assertNotIn('evidence_file', kwargs['fields'])
             return []
         def get_all(doctype, **kwargs):
             return [row] if doctype == 'CN Collection Row' else []
@@ -174,7 +179,8 @@ class ControlLazyTests(unittest.TestCase):
 
     def test_pagination_is_bounded_and_rejects_unknown_sections(self):
         rows = [{"name": str(i), "priority": i % 3} for i in range(250)]
-        with patch.object(control, "_work_consultation", return_value=({"work_items": rows}, {'restarted': False})) as build:
+        with patch.object(control, "_work_consultation", return_value=({"work_items": rows}, {'restarted': False})) as build, \
+                patch.object(control, "now_datetime", return_value=datetime(2026, 10, 13)):
             page = control.get_control_rows("work_items", "Todos", "A", 100)
         self.assertEqual(page, {"rows": rows[100:200], "count": 250, "action_count": 250, "overdue_count": 84, 'restarted': False})
         build.assert_called_once_with(None, "A")

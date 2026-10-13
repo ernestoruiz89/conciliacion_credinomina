@@ -153,7 +153,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
                 <td><span class="cn-work-priority cn-work-priority-${Number(item.priority)}">${esc(item.priority === 0 ? __("Vencida") : item.priority <= 1 ? __("Revisar") : item.priority <= 2 ? __("Pendiente") : __("Seguimiento"))}</span></td>
                 <td>${esc(item.employer_name)}</td>
                 <td>${esc(item.period_label)}${item.period_context ? `<div class="cn-work-context">${esc(__(item.period_context))}</div>` : ""}${item.control_cut_on ? `<br><span class="cn-cut-note">${esc(__("Corte registrado"))}: ${esc(displayDate(item.control_cut_on))}</span>` : ""}</td>
-                <td>${esc(item.summary)}${renderWorkClient(item)}${item.action_count > 1 ? `<br><strong>${Number(item.action_count)} ${esc(__("acciones pendientes"))}</strong>` : ""}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
+                <td>${esc(item.summary)}${renderWorkClient(item)}${renderWorkException(item)}${item.action_count > 1 ? `<br><strong>${Number(item.action_count)} ${esc(__("acciones pendientes"))}</strong>` : ""}${item.count ? `<br><span class="cn-work-context">${Number(item.count)} ${esc(__("registros"))}</span>` : ""}${item.due_date ? `<br><span class="cn-work-overdue">${esc(__("Compromiso"))}: ${esc(displayDate(item.due_date))}</span>` : ""}</td>
                 <td class="cn-number" title="${esc(item.amount_label || item.summary)}">${item.amount_usd == null ? "—" : money(item.amount_usd)}${item.amount_kind || item.action_count > 1 ? `<div class="text-muted">${esc(__(item.amount_kind || "Pendiente principal"))}</div>` : ""}</td>
                 <td>${item.action_count > 1 ? `<details><summary>${Number(item.action_count)} ${esc(__("acciones del caso"))}</summary>${item.actions.map(action => `<div class="cn-work-action"><strong>${esc(action.summary)}</strong>${action.amount_usd == null ? "" : ` · ${money(action.amount_usd)}`}<br>${esc(action.next_action)}${action.responsible ? `<br>${esc(__("Responsable"))}: ${esc(action.responsible)}` : ""}</div>`).join("")}<p class="text-muted">${esc(__("Los importes de las acciones no se suman."))}</p></details>` : `${esc(item.next_action)}${item.responsible ? `<br><span class="text-muted">${esc(__("Responsable"))}: ${esc(item.responsible)}</span>` : ""}`}</td>
                 <td><button class="cn-text-link" type="button" data-work="${index}">${esc(__(item.action_count > 1 ? "Revisar caso" : item.action_label || "Revisar caso"))}</button></td>
@@ -341,22 +341,7 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
         const historical = period.reconciliation_mode === "Historica";
         const applicationTable = renderPeriodApplicationTable(period, currentData.can_create_exception);
         const rowTable = renderPeriodCollectionTable(period);
-        const exceptions = (period.exceptions || []).length ? `
-            <div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
-                <th>${esc(__("Excepción"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Causa y motivo"))}</th>
-                <th>${esc(__("Importe"))}</th><th>${esc(__("Estado"))}</th><th>${esc(__("Responsable"))}</th>
-                <th>${esc(__("Próxima acción"))}</th><th>${esc(__("Compromiso"))}</th><th>${esc(__("Soporte"))}</th>
-            </tr></thead><tbody>
-            ${period.exceptions.map((item) => `<tr>
-                <td><button class="cn-text-link" type="button" data-exception="${esc(item.name)}">${esc(item.name)}</button></td>
-                <td>${esc(item.client_number)} / ${esc(item.loan_number)}</td>
-                <td>${esc(item.cause_category || item.exception_type)}<br>${esc(item.description)}</td>
-                <td class="cn-number">${money(item.amount_usd)}</td>
-                <td>${esc(item.status)}</td><td>${esc(item.assigned_to || "—")}</td>
-                <td>${esc(item.next_action || "—")}</td><td>${esc(displayDate(item.commitment_date) || "—")}</td>
-                <td>${esc(item.external_reference || (item.evidence_file ? __("Adjunto") : "—"))}</td>
-            </tr>`).join("")}
-            </tbody></table></div>` : `<div class="cn-empty">${esc(__("No hay excepciones abiertas."))}</div>`;
+        const exceptions = renderPeriodExceptions(period.exceptions);
         const surplus = (period.surpluses || []).length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr><th>${esc(__("Referencia"))}</th><th>${esc(__("Motivo"))}</th><th>${esc(__("Importe"))}</th><th>${esc(__("Control"))}</th></tr></thead><tbody>
             ${period.surpluses.map((item) => `<tr><td>${esc(item.deposit_reference)}</td><td>${esc(item.reason_type)} · ${esc(item.explanation)}</td><td class="cn-number">${money(item.amount_usd)}</td><td>${esc(item.result)}</td></tr>`).join("")}
@@ -745,7 +730,7 @@ function showWorkCase(items, index, consultedAt) {
             <h4>${esc(item.employer_name || item.employer || "")}</h4><p>${esc(item.period_label || "")}</p>
             ${renderWorkClient(item)}
             ${(item.actions || [item]).map(action => `<div class="border rounded p-3 mb-3">
-                <strong>${esc(action.summary)}</strong><p>${action.amount_usd == null ? "—" : money(action.amount_usd)} · ${esc(__(action.amount_kind || "Importe del caso"))}</p>
+                <strong>${esc(action.summary)}</strong>${renderWorkException(action)}<p>${action.amount_usd == null ? "—" : money(action.amount_usd)} · ${esc(__(action.amount_kind || "Importe del caso"))}</p>
                 <p>${esc(action.next_action)}</p>
                 ${action.responsible ? `<div>${esc(__("Responsable"))}: ${esc(action.responsible)}</div>` : ""}
                 ${action.due_date ? `<div>${esc(__("Compromiso"))}: ${esc(displayDate(action.due_date))}</div>` : ""}
@@ -1081,6 +1066,21 @@ function renderOperationalSummary(period) {
         </details>`;
 }
 
+function renderPeriodExceptions(exceptions) {
+    if (!(exceptions || []).length) return `<div class="cn-empty">${esc(__("No hay excepciones abiertas."))}</div>`;
+    return `<div class="cn-list-scroll"><table class="cn-detail-table cn-exception-table"><thead><tr>
+        <th>${esc(__("Excepción"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Causa y motivo"))}</th>
+        <th>${esc(__("Importe"))}</th><th>${esc(__("Estado"))}</th><th>${esc(__("Próxima acción"))}</th><th>${esc(__("Compromiso"))}</th>
+    </tr></thead><tbody>${exceptions.map((item) => `<tr>
+        <td><button class="cn-text-link" type="button" data-exception="${esc(item.name)}">${esc(item.name)}</button></td>
+        <td><strong>${esc(item.client_name || "—")}</strong>
+            <div class="cn-period-person">${esc(__("Nro. Cliente"))}: ${esc(item.client_number || "—")}<br>${esc(__("Crédito"))}: ${esc(item.loan_number || "—")}</div></td>
+        <td>${esc(item.cause_category || item.exception_type)}<br>${esc(item.description)}</td>
+        <td class="cn-number">${money(item.amount_usd)}</td><td>${esc(item.status)}</td>
+        <td>${esc(item.next_action || "—")}</td><td>${esc(displayDate(item.commitment_date) || "—")}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
 function hasApplicationDepositDifference(row) {
     return Number(row.historical_balance_usd || 0) > MONEY_EPSILON
         || ["Diferencia de importe", "Falta tipo de cambio", "Ambiguo"].includes(row.deposit_match_status);
@@ -1168,9 +1168,24 @@ function renderPeriodCollectionTable(period) {
 }
 
 function renderWorkClient(item) {
-    if (item.category !== "Saldo a favor del cliente" && item.kind !== "pending_application") return "";
+    const exception = ["open_exception", "overdue_exception"].includes(item.kind);
+    if (!exception && item.category !== "Saldo a favor del cliente" && item.kind !== "pending_application") return "";
+    if (exception && ![item.client_name, item.client_number, item.loan_number].some(Boolean)) return "";
+    const identifiers = [
+        `${esc(__("Nro. Cliente"))}: ${esc(item.client_number || __("No informado"))}`,
+        exception && item.loan_number ? `${esc(__("Crédito"))}: ${esc(item.loan_number)}` : "",
+    ].filter(Boolean).join(" · ");
     return `<div class="cn-work-client"><strong>${esc(item.client_name || __("Nombre no informado"))}</strong>
-        <div>${esc(__("Nro. Cliente"))}: ${esc(item.client_number || __("No informado"))}</div></div>`;
+        <div>${identifiers}</div></div>`;
+}
+
+function renderWorkException(item) {
+    if (!["open_exception", "overdue_exception"].includes(item.kind)) return "";
+    const cause = item.cause_category && item.cause_category !== "Por determinar"
+        ? `<div><strong>${esc(__("Causa"))}:</strong> ${esc(item.cause_category)}</div>` : "";
+    const description = String(item.description || "").trim();
+    const reason = description ? `<div><strong>${esc(__("Motivo"))}:</strong> ${esc(description)}</div>` : "";
+    return cause || reason ? `<div class="cn-work-exception">${cause}${reason}</div>` : "";
 }
 
 function signedMoney(value) {
@@ -1491,6 +1506,7 @@ function styles() {
         .cn-work-priority-1 { background: var(--cn-warning-bg); color: var(--cn-warning); }
         .cn-work-priority-2 { background: var(--cn-info-bg); color: var(--cn-info); }
         .cn-work-context, .cn-cut-note { color: var(--cn-muted); font-size: 10px; }
+        .cn-work-exception { margin-top: 6px; color: var(--cn-muted); font-size: 12px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
         .cn-cut-banner { border-left: 3px solid var(--cn-info); background: var(--cn-info-bg); padding: 9px 12px; color: var(--cn-text); font-size: 11px; }
         .cn-work-overdue { color: var(--cn-danger); font-size: 10px; font-weight: 700; }
         .cn-work-more { display: flex; justify-content: center; align-items: center; gap: 12px; padding: 12px; color: var(--cn-muted); font-size: 11px; }
@@ -1524,7 +1540,10 @@ function styles() {
         .cn-detail-table th { text-align: left; background: var(--cn-muted-surface); color: var(--cn-muted); text-transform: uppercase; font-size: 12px; letter-spacing: .04em; }
         .cn-detail-table th, .cn-detail-table td { padding: 9px 10px; border-bottom: 1px solid var(--cn-border); white-space: nowrap; }
         .cn-detail-table td:nth-child(3) { white-space: normal; min-width: 100px; }
-        .cn-exception-table td:nth-child(7) { white-space: normal; min-width: 180px; }
+        .cn-period-detail .cn-exception-table { min-width: 920px; }
+        .cn-period-detail .cn-exception-table th:nth-child(2) { min-width: 210px; }
+        .cn-period-detail .cn-exception-table th:nth-child(3) { min-width: 180px; }
+        .cn-period-detail .cn-exception-table th:nth-child(6) { min-width: 170px; }
         .cn-detail-table .cn-number { text-align: right; font-weight: 600; }
         .cn-period-detail .cn-detail-table { font-size: 14px; line-height: 1.45; }
         .cn-period-detail .cn-detail-table th { font-size: 12px; letter-spacing: normal; text-transform: none; }
