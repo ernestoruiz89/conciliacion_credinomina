@@ -1394,23 +1394,42 @@ function styles() {
     return `<style>
         .cn-control, .modal {
             --cn-surface: var(--bg-color, #fff);
-            --cn-muted-surface: color-mix(in srgb, var(--control-bg, #f8fafc) 40%, var(--cn-surface));
+            --cn-muted-surface: var(--control-bg, #f8fafc);
             --cn-border: var(--border-color, #e2e8f0);
-            --cn-text: color-mix(in srgb, var(--text-color, #334155) 82%, var(--cn-surface));
-            --cn-muted: color-mix(in srgb, var(--text-muted, #64748b) 85%, var(--cn-surface));
+            --cn-text: var(--text-color, #334155);
+            --cn-muted: var(--text-muted, #64748b);
             --cn-primary: var(--primary, #2563eb);
             --cn-success: color-mix(in srgb, #15803d 65%, var(--cn-text));
-            --cn-success-bg: color-mix(in srgb, #16a34a 7%, var(--cn-surface));
+            --cn-success-bg: color-mix(in srgb, #16a34a 12%, var(--cn-surface));
             --cn-info: color-mix(in srgb, #1d4ed8 65%, var(--cn-text));
-            --cn-info-bg: color-mix(in srgb, #3b82f6 7%, var(--cn-surface));
+            --cn-info-bg: color-mix(in srgb, #3b82f6 12%, var(--cn-surface));
             --cn-warning: color-mix(in srgb, #b45309 65%, var(--cn-text));
-            --cn-warning-bg: color-mix(in srgb, #f59e0b 7%, var(--cn-surface));
+            --cn-warning-bg: color-mix(in srgb, #f59e0b 12%, var(--cn-surface));
             --cn-orange: color-mix(in srgb, #c2410c 65%, var(--cn-text));
-            --cn-orange-bg: color-mix(in srgb, #f97316 7%, var(--cn-surface));
+            --cn-orange-bg: color-mix(in srgb, #f97316 12%, var(--cn-surface));
             --cn-danger: color-mix(in srgb, #b91c1c 65%, var(--cn-text));
-            --cn-danger-bg: color-mix(in srgb, #ef4444 7%, var(--cn-surface));
+            --cn-danger-bg: color-mix(in srgb, #ef4444 12%, var(--cn-surface));
             --cn-purple: color-mix(in srgb, #7c3aed 65%, var(--cn-text));
-            --cn-purple-bg: color-mix(in srgb, #8b5cf6 7%, var(--cn-surface));
+            --cn-purple-bg: color-mix(in srgb, #8b5cf6 12%, var(--cn-surface));
+        }
+        /* Frappe resolves both explicit and automatic themes to data-theme. */
+        [data-theme="dark"] .cn-control, [data-theme="dark"] .modal {
+            --cn-surface: color-mix(in srgb, var(--bg-color, #171717) 96%, #fff);
+            --cn-muted-surface: color-mix(in srgb, var(--cn-surface) 94%, #fff);
+            --cn-border: color-mix(in srgb, var(--border-color, #232323) 70%, var(--cn-muted));
+            --cn-primary: #93c5fd;
+            --cn-success: #86efac;
+            --cn-success-bg: color-mix(in srgb, var(--cn-success) 12%, var(--cn-surface));
+            --cn-info: #93c5fd;
+            --cn-info-bg: color-mix(in srgb, var(--cn-info) 12%, var(--cn-surface));
+            --cn-warning: #fcd34d;
+            --cn-warning-bg: color-mix(in srgb, var(--cn-warning) 12%, var(--cn-surface));
+            --cn-orange: #fdba74;
+            --cn-orange-bg: color-mix(in srgb, var(--cn-orange) 12%, var(--cn-surface));
+            --cn-danger: #fca5a5;
+            --cn-danger-bg: color-mix(in srgb, var(--cn-danger) 12%, var(--cn-surface));
+            --cn-purple: #c4b5fd;
+            --cn-purple-bg: color-mix(in srgb, var(--cn-purple) 12%, var(--cn-surface));
         }
         .cn-control { padding: 12px 4px 32px; color: var(--cn-text); }
         .cn-intro { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin: 6px 0 18px; }
@@ -1420,8 +1439,8 @@ function styles() {
         .cn-view-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--border-color, #e2e8f0); margin-bottom: 16px; }
         .cn-view-tab { display: inline-flex; align-items: center; gap: 8px; border: 0; border-bottom: 3px solid transparent; background: transparent; padding: 12px 16px; font-size: 14px; font-weight: 600; color: var(--text-muted, #64748b); cursor: pointer; }
         .cn-view-tab:hover { background: var(--control-bg, #f1f5f9); }
-        .cn-view-tab[aria-selected="true"] { color: var(--primary, #2563eb); border-bottom-color: currentColor; }
-        .cn-view-tab:focus-visible, .cn-tab-panel:focus-visible { outline: 2px solid var(--primary, #2563eb); outline-offset: 2px; }
+        .cn-view-tab[aria-selected="true"] { color: var(--cn-primary); border-bottom-color: currentColor; }
+        .cn-view-tab:focus-visible, .cn-tab-panel:focus-visible { outline: 2px solid var(--cn-primary); outline-offset: 2px; }
         .cn-tab-count { background: var(--control-bg, #f1f5f9); color: var(--text-color, #334155); border-radius: 12px; padding: 2px 8px; font-size: 13px; }
         .cn-tab-overdue { color: var(--cn-danger); font-size: 13px; }
         .cn-control .cn-tab-panel[hidden] { display: none !important; }
