@@ -573,16 +573,27 @@ function canCreateDetailClientCredit(frm, row) {
         !!row && Number.isFinite(pending) && pending > 0;
 }
 
-function creditCommitmentDateDefault() {
-    const [year, month] = frappe.datetime.get_today().split("-").map(Number);
+function creditCommitmentDateDefault(postingDate = frappe.datetime.get_today()) {
+    const [year, month] = (postingDate || frappe.datetime.get_today()).split("-").map(Number);
     return new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10);
 }
 
-function addBulkClientCreditButton(frm) {
+function addBulkClientCreditButton(frm, attempt = 0) {
     const grid = frm.fields_dict.detail_rows?.grid;
     // Frappe creates these controls when the grid renders, after form setup.
-    if (!grid?.add_custom_button || !grid.get_selected_children || !grid.custom_buttons
-        || !grid.grid_buttons || !grid.wrapper) return;
+    if (!grid?.add_custom_button || !grid.get_selected_children) return;
+    if (!grid.custom_buttons || !grid.grid_buttons || !grid.wrapper) {
+        // The form's refresh can run before a lazy child-table grid is rendered.
+        // Retry briefly so the action is installed as soon as its footer exists.
+        if (attempt < 10 && !frm.bulkClientCreditButtonRetryScheduled) {
+            frm.bulkClientCreditButtonRetryScheduled = true;
+            setTimeout(() => {
+                frm.bulkClientCreditButtonRetryScheduled = false;
+                addBulkClientCreditButton(frm, attempt + 1);
+            }, 50);
+        }
+        return;
+    }
     const label = __("Crear saldos a favor seleccionados");
     frm.bulkClientCreditButton = grid.add_custom_button(label, () => createBulkClientCredits(frm), "bottom");
     const refresh = () => {
@@ -613,7 +624,18 @@ async function createBulkClientCredits(frm) {
             return;
         }
         const esc = value => frappe.utils.escape_html(String(value ?? ""));
-        const dialog = new frappe.ui.Dialog({
+        const postingDateDefault = frm.doc.deposit_date || frappe.datetime.get_today();
+        let dialog, commitmentDateCustomized = false, updatingCommitmentDate = false;
+        const updateCommitmentDate = async () => {
+            if (commitmentDateCustomized) return;
+            updatingCommitmentDate = true;
+            try {
+                await dialog.set_value("credit_commitment_date", creditCommitmentDateDefault(dialog.get_value("posting_date")));
+            } finally {
+                updatingCommitmentDate = false;
+            }
+        };
+        dialog = new frappe.ui.Dialog({
             title: __("Crear saldos a favor del cliente"), size: "large",
             onhide() { frm.bulk_detail_credit_workflow = false; },
             fields: [
@@ -629,8 +651,10 @@ async function createBulkClientCredits(frm) {
                 {fieldname: "credit_treatment", fieldtype: "Select", label: __("Tratamiento"),
                     options: "Pendiente de decisión\nDevolución\nAplicación futura", default: "Pendiente de decisión", reqd: 1},
                 {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user, reqd: 1},
-                {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), default: creditCommitmentDateDefault(), reqd: 1},
-                {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
+                {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso"), default: creditCommitmentDateDefault(postingDateDefault),
+                    onchange() { if (!updatingCommitmentDate) commitmentDateCustomized = true; }, reqd: 1},
+                {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: postingDateDefault,
+                    onchange: updateCommitmentDate, reqd: 1},
                 {fieldname: "description", fieldtype: "Small Text", label: __("Comentario / justificación"), default: "Inmaterial", reqd: 1},
             ],
             primary_action_label: __("Crear y confirmar {0} saldos", [rows.length]),
@@ -749,8 +773,18 @@ async function createRemittanceComplementary(frm, options = {}) {
         return;
     }
     const escape = value => frappe.utils.escape_html(String(value ?? ""));
-    let busy = false;
-    const dialog = new frappe.ui.Dialog({
+    const postingDateDefault = frm.doc.deposit_date || frappe.datetime.get_today();
+    let busy = false, dialog, commitmentDateCustomized = false, updatingCommitmentDate = false;
+    const updateCommitmentDate = async () => {
+        if (commitmentDateCustomized) return;
+        updatingCommitmentDate = true;
+        try {
+            await dialog.set_value("credit_commitment_date", creditCommitmentDateDefault(dialog.get_value("posting_date")));
+        } finally {
+            updatingCommitmentDate = false;
+        }
+    };
+    dialog = new frappe.ui.Dialog({
         title: __(companyCredit ? "Crear saldo a favor de la empresa" : sourceRow ? "Crear saldo a favor del cliente" : "Crear partida complementaria"), size: "large",
         onhide() {
             if (sourceRow) frm.detail_credit_workflow = false;
@@ -781,7 +815,8 @@ async function createRemittanceComplementary(frm, options = {}) {
                 depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)",
                 mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(doc.category)",
                 description: __("Seleccione el motivo. Puede corregirlo posteriormente en la partida, incluso después de confirmarla.")},
-            {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: frm.doc.deposit_date, reqd: 1},
+            {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: postingDateDefault,
+                onchange: updateCommitmentDate, reqd: 1},
             {fieldtype: "Column Break"},
             {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", read_only: !!sourceRow || companyCredit, reqd: 1},
             {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __(companyCredit ? "Saldo a favor US$" : "Importe (+ / −)"), precision: 2, reqd: 1},
@@ -807,7 +842,9 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldtype: "Column Break"},
             {fieldname: "credit_assigned_to", fieldtype: "Link", options: "User", label: __("Responsable"), default: frappe.session?.user,
                 mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
-            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso de gestión"), default: creditCommitmentDateDefault(), mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
+            {fieldname: "credit_commitment_date", fieldtype: "Date", label: __("Fecha compromiso de gestión"), default: creditCommitmentDateDefault(postingDateDefault),
+                onchange() { if (!updatingCommitmentDate) commitmentDateCustomized = true; },
+                mandatory_depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || doc.subcategory_effect === 'CxC a la empresa'"},
             {fieldname: "subcategory_effect", fieldtype: "Data", hidden: 1},
             {fieldname: "receivable_due_date", fieldtype: "Date", label: __("Vencimiento de la CxC"), depends_on: "eval:doc.category === 'Cuenta por Cobrar a la Empresa' || doc.subcategory_effect === 'CxC a la empresa'", description: __("Si el período tiene plazos registrados, se heredará su vencimiento. En otro caso indique el plazo financiero verificado, no la fecha de gestión.")},
             {fieldtype: "Section Break", label: __("Identificación y seguimiento")},
