@@ -97,6 +97,9 @@ def _bank_account(row):
 
 
 def create_deposits(records, source_file, file_hash):
+    from credinomina_reconciliation.deposit_accounting_sources import (
+        source_parent, source_writer, grouping_key, evidence_values, append_source,
+    )
     if not records:
         return []
     if not frappe.has_permission(DOCTYPE, "create"):
@@ -109,21 +112,53 @@ def create_deposits(records, source_file, file_hash):
     with creation_guard():
         for row in records:
             existing = frappe.db.get_value(DOCTYPE, {"accounting_source_key": row["accounting_source_key"]}, "name", for_update=True)
+            existing = existing or source_parent(row['accounting_source_key'])
             if existing:
                 document = frappe.get_doc(DOCTYPE, existing)
+                if document.get('consolidated_deposit'):
+                    document = frappe.get_doc(DOCTYPE, document.consolidated_deposit)
                 document.check_permission("read")
-                if document.source_currency != row["source_currency"] or decimal_value(document.source_fx_rate) != decimal_value(row.get("source_fx_rate")):
+                original = next((source for source in document.get('accounting_sources') or []
+                                 if source.accounting_source_key == row['accounting_source_key']), document)
+                from credinomina_reconciliation.accounting_evidence import same_ledger_evidence
+                if not same_ledger_evidence(original, evidence_values(row, source_file, file_hash)):
+                    frappe.throw(_("La identidad de esta línea ya existe con otra evidencia. No se omitió ni modificó el movimiento; revise archivo y fila de origen."))
+                if original.source_currency != row["source_currency"] or decimal_value(original.source_fx_rate) != decimal_value(row.get("source_fx_rate")):
                     frappe.throw(_("El depósito {0} ya tiene una moneda/tasa de importación distinta; revise su evidencia antes de reprocesar.").format(existing))
-                row["remittance_allocation"] = existing
+                row["remittance_allocation"] = document.name
                 continue
             if frappe.db.exists("CN Complementary Item", {"accounting_source_key": row["accounting_source_key"]}):
                 frappe.throw(_("Fila {0}: este movimiento ya se registró como partida complementaria. Revise ese registro antes de importarlo como depósito para no duplicar su efecto.").format(row["source_row"]))
             if row.get("resolved_employer"):
                 frappe.get_doc("CN Employer", row["resolved_employer"]).check_permission("read")
             duplicates = frappe.get_all(DOCTYPE, filters={"docstatus": ["!=", 2],
+                'employer': row.get('resolved_employer') or '',
                 "deposit_reference": row["bank_deposit_reference"], "deposit_date": row["deposit_date"],
-                "deposit_currency": row["deposit_currency"], "deposit_amount": row["deposit_amount"]}, pluck="name")
+                "deposit_currency": row["deposit_currency"], "deposit_amount": row["deposit_amount"]},
+                fields=['name', 'bank_account', 'deposit_voucher', 'source_description', 'cash_identity_status'])
             bank, bank_reason = _bank_account(row)
+            from credinomina_reconciliation.deposit_evidence import extract_deposit
+            def possible_repeat(candidate):
+                if candidate.get('cash_identity_status') == 'Origen vinculado':
+                    return False
+                if clean_text(candidate.get('deposit_voucher')) != clean_text(row.get('voucher')):
+                    return False
+                hints = extract_deposit({}, candidate.get('source_description') or '')
+                if all(hints.get(field) and row.get(field) for field in ('bank_name_hint', 'bank_number_hint')):
+                    return all(hints[field] == row[field] for field in ('bank_name_hint', 'bank_number_hint'))
+                return candidate.get('bank_account') == bank or UNIDENTIFIED_BANK_ACCOUNT in {candidate.get('bank_account'), bank}
+            duplicates = [candidate for candidate in duplicates if possible_repeat(candidate)]
+            group_key = grouping_key(row, file_hash)
+            grouped = frappe.db.get_value(DOCTYPE, {'deposit_group_key': group_key,
+                'docstatus': 0, 'cash_identity_status': ['!=', 'Origen vinculado']}, 'name', for_update=True) if group_key else None
+            if grouped:
+                document = frappe.get_doc(DOCTYPE, grouped)
+                document.check_permission('write')
+                with source_writer():
+                    if append_source(document, evidence_values(row, source_file, file_hash)):
+                        document.save()
+                row['remittance_allocation'] = document.name
+                continue
             notes = ["Importado de contabilidad. Revise y confirme el depósito; no se ha conciliado.", bank_reason]
             if duplicates:
                 notes.append("Posible repetición: ya existe un depósito con referencia, fecha, moneda e importe iguales. Se conservó esta línea en borrador; revise antes de confirmar para no duplicar efectivo.")
@@ -132,7 +167,7 @@ def create_deposits(records, source_file, file_hash):
             if not row.get("bank_deposit_currency"):
                 notes.append("Sin importe bancario explícito: se usó el crédito y moneda contables; verifique el depósito completo.")
             notes.append(row.get("bank_deposit_notes") or "")
-            document = frappe.get_doc({"doctype": DOCTYPE,
+            values = {"doctype": DOCTYPE,
                 "employer": row.get("resolved_employer") or "", "bank_account": bank,
                 "deposit_date": row["deposit_date"], "deposit_reference": row["bank_deposit_reference"],
                 "deposit_voucher": row.get("voucher"), "deposit_currency": row["deposit_currency"],
@@ -142,7 +177,13 @@ def create_deposits(records, source_file, file_hash):
                 "source_date": row["event_date"], "source_voucher": row.get("voucher"),
                 "source_client_name": row.get("client_name") or "", "source_loan_number": row.get("loan_number") or "",
                 "source_file": source_file, "source_file_hash": file_hash,
-            }).insert()
+                'deposit_group_key': group_key,
+                'cash_identity_status': 'Revisar identidad' if duplicates else '',
+                'cash_identity_reason': 'Posible repetición de efectivo: verifique si estas líneas representan el mismo depósito.' if duplicates else '',
+                'accounting_sources': [evidence_values(row, source_file, file_hash)],
+            }
+            with source_writer():
+                document = frappe.get_doc(values).insert()
             from credinomina_reconciliation.file_references import attach_existing_file
             attach_existing_file(source_file, DOCTYPE, document.name, "source_file")
             row["remittance_allocation"] = document.name
@@ -151,6 +192,8 @@ def create_deposits(records, source_file, file_hash):
 
 
 def validate_evidence(doc, previous):
+    from credinomina_reconciliation.deposit_accounting_sources import validate_sources
+    validate_sources(doc, previous)
     if not previous or not previous.get("accounting_source_key"):
         return
     for field in EVIDENCE_FIELDS:

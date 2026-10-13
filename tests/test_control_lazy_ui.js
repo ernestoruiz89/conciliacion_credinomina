@@ -9,7 +9,7 @@ const root = {appendTo() {return this;}, html(value) {html = value; renders++; r
         return {attr(values) {Object.assign(state, values);}, prop(key, value) {state[key] = value;},
             trigger(event) {if (event === "focus") focused = selector;}};
     }};
-const data = () => ({year: 2026, totals: {}, work_items: [],
+const data = () => ({year: 2026, totals: {}, work_items: [], work_consultation: "test-consultation",
     unassigned_historical_applications: [
         {parent: "IMP-1", reference: "REF-1", client_name: "Ana <Pérez>", loan_number: "123-1", amount: 25},
         {parent: "IMP-2", reference: "REF-2", loan_number: "456-1", amount: 10},
@@ -28,7 +28,9 @@ const context = vm.createContext({
                 controlRequests++;
                 return Promise.resolve({message: responseData || data()});
             }
-            return new Promise((resolve, reject) => requests.push({args, resolve, reject}));
+            const promise = new Promise((resolve, reject) => requests.push({args, resolve, reject}));
+            // frappe.call may return jQuery's Deferred thenable (without finally).
+            return {then: promise.then.bind(promise)};
         },
         ui: {
             make_app_page: () => ({main: {}, add_field: df => ({df, refresh() {}, set_input() {}, get_value: () => df.fieldname === "year" ? year : ""}),
@@ -165,5 +167,18 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     requests.at(-1).resolve({message: {work_scope: "Todos", work_items: [], work_item_count: 0}});
     await tick();
     assert.doesNotMatch(html, /data-retry-work/);
+    const filtered = handlers['[data-work-filter]'].call({'data-work-filter':'search', value:'Ana'});
+    requests.at(-1).resolve({message:{rows:[work('ANA')],count:1,consultation:'FILTERED'}});
+    await filtered;
+    handlers['[data-refresh-work]'].call({});
+    requests.at(-1).resolve({message:{work_scope:'Todos',work_items:[work('UNFILTERED')],work_item_count:1,consultation:'NEW'}});
+    await tick();
+    assert.equal(requests.at(-1).args.args.search,'Ana','Refresh preserves the search instead of silently clearing it');
+    assert.equal(requests.at(-1).args.args.consultation,'NEW');
+    requests.at(-1).resolve({message:{rows:[work('ANA ACTUALIZADA')],count:1,consultation:'NEW'}});
+    await tick();
+    assert.match(html,/value="Ana"/);
+    assert.match(html,/ANA ACTUALIZADA/);
+    assert.doesNotMatch(html,/Gestión UNFILTERED/);
     console.log("OK: tabs, keyboard, refresh, lazy details, cache, deduplication, stale responses, retry, month navigation and pagination.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

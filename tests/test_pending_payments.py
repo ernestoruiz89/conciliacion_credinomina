@@ -80,7 +80,7 @@ class PendingPaymentTests(unittest.TestCase):
     def test_selected_basis_and_unknown_conversion_are_respected(self):
         for basis in ('', 'Detalle de empresa'):
             with self.subTest(basis=basis):
-                self.assertEqual(self.build(periods=[dict(self.period, application_basis=basis)]), [])
+                self.assertEqual(len(self.build(periods=[dict(self.period, application_basis=basis)])), 1)
         self.collection.update(expected_usd=0, expected_nio=1000)
         self.assertEqual(self.build(), [])
 
@@ -126,8 +126,7 @@ class ReconcileCollectionFeedbackTests(unittest.TestCase):
 
     def test_missing_basis_is_explicit(self):
         self.period.application_basis = ''
-        with self.assertRaisesRegex(ValueError, 'Seleccione la base'):
-            self.invoke({})
+        self.assertEqual(self.invoke({})['differences'], 1)
 
     def test_returns_actual_period_quality_after_reload(self):
         self.period.reload.side_effect = lambda: self.period.collection_rows.extend([

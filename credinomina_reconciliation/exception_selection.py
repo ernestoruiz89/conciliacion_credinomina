@@ -163,6 +163,10 @@ def resolve_related_case(employer, kind, row_id, period=None):
 
 
 def validate_selected_case(doc, previous):
+    from credinomina_reconciliation.exception_policy import can_follow_up_closed
+    if (can_follow_up_closed(doc, previous) and doc.get("period")
+            and frappe.db.get_value("CN Reconciliation Period", doc.period, "status") == "Cerrado"):
+        return  # Frozen identity already checked; management does not reselect the case.
     # Do not interfere with existing automatic reconciliation updates.
     # The picker itself cannot replace a keyed automatic exception's origin.
     if not doc.get("related_case_id"):

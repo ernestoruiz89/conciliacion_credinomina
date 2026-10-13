@@ -8,6 +8,7 @@ from credinomina_reconciliation.aging import collection_shortfall_usd, unassigne
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
+from credinomina_reconciliation.period_presentation import financial_position
 
 
 def execute(filters=None):
@@ -30,6 +31,7 @@ def execute(filters=None):
             "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference",
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "remitted_usd", "fx_variance_usd", "rounding_adjustment_usd",
             "expected_nio", "deducted_nio", "applied_nio", "remitted_nio", "exception_count",
+            "applied_total_usd", "remitted_total_usd", "pending_usd", "status_before_close",
         ],
         order_by="payroll_month desc, employer asc",
     ))
@@ -73,7 +75,7 @@ def execute(filters=None):
             fields=[
                 "parent", "expected_usd", "expected_nio", "deducted_usd",
                 "deduction_status", "deducted_nio", "remitted_usd", "remitted_nio",
-                "fx_variance_usd", "rounding_adjustment_usd",
+                "fx_variance_usd", "rounding_adjustment_usd", "applied_usd", "remittance_detail",
             ],
         ):
             amount = collection_shortfall_usd(item)
@@ -82,9 +84,6 @@ def execute(filters=None):
             employee_by_period[item.parent][0] += amount
             company_by_period[item.parent][0] += unassigned_deduction_usd(item)
             rate = decimal_value(item.expected_nio) / decimal_value(item.expected_usd) if money(item.expected_usd) else 0
-            company_by_period[item.parent][1] += money_float(max(
-                money(item.deducted_nio) - money(item.remitted_nio)
-                - (max(money(item.fx_variance_usd), 0) + max(-money(item.rounding_adjustment_usd), 0)) * rate, 0))
             if flt(item.expected_usd) > 0:
                 employee_by_period[item.parent][1] += (
                     money_float(
@@ -93,6 +92,11 @@ def execute(filters=None):
                     )
                 )
     for row in data:
+        position = financial_position(row)
+        row.update(position)
+        row['financial_state'] = {'conciliado': 'Conciliado', 'parcial': 'Parcial',
+            'en_transito': 'Pendiente', 'excedente': 'Con excedente'}[position['control_state']]
+        row['closure_state'] = 'Cerrado' if row.status == 'Cerrado' else 'Abierto'
         row["usd_currency"] = "USD"
         row['complementary_total_usd'] = money_float(money(row.complementary_usd) + money(row.rounding_adjustment_usd))
         row["nio_currency"] = "NIO"
@@ -108,10 +112,7 @@ def execute(filters=None):
             row["employer_receivable_usd"] = 0
             row["employee_shortfall_nio"] = 0
             row["employer_receivable_nio"] = 0
-            row["historical_pending_usd"] = money_float(max(
-                decimal_value(row.applied_usd) + decimal_value(row.rounding_adjustment_usd)
-                - decimal_value(row.remitted_usd), 0
-            ))
+            row["historical_pending_usd"] = row['financial_pending_usd']
             row["company_credit_usd"] = money_float(credit_by_period.get(row.name, 0))
             continue
         row["employee_shortfall_usd"] = money_float(employee_by_period[row.name][0])
@@ -131,25 +132,20 @@ def get_columns():
         {"fieldname": "reconciliation_mode", "label": _("Modalidad"), "fieldtype": "Data", "width": 100},
         {"fieldname": "collection_cycle", "label": _("Ciclo"), "fieldtype": "Data", "width": 140},
         {"fieldname": "historical_label", "label": _("Corte histórico"), "fieldtype": "Data", "width": 210},
-        {"fieldname": "deduction_basis", "label": _("Origen de deducción"), "fieldtype": "Data", "width": 155},
-        {"fieldname": "deduction_recognition_reference", "label": _("Depósito para deducción"), "fieldtype": "Data", "width": 155},
         {"fieldname": "cutoff_date", "label": _("Cierre del ciclo"), "fieldtype": "Date", "width": 110},
-        {"fieldname": "status", "label": _("Estado"), "fieldtype": "Data", "width": 150},
+        {"fieldname": "financial_state", "label": _("Estado financiero"), "fieldtype": "Data", "width": 150},
+        {"fieldname": "closure_state", "label": _("Cierre"), "fieldtype": "Data", "width": 95},
         {"fieldname": "remittance_due_date", "label": _("Vence depósito"), "fieldtype": "Date", "width": 105},
         {"fieldname": "expected_usd", "label": _("Cobranza enviada US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
-        {"fieldname": "deducted_usd", "label": _("Deducido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 110},
-        {"fieldname": "applied_usd", "label": _("Aplicado al crédito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
+        {"fieldname": "pending_usd", "label": _("Pendiente US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 125},
+        {"fieldname": "financial_applied_usd", "label": _("Aplicado total US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 145},
         {"fieldname": "complementary_total_usd", "label": _("Partidas complementarias US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 175},
-        {"fieldname": "remitted_usd", "label": _("Remitido US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 115},
+        {"fieldname": "financial_covered_usd", "label": _("Asignado total US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 135},
         {"fieldname": "fx_variance_usd", "label": _("Diferencia cambiaria US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 150},
-        {"fieldname": "employee_shortfall_usd", "label": _("Cobranza no deducida US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
-        {"fieldname": "employer_receivable_usd", "label": _("Deducido sin depósito asignado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 225},
-        {"fieldname": "historical_pending_usd", "label": _("Aplicación histórica sin depósito US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 185},
+        {"fieldname": "employee_shortfall_usd", "label": _("Diferencia cobranza/aplicación US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 155},
         {"fieldname": "company_credit_usd", "label": _("Saldo a favor documentado US$"), "fieldtype": "Currency", "options": "usd_currency", "width": 170},
         {"fieldname": "expected_nio", "label": _("Cobrado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 105},
-        {"fieldname": "deducted_nio", "label": _("Deducido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 110},
-        {"fieldname": "remitted_nio", "label": _("Remitido C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
-        {"fieldname": "employee_shortfall_nio", "label": _("Cobranza no deducida equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
-        {"fieldname": "employer_receivable_nio", "label": _("Deducido sin depósito asignado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 225},
+        {"fieldname": "remitted_nio", "label": _("Depositado C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 115},
+        {"fieldname": "employee_shortfall_nio", "label": _("Diferencia cobranza/aplicación equivalente C$"), "fieldtype": "Currency", "options": "nio_currency", "width": 205},
         {"fieldname": "exception_count", "label": _("Excepciones"), "fieldtype": "Int", "width": 90},
     ]

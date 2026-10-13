@@ -8,7 +8,10 @@ def signed_pending(item, balance):
     """The accounting debit/credit, not the editable amount, determines direction."""
     net = money(item.get('source_debit')) - money(item.get('source_credit'))
     pending = balance.get('pending_usd')
-    if pending is None:
+    # An overassignment or a use with the wrong sign cannot become a new
+    # credit/receivable merely by multiplying the invalid remainder by its
+    # ledger direction. Keep it undetermined until its distribution is fixed.
+    if pending is None or money(pending) < 0 or money(balance.get('used_usd')) < 0:
         return None
     if not money(pending):
         return 0.0
@@ -26,7 +29,7 @@ def load_core_items(year=None, employer=None):
     fields = list(dict.fromkeys([*FIELDS, 'accounting_source_key', 'source_date',
         'source_debit', 'source_credit', 'source_currency', 'source_fx_rate',
         'source_voucher', 'source_file', 'source_row', 'source_description',
-        'source_client_name', 'client_number', 'loan_number', 'reference', 'voucher']))
+        'source_client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'reason_type', 'subcategory']))
     items = list(records('CN Complementary Item', fields=fields, filters=filters))
     balances = load_balances(items)  # All-time uses: date filtering must not reset usage.
     for item in items:

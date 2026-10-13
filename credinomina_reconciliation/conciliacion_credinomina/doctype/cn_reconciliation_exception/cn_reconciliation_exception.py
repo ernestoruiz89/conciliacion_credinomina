@@ -11,8 +11,8 @@ _ACTION_FIELDS = (
 )
 
 
-def new_exception_name(period):
-    prefix, digits = f"CN-EXC-{now_datetime().year}-", 4
+def exception_name_prefix(period, creation=None):
+    """Use the period's month, or the original creation year for legacy cases."""
     if period:
         payroll_month = frappe.db.get_value(
             "CN Reconciliation Period", period, "payroll_month"
@@ -20,7 +20,13 @@ def new_exception_name(period):
         if not payroll_month:
             frappe.throw(_("El período seleccionado no tiene mes de cobranza."))
         date = getdate(payroll_month)
-        prefix, digits = f"CN-EXC-{date.month}-{date.year}-", 3
+        return f"CN-EXC-{date.month}-{date.year}-", 3
+    date = getdate(creation or now_datetime())
+    return f"CN-EXC-{date.year}-", 4
+
+
+def new_exception_name(period, creation=None):
+    prefix, digits = exception_name_prefix(period, creation)
     while True:
         name = prefix + getseries(prefix, digits)
         if not frappe.db.exists("CN Reconciliation Exception", name):
@@ -33,6 +39,8 @@ class CNReconciliationException(Document):
 
     def validate(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.exception_policy import validate_policy
+        validate_policy(self, previous)
         self._assert_related_periods_open(previous)
         from credinomina_reconciliation.exception_selection import validate_selected_case
 
@@ -64,6 +72,7 @@ class CNReconciliationException(Document):
         self._validate_follow_up_actions(previous)
 
     def _assert_related_periods_open(self, previous=None):
+        from credinomina_reconciliation.exception_policy import can_follow_up_closed
         periods = {self.period}
         if previous and previous.period:
             periods.add(previous.period)
@@ -71,6 +80,8 @@ class CNReconciliationException(Document):
             if frappe.db.get_value(
                 "CN Reconciliation Period", period_name, "status"
             ) == "Cerrado":
+                if can_follow_up_closed(self, previous):
+                    continue
                 frappe.throw(_(
                     "El período {0} está cerrado. Use Reabrir período antes de modificar "
                     "sus excepciones o gestiones."
@@ -95,6 +106,8 @@ class CNReconciliationException(Document):
         if not period_name or frappe.db.get_value(
             "CN Reconciliation Period", period_name, "reconciliation_mode"
         ) == "Historica":
+            return
+        if frappe.db.get_value("CN Reconciliation Period", period_name, "status") == "Cerrado":
             return
         count = frappe.db.count(
             "CN Reconciliation Exception",
@@ -145,6 +158,8 @@ class CNReconciliationException(Document):
             from credinomina_reconciliation.complementary_exceptions import sync_item_registration
             sync_item_registration(self)
             return  # Accounting follow-up never recalculates financial periods.
+        if self.period and frappe.db.get_value("CN Reconciliation Period", self.period, "status") == "Cerrado":
+            return  # Nonblocking follow-up must not mutate the frozen period.
         self._refresh_period_exception_count(self.period)
         if previous and previous.period and previous.period != self.period:
             self._refresh_period_exception_count(previous.period)

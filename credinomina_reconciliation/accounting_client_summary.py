@@ -24,7 +24,30 @@ def collection_links(row, net):
     return links
 
 
-def build_summary(document, collections):
+def collection_link_issue(links, net, collections, usage=None):
+    """Validate monetary links before any report treats them as applied debt."""
+    amounts = defaultdict(lambda: money(0))
+    for link in links:
+        amount = money(link.get('amount_usd'))
+        if amount < 0:
+            return 'Vínculos de aplicación inconsistentes: hay un importe negativo; revise la conciliación.'
+        amounts[link.get('collection_row_id')] += amount
+    linked = sum_money(amounts.values())
+    if linked > money(net):
+        return (f'Vínculos de aplicación inconsistentes: suman US$ {linked:.2f} '
+                f'y el aplicado neto es US$ {money(net):.2f}; revise la conciliación.')
+    for claim, amount in amounts.items():
+        collection = collections.get(claim)
+        if collection is None:
+            return 'Distribución no disponible: revise los vínculos de la aplicación y sus permisos.'
+        applied = collection.get('applied_usd')
+        if applied is not None and (amount > money(applied) or (
+                usage is not None and usage.get(claim, 0) > money(applied))):
+            return 'Vínculos de aplicación inconsistentes: superan el aplicado de la cobranza; revise la conciliación.'
+    return ''
+
+
+def build_summary(document, collections, *, collection_usage=None):
     customers, claims = {}, defaultdict(list)
 
     def add(group, net, paid=0, rounding=0, reason=''):
@@ -59,8 +82,9 @@ def build_summary(document, collections):
             continue
         links = collection_links(row, net)
         linked = sum_money(link.get('amount_usd') for link in links)
-        if linked > money(net) or any(money(link.get('amount_usd')) < 0 for link in links):
-            add(group, net, None, None, 'Vínculos de aplicación inconsistentes; revise la conciliación.')
+        issue = collection_link_issue(links, net, collections, collection_usage)
+        if issue:
+            add(group, net, None, None, issue)
             continue
         for link in links:
             claims[link.get('collection_row_id')].append((group, money(link.get('amount_usd'))))
@@ -73,7 +97,8 @@ def build_summary(document, collections):
         cash = sum_money(item.get('importe_usd') for item in entries(collection.get('remittance_detail'))
                          if item.get('destino') != 'Partida complementaria') if collection else 0
         rounding = money(collection.get('rounding_adjustment_usd')) if collection else 0
-        uncertain = not collection or len(groups) > 1 or ((cash or rounding) and local != money(collection.get('applied_usd')))
+        overlinked = collection and collection.get('applied_usd') is not None and local > money(collection['applied_usd'])
+        uncertain = not collection or overlinked or len(groups) > 1 or ((cash or rounding) and local != money(collection.get('applied_usd')))
         if uncertain:
             for group, amount in parts:
                 add(group, amount, None, None, 'Distribución compartida o no disponible: no se puede atribuir el depósito a esta importación. Consulte el período.')

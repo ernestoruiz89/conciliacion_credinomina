@@ -5,6 +5,8 @@ for new cash. Its origin stays linked to the negative adjustment. Only actual
 deposit distributions or confirmed offsets reduce the receivable.
 """
 import re
+import json
+from itertools import islice
 from uuid import uuid4
 
 import frappe
@@ -151,7 +153,7 @@ def preview_recovery(item_name):
                 continue
             if receipt.get('category') != 'Compensación entre partidas':
                 reserved += max(money(receipt.get('amount_usd')) - money(balances[receipt['name']]['used_usd']), money(0))
-        companies.append(dict(row, available_usd=money_float(max(money(row['receivable_usd']) - reserved, money(0)))))
+        companies.append(dict(row, available_usd=None if row['receivable_usd'] is None else money_float(max(money(row['receivable_usd']) - reserved, money(0)))))
     return {'request_key': uuid4().hex, 'companies': companies, 'receipts': receipts}
 
 
@@ -161,7 +163,8 @@ def _check_cash_destination(deposit, employer, amount):
     deposit.check_permission('write')
     if deposit.docstatus != 1 or employer not in allowed_employers(deposit.employer):
         frappe.throw(_('Seleccione un depósito confirmado que pueda pagar a esta empresa.'))
-    available = money(deposit.amount_usd) - money(deposit.allocated_usd) - money(deposit.justified_surplus_usd)
+    deposit._assert_open_related_periods()
+    available = cash_available(deposit)
     if amount > available:
         frappe.throw(_('El depósito no tiene suficiente importe sin distribuir.'))
     targets = {row.get('complementary_item') for row in deposit.get('targets') or []} - {None, ''}
@@ -172,6 +175,184 @@ def _check_cash_destination(deposit, employer, amount):
         if invalid:
             frappe.throw(_('El depósito {0} conserva destinos de partidas canceladas o sin confirmar ({1}). Abra el depósito y retire o corrija esos destinos antes de aplicar un nuevo cobro. El historial de la partida y su cancelación se conserva.').format(
                 deposit.name, ', '.join(invalid)))
+
+
+def cash_available(deposit):
+    reserved = sum((max(money(row.get('amount_usd')), money(0)) for row in deposit.get('targets') or []
+                    if row.get('result') != 'Aplicada'), money(0))
+    return max(money(deposit.amount_usd) - money(deposit.allocated_usd)
+               - money(deposit.justified_surplus_usd) - reserved, money(0))
+
+
+def _candidate_value(document, employer, method):
+    if method == 'Depósito':
+        _check_cash_destination(document, employer, money('0.01'))
+        return cash_available(document)
+    from credinomina_reconciliation.complementary_compensation import _eligible, _direction, balance, CREDIT_CATEGORIES
+    document.check_permission('read')
+    document.check_permission('write')
+    if (document.employer != employer or document.get('receivable_origin')
+            or document.category in CREDIT_CATEGORIES or _direction(document) != -1):
+        frappe.throw(_('Seleccione una contrapartida de crédito de la misma empresa.'))
+    _eligible(document)
+    available = money(balance(document)['pending_usd'])
+    if available <= 0:
+        frappe.throw(_('La contrapartida no tiene saldo disponible.'))
+    return available
+
+
+def _recovery_scope(item_name, employer, method):
+    if method not in {'Depósito', 'Compensación'}:
+        frappe.throw(_('Seleccione el medio de liquidación.'))
+    preview = preview_recovery(item_name)
+    company = next((row for row in preview['companies'] if row.get('employer') == employer), None)
+    if company and company.get('receivable_usd') is None:
+        frappe.throw(_('La CxC tiene cobros o compensaciones inconsistentes. Revise sus vínculos antes de registrar otra liquidación.'))
+    if not company or money(company['available_usd']) <= 0:
+        frappe.throw(_('La empresa no tiene CxC disponible en esta partida.'))
+    return company
+
+
+@frappe.whitelist()
+def get_recovery_destination(item_name, employer, method, destination):
+    company = _recovery_scope(item_name, employer, method)
+    doctype = 'CN Remittance Allocation' if method == 'Depósito' else 'CN Complementary Item'
+    document = frappe.get_doc(doctype, destination)
+    available = _candidate_value(document, employer, method)
+    return dict(name=document.name, available_usd=money_float(available),
+                receivable_usd=company['available_usd'],
+                suggested_usd=money_float(min(available, money(company['available_usd']))))
+
+
+def _prefilter_recovery_candidates(rows, method):
+    """Batch cheap availability/closed-period checks before loading documents.
+
+    These are exclusions, not authorization or settlement. The candidate and
+    confirmation paths still run every permission, lock and financial check.
+    """
+    from collections import defaultdict
+    from credinomina_reconciliation.report_records import child_records
+    from credinomina_reconciliation.complementary_compensation import _direction, CREDIT_CATEGORIES
+    pending, periods, items, journals = [], set(), set(), {}
+    for row in rows:
+        if method == 'Depósito':
+            if cash_available(row) <= 0:
+                continue
+            try:
+                journal = json.loads(row.get('allocation_detail') or '[]')
+                if not isinstance(journal, list) or any(not isinstance(entry, dict) for entry in journal):
+                    continue
+            except (ValueError, TypeError):
+                continue
+            journals[row.name] = journal
+            periods.update(entry['periodo'] for entry in journal if entry.get('periodo'))
+            items.update(entry['partida'] for entry in journal if entry.get('partida') and not entry.get('periodo'))
+        else:
+            if (row.get('receivable_origin') or row.get('registration_exception') or row.get('related_application')
+                    or row.get('registered_deposit') or row.category in set(CREDIT_CATEGORIES) | {'Ajuste de aplicación', 'Diferencia por tolerancia'}
+                    or (row.docstatus == 1 and row.category != 'Compensación entre partidas')
+                    or row.get('review_action') in {'Ajuste de aplicación', 'Partida de depósito', 'Reversión identificada'}):
+                continue
+            # Direction is derived from original evidence for core imports.
+            debit, credit = money(row.get('source_debit')), money(row.get('source_credit'))
+            if row.get('accounting_source_key') and not (credit > 0 and debit == 0):
+                continue
+            if _direction(row) != -1 or getdate(row.posting_date) > getdate(nowdate()):
+                continue
+            if row.get('period'):
+                periods.add(row.period)
+        pending.append(row)
+    if not pending:
+        return []
+    names = [row.name for row in pending]
+    targets = defaultdict(list)
+    linked = set()
+    if method == 'Depósito':
+        for target in child_records('CN Remittance Target', names, 'CN Remittance Allocation', 'targets',
+                fields=['parent', 'amount_usd', 'result', 'complementary_item']):
+            targets[target.parent].append(target)
+            if target.get('complementary_item'):
+                items.add(target.complementary_item)
+    else:
+        # This query returns only exclusion identifiers, never hidden deposit data.
+        linked = set(frappe.get_all('CN Remittance Target', filters={
+            'complementary_item': ['in', names], 'docstatus': ['<', 2]}, pluck='complementary_item', limit_page_length=0))
+    item_rows = {row.name: row for row in frappe.get_all('CN Complementary Item',
+        filters={'name': ['in', sorted(items)]}, fields=['name', 'period', 'docstatus'], limit_page_length=0)} if items else {}
+    periods.update(row.period for row in item_rows.values() if row.period)
+    closed = set(frappe.get_all('CN Reconciliation Period', filters={
+        'name': ['in', sorted(periods)], 'status': 'Cerrado'}, pluck='name', limit_page_length=0)) if periods else set()
+    offsets = defaultdict(lambda: money(0))
+    if method != 'Depósito':
+        for entry in child_records('CN Complementary Offset', names, 'CN Complementary Item', 'compensations',
+                filters={'compensation_date': ['<=', nowdate()]}, fields=['parent', 'amount_usd']):
+            offsets[entry.parent] += money(entry.amount_usd)
+    result = []
+    for row in pending:
+        if method == 'Depósito':
+            if any((entry.get('periodo') or item_rows.get(entry.get('partida'), {}).get('period')) in closed
+                   for entry in journals[row.name]):
+                continue
+            if any(target.get('complementary_item') and item_rows.get(target.complementary_item, {}).get('docstatus') != 1
+                   for target in targets[row.name]):
+                continue
+            if cash_available(frappe._dict(row, targets=targets[row.name])) <= 0:
+                continue
+        elif row.name in linked or row.get('period') in closed or abs(money(row.amount_usd)) - offsets[row.name] <= 0:
+            continue
+        result.append(row)
+    return result
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def search_recovery_destinations(doctype, txt, searchfield, start, page_len, filters):
+    from frappe.utils import cint
+    from credinomina_reconciliation.report_records import records
+    from credinomina_reconciliation.paying_employers import load_payer_map
+    filters = frappe.parse_json(filters) if isinstance(filters, str) else (filters or {})
+    employer, method = filters.get('employer'), filters.get('method')
+    _recovery_scope(filters.get('item_name'), employer, method)
+    expected = 'CN Remittance Allocation' if method == 'Depósito' else 'CN Complementary Item'
+    if doctype != expected:
+        frappe.throw(_('Tipo de destino no válido.'))
+    if method == 'Depósito':
+        payers = [employer, *[payer for payer, beneficiaries in load_payer_map().items() if employer in beneficiaries]]
+        scope = {'docstatus': 1, 'employer': ['in', payers]}
+        search_fields = ('name', 'deposit_reference', 'bank_account')
+        date_field = 'deposit_date'
+    else:
+        scope = {'docstatus': ['!=', 2], 'employer': employer, 'name': ['!=', filters.get('item_name')]}
+        search_fields = ('name', 'reference', 'voucher', 'description')
+        date_field = 'posting_date'
+    offset, limit, found, result = max(cint(start), 0), min(max(cint(page_len), 1), 50), 0, []
+    fields = (['amount_usd', 'allocated_usd', 'justified_surplus_usd', 'allocation_detail'] if method == 'Depósito' else
+              ['category', 'review_action', 'amount_usd', 'registration_exception', 'related_application',
+               'registered_deposit', 'receivable_origin', 'period', 'accounting_source_key', 'source_debit', 'source_credit'])
+    rows = iter(records(doctype, fields=['name', 'employer', 'docstatus', date_field, *fields], filters=scope,
+                or_filters={field: ['like', '%' + (txt or '')[:200] + '%'] for field in search_fields},
+                order_by=f'{date_field} asc, name asc'))
+    def candidates():
+        while batch := list(islice(rows, 250)):
+            yield from _prefilter_recovery_candidates(batch, method)
+    for row in candidates():
+        document = frappe.get_doc(doctype, row.name)
+        message_count = len(frappe.local.message_log or [])
+        try:
+            available = _candidate_value(document, employer, method)
+        except (frappe.ValidationError, frappe.PermissionError):
+            # Rejected candidates are omitted, not shown as errors in a search dropdown.
+            frappe.local.message_log = (frappe.local.message_log or [])[:message_count]
+            continue
+        if found >= offset:
+            result.append([row.name, str(document.get(date_field)), document.employer,
+                           _('Disponible US$ {0}').format(f'{available:,.2f}'),
+                           document.get('deposit_reference') or document.get('reference') or '',
+                           document.get('bank_account') or document.get('voucher') or ''])
+        found += 1
+        if len(result) >= limit:
+            break
+    return result
 
 
 @frappe.whitelist(methods=['POST'])

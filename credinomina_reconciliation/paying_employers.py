@@ -57,8 +57,40 @@ def choose_detail_client(row, clients, payer, allowed=None, loan_clients=None):
     company = clean_text(row.get("employer"))
     if company and company not in allowed:
         return None, "Conflicto: empresa no autorizada para este depósito"
-    scoped = [client for client in clients if clean_text(client.get("employer")) in allowed
+    if row.get('loan_number') and getattr(loan_clients, 'loan_employers', None):
+        from credinomina_reconciliation.deposit_identity import credit_key
+        companies = loan_clients.loan_employers.get(credit_key(row.get('loan_number')), set()) & allowed
+        if company and companies and company not in companies:
+            return None, 'Conflicto: el crédito no tiene evidencia en la empresa de la fila'
+        if not company and len(companies) == 1:
+            company = next(iter(companies))
+    current_index = getattr(loan_clients, 'current_index', None)
+    candidate_clients = current_index.candidates(row) if current_index is not None else clients
+    if current_index is not None and row.get('loan_number'):
+        from credinomina_reconciliation.deposit_identity import credit_key
+        loan_names = loan_clients.get(credit_key(row.get('loan_number')), ())
+        candidate_clients = [*candidate_clients, *[current_index.by_name[name] for name in loan_names if name in current_index.by_name]]
+    scoped = [client for client in candidate_clients if clean_text(client.get("employer")) in allowed
               and (not company or clean_text(client.get("employer")) == company)]
+    profiles = getattr(loan_clients, 'company_clients', {})
+    historical_index = getattr(loan_clients, 'historical_index', None)
+    if historical_index is not None:
+        candidates = historical_index.candidates(row)
+        if row.get('loan_number'):
+            candidates += [profile for records in profiles.values() for name, profile in records.items() if name in loan_names]
+        profiles = {}
+        for profile in candidates:
+            profiles.setdefault(profile['employer'], {})[profile['name']] = profile
+    by_name = {client['name']: client for client in scoped}
+    for historical_company, historical_clients in profiles.items():
+        if historical_company in allowed and (not company or company == historical_company):
+            for name, client in historical_clients.items():
+                if name in by_name and by_name[name].get('employer') != historical_company and not company:
+                    # A payer authorized for BOTH companies cannot silently
+                    # choose a beneficiary when the person moved between them.
+                    return None, 'Conflicto: cliente con evidencia en varias empresas; indique la empresa de la fila'
+                by_name[name] = client
+    scoped = list(by_name.values())
     from credinomina_reconciliation.deposit_identity import resolve_detail_identity
     return resolve_detail_identity(row, scoped, loan_clients)
 

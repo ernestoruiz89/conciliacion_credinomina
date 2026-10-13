@@ -5,6 +5,7 @@ from datetime import date, timedelta
 import json
 
 from credinomina_reconciliation.aging import age_balance
+from credinomina_reconciliation.accounting_client_summary import collection_links, collection_link_issue
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -16,6 +17,20 @@ IDENTITY_FIELDS = (
     "client", "client_name", "client_number", "national_id", "loan_number",
     "installment_number",
 )
+
+
+def balance_status(source):
+    """One presentation state for an application's current financial position."""
+    if source.get('distribution_issue'):
+        return 'Revisar distribución'
+    if source.get('amount_usd') is None:
+        return 'Sin conversión US$'
+    if (money(source.get('paid_usd')) > money(source.get('applied_usd')) + money(source.get('adjustment_usd'))
+            or money(source.get('fx_variance_usd'))):
+        return 'Revisar distribución'
+    if money(source.get('amount_usd')) <= 0:
+        return 'Conciliado'
+    return 'Parcial' if money(source.get('paid_usd')) > 0 or source.get('has_application_adjustment') else 'Pendiente'
 
 
 def deposit_due_date(application_date, grace_days=10):
@@ -32,7 +47,7 @@ def _details(value):
     return entries if isinstance(entries, list) else []
 
 
-def application_balances(sources, imports, periods, collections, employers, as_of, *, include_settled=False):
+def application_balances(sources, imports, periods, collections, employers, as_of, *, include_settled=False, include_reviews=False):
     """Build balances without modifying allocations or offsetting unrelated credits.
 
     Operative cash belongs to a collection claim, not to each application. Group
@@ -41,6 +56,20 @@ def application_balances(sources, imports, periods, collections, employers, as_o
     """
     groups = defaultdict(list)
     output = []
+    sources = list(sources)
+    usage = defaultdict(lambda: money(0))
+    for source in sources:
+        document = imports.get(source.get('parent'), {})
+        if (not document or source.get('event_type') != 'Aplicacion' or not source.get('effective')
+                or source.get('match_status') == 'Ignorado' or source.get('historical_period')
+                or document.get('historical_period') or document.get('historical_backfill')
+                or source.get('processing_route') == 'Historica'):
+            continue
+        try:
+            for link in collection_links(source, converted_amount(source, 'USD')):
+                usage[link.get('collection_row_id')] += max(money(link.get('amount_usd')), 0)
+        except (ValueError, TypeError):
+            pass  # The affected row below retains the invalid-evidence warning.
 
     def base(source, period, employer, mode):
         period = period or {}
@@ -53,6 +82,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             **{field: source.get(field) for field in IDENTITY_FIELDS},
             "source_import": source.get("parent"),
             "source_rows": source.get("name") or "",
+            "has_application_adjustment": money(source.get("application_adjustment_usd")) > 0,
             "application_date": source.get("event_date"),
             "period": period.get("name"), "employer": employer,
             "payroll_month": period.get("payroll_month"),
@@ -66,7 +96,8 @@ def application_balances(sources, imports, periods, collections, employers, as_o
 
     def emit(item, applied, paid=0, adjustment=0, fx=0):
         balance = max(money(applied) + money(adjustment) - money(paid), 0)
-        if balance <= 0 and not include_settled:
+        review = money(paid) > money(applied) + money(adjustment) or money(fx)
+        if balance <= 0 and not include_settled and not (include_reviews and review):
             return
         output.append({
             **item, "applied_usd": money_float(applied),
@@ -99,6 +130,13 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         if applied is None:
             output.append({**item, "observation": "Falta tipo de cambio; saldo US$ sin determinar"})
             continue
+        if source.get('_cutoff_distribution_issue'):
+            issue = source['_cutoff_distribution_issue']
+            output.append({**item, 'applied_usd': money_float(applied),
+                'paid_usd': None, 'adjustment_usd': None, 'fx_variance_usd': None,
+                'amount_usd': None, 'distribution_issue': issue, 'observation': issue,
+                **age_balance(None, item.get('due_date'), as_of)})
+            continue
         if money(applied) <= 0:
             if include_settled and money(source.get("application_adjustment_usd")) > 0:
                 item["observation"] = "Aplicación compensada por ajuste; no representa un depósito"
@@ -115,11 +153,21 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             emit(item, applied, paid, adjustment)
             continue
 
-        links = []
-        if source.get("match_status") in {"Conciliado", "Enlace provisional"}:
-            links = _details(source.get("application_allocation_detail"))
-            if not links and source.get("collection_row_id"):
-                links = [{"collection_row_id": source["collection_row_id"], "amount_usd": applied}]
+        try:
+            links = collection_links(source, applied)
+            # Missing claims may belong to an inaccessible period. Preserve
+            # the caller's scope instead of exposing them as unlinked debt.
+            if any(link.get('collection_row_id') not in collections for link in links):
+                continue
+            issue = collection_link_issue(links, applied, collections, usage)
+        except (ValueError, TypeError):
+            issue = 'Detalle de distribución inválido; revise los vínculos de la aplicación.'
+        if issue:
+            output.append({**item, 'applied_usd': money_float(applied),
+                'paid_usd': None, 'adjustment_usd': None, 'fx_variance_usd': None,
+                'amount_usd': None, 'distribution_issue': issue, 'observation': issue,
+                **age_balance(None, item.get('due_date'), as_of)})
+            continue
         for link in links:
             collection = collections.get(link.get("collection_row_id"))
             if not collection:
@@ -145,13 +193,15 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         adjustment = money(collection.get("rounding_adjustment_usd")) - sum_money(
             entry.get("diferencia_usd") for entry in _details(collection.get("remittance_detail")) if entry.get("aplicacion_directa"))
         applied = sum_money(part["applied_usd"] for part in parts)
-        if max(applied + adjustment - paid, 0) <= 0 and not include_settled:
+        if max(applied + adjustment - paid, 0) <= 0 and not include_settled and not (
+                include_reviews and (paid > applied + adjustment or money(collection.get('fx_variance_usd')))):
             continue
         dates = {part["due_date"] for part in parts}
         if len(dates) > 1 and (paid or adjustment):
             # Do not invent a payment order when the stored allocation does
             # not identify which month's applications were covered.
             item = dict(parts[0], due_date=None, application_date=None)
+            item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in parts)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in parts if part["source_rows"]}))
             if len({part["source_import"] for part in parts}) > 1:
                 item["source_import"] = None
@@ -163,6 +213,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             by_due[part["due_date"]].append(part)
         for grouped in by_due.values():
             item = dict(grouped[0])
+            item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in grouped)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in grouped if part["source_rows"]}))
             application_dates = [part["application_date"] for part in grouped if part.get("application_date")]
             item["application_date"] = min(application_dates) if application_dates else None

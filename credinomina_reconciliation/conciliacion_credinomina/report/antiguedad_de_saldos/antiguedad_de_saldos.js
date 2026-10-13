@@ -10,6 +10,12 @@ frappe.query_reports["Antiguedad de Saldos"] = {
         { fieldname: "client_number", label: __("Nro. Cliente"), fieldtype: "Data" },
         { fieldname: "national_id", label: __("Nro. Cédula"), fieldtype: "Data" },
         { fieldname: "loan_number", label: __("Nro. Crédito"), fieldtype: "Data" },
-        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", default: "CxC total", options: "CxC total\nAplicado pendiente de depósito\nCxC por ajustes\nCobranza no deducida (informativo)\nDeducido sin depósito asignado\nDetalle de empresa pendiente\nDetalle de empresa por aclarar" },
+        { fieldname: "balance_type", label: __("Tipo de saldo"), fieldtype: "Select", default: "CxC total", options: "CxC total\nAplicado pendiente de depósito\nCxC por ajustes\nDiferencia cobranza vs aplicación (informativo)\nCobranza sin conversión US$" },
     ],
+    formatter(value, row, column, data, default_formatter) {
+        if (data && column.fieldtype === "Currency" && data[column.fieldname] == null) {
+            return `<span title="${__("Importe pendiente de determinar; revise el estado del saldo.")}">N/D</span>`;
+        }
+        return default_formatter(value, row, column, data);
+    },
 };

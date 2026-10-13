@@ -4,9 +4,11 @@ from frappe import _
 from frappe.utils import cint, nowdate
 
 from credinomina_reconciliation.company_transactions import (
-    IMPORTED, application_state, deposit_state, monthly_counts, application_month_amounts, deposit_month_amounts,
+    IMPORTED, application_progress_index, deposit_state, monthly_counts, application_month_amounts, deposit_month_amounts,
 )
 from credinomina_reconciliation import complementary_transactions
+from credinomina_reconciliation.application_context import import_company_scope, application_employer
+from credinomina_reconciliation.report_records import records as readable_records, child_records
 
 TRANSACTION_DOCTYPES = {"Aplicaciones": "CN Accounting Import", "Depósitos": "CN Remittance Allocation",
                        **{kind: "CN Complementary Item" for kind in complementary_transactions.KINDS}}
@@ -28,7 +30,8 @@ def execute(filters=None):
     dates = [f"{year}-01-01", f"{year}-12-31"]
     scoped = {"employer": filters.employer} if filters.get("employer") else {}
     records, sources, by_name = load_transactions(kind, drafts, scoped, dates)
-    amounts = (application_month_amounts(sources, by_name, load_partial_collections(sources, by_name))
+    progress, collections = _application_progress(records, sources, by_name) if kind == "Aplicaciones" else ({}, {})
+    amounts = (application_month_amounts(sources, by_name, collections, progress)
                if kind == "Aplicaciones" else complementary_transactions.month_amounts(sources)
                if kind in complementary_transactions.KINDS else deposit_month_amounts(sources))
     data = monthly_counts(records, year, amounts)
@@ -47,7 +50,7 @@ def execute(filters=None):
         message += " " + _("Partidas complementarias: un documento por transacción y empresa titular. Las contables usan la fecha original del movimiento; las sin origen contable usan la fecha de la partida. "
             "La separación utiliza la identidad de importación contable, no el comprobante. Se excluyen canceladas y tolerancias revertidas. "
             "La cobertura usa importes absolutos para no compensar signos entre partidas; considera depósitos, ajustes y compensaciones confirmados de cualquier mes. "
-            "Los tratamientos No conciliatoria y Registro contable verificado cuentan como resueltos, no como efectivo recibido. "
+            "No conciliatoria conserva su saldo pendiente hasta vincular una liquidación real. Registro contable verificado acredita un asiento, no efectivo recibido. "
             "Un saldo a favor documentado puede estar conciliado aunque su gestión siga pendiente.")
     else:
         message += " " + (_("Aplicaciones: una transacción por fila de aplicación, según Fecha del movimiento; no por documento ni por período. "
@@ -65,7 +68,7 @@ def execute(filters=None):
 def transaction_summary(records):
     return [{"label": _(label), "value": sum(record["state"] == state for record in records), "datatype": "Int", "indicator": color}
         for state, label, color in (("Conciliado", "Conciliadas", "Green"), ("Parcial", "Parcialmente conciliadas", "Orange"),
-                                    ("Pendiente", "Pendientes", "Red"))]
+                                    ("Pendiente", "Pendientes", "Red"), ("Revisar distribución", "Distribuciones inconsistentes", "Red"))]
 
 
 def load_transactions(kind, drafts, scoped, dates, detail=False):
@@ -77,9 +80,19 @@ def load_transactions(kind, drafts, scoped, dates, detail=False):
     if kind == "Aplicaciones":
         # Accounting imports are not submittable; their business status defines drafts.
         statuses = sorted(IMPORTED | ({"Borrador"} if drafts else set()))
-        parents = frappe.get_list(doctype, filters={**scoped, "status": ["in", statuses], "docstatus": ["!=", 2]},
+        company = scoped.get("employer")
+        company_filter = import_company_scope(company) if isinstance(company, str) else {}
+        parents = frappe.get_list(doctype, filters={"status": ["in", statuses], "docstatus": ["!=", 2]},
+            **company_filter,
             fields=["name", "employer", "status", "historical_period", "historical_backfill"], limit_page_length=0)
         by_name = {parent.name: parent for parent in parents}
+        # A legacy import can contain rows for several companies. Resolve each
+        # row rather than changing its parent or allocating the entire file.
+        legacy = any(not parent.get("employer") for parent in parents)
+        periods = {row.name: row for row in readable_records("CN Reconciliation Period",
+            fields=["name", "employer"])} if legacy and frappe.has_permission("CN Reconciliation Period", "read") else {}
+        collections = {row.name: row for row in child_records("CN Collection Row", periods,
+            "CN Reconciliation Period", "collection_rows", fields=["name", "parent"])} if legacy else {}
         names = list(by_name)
         sources = []
         for offset in range(0, len(names), 500):
@@ -91,34 +104,47 @@ def load_transactions(kind, drafts, scoped, dates, detail=False):
                         "historical_remitted_usd", "application_adjustment_usd", "event_type", "amount", "currency",
                         "equivalent_amount", "equivalent_currency", "fx_basis", "manual_fx_rate",
                         "historical_period", "historical_detail", "processing_route", "collection_row_id", "application_allocation_detail",
-                        "client", "client_number", "national_id", "client_name", "loan_number"]
+                        "client", "client_number", "national_id", "client_name", "loan_number", "portfolio_employer"]
                         + (["idx", "reference", "voucher", "receipt", "deposit_match_reason", "match_reason"] if detail else []),
                 limit_page_length=0)
-            sources.extend(rows)
             for row in rows:
                 parent = by_name[row.parent]
-                records.append({"name": row.name, "employer": parent.employer, "date": row.event_date, "state": application_state(row, parent)})
+                if not parent.get("employer") and (row.get("historical_period") or parent.get("historical_period")) not in (None, "", *periods):
+                    continue  # Do not expose an inaccessible legacy period.
+                resolved = application_employer(row, parent, periods, collections)
+                if (isinstance(company, str) and resolved != company) or (isinstance(company, list) and resolved):
+                    continue
+                row["report_employer"] = resolved
+                sources.append(row)
+                # State is resolved after loading the monetary evidence for ALL
+                # rows, including those whose saved label says "conciliado".
+                records.append({"name": row.name, "employer": resolved, "date": row.event_date, "state": "Pendiente"})
         return records, sources, by_name
     else:
         rows = frappe.get_list(doctype, filters={**scoped, "docstatus": ["in", [0, 1]] if drafts else 1,
             "deposit_date": ["between", dates]}, fields=["name", "employer", "deposit_date", "docstatus", "result",
-                "amount_usd", "allocated_usd", "justified_surplus_usd", "unclassified_usd"]
+                "amount_usd", "allocated_usd", "justified_surplus_usd", "unclassified_usd", "detail_status", "cash_identity_status"]
                 + (["bank_account", "deposit_reference", "deposit_voucher", "deposit_currency", "deposit_amount"] if detail else []),
             limit_page_length=0)
+        rows = [row for row in rows if row.get('cash_identity_status') != 'Origen vinculado']
         records = [{"name": row.name, "employer": row.employer, "date": row.deposit_date, "state": deposit_state(row)} for row in rows]
         return records, rows, {}
 
 
-def load_partial_collections(sources, imports, partial_only=True):
-    """Read only the collection claims needed for partial operative applications."""
+def load_application_collections(sources, imports):
+    """Batch-read operative claims irrespective of their saved workflow label."""
     from credinomina_reconciliation.accounting_client_summary import collection_links
     from credinomina_reconciliation.reconciliation import converted_amount
     ids = set()
     for row in sources:
         parent = imports[row["parent"]]
         historical = row.get("historical_period") or parent.get("historical_period") or parent.get("historical_backfill") or row.get("processing_route") == "Historica"
-        if not historical and (not partial_only or application_state(row, parent) == "Parcial"):
-            ids.update(link.get("collection_row_id") for link in collection_links(row, converted_amount(row, "USD")))
+        if (not historical and parent.get("status") in IMPORTED and row.get("effective")
+                and row.get("match_status") != "Ignorado"):
+            try:
+                ids.update(link.get("collection_row_id") for link in collection_links(row, converted_amount(row, "USD")))
+            except (ValueError, TypeError):
+                continue  # Display the row as inconsistent rather than trusting its saved label.
     ids.discard(None)
     ids.discard("")
     if not ids or not frappe.has_permission("CN Reconciliation Period", "read"):
@@ -136,6 +162,15 @@ def load_partial_collections(sources, imports, partial_only=True):
     return result
 
 
+def _application_progress(records, sources, imports):
+    """One read-only monetary snapshot for filters, counts and displayed detail."""
+    collections = load_application_collections(sources, imports)
+    progress = application_progress_index(sources, imports, collections)
+    for record in records:
+        record["state"] = progress[record["name"]]["state"]
+    return progress, collections
+
+
 def columns():
     months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sept", "Oct", "Nov", "Dic"]
     return [{"fieldname": "employer", "label": _("Empresa"), "fieldtype": "Link", "options": "CN Employer", "width": 240},
@@ -147,13 +182,11 @@ def columns():
 @frappe.whitelist()
 def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0):
     """Read-only detail of one cell, with the same inclusion rules as the report."""
-    from credinomina_reconciliation.accounting_client_summary import build_summary
-    from credinomina_reconciliation.reconciliation import converted_amount
     from credinomina_reconciliation.rounding import money, money_float
 
     if not str(year).isdigit() or not 1900 <= int(year) <= 9998 or not str(month).isdigit() or not 1 <= int(month) <= 12:
         frappe.throw(_("Indique un año y mes válidos."))
-    if transaction_type not in TRANSACTION_DOCTYPES or state not in {"", "Conciliado", "Parcial", "Pendiente"}:
+    if transaction_type not in TRANSACTION_DOCTYPES or state not in {"", "Conciliado", "Parcial", "Pendiente", "Revisar distribución"}:
         frappe.throw(_("Tipo de transacción o estado inválido."))
     doctype = TRANSACTION_DOCTYPES[transaction_type]
     if not frappe.has_permission(doctype, "read"):
@@ -161,7 +194,16 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     year, month = int(year), int(month)
     dates = [f"{year}-{month:02}-01", f"{year}-{month:02}-{monthrange(year, month)[1]}"]
     scope = {"employer": employer} if employer else {"employer": ["is", "not set"]}
-    records, sources, parents = load_transactions(transaction_type, bool(cint(include_drafts)), scope, dates, detail=True)
+    # Use the same annual application context as the calendar before filtering
+    # the requested month. A shared claim's inconsistent links must not appear
+    # settled merely because its other applications are in a different month.
+    context_dates = [f"{year}-01-01", f"{year}-12-31"] if transaction_type == "Aplicaciones" else dates
+    records, sources, parents = load_transactions(transaction_type, bool(cint(include_drafts)), scope, context_dates, detail=True)
+    progress = _application_progress(records, sources, parents)[0] if transaction_type == "Aplicaciones" else {}
+    if transaction_type == "Aplicaciones":
+        sources = [row for row in sources if dates[0] <= str(row.get("event_date") or "")[:10] <= dates[1]]
+        names = {row.name for row in sources}
+        records = [record for record in records if record["name"] in names]
     states = {row["name"]: row["state"] for row in records}
     query = str(search or "").strip().casefold()
     fields = ("name", "parent", "client_name", "client_number", "loan_number", "reference", "voucher", "receipt",
@@ -172,8 +214,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                                   row.get("parent") or "", cint(row.get("idx")), row.name))
     count = len(selected)
     start = max(cint(start), 0)
-    collections = load_partial_collections(selected, parents, partial_only=False) if transaction_type == "Aplicaciones" else {}
-    amount_fields = (["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd"]
+    amount_fields = (["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "complementary_usd", "pending_usd"]
                      if transaction_type == "Aplicaciones" else ["original_usd", "resolved_usd", "pending_usd"]
                      if transaction_type in complementary_transactions.KINDS else ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"])
     totals = {field: money(0) for field in amount_fields}
@@ -181,21 +222,16 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     for index, row in enumerate(selected):
         item = {"name": row.name, "doctype": doctype, "state": states[row.name]}
         if transaction_type == "Aplicaciones":
-            parent = parents[row.parent]
-            original = converted_amount({**row, "application_adjustment_usd": 0}, "USD")
-            eligible = parent.status in IMPORTED and row.get("effective") and row.get("match_status") != "Ignorado"
-            summary = build_summary({**parent, "rows": [row]}, collections) if eligible else []
-            amounts = summary[0] if summary else {"applied_usd": original, "assigned_usd": 0,
-                "rounding_usd": 0, "balance_usd": original, "observations": [_("Borrador o fila no efectiva para conciliación.")]}
+            amounts = progress[row.name]
             item.update(document=row.parent, row_index=row.get("idx"), date=row.get("event_date"),
                         client_name=row.get("client_name"), client_number=row.get("client_number"), loan_number=row.get("loan_number"),
                         reference=row.get("reference"), voucher=row.get("voucher"), receipt=row.get("receipt"),
-                        original_usd=original, adjustment_usd=money_float(row.get("application_adjustment_usd")) if eligible else 0,
-                        net_usd=amounts["applied_usd"], assigned_usd=amounts["assigned_usd"],
-                        rounding_usd=amounts["rounding_usd"], pending_usd=amounts["balance_usd"],
+                        **{field: amounts[field] for field in ("original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd")},
                         observations=" · ".join(amounts["observations"]),
-                        status_detail=row.get("deposit_match_status") or "Pendiente",
+                        status_detail=_("Resultado registrado: {0}").format(row.get("deposit_match_status") or "Pendiente"),
                         reason=row.get("deposit_match_reason") or row.get("match_reason") or "")
+            item['complementary_usd'] = (None if amounts['adjustment_usd'] is None or amounts['rounding_usd'] is None
+                else money_float(money(amounts['adjustment_usd']) - money(amounts['rounding_usd'])))
         elif transaction_type in complementary_transactions.KINDS:
             balance = row["_balance"]
             item.update(row["_progress"])

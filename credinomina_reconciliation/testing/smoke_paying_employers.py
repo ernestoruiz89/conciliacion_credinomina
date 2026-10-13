@@ -38,7 +38,7 @@ def run():
                     if mode == "Operativa":
                         period.append("collection_rows", {"row_key": loan, "client": client.name,
                             "client_name": client.client_name, "client_number": client.client_number, "loan_number": loan,
-                            "expected_usd": amount, "deducted_usd": amount, "deduction_status": "Deduccion total"})
+                            "expected_usd": amount})
                     period.insert()
                     periods.append(period)
                     imported = frappe.get_doc({"doctype": "CN Accounting Import", "employer": company.name,

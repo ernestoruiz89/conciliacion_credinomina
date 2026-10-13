@@ -46,7 +46,13 @@ const click = selector => handlers[`click:${selector}`].call({});
     assert.match(slot, /CxC por ajustes US\$/);
     assert.match(slot, /Sin fecha compromiso/);
     assert.match(slot, /USD\s*1,000\.00/);
-    assert.match(slot, /aplicado y pendiente son parciales/);
+    assert.match(slot, /Total pendiente de determinar/);
+    const incomplete = context.renderKpis({...payload, applications:{...payload.applications,
+        net_applied_usd:null, pending_usd:null, known_pending_usd:100},
+        receivables:{pending_usd:null, overdue_usd:null, without_date_usd:0, review_count:1}});
+    assert.match(incomplete, /cn-kpi-value">N\/D/);
+    assert.match(incomplete, /Subtotal conocido pendiente US\$/);
+    assert.match(incomplete, /cobros o compensaciones inconsistentes/);
     assert.match(slot, /No se incluye en el vencido/);
     assert.match(slot, /distribución superior/);
     assert.match(slot, /Empresas pendientes/);

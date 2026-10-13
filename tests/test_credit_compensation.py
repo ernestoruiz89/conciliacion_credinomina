@@ -89,7 +89,7 @@ class CreditCompensationTests(unittest.TestCase):
         rows, duplicates = build_rows([], {}, [self.credit, self.ledger])
         self.assertEqual((len(rows), duplicates), (1, 0))
         self.assertEqual((rows[0]["debit_nio"], rows[0]["credit_nio"], rows[0]["debit_usd"]), (704.89, 0, 19.25))
-        self.assertEqual(rows[0]["state"], "Compensada totalmente")
+        self.assertEqual(rows[0]["state"], "Conciliado")
         self.db.set_value.assert_not_called()  # No deposit or management writes.
 
     def test_already_refunded_credit_can_link_evidence_without_refunding_twice(self):

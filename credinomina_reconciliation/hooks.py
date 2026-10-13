@@ -4,6 +4,18 @@ app_publisher = "MIDESA"
 app_description = "Standalone payroll-loan reconciliation for Frappe Framework"
 app_email = ""
 app_license = "MIT"
+app_logo_url = "/assets/credinomina_reconciliation/images/credinomina-logo.svg"
+app_home = "/app/conciliacion-credinomina"
+
+# Native app registration, shared by Frappe's apps screen and v16 Desk.
+add_to_apps_screen = [{
+    "name": app_name,
+    "title": app_title,
+    "logo": app_logo_url,
+    "route": app_home,
+    "has_permission": "credinomina_reconciliation.desktop.check_app_permission",
+    "sequence_id": 20,
+}]
 
 required_apps = []
 

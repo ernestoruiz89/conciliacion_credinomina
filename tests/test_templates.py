@@ -96,7 +96,7 @@ class TemplateTests(unittest.TestCase):
         period = (doctype / "cn_reconciliation_period" / "cn_reconciliation_period.js").read_text(encoding="utf-8")
         remittance = (doctype / "cn_remittance_allocation" / "cn_remittance_allocation.js").read_text(encoding="utf-8")
         self.assertIn("Plantilla de cobranza", period)
-        self.assertIn("Plantilla de detalle empresa", period)
+        self.assertNotIn("Plantilla de detalle empresa", period)
         self.assertIn("Plantilla de detalle del depósito", remittance)
         self.assertIn("template_download.download_import_template", period)
         self.assertIn("template_download.download_import_template", remittance)

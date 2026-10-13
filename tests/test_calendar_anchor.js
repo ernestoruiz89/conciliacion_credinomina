@@ -1,0 +1,13 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'), vm = require('node:vm');
+const source = fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/page/control_credinomina/control_credinomina.js', 'utf8');
+const code = source.slice(source.indexOf('function initialCalendarMonth('), source.indexOf('function showWorkCase('));
+const ctx = vm.createContext({Date}); vm.runInContext(code, ctx);
+const today = new Date(2026, 9, 12);
+assert.equal(ctx.initialCalendarMonth({periods: [{month: '2026-12'}, {month: '2026-09'}]}, 2026, today), '2026-09');
+assert.equal(ctx.initialCalendarMonth({cash_deposits: [{month: '2026-10'}, {month: '2026-04'}]}, 2026, today), '2026-10');
+assert.equal(ctx.initialCalendarMonth({periods: [{month: '2025-04'}]}, 2025, today), '2025-04');
+assert.equal(ctx.initialCalendarMonth({}, 2026, today), '2026-10');
+assert.match(source, /data-calendar-month/);
+assert.match(source, /oldScroll.scrollLeft/);
+console.log('OK: current/active month anchor, explicit navigation and preserved horizontal position.');

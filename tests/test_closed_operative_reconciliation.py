@@ -127,8 +127,8 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
 
         self.assertEqual(row.applied_usd, 50)
         self.assertEqual(row.application_status, "Aplicacion encontrada")
-        self.assertEqual(application.deposit_match_status, "Pendiente")
-        self.assertIn("Deducción pendiente", application.deposit_match_reason)
+        self.assertEqual(application.deposit_match_status, "Sin deposito")
+        self.assertIn("50.0 US$ aplicados", application.deposit_match_reason)
         self.assertEqual(application.quality_status, "Conforme según cobranza")
         self.assertEqual(row.quality_status, "Conforme según cobranza")
         period.save.assert_called_once()
@@ -136,6 +136,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
     def test_paid_row_does_not_clear_undeducted_or_pending_rows(self):
         period, paid = _closed_period(
             deduction_status="Deduccion total",
+            applied_usd=60, remitted_usd=60,
             application_status="Aplicado y remitido",
         )
         period.status = "Conciliado"
@@ -147,9 +148,10 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
                     **paid, "name": "COL-2", "row_key": "ROW-2",
                     "deduction_status": incomplete_status,
                     "application_status": "Pendiente",
+                    "applied_usd": 0, "remitted_usd": 0,
                 })
                 period.collection_rows = [paid, other]
-                self.assertFalse(source_module._operative_period_fully_reconciled(period))
+                self.assertTrue(source_module._operative_period_fully_reconciled(period))
         period.collection_rows = [paid]
         period.exception_count = 1
         self.assertFalse(source_module._operative_period_fully_reconciled(period))
@@ -169,7 +171,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
                 [period], [application], [], _allocation(), {}, {}, [],
             )
         self.assertEqual(application.quality_status, "Conforme según cobranza")
-        self.assertEqual(application.deposit_match_status, "Pendiente")
+        self.assertEqual(application.deposit_match_status, "Sin deposito")
         self.assertEqual(row.deduction_status, "Pendiente de detalle")
         self.assertEqual((row.deducted_usd, row.remitted_usd), (0, 0))
         self.assertFalse(source_module._operative_period_fully_reconciled(period))

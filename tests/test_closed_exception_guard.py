@@ -1,6 +1,7 @@
 """A closed period cannot be changed through its exception records."""
 
 import unittest
+import frappe
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -23,6 +24,9 @@ class FakeException:
     def get_doc_before_save(self):
         return self.previous
 
+    def get(self, key):
+        return getattr(self, key, None)
+
 
 class ClosedExceptionGuardTests(unittest.TestCase):
     def _closed_db(self, closed="PER-CLOSED"):
@@ -44,7 +48,7 @@ class ClosedExceptionGuardTests(unittest.TestCase):
         db.set_value.assert_not_called()
 
     def test_cannot_move_exception_out_of_closed_period(self):
-        exception = FakeException("PER-OPEN", SimpleNamespace(period="PER-CLOSED"))
+        exception = FakeException("PER-OPEN", frappe._dict(period="PER-CLOSED"))
         with patch.object(module.frappe, "db", self._closed_db()), \
              patch.object(module.frappe, "throw", side_effect=ValueError):
             with self.assertRaises(ValueError):

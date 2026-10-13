@@ -66,7 +66,7 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     allow = false;
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
-    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category: frm.doc.category, compensation_status: "Compensada totalmente"});
+    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category: frm.doc.category, compensation_status: "Compensada totalmente", _cn_balance:{state:"Conciliado"}});
     assert.equal(indicator[1], "green");
     allow = true;
     frm.doc = {name: "CREDIT", docstatus: 1, category: "Saldo a favor del cliente", employer: "EMP",

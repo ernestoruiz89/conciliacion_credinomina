@@ -15,10 +15,12 @@ const description = 'REGISTRAMOS RECLASIFICACION "a gasto"\n<script>alert(1)</sc
 const formatted = report.formatter(description, {}, {fieldname: "description"}, {}, () => "default");
 assert.ok(formatted.includes(escape(description)));
 assert.ok(!formatted.includes("<script>"));
-report.onload({page: {wrapper: {off() {}, on: (_event, _selector, callback) => {handler = callback;}}}});
+report.onload({get_filter: () => ({get_value: () => '', $wrapper: {toggle() {}}}),
+    page: {add_inner_button: () => ({text() {}}), wrapper: {off() {}, on: (_event, _selector, callback) => {handler = callback;}}}});
 handler.call({description}, {preventDefault() {}});
 assert.ok(message.message.includes(escape(description)));
-assert.equal(report.formatter(null, {}, {fieldname: "debit_nio"}, {}, () => "0"), "—");
+assert.equal(report.formatter(null, {}, {fieldname: "debit_nio"}, {}, () => "0"), "N/D");
+assert.equal(report.formatter(null, {}, {fieldname: "debit_nio"}, {source_currency: 'USD'}, () => "0"), "—");
 assert.equal(report.filters.find(field => field.fieldname === "summary").default, 0);
 const movement = report.filters.find(field => field.fieldname === "movement_type");
 assert.equal(movement.fieldtype, "Select");
@@ -28,6 +30,7 @@ for (const type of ["Aplicación de pago", "ND de Aplicación de pago", "Movimie
 }
 const state = report.filters.find(field => field.fieldname === "state");
 assert.equal(state.fieldtype, "Autocomplete");
-assert.ok(state.options.includes("Conciliado") && state.options.includes("Pendiente") && state.options.includes("No conciliatoria"));
+assert.ok(state.options.includes("Conciliado") && state.options.includes("Pendiente") && state.options.includes("Parcial"));
+assert.ok(report.filters.find(f => f.fieldname === "treatment_status").options.includes("Por aclarar (no conciliatoria)"));
 assert.ok(!state.reqd && !movement.reqd, "Empty filters must retain all movements");
 console.log("OK: descripción completa sin recortes, modal seguro, valores no disponibles y filtros.");

@@ -76,7 +76,7 @@ class ReportRecordsTests(unittest.TestCase):
                     for i in range(start, min(start + kwargs['limit_page_length'], 100001))]
         with patch.object(frappe, 'get_list', return_value=[period]), patch.object(frappe, 'get_all', side_effect=query):
             columns, rows, message, chart, totals = report.execute({
-                'balance_type': 'Cobranza no deducida (informativo)', 'as_of_date': '2026-10-03'})
+                'balance_type': 'Diferencia cobranza vs aplicación (informativo)', 'as_of_date': '2026-10-03'})
         self.assertEqual(len(rows), 100001)
         self.assertEqual(totals[0]['value'], 100001)
 

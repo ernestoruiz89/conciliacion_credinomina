@@ -14,6 +14,8 @@ def download_import_template(
     template_type: str, period_name: str | None = None, remittance_name: str | None = None,
     period_names=None,
 ):
+    if template_type == "empresa":
+        frappe.throw(_("Use la plantilla de detalle en Distribución de Depósito. El período solo importa cobranza."))
     if template_type not in TEMPLATE_TYPES:
         frappe.throw(_("Tipo de plantilla no admitido."))
     doctype = (

@@ -93,17 +93,21 @@ class AccountingControlTests(unittest.TestCase):
         self.assertEqual(len(summarize(rows)), 2)
         nio = next(row for row in summarize(rows) if row["source_currency"] == "NIO")
         self.assertEqual(nio["debit_nio"], 7324.86)
-        self.assertEqual(nio["debit_usd"], 100)
+        self.assertIsNone(nio["debit_usd"])
+        self.assertEqual(nio['debit_usd_known'], 100)
+        self.assertEqual(nio['debit_usd_missing'], 1)
         self.assertEqual(nio["missing_conversion"], 1)
         self.assertTrue(next(row for row in rows if row["evidence_key"] == "no-fx")["warning"])
 
     def test_current_status_is_not_loan_matching_status(self):
         rows, _ = build_rows([source(match_status="Conciliado", deposit_match_status="Pendiente")], imports(), [])
         self.assertEqual(rows[0]["state"], "Pendiente")
-        rows, _ = build_rows([source(deposit_match_status="Depósito parcial")], imports(), [])
-        self.assertEqual(rows[0]["state"], "Parcialmente conciliado")
+        rows, _ = build_rows([source(currency='USD', amount=100, effective=1,
+            historical_period='P', match_status='Conciliado', historical_remitted_usd=80,
+            deposit_match_status="Depósito conciliado")], imports(), [])
+        self.assertEqual(rows[0]["state"], "Parcial")
 
-    def test_deposit_state_is_its_result_for_standalone_and_mirrored_movements(self):
+    def test_deposit_state_respects_confirmation_and_retains_recorded_result_for_audit(self):
         for docstatus in (0, 1, 2):
             for result in ("Pendiente", "Revisar detalle", "Conciliado", "Parcial con saldo a favor", ""):
                 for mirrored in (False, True):
@@ -113,7 +117,9 @@ class AccountingControlTests(unittest.TestCase):
                         sources = [source(event_type="Deposito", accounting_classification="Depósito", deposit_match_status="Pendiente")] if mirrored else []
                         rows, _ = build_rows(sources, imports(), [], deposits=[deposit])
                         self.assertEqual(len(rows), 1)
-                        self.assertEqual(rows[0]["state"], result)
+                        expected = "No participa" if docstatus == 2 else "Sin conciliar" if docstatus == 0 else result or "Pendiente"
+                        self.assertEqual(rows[0]["state"], expected)
+                        self.assertEqual(rows[0]["recorded_deposit_result"], result)
                         self.assertEqual(rows[0]["remittance_allocation"], "DEP")
 
     def test_report_requires_both_read_permissions(self):
@@ -152,7 +158,7 @@ class AccountingControlTests(unittest.TestCase):
     def test_deposit_mirror_requires_exact_evidence_and_physical_origin(self):
         original = source(event_type="Deposito", accounting_classification="Depósito", voucher="V",
                           source_row=100, source_file_hash="file", source_debit=0, source_credit=10)
-        deposit = {**original, "name": "DEP", "employer": "Empresa", "bank_account": "BANK", "result": "Conciliado"}
+        deposit = {**original, "name": "DEP", "docstatus": 1, "employer": "Empresa", "bank_account": "BANK", "result": "Conciliado"}
         for mismatch in ({"event_date": "2025-04-02"}, {"voucher": "OTHER"}, {"source_account": "OTHER"},
                          {"source_currency": "USD"}, {"source_credit": 20}, {"source_description": "OTHER"},
                          {"source_row": 101}, {"source_file_hash": "other-file"}, {"event_type": "Aplicacion"},

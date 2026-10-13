@@ -7,7 +7,7 @@ from contextvars import ContextVar
 
 import frappe
 from credinomina_reconciliation.application_quality import (
-    COLLECTION, EMPLOYER_DETAIL, VALID_DEDUCTION, source_quality, update_collection_quality,
+    COLLECTION, EMPLOYER_DETAIL, VALID_DEDUCTION, source_quality, update_collection_quality, application_cash_covered,
 )
 from frappe import _
 from frappe.model.document import Document
@@ -833,9 +833,6 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     scope_filter = ["in", companies] if len(companies) > 1 else employer
     periods = [scoped_period] if scoped_period else _load_open_periods(scope_filter) if employer else _load_open_periods()
     for period in periods:
-        if (period.reconciliation_mode == "Operativa" and period.collection_rows
-            and period.get("application_basis") not in {COLLECTION, EMPLOYER_DETAIL}):
-            frappe.throw(_("Elija una única base de la primera conciliación en el período {0} antes de reprocesar.").format(period.name))
         period._reconciliation_original_state = document_state(period)
     company_filters = {"employer": employer if scoped_period else scope_filter} if employer else {}
     closed_operative_state = {
@@ -890,7 +887,6 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
         order_by="creation asc",
     )
     deposit_pairs, registered_ids = _registered_deposit_pairs(all_rows, manual_allocations)
-    _refresh_recognition_evidence(periods, deposit_pairs)
     report(30, _("Conciliando aplicaciones de pago…"))
     # Reloading with an empty parent period explicitly removes row assignments.
     # Recompute the old periods' balances without immediately matching these
@@ -1040,75 +1036,13 @@ def _load_open_periods(employer=None):
     return [frappe.get_doc("CN Reconciliation Period", name) for name in names]
 
 
-def _refresh_recognition_evidence(periods, deposit_pairs):
-    """Withdraw inferred payroll detail if its underlying deposit ceases to match."""
-    pairs_by_account = {account.name: (account, bank) for account, bank in deposit_pairs}
-    for period in periods:
-        if period.deduction_basis != "Depósito coincidente":
-            continue
-        pair = pairs_by_account.get(period.deduction_recognition_deposit)
-        reason = ""
-        if not pair:
-            reason = _("El depósito de respaldo ya no está registrado o disponible.")
-        else:
-            account, bank = pair
-            rows = [
-                {**row.as_dict(), "deduction_status": "Pendiente de detalle"}
-                for row in period.collection_rows
-            ]
-            account_check = {**account.as_dict(), "allocated_usd": 0, "justified_surplus_usd": 0}
-            bank_check = {**bank.as_dict(), "allocated_usd": 0, "justified_surplus_usd": 0}
-            reason = recognition_reason(rows, account_check, bank_check)
-            if not reason and clean_text(account.reference) != clean_text(
-                period.deduction_recognition_reference
-            ):
-                reason = _("Cambió la referencia del depósito de respaldo.")
-            if not reason and not (account.event_date or bank.event_date):
-                reason = _("El depósito de respaldo ya no tiene fecha verificable.")
-            if (
-                not reason and period.cutoff_date
-                and getdate(account.event_date or bank.event_date) < getdate(period.cutoff_date)
-            ):
-                reason = _("El depósito de respaldo ahora precede el cierre de la cobranza.")
-        if not reason:
-            continue
-        if period.status == "Cerrado":
-            frappe.throw(
-                _("La evidencia del período cerrado {0} dejó de ser válida: {1}").format(
-                    period.name, reason
-                )
-            )
-        was_inferred = False
-        for row in period.collection_rows:
-            if row.deduction_status != "Inferida por depósito":
-                continue
-            was_inferred = True
-            row.deducted_usd = 0
-            row.deducted_nio = 0
-            row.deduction_currency = ""
-            row.deduction_status = "Pendiente de detalle"
-            row.deduction_evidence_date = None
-            row.deduction_match_note = _("Reconocimiento suspendido: {0}").format(reason)
-        if was_inferred:
-            period.status = "Pendiente"
-            period.notes = "\n".join(
-                part for part in (
-                    period.notes,
-                    _("Reconocimiento por depósito suspendido: {0}").format(reason),
-                ) if part
-            )
-
-
 def _prepared_collection(period):
     return bool(period and period.get("prepared_deposit") and period.get("application_basis") == COLLECTION)
 
 
 def _cash_basis_amount(row, period, currency="USD"):
-    # A prepared collection is cash evidence only after the deposit transfer.
-    # Never overwrite a different, actually reported employer deduction.
-    if _prepared_collection(period):
-        return flt(row.get("expected_usd" if currency == "USD" else "expected_nio"))
-    return _deducted_amount(row, currency)
+    # Compatibility for existing internal callers: never read legacy deductions.
+    return flt(row.get("applied_usd" if currency == "USD" else "applied_nio"))
 
 
 def _deducted_amount(row, currency):
@@ -1317,11 +1251,7 @@ def _match_applications_by_basis(
             if source.get("_assigned_operating_period") and target.parent != source._assigned_operating_period:
                 continue
             target_period = period_by_name.get(target.parent)
-            basis = target_period.get("application_basis") if target_period else None
-            if basis not in {COLLECTION, EMPLOYER_DETAIL}:
-                continue
-            if basis == EMPLOYER_DETAIL and target.deduction_status not in VALID_DEDUCTION:
-                continue
+            basis = COLLECTION
             if source_employer and (
                 not target_period or target_period.employer != source_employer
             ):
@@ -1347,40 +1277,19 @@ def _match_applications_by_basis(
                                  and source.get("_assigned_operating_period") and source.loan_number)
         for target in (identity_candidates if matched_by_credit else reference_candidates):
             target_period = period_by_name.get(target.parent)
-            basis = target_period.get("application_basis") if target_period else None
+            basis = COLLECTION
             # Explicit credit + reference can identify an over-application for
             # quality review. It is not cash coverage and grants no extra claim
             # capacity until a real complementary adjustment is confirmed.
-            if (source_employer and source.loan_number
-                and (matched_by_credit or (target.application_reference
+            if (source_employer
+                and (len(identity_candidates) == 1 or matched_by_credit or (target.application_reference
                      and clean_text(target.application_reference) == clean_text(source.reference)))
                 and target_period and target_period.reconciliation_mode != "Historica"):
                 quality_candidates.append(target)
-            if basis == EMPLOYER_DETAIL and target.deduction_status == "No deducido":
-                continue
-            complementary = sum(
-                flt(item.amount_usd)
-                for item in complementary_by_target.get(
-                    (target.name, clean_text(source.reference)), []
-                )
-            )
-            detail_pending = basis == COLLECTION
-            deducted_usd = _deducted_amount(target, "USD")
-            direct_capacity = max(
-                (flt(target.expected_usd) if detail_pending else deducted_usd)
-                - complementary,
-                0,
-            )
-            converted_capacity = (
-                money_float(max(decimal_value(target.deducted_nio) / decimal_value(payment_rate) - decimal_value(complementary), 0))
-                if not detail_pending and target.deduction_currency == "NIO" and payment_rate
-                else 0
-            )
-            converted_match = (
-                not detail_pending and target.deduction_currency == "NIO"
-                and payment_rate is not None
-                and converted_capacity > direct_capacity + AMOUNT_TOLERANCE
-            )
+            detail_pending = True
+            direct_capacity = max(flt(target.expected_usd), 0)
+            converted_capacity = 0
+            converted_match = False
             available = max(direct_capacity, converted_capacity) - applied_by_target[target.name]
             if available > AMOUNT_TOLERANCE:
                 target_period = period_by_name.get(target.parent)
@@ -1402,7 +1311,10 @@ def _match_applications_by_basis(
         if confirmed_candidates:
             candidates = confirmed_candidates
         exact_candidates = [candidate for candidate in candidates if candidate[2]]
-        if confirmed_candidates and len(candidates) > 1 and len(exact_candidates) == 1:
+        # Collection is the sole quality basis now. A unique exact amount among
+        # already identity-matched quotas no longer requires employer deductions.
+        # Repeated exact amounts remain ambiguous; no cash is created here.
+        if len(candidates) > 1 and len(exact_candidates) == 1:
             candidates = exact_candidates
         if len(candidates) == 1:
             target, converted_match, _exact, detail_pending = candidates[0]
@@ -1467,7 +1379,7 @@ def _match_applications_by_basis(
             applied_by_target[target.name] += net_amount(source)
             source.match_status = "Conciliado"
             source.match_reason = (_("Aplicación identificada de forma única por crédito en el período asignado; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito.")
-                                   if matched_by_credit else _("Aplicación identificada por empresa, crédito y referencia explícita; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito."))
+                                   if matched_by_credit else _("Aplicación identificada de forma única en la cobranza; excede la base. Revise la diferencia en el control de aplicación. No acredita un depósito."))
             source.collection_period, source.collection_row_id = target.parent, target.name
             source.application_allocation_detail = json.dumps([{
                 "collection_row_id": target.name, "period": target.parent, "amount_usd": net_amount(source),
@@ -1997,10 +1909,9 @@ def _distribute_deposits(
     claims = []
     direct_periods = {row.historical_period for row in historical_applications.values()}
     for row in rows_by_name.values():
-        deducted_usd = _cash_basis_amount(row, period_by_name.get(row.parent))
-        loan_amount = max(deducted_usd - complementary_totals[row.name] - direct_amount_by_row[row.name], 0)
-        if row.parent in direct_periods:
-            loan_amount = min(loan_amount, core_amount_by_row[row.name])
+        # Only effective linked applications create a credit claim. Direct
+        # applications have their own H claim and are excluded from this pool.
+        loan_amount = money_float(core_amount_by_row[row.name])
         if loan_amount <= CASH_EPSILON:
             continue
         references = set(references_by_row[row.name])
@@ -2087,40 +1998,21 @@ def _distribute_deposits(
                 claim["application_ids"] = []
     claims_by_id = {claim["id"]: claim for claim in claims}
     instructions = []
-    # A user-approved exact deposit is reserved for every row of its payroll
-    # period. These instructions precede optional manual cash allocations.
-    for period in periods:
-        if (
-            period.reconciliation_mode == "Historica"
-            or period.deduction_basis != "Depósito coincidente"
-            or period.get("prepared_deposit")  # Exact targets already persist the prepared split.
-            or not period.deduction_recognition_deposit
-            or period.deduction_recognition_deposit not in deposit_meta
-            or not period.collection_rows
-            or any(row.deduction_status != "Inferida por depósito" for row in period.collection_rows)
-        ):
-            continue
-        deposit_id = period.deduction_recognition_deposit
-        period_rows = {row.name for row in period.collection_rows}
-        for row in period.collection_rows:
-            claim_id = "C:" + row.name
+    # Legacy recognition can only replay already executed amounts, never deductions.
+    for registered in manual_allocations:
+        for index, entry in enumerate(_detail_entries(registered.get("allocation_detail"))):
+            period = next((p for p in periods if p.name == entry.get("periodo")
+                           and p.get("deduction_recognition_deposit") == registered.name
+                           and not p.get("prepared_deposit")), None)
+            if not period:
+                continue
+            row_name = row_by_key.get((period.name, clean_text(entry.get("fila_id"))))
+            claim_id = "X:" + entry["partida"] if entry.get("partida") else "C:" + row_name if row_name else ""
             if claim_id in claims_by_id:
-                instructions.append({
-                    "id": "R:" + period.name + ":" + row.name,
-                    "deposit_id": deposit_id,
-                    "claim_id": claim_id,
-                    "amount_usd": claims_by_id[claim_id]["amount_usd"],
-                    "origin": MANUAL,
-                })
-        for item in complementary_items:
-            if complementary_target.get(item.name) in period_rows:
-                instructions.append({
-                    "id": "R:" + period.name + ":X:" + item.name,
-                    "deposit_id": deposit_id,
-                    "claim_id": "X:" + item.name,
-                    "amount_usd": flt(item.amount_usd),
-                    "origin": MANUAL,
-                })
+                instructions.append({"id": f"LEGACY:{registered.name}:{index}",
+                                     "deposit_id": registered_ids.get(registered.name),
+                                     "claim_id": claim_id, "amount_usd": flt(entry.get("importe_usd")),
+                                     "origin": MANUAL})
     manual_results = {}
     manually_ambiguous_deposits = (
         blocked_historical_deposits(claims, deposits) | ambiguous_deposit_ids
@@ -2139,6 +2031,16 @@ def _distribute_deposits(
     targets_by_parent = defaultdict(list)
     for target in target_rows:
         targets_by_parent[target.parent].append(target)
+    explicit_claims = {
+        (registered_ids.get(target.parent),
+         "X:" + target.complementary_item if target.complementary_item else
+         "H:" + target.historical_application if target.historical_application else
+         "C:" + row_by_key.get((target.period, clean_text(target.row_key)), ""))
+        for target in target_rows
+    }
+    # A recorded legacy instruction must not duplicate the same explicit target.
+    instructions = [item for item in instructions
+                    if (item["deposit_id"], item["claim_id"]) not in explicit_claims]
     deposits_by_id = defaultdict(list)
     for deposit in deposits:
         deposits_by_id[deposit["id"]].append(deposit)
@@ -2402,6 +2304,7 @@ def _classify_surplus(allocation, surplus_items):
 
 
 def _sync_registered_deposit_detail(allocation):
+    from credinomina_reconciliation.deposit_presentation import reconciliation_status
     for name, deposit_id in allocation["registered_ids"].items():
         meta = allocation["deposit_meta"].get(deposit_id)
         if not meta:
@@ -2456,6 +2359,12 @@ def _sync_registered_deposit_detail(allocation):
             "CN Remittance Allocation", name,
             {
                 "result": result,
+                "financial_status": reconciliation_status({
+                    "docstatus": 1, "result": result, "detail_status": detail_status,
+                    "amount_usd": source.equivalent_amount, "allocated_usd": source.allocated_usd,
+                    "justified_surplus_usd": source.justified_surplus_usd,
+                    "unclassified_usd": source.unclassified_usd,
+                }),
                 "detail_status": detail_status,
                 "allocation_detail": source.allocation_detail,
                 "inherited_exception_comment": getattr(source, "inherited_exception_comment", ""),
@@ -2673,8 +2582,9 @@ def _operative_links(periods, source_rows, registered_deposits, complementary_it
 def _operative_period_fully_reconciled(period):
     """Payment coverage determines the period status; quality stays informational."""
     rows = list(period.collection_rows or [])
-    return bool(rows) and not period.exception_count and not period.get("_direct_applications_incomplete") and all(
-        row.application_status == "Aplicado y remitido"
+    has_application = bool(period.get("applied_usd") or period.get("applied_total_usd") or any(money(row.applied_usd) for row in rows))
+    return has_application and not period.exception_count and not period.get("_direct_applications_incomplete") and all(
+        row.application_status == "Aplicado y remitido" or (not money(row.applied_usd) and not money(row.remitted_usd))
         for row in rows
     )
 
@@ -2810,58 +2720,8 @@ def _rebuild_period_balances(
         })
 
     for target in rows_by_name.values():
-        prepared_collection = _prepared_collection(period_by_name.get(target.parent))
-        deducted_usd = _cash_basis_amount(target, period_by_name.get(target.parent))
-        core_due = max(deducted_usd - flt(target.complementary_usd), 0)
-        status_due = (
-            max(flt(target.expected_usd) - flt(target.complementary_usd), 0)
-            if target.deduction_status in {"", "Pendiente de detalle"}
-            else core_due
-        )
-        if (
-            not prepared_collection and target.deduction_currency == "NIO"
-            and flt(target.deducted_nio) > AMOUNT_TOLERANCE
-            and flt(target.remitted_usd) > AMOUNT_TOLERANCE
-            and same_amount(target.remitted_nio, target.deducted_nio)
-        ):
-            variance = money_float(deducted_usd - flt(target.remitted_usd))
-            if abs(variance) > AMOUNT_TOLERANCE:
-                target.fx_variance_usd = variance
-                target.application_status = "Diferencia cambiaria en revision"
-                continue
-        cash_due = max(deducted_usd - max(flt(target.fx_variance_usd), 0), 0)
-        rounding = flt(target.rounding_adjustment_usd)
-        core_complete = (
-            flt(target.applied_usd) + max(rounding, 0) + CASH_EPSILON >= core_due
-        )
-        cash_complete = (
-            flt(target.remitted_usd) + max(-rounding, 0) + CASH_EPSILON >= cash_due
-        )
-        loan_cash = flt(target.remitted_usd) - flt(target.complementary_usd)
-        unexplained = loan_cash - flt(target.applied_usd) - rounding
-        if (
-            core_complete and cash_complete
-            and (prepared_collection or target.deduction_status not in {"", "Pendiente de detalle"})
-            and not flt(target.fx_variance_usd)
-            and abs(unexplained) > CASH_EPSILON
-        ):
-            target.application_status = "Diferencia aplicacion vs deposito"
-            continue
-        if (
-            deducted_usd > AMOUNT_TOLERANCE
-            and core_complete and cash_complete
-        ):
-            target.application_status = "Aplicado y remitido"
-        elif deducted_usd > AMOUNT_TOLERANCE and cash_complete:
-            target.application_status = "Remitido, aplicacion parcial"
-        elif flt(target.remitted_usd) > AMOUNT_TOLERANCE:
-            target.application_status = "Depósito parcial"
-        elif flt(target.applied_usd) > AMOUNT_TOLERANCE:
-            target.application_status = (
-                "Aplicacion parcial"
-                if flt(target.applied_usd) + AMOUNT_TOLERANCE < status_due
-                else "Aplicacion encontrada"
-            )
+        from credinomina_reconciliation.application_quality import application_cash_status
+        target.application_status = application_cash_status(target, detail_by_target[target.name])
 
     for period in periods:
         update_collection_quality(period.collection_rows, period.get("application_basis"))
@@ -2915,22 +2775,8 @@ def _rebuild_period_balances(
                 "La aplicacion aun no se enlaza de forma unica con una cobranza."
             )
             continue
-        if any(target.deduction_status in {None, "", "Pendiente de detalle"}
-               and not _prepared_collection(period_by_name.get(target.parent)) for target in targets):
-            source.deposit_match_status = (
-                "Depósito parcial"
-                if any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets)
-                else "Pendiente"
-            )
-            source.deposit_match_reason = _(
-                "Deducción pendiente de confirmar; el control de la aplicación usa la base elegida y la cobertura financiera se revisa por separado."
-            )
-            source.fx_variance_usd = sum(flt(target.fx_variance_usd) for target in targets)
-            continue
         complete = all(
-            flt(target.remitted_usd) + max(flt(target.fx_variance_usd), 0)
-            + max(-flt(target.rounding_adjustment_usd), 0)
-            + CASH_EPSILON >= _cash_basis_amount(target, period_by_name.get(target.parent))
+            application_cash_covered(target) + CASH_EPSILON >= flt(target.applied_usd)
             for target in targets
         )
         if any(target.application_status == "Diferencia aplicacion vs deposito" for target in targets):
@@ -3043,7 +2889,7 @@ def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocatio
         ]
         notes = matching_exception_notes(
             expected_usd=flt(target.expected_usd),
-            deducted_usd=_deducted_amount(target, "USD"),
+            deducted_usd=flt(target.applied_usd),
             applied_usd=flt(target.applied_usd),
             complementary_usd=flt(target.complementary_usd),
             remitted_usd=flt(target.remitted_usd),

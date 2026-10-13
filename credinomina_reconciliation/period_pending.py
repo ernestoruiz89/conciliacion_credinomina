@@ -8,41 +8,45 @@ from frappe.utils import cint
 from credinomina_reconciliation.control_summary import readable_imports
 from credinomina_reconciliation.collection_identity import collection_client_number
 from credinomina_reconciliation.rounding import money, money_float
-from credinomina_reconciliation.application_quality import collection_quality
+from credinomina_reconciliation.application_quality import collection_quality, application_cash_covered
 from credinomina_reconciliation.remittance_periods import selected_periods, attach_periods, deposit_names_for_periods
 
 
 SETTLED = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
 
 
-def application_issue(row):
+def application_issue(row, progress=None):
     first_pending = (row.get("processing_route") == "Operativa"
                      and not str(row.get("quality_status") or "").startswith("Conforme"))
-    if row.get("deposit_match_status") in SETTLED and not first_pending:
+    if progress is None:
+        # Pure callers may supply a net amount rather than the core amount.
+        # Even here, never use a saved workflow label to suppress a balance.
+        from credinomina_reconciliation.company_transactions import application_progress
+        source = dict(row, currency='USD', amount=row.get('net_applied_usd'), event_type='Aplicacion',
+                      effective=1, historical_period=row.get('historical_period') or '__linked__',
+                      match_status='Conciliado', application_adjustment_usd=0)
+        progress = application_progress(source, {'status': 'Importado'})
+    if progress['state'] == 'Conciliado' and not first_pending:
         return None
-    status = row.get("deposit_match_status") or "Pendiente"
-    reason = row.get("deposit_match_reason") or row.get("match_reason") or _("Aplicación pendiente de conciliar.")
-    applied = money(row.get("net_applied_usd"))
-    paid = money(row.get("historical_remitted_usd"))
-    pending = money(row.get("historical_balance_usd"))
+    status = progress['state']
+    reason = '; '.join(progress.get('observations') or []) or _("Aplicación pendiente de conciliar.")
+    applied, paid, balance = (progress.get(key) for key in ('net_usd', 'assigned_usd', 'pending_usd'))
     # Older reconciliations can retain the operative "Sin deposito" reason
     # even though historical cash coverage has already been recorded.
-    if paid > 0 and pending > 0:
+    if paid is not None and balance is not None and paid > 0 and balance > 0:
         status = "Depósito parcial"
         reason = _(
             "La aplicación tiene US$ {0} vinculados a depósitos de un aplicado neto de US$ {1}. "
             "Quedan US$ {2} pendientes de cubrir."
-        ).format(f"{paid:,.2f}", f"{applied:,.2f}", f"{pending:,.2f}")
+        ).format(f"{paid:,.2f}", f"{applied:,.2f}", f"{balance:,.2f}")
     return {
         "kind": "Aplicación", "source": row.get("parent"), "doctype": "CN Accounting Import",
         "source_row": row.get("name"), "installment_number": row.get("installment_number"),
         "row": row.get("idx"), "client_name": row.get("client_name"),
         "client_number": row.get("client_number"), "loan_number": row.get("loan_number"),
-        "applied": money_float(applied),
-        "paid": money_float(paid),
-        "pending": money_float(pending),
+        "applied": applied, "paid": paid, "pending": balance,
         "status": "Conciliación 1 pendiente" if first_pending else status,
-        "reason": row.get("quality_status") if first_pending else reason,
+        "reason": ' · '.join(filter(None, [row.get('quality_status') if first_pending else '', reason])),
     }
 
 
@@ -52,8 +56,7 @@ def collection_issue(row, basis=None, payments=()):
     if not quality["quality_status"].startswith("Conforme"):
         reasons.append(_(quality["quality_status"]))
     applied, paid = money(row.get("applied_usd")), money(row.get("remitted_usd"))
-    pending = max(applied + money(row.get("complementary_usd"))
-                  + money(row.get("rounding_adjustment_usd")) - paid, money(0))
+    pending = max(applied - money(application_cash_covered(row)), money(0))
     status = row.get("application_status") or "Pendiente"
     if status != "Aplicado y remitido":
         reasons.append(status)
@@ -152,14 +155,22 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
     if frappe.has_permission("CN Accounting Import", "read"):
         rows = frappe.get_all("CN Source Row", filters={
             "historical_period": period.name, "parenttype": "CN Accounting Import",
-            "event_type": "Aplicacion", "effective": 1,
+            "event_type": "Aplicacion", "effective": 1, "match_status": ['!=', 'Ignorado'],
         }, fields=["name", "parent", "idx", "client_name", "client_number", "loan_number", "installment_number", "net_applied_usd",
                    "historical_remitted_usd", "historical_balance_usd", "deposit_match_status",
                    "deposit_match_reason", "match_reason", "processing_route", "quality_status"], order_by="parent asc, idx asc", limit_page_length=0)
         allowed = readable_imports({row.parent for row in rows})
         if any(row.parent not in allowed for row in rows):
             restricted.append("CN Accounting Import")
-        issues.extend(issue for row in rows if row.parent in allowed if (issue := application_issue(row)))
+        from credinomina_reconciliation.application_context import load_application_context
+        from credinomina_reconciliation.company_transactions import application_progress_index
+        sources, imports, _periods, collections, _employers = load_application_context(period.employer)
+        progress = application_progress_index(sources, imports, collections)
+        # Missing/inaccessible financial evidence is not a zero balance.
+        unavailable = dict(state='Revisar distribución', net_usd=None, assigned_usd=None, pending_usd=None,
+                           observations=[_('Cobertura financiera no disponible; revise el origen y sus permisos.')])
+        issues.extend(issue for row in rows if row.parent in allowed
+                      if (issue := application_issue(row, progress.get(row.name, unavailable))))
     else:
         restricted.append("CN Accounting Import")
     deposit_issues, payments = [], []

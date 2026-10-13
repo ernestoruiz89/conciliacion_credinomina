@@ -26,7 +26,7 @@ const row = (name, amount) => ({name, client_name: name, adjustable_usd: amount}
     assert.equal(disabled, true);
     const field = dialog.fields[0];
     assert.equal(field.get_query().filters.employer, "EMP");
-    assert.equal(field.get_query().filters.docstatus[0], "!=");
+    assert.equal(field.get_query().query, "credinomina_reconciliation.accounting_review.application_import_query");
     selected = "IMPORT";
     let pending = field.onchange();
     requests.shift().resolve({message: [row("PAID", 0), row("VALID", 20)]});

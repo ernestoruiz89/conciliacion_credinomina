@@ -29,21 +29,20 @@ def run():
                 client_name='Cliente preparado ' + marker, client_number=marker)).insert()
             period = frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=employer.name,
                 payroll_month='2026-09-01', reconciliation_mode='Operativa', collection_cycle='Mensual',
-                application_basis='Detalle de empresa' if deduction else 'Cobranza',
+                application_basis='Cobranza',
                 collection_rows=[dict(row_key=marker, source_row=2, client=client.name,
                     client_number=client.client_number, client_name=client.client_name, loan_number=marker+'-1',
-                    expected_usd=other_detail if deduction and other_detail is not None else base,
-                    expected_nio=(other_detail if deduction and other_detail is not None else base)*36.6243,
+                    expected_usd=base,
+                    expected_nio=base*36.6243,
                     application_reference=marker,
-                    deducted_usd=base if deduction else (other_detail or 0),
-                    deduction_status='Deduccion parcial' if other_detail is not None else (
-                        'Deduccion total' if deduction else 'Pendiente de detalle'))])).insert()
+                    deducted_usd=0)])).insert()
             imported = frappe.get_doc(dict(doctype='CN Accounting Import', employer=employer.name,
                 status='Importado', source_file='/private/files/'+marker+'.csv',
                 rows=[dict(source_row=2, source_key=marker, event_type='Aplicacion', event_date='2026-09-30',
                     client_number=client.client_number, client_name=client.client_name, loan_number=marker+'-1',
                     employer_text=employer.name, currency='USD', amount=applied, amount_usd=applied,
                     reference=marker, voucher=marker, processing_route='Operativa', effective=1,
+                    historical_period=period.name if deduction else None,
                     match_status='Pendiente')])).insert()
             _reconcile_sources(employer.name, preserve_deposits=True)
             period.reload()
@@ -112,8 +111,8 @@ def run():
             assert period.applied_total_usd == applied and period.pending_usd == 0, period.as_dict()
             assert deposit.unclassified_usd == 0
             if other_detail is not None:
-                assert period.collection_rows[0].expected_usd == (other_detail if deduction else base)
-                assert period.collection_rows[0].deducted_usd == (base if deduction else other_detail)
+                assert period.collection_rows[0].expected_usd == base
+                assert period.collection_rows[0].deducted_usd == 0
             results.append(dict(category=category or 'Sin diferencias', deduction=deduction,
                                 reused=reuse, result=deposit.result, detail=deposit.detail_status))
         return results

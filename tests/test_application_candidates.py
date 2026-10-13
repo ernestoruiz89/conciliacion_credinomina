@@ -31,12 +31,20 @@ class ApplicationCandidatesTests(unittest.TestCase):
         return row
 
     def candidates(self, coverage=None):
-        def cash(row):
+        def cash(row, **kwargs):
             if coverage:
                 return coverage(row)
             return dict(adjustable_usd=row.net_applied_usd, protected_usd=0, snapshots={"private": "evidence"})
+        def query(doctype, **kwargs):
+            if doctype == 'CN Reconciliation Period':
+                return [frappe._dict(name=name, status=self.db.get_value(doctype, name, 'status'))
+                        for name in kwargs['filters']['name'][1]]
+            if doctype == 'CN Collection Row':
+                return [frappe._dict(name=name, parent=self.db.get_value(doctype, name, 'parent'), row_key=name)
+                        for name in kwargs['filters']['name'][1]]
+            return self.confirmed if doctype == 'CN Complementary Item' else []
         with patch.object(api.frappe, "get_doc", side_effect=[self.item, self.parent]), \
-             patch.object(api.frappe, "get_all", return_value=self.confirmed), \
+             patch.object(api.frappe, "get_all", side_effect=query), \
              patch.object(api.frappe, "db", self.db), \
              patch.object(adjustments, "cash_coverage", side_effect=cash):
             return api.application_candidates(self.item.name, self.parent.name)

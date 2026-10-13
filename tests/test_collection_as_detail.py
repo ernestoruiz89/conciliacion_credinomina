@@ -31,20 +31,10 @@ class CollectionAsDetailTests(unittest.TestCase):
 
     def test_copies_with_decimal_rounding_and_audit_without_deposit(self):
         period = self.period()
-        result = self.call(period)
-        row = period.collection_rows[0]
-        self.assertEqual((row.deducted_usd, row.deducted_nio), (20.13, 740))
-        self.assertEqual(row.deduction_currency, "Ambas")
-        self.assertEqual(row.deduction_status, "Deduccion total")
-        self.assertEqual(str(row.deduction_evidence_date), "2026-09-30")
-        self.assertEqual(period.deduction_basis, "Detalle de empresa")
-        self.assertEqual(period.status, "Pendiente")
-        self.assertEqual((row.applied_usd, row.remitted_usd), (10, 0))
-        self.assertIn("operador", row.deduction_match_note)
-        self.assertIn("Observación previa", period.notes)
-        self.assertEqual(result["rows"], 1)
-        period.check_permission.assert_called_once_with("write")
-        period.save.assert_called_once()
+        with self.assertRaises(ValueError):
+            self.call(period)
+        period.save.assert_not_called()
+        self.assertEqual(period.collection_rows[0].deducted_usd, 0)
 
     def test_blocks_closed_history_and_existing_details(self):
         for changes in ({"status": "Cerrado"}, {"reconciliation_mode": "Historica"},
@@ -65,13 +55,8 @@ class CollectionAsDetailTests(unittest.TestCase):
             period.save.assert_not_called()
 
     def test_requires_confirmation_and_date_and_rejects_second_call(self):
-        for args in ({"confirmed": 0}, {"evidence_date": ""}):
-            period = self.period()
-            with self.assertRaises(ValueError):
-                self.call(period, **args)
-            period.save.assert_not_called()
         period = self.period()
-        self.call(period)
         with self.assertRaises(ValueError):
             self.call(period)
-        period.save.assert_called_once()
+        period.save.assert_not_called()
+        self.assertEqual(period.collection_rows[0].deducted_usd, 0)

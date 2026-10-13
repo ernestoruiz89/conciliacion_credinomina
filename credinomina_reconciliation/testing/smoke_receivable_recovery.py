@@ -30,6 +30,7 @@ def fixture(marker):
     deposit = new_deposit(company.name, marker, 90)
     values = dict(period=period.name, category='Cuenta por Cobrar a la Empresa',
         posting_date='2025-05-01', currency='USD', amount=-10,
+        credit_assigned_to='Administrator', credit_commitment_date='2025-05-10',
         subcategory='Otro ajuste sin CxC', description='CxC de ensayo por depósito insuficiente')
     for amount in (0, 10):
         rejects(lambda: create_complementary_item(deposit.name, str(deposit.modified), values | {'amount': amount}))
@@ -92,12 +93,12 @@ def run():
             imported.reload()
             assert imported.rows[0].effective == 1
             assert imported.rows[0].historical_remitted_usd == 100
-            assert len(load_application_context(company.name)[0]) == 1
+            assert sum(row.parent == imported.name for row in load_application_context(company.name)[0]) == 1
         imported.status = 'Borrador'
         rejects(lambda: imported.save(), 'dinero asignado')
         imported.reload()
         assert imported.status in {'Importado', 'Importado con excepciones'}
-        assert len(load_application_context(company.name)[0]) == 1
+        assert sum(row.parent == imported.name for row in load_application_context(company.name)[0]) == 1
         deposit.reload()
         assert deposit.allocation_detail == original_distribution
         cash = new_deposit(company.name, marker + '-CASH', 3)
@@ -122,7 +123,11 @@ def run():
         history = next(row for row in value['recoveries'] if row['name'] == offset['name'])
         assert history['effective_usd'] == 0 and history['financial_status'] == 'Revertida'
         # Even with an open period, used accounting evidence cannot disappear.
-        rejects(lambda: frappe.delete_doc(imported.doctype, imported.name), 'dinero asignado')
+        from unittest.mock import patch
+        # The financial guard must still apply even to a user with the extra
+        # core-removal permission; no persisted role is granted by this test.
+        with patch('credinomina_reconciliation.accounting_evidence.has_core_removal_role', return_value=True):
+            rejects(lambda: frappe.delete_doc(imported.doctype, imported.name), 'dinero asignado')
         imported.reload()
         imported.rows = []
         rejects(lambda: imported.save(), 'dinero asignado')

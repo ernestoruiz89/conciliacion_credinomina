@@ -29,7 +29,7 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/report/transacciones_por_empresa/transacciones_por_empresa.js"), "utf8"), context);
 const report = context.frappe.query_reports["Transacciones por Empresa"];
 const flush = () => new Promise(resolve => setImmediate(resolve));
-const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, net_usd: 8400, assigned_usd: 3150, rounding_usd: 0, pending_usd: 5250}) =>
+const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, complementary_usd:2100, net_usd: 8400, assigned_usd: 3150, rounding_usd: 0, pending_usd: 5250}) =>
     ({message: {rows, totals, summary: [{label: "Conciliadas", value: 100}], total: 105, filtered_count: 105, start: 0}});
 
 (async () => {
@@ -53,7 +53,7 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, net_
     assert.equal(calls[0].args.month, 4);
     const row = {doctype: "CN Accounting Import", document: 'IMPORT A"', row_index: 3, date: "2025-04-30", state: "Parcial",
         client_name: "<script>alert(1)</script>", client_number: "1", loan_number: "100-1", original_usd: 100, adjustment_usd: 20,
-        net_usd: 80, assigned_usd: 30, rounding_usd: 0, pending_usd: 50, observations: "<b>Shared</b>"};
+        net_usd: 80, assigned_usd: 30, rounding_usd: 0, complementary_usd:20, pending_usd: 50, observations: "<b>Shared</b>"};
     requests.shift().resolve(payload([row]));
     await flush();
     assert.ok(dialog.html.includes("LOCAL(2025-04-30)"));
@@ -66,6 +66,9 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, net_
     assert.ok(dialog.html.includes('<tfoot>'));
     assert.ok(dialog.html.includes('Total filtrado · 105 transacciones'));
     assert.ok(dialog.html.includes('USD 10500.00')); // Full filtered total, not the single visible row.
+    assert.ok(dialog.html.includes('Partidas complementarias US$'));
+    assert.ok(dialog.html.includes('USD 2100.00'));
+    assert.ok(!dialog.html.includes('Redondeo US$'));
     assert.ok(dialog.html.includes('todas las páginas'));
     dialog.handlers[".cn-detail-next"]();
     assert.equal(calls.at(-1).args.start, 100);

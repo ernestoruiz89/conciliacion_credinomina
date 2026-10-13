@@ -1,7 +1,7 @@
 """Read-only transaction counts and progress for complementary items."""
 import frappe
 
-from credinomina_reconciliation.complementary_balances import CASH_CATEGORIES, FIELDS, financial_balance, load_balances
+from credinomina_reconciliation.complementary_balances import CASH_CATEGORIES, FIELDS, financial_balance, load_balances, reconciliation_state
 from credinomina_reconciliation.rounding import money, money_float
 
 KINDS = {
@@ -18,7 +18,11 @@ def is_active(item):
 
 
 def progress(item, balance):
-    original = abs(money(item.get("amount_usd")))
+    original = abs(money(balance.get("original_usd")))
+    if balance.get('financial_status') == 'Revisar distribución':
+        return {"state": "Revisar distribución", "original_usd": money_float(original),
+                "resolved_usd": None, "pending_usd": balance.get('pending_usd'),
+                "status_detail": balance.get('amount_issue') or balance['financial_status']}
     if not is_active(item):
         return {"state": "Pendiente", "original_usd": money_float(original), "resolved_usd": 0,
                 "pending_usd": money_float(original), "status_detail": "Borrador · " + (item.get("review_status") or "Pendiente")}
@@ -28,8 +32,9 @@ def progress(item, balance):
     else:
         remaining = money(pending)
         resolved = min(original, max(original - remaining, money(0)))
-        settled = balance["financial_status"] in {"Conciliada", "Documentado", "Vigente", "Registro contable verificado", "No conciliatoria"}
-        state = "Conciliado" if remaining == 0 and settled else "Parcial" if resolved > 0 else "Pendiente"
+        state = reconciliation_state(balance)
+        if state == "Revisar distribución":
+            resolved = None  # Invalid allocations never contribute a fictitious 100%.
     return {"state": state, "original_usd": money_float(original),
             "resolved_usd": None if resolved is None else money_float(resolved),
             "pending_usd": pending, "status_detail": balance["financial_status"]}

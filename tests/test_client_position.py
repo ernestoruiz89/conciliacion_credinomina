@@ -13,9 +13,9 @@ class ClientPositionTests(unittest.TestCase):
         from credinomina_reconciliation.reconciliation import operational_status
         for status in ('Deduccion parcial', 'No deducido'):
             row = frappe._dict(deduction_status=status, expected_usd=100, deducted_usd=0)
-            self.assertEqual(report.get_status(row), 'Cobranza no deducida; revisar primera conciliación')
+            self.assertEqual(report.get_status(row), 'Aplicación insuficiente')
         self.assertEqual(operational_status(expected=100, deducted=0, applied=0, remitted=0),
-                         'Cobranza no deducida; revisar primera conciliación')
+                         'Aplicación insuficiente')
 
     def build(self, filters=None):
         collections = [dict(period='P', payroll_month='2026-09-01', employer='E', client_number='1',
@@ -40,7 +40,9 @@ class ClientPositionTests(unittest.TestCase):
         self.assertEqual(rows[1]['applied_pending_usd'], 20)
         self.assertEqual(rows[2]['credit_pending_usd'], 6)
         self.assertEqual(rows[2]['credit_resolved_usd'], 4)
-        self.assertEqual([entry['value'] for entry in summary(rows)], [20, 6])
+        totals = {entry['label']: entry['value'] for entry in summary(rows)}
+        self.assertEqual(totals['CxC por aplicaciones US$'], 20)
+        self.assertEqual(totals['Saldos a favor por gestionar US$'], 6)
         self.assertEqual(rows[2]['client_name'], 'Ana')
         self.assertEqual(rows[2]['source_document'], 'C')
         self.assertTrue(rows[2]['is_open'])
@@ -54,17 +56,21 @@ class ClientPositionTests(unittest.TestCase):
         self.assertEqual(len(self.build({'only_open': 1})), 3)
 
     def test_reconciliation_status_matches_displayed_state_and_combines_with_type(self):
-        for state, kind in [('Depósito parcial', 'Cobranza'), ('Pendiente', 'Aplicación'), ('Documentado', 'Partida complementaria')]:
+        for state, kind in [('Depósito parcial', 'Cobranza'), ('Parcial', 'Aplicación'), ('Conciliado', 'Partida complementaria')]:
             with self.subTest(state=state):
                 rows = self.build({'operational_status': state, 'position_type': kind, 'employer': 'E', 'only_open': 1})
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]['operational_status'], state)
                 self.assertEqual(rows[0]['position_type'], kind)
-                totals = summary(rows)
-                self.assertEqual(totals[0]['value'], 20 if kind == 'Aplicación' else 0)
-                self.assertEqual(totals[1]['value'], 6 if kind == 'Partida complementaria' else 0)
+                totals = {entry['label']: entry['value'] for entry in summary(rows)}
+                if kind == 'Aplicación':
+                    self.assertEqual(totals['CxC por aplicaciones US$'], 20)
+                    self.assertNotIn('Saldos a favor por gestionar US$', totals)
+                elif kind == 'Partida complementaria':
+                    self.assertEqual(totals['Saldos a favor por gestionar US$'], 6)
+                    self.assertNotIn('CxC por aplicaciones US$', totals)
         self.assertEqual(self.build({'operational_status': 'Pendiente', 'position_type': 'Cobranza'}), [])
-        self.assertEqual(self.build({'operational_status': 'Parcial'}), [])  # Exact, not substring matching.
+        self.assertEqual(self.build({'operational_status': 'Parcia'}), [])  # Exact, not substring matching.
         self.assertEqual(len(self.build({'operational_status': '', 'position_type': ''})), 3)
 
     def test_extended_collection_state_can_be_filtered_verbatim(self):

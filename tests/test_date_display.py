@@ -33,7 +33,7 @@ class DateDisplayTests(unittest.TestCase):
 
     def test_historical_queue_labels_are_formatted_without_changing_data(self):
         period = {"name": "PER-2025-04", "month": "2025-04", "employer": "EMP",
-                  "reconciliation_mode": "Historica", "historical_pending_usd": 22.52,
+                  "reconciliation_mode": "Historica", "financial_pending_usd": 22.52,
                   "historical_application_date": "2025-04-23",
                   "historical_start_date": "2025-04-01", "historical_end_date": "2025-04-30"}
         with patch.object(frappe, "db", Mock()) as db:

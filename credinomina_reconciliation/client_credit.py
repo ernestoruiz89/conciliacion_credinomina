@@ -21,6 +21,40 @@ FINANCIAL_FIELDS = (
 MANAGED_FIELDS = ("credit_resolved_usd", "credit_pending_usd", "credit_management_status", "credit_history")
 
 
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def search_beneficiaries(doctype, txt, searchfield, start, page_len, filters=None):
+    """Link search includes verified historical membership, not current company alone."""
+    from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+    from credinomina_reconciliation.paying_employers import allowed_employers, choose_detail_client
+    filters = frappe.parse_json(filters) if isinstance(filters, str) else filters or {}
+    deposit = frappe.get_doc('CN Remittance Allocation', filters.get('registered_deposit'))
+    deposit.check_permission('read')
+    allowed = allowed_employers(deposit.employer)
+    company = filters.get('employer') or ''
+    if company and company not in allowed:
+        return []
+    accepted = []
+    offset = 0
+    while len(accepted) < int(start) + int(page_len):
+        visible = frappe.get_list('CN Client', or_filters=[['client_name', 'like', '%' + txt + '%'],
+            ['client_number', 'like', '%' + txt + '%']], fields=['name', 'client_name', 'client_number', 'employer', 'employee_number', 'national_id'],
+            order_by='name asc', limit_start=offset, limit_page_length=500)
+        if not visible:
+            break
+        clients = [dict(row, client_aliases=[]) for row in visible]
+        probes = [dict(client_number=row.client_number, employer=company) for row in visible]
+        evidence = load_detail_loan_clients(probes, clients, allowed)
+        for row, probe in zip(visible, probes):
+            resolved, _reason = choose_detail_client(probe, clients, deposit.employer, allowed, evidence)
+            if resolved and resolved['name'] == row.name:
+                accepted.append([row.name, row.client_name, row.client_number, resolved['employer']])
+        if len(visible) < 500:
+            break
+        offset += len(visible)
+    return accepted[int(start):int(start) + int(page_len)]
+
+
 def _same_value(field, before, after):
     if field in {"amount", "amount_usd", "deposit_amount", "deducted_usd", "deducted_nio"}:
         return money(before) == money(after)
@@ -113,13 +147,34 @@ def validate_client_credit(doc, previous=None):
         frappe.throw(_("Seleccione el cliente al que pertenece el saldo a favor."))
     client = frappe.get_doc("CN Client", doc.credit_client)
     client.check_permission("read")
-    if not client.employer or client.employer not in allowed_employers(deposit.employer):
-        frappe.throw(_("El cliente no pertenece a una empresa autorizada por la pagadora."))
-    if doc.employer and doc.employer != client.employer:
-        frappe.throw(_("La empresa de la partida debe ser la del cliente beneficiario."))
     if doc.client_number and clean_text(doc.client_number) != clean_text(client.client_number):
         frappe.throw(_("El número de cliente no coincide con el cliente seleccionado."))
-    doc.employer, doc.client_number, doc.client_name = client.employer, client.client_number, client.client_name
+    # The master describes today's employer, not membership at the deposit's
+    # historical date. Reuse the strict evidence resolver; a name/alias alone
+    # cannot expand the payer's authorizations or change the client registry.
+    rows = deposit.detail_rows or []
+    row_id = doc.get("credit_detail_row")
+    detail = next((row for row in rows if row.name == row_id), None)
+    if row_id and not detail:
+        frappe.throw(_("La fila del saldo a favor no pertenece al depósito seleccionado."))
+    company = doc.get("employer") or (detail.get("employer") if detail else "")
+    evidence = dict(client_number=client.client_number, employer=company,
+                    loan_number=doc.get("loan_number") or (detail.get("loan_number") if detail else ""))
+    if not evidence['client_number']:
+        evidence['client_name'] = client.client_name
+    from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
+    from credinomina_reconciliation.paying_employers import choose_detail_client
+    # An explicit beneficiary is already permission-checked. Load only that
+    # person's profile; foreign/conflicting loan owners still resolve to an
+    # unknown owner and are rejected, rather than choosing this person by name.
+    clients = [{field: client.get(field) for field in ('name', 'employer', 'client_name', 'client_number', 'employee_number', 'national_id')}]
+    clients[0]['client_aliases'] = [row.alias_name for row in client.get('aliases') or []]
+    allowed = allowed_employers(deposit.employer)
+    loans = load_detail_loan_clients([evidence], clients, allowed)
+    beneficiary, reason = choose_detail_client(evidence, clients, deposit.employer, allowed, loans)
+    if not beneficiary or beneficiary['name'] != client.name:
+        frappe.throw(_("No se pudo verificar el cliente y su empresa para este depósito: {0}").format(reason))
+    doc.employer, doc.client_number, doc.client_name = beneficiary['employer'], client.client_number, client.client_name
     doc.loan_number = normalize_credit_number(doc.loan_number)
     doc.reference, doc.deposit_voucher = deposit.deposit_reference, deposit.deposit_voucher
     if doc.period and frappe.db.get_value("CN Reconciliation Period", doc.period, "employer") != doc.employer:
@@ -127,8 +182,6 @@ def validate_client_credit(doc, previous=None):
     if not clean_text(doc.description):
         frappe.throw(_("Documente el motivo del saldo a favor del cliente."))
 
-    rows = deposit.detail_rows or []
-    row_id = doc.get("credit_detail_row")
     # Optional explicit link: a detail of US$100 may omit the US$10 excess,
     # whereas a detail of US$110 includes it. Never infer the latter by name.
     if row_id:
@@ -137,7 +190,7 @@ def validate_client_credit(doc, previous=None):
             frappe.throw(_("La fila del saldo a favor no pertenece al depósito seleccionado."))
         if (row.get("client") and row.client != client.name) or (
             row.get("client_number") and clean_text(row.client_number) != clean_text(client.client_number)
-        ) or (row.get("employer") and row.employer != client.employer):
+        ) or (row.get("employer") and row.employer != doc.employer):
             frappe.throw(_("La fila del depósito pertenece a otro cliente o empresa."))
         if doc.loan_number and row.loan_number and canonical_credit_number(row.loan_number) != canonical_credit_number(doc.loan_number):
             frappe.throw(_("El crédito no coincide con la fila del depósito."))

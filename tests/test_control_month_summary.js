@@ -43,15 +43,15 @@ const context = vm.createContext({
 vm.runInContext(source.replace(/\}\)\(\);\s*$/, "globalThis.helpers = {summarizeMonth, renderMonthSummary, renderPeriodCard}; })();"), context);
 const {summarizeMonth, renderMonthSummary} = context.helpers;
 const total = summarizeMonth(periods.slice(0, 2));
-assert.equal(total.deducted_usd, 30.3);
+assert.equal(total.deducted_usd, undefined);
 assert.equal(total.remitted_usd, 10.1);
-assert.equal(total.employer_gap_usd, 20.2);
+assert.equal(total.employer_gap_usd, undefined);
 assert.equal(total.state, "parcial");
 assert.equal(summarizeMonth([{...periods[0], control_state: "historico_excedente"}, periods[1]]).state, "excedente");
 assert.equal(summarizeMonth([{...periods[0], control_state: "historico_excepcion"}, periods[1]]).state, "diferencia");
 assert.equal(summarizeMonth([periods[0], {...periods[1], control_state: "conciliado"}]).state, "conciliado");
 const mixed = renderMonthSummary([periods[0], periods[2]], '<Empresa>', '2026-09');
-assert.ok(mixed.includes("Deducido operativo"));
+assert.ok(!mixed.includes("Deducido operativo"));
 assert.ok(!mixed.includes("Remitido / deducido"));
 assert.ok(mixed.includes("&lt;Empresa&gt;"));
 for (const mode of ['Historica', 'Operativa']) {

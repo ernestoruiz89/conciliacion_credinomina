@@ -37,7 +37,8 @@ class EmployerAgingTests(unittest.TestCase):
         by_company = {row["employer"]: row for row in data}
         self.assertIsNone(by_company["E"]["amount_usd"])
         self.assertEqual(by_company["E"]["missing_fx_count"], 1)
-        self.assertEqual(by_company["F"]["amount_usd"], 20)
+        self.assertIsNone(by_company["F"]["amount_usd"])
+        self.assertEqual(by_company["F"]["known_amount_usd"], 20)
         self.assertIn("incompletos", by_company["F"]["observation"])
         self.assertIn("identificar", by_company[None]["observation"])
 

@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'), vm = require('node:vm');
+const source = file => fs.readFileSync(`credinomina_reconciliation/${file}`, 'utf8');
+const context = vm.createContext({__: x => x, frappe: {ui: {form: {on() {}}}, query_reports: {}, utils: {escape_html: x => String(x)}}});
+vm.runInContext(source('conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.js'), context);
+const cards = context.remittanceFinancialCards({amount_usd: 100, allocated_usd: 90, justified_surplus_usd: 5,
+    allocation_detail: JSON.stringify([{tipo: 'Aplicacion historica', importe_usd: 80}, {tipo: 'Partida complementaria', importe_usd: 10}])});
+assert.equal(cards.credits, 80);
+assert.equal(cards.complementary, 15);
+assert.equal(cards.pending, 5);
+assert.equal(context.remittanceFinancialCards({allocated_usd: 80}).credits, null);
+const form = (doc, dirty=false) => ({doc, is_new: () => false, is_dirty: () => dirty, get_perm: () => true});
+assert.equal(context.remittanceNextAction(form({docstatus: 0})).label, 'Confirmar depósito');
+assert.equal(context.remittanceNextAction(form({docstatus: 1}, true)).label, 'Guardar cambios');
+assert.equal(context.remittanceNextAction(form({docstatus: 1, amount_usd: 100, allocated_usd: 100, result: 'Conciliado'})).label, 'Ver distribución');
+assert.equal(context.remittanceNextAction(form({docstatus: 1, detail_file: '/files/test.csv'})).label, 'Cargar detalle');
+assert.equal(context.remittanceNextAction(form({docstatus: 1, detail_rows: [{}], detail_status: 'Revisar filas'})).label, 'Resolver diferencias');
+assert.equal(context.remittanceNextAction(form({docstatus: 2})), null);
+vm.runInContext(source('conciliacion_credinomina/report/estado_de_cuenta_por_empresa/estado_de_cuenta_por_empresa.js'), context);
+const report = context.frappe.query_reports['Estado de Cuenta por Empresa'];
+assert.match(report.formatter(20, 0, {fieldname: 'core_pending_usd', fieldtype: 'Currency'}, {employer: 'E', core_pending_usd: 20}, x => x), /cn-statement-detail/);
+assert.equal(report.formatter(20, 0, {fieldname: 'core_pending_usd', fieldtype: 'Currency'}, {employer: 'E', core_pending_usd: 20, source_document: 'C'}, x => x), 20);
+assert.ok(report.filters.some(f => f.fieldname === 'reason_type'));
+context.frappe.listview_settings = {};
+vm.runInContext(source('conciliacion_credinomina/doctype/cn_complementary_item/cn_complementary_item_list.js'), context);
+const indicator = context.frappe.listview_settings['CN Complementary Item'].get_indicator({
+    accounting_source_key: 'source', docstatus: 0, review_status: 'No conciliatoria', _cn_balance: {state:'Pendiente'}});
+assert.equal(indicator[0], 'Pendiente');
+assert.equal(indicator[1], 'red');
+assert.equal(indicator[2], '');
+console.log('OK: next action, financial cards and statement drill-down.');

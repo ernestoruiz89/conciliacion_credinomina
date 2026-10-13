@@ -20,6 +20,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.application_quality import collection_quality
+from credinomina_reconciliation.complementary_balances import reconciliation_state
 from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float, sum_money
 
 
@@ -55,20 +57,14 @@ def build_control_workbook(
         for claim in period.get("rows") or []:
             detail_rows.append(_collection_detail(period, claim))
             link_rows.extend(_claim_links(period, claim, historical=False))
-            due = claim.get("collection_shortfall_usd")
-            if due is None and _money(claim.get("expected_usd")) > CASH_EPSILON:
-                issue_rows.append(_issue(
-                    "Detalle de deducción pendiente", period,
-                    claim.get("client_number"), claim.get("loan_number"),
-                    claim.get("application_reference"), _money(claim.get("expected_usd")),
-                    "Pendiente", detail="Falta confirmar la deducción; la cobranza no es una cuenta por cobrar.",
-                ))
-            elif due is not None and _money(due) > CASH_EPSILON:
-                issue_rows.append(_issue(
-                    "Cobranza no deducida", period, claim.get("client_number"),
-                    claim.get("loan_number"), claim.get("application_reference"),
-                    _money(due), "Pendiente", detail=claim.get("deduction_match_note"),
-                ))
+            from credinomina_reconciliation.application_quality import collection_quality
+            quality = collection_quality(claim)
+            difference = quality["quality_difference_usd"]
+            if difference is None or difference:
+                issue_rows.append(_issue("Diferencia cobranza vs aplicación (informativo)", period,
+                    claim.get("client_number"), claim.get("loan_number"), claim.get("application_reference"),
+                    abs(difference) if difference is not None else NA, quality["quality_status"],
+                    detail="Control de calidad; no constituye una cuenta por cobrar."))
             pending = _collection_pending(claim)
             if pending > CASH_EPSILON:
                 issue_rows.append(_issue(
@@ -88,13 +84,6 @@ def build_control_workbook(
                     application.get("deposit_match_status") or "Pendiente",
                     detail=application.get("deposit_match_reason"),
                 ))
-        assignment_gap = _money(period.get("employer_gap_usd"))
-        if not historical and assignment_gap > CASH_EPSILON:
-            issue_rows.append(_issue(
-                "Deducido sin depósito asignado (no CxC confirmada)", period,
-                None, None, None, assignment_gap, "Pendiente de asignación",
-                detail="Puede existir un depósito recibido sin detalle suficiente para asignarlo.",
-            ))
         for surplus in period.get("surpluses") or []:
             issue_rows.append(_issue(
                 "Excedente documentado", period, None, None,
@@ -112,10 +101,10 @@ def build_control_workbook(
                 continue
             seen_items.add(item.get('name'))
             issue_rows.append(_issue('Partida complementaria', period, None, None,
-                item.get('name'), _money(item.get('signed_amount_usd')), 'Vigente',
+                item.get('name'), _money(item.get('signed_amount_usd')), 'Conciliado',
                 cause='Diferencia por tolerancia', external_reference=item.get('deposit_reference'),
                 event_date=item.get('posting_date'),
-                detail=item.get('description') or 'Generada automáticamente; no modifica el core ni representa efectivo adicional.'))
+                detail='Tratamiento: ajuste vigente. ' + (item.get('description') or 'Generada automáticamente; no modifica el core ni representa efectivo adicional.')))
 
     for exception in exceptions:
         period = period_by_name.get(exception.get("period"))
@@ -167,7 +156,7 @@ def build_control_workbook(
             continue
         row = _issue('Partida complementaria del core', None, item.get('client_number'),
             item.get('loan_number'), item.get('name'), item.get('_signed_pending_usd'),
-            balance.get('financial_status'), employer=item.get('employer'),
+            reconciliation_state(balance), employer=item.get('employer'),
             cause=item.get('category'), event_date=item.get('source_date') or item.get('posting_date'),
             external_reference=item.get('source_voucher') or item.get('voucher'),
             evidence=item.get('source_file'),
@@ -176,11 +165,11 @@ def build_control_workbook(
                            item.get('source_currency'), balance.get('used_usd')))
     for item in data.get('adjustment_receivables') or []:
         row = _issue('Saldo por cobrar a la empresa', None, item.get('client_number'),
-            item.get('loan_number'), item['name'], item['receivable_usd'], item['receivable_status'],
+            item.get('loan_number'), item['name'], NA if item['receivable_usd'] is None else item['receivable_usd'], item['receivable_status'],
             employer=item.get('employer'), cause='Ajuste negativo de depósito',
             event_date=item.get('posting_date'), external_reference=item.get('voucher'),
             detail=' · '.join(filter(None, [item.get('description'), item.get('related_deposits'),
-                                          item.get('accounting_status')])))
+                                          item.get('accounting_status'), item.get('observation')])))
         issue_rows.append((*row, None, None, None, None, None))
 
     _write_table(
@@ -240,8 +229,8 @@ def build_control_workbook(
 SUMMARY_HEADERS = (
     "Período", "Empresa", "Mes cobranza", "Modalidad", "Alcance del período",
     "Fecha inicio aplicación", "Fecha fin aplicación", "Vencimiento pago",
-    "Resultado", "Cobranza USD", "Deducido USD", "Aplicado neto USD",
-    "Partidas complementarias USD", "Depósito asignado total USD",
+    "Resultado", "Cobranza USD", "Deducido USD", "Aplicado total USD",
+    "Partidas complementarias USD", "Asignado total USD",
     "Aplicado pendiente de depósito USD", "Cobranza no deducida USD", "Deducido sin depósito asignado USD",
     "Depósito asignado a créditos USD", "Excepciones abiertas", "Último corte de control",
     "Motivo y próxima gestión", "Observaciones", "Cierre", "Cobranza sin detalle USD",
@@ -279,8 +268,8 @@ ACTION_HEADERS = (
 
 
 MONTHLY_HEADERS = (
-    "Empresa", "Mes", "Períodos", "Períodos cerrados", "Aplicado neto en períodos USD",
-    "Depósito asignado a créditos USD", "Partidas complementarias USD", "Pendiente USD",
+    "Empresa", "Mes", "Períodos", "Períodos cerrados", "Aplicado total en períodos USD",
+    "Asignado total USD", "Partidas complementarias USD", "Pendiente USD",
     "Excepciones abiertas de períodos", "Aplicado sin período USD", "Depósitos recibidos",
     "Depositado completo USD", "Depósito sin clasificar USD", "Depósitos por revisar",
     "Cobranza USD", "Deducido USD", "Cobranza no deducida conocida USD", "Cobranza sin detalle USD",
@@ -321,9 +310,7 @@ def _missing_detail(period):
 
 
 def _known_deductions(period):
-    known = [r.get("deducted_usd") for r in period.get("rows") or []
-             if r.get("collection_shortfall_usd") is not None]
-    return _sum(known) if known else NA
+    return NA  # Retired private tuple position; excluded from new workbooks.
 
 
 def monthly_rows(data):
@@ -332,6 +319,7 @@ def monthly_rows(data):
     Payroll assignment and cash receipt have independent dates and employers.
     Never infer a receivable by subtracting the two monthly populations.
     """
+    from credinomina_reconciliation.period_presentation import financial_position
     groups = defaultdict(lambda: {"periods": [], "deposits": [], "unassigned": []})
     labels = {}
     for p in data["periods"]:
@@ -351,8 +339,9 @@ def monthly_rows(data):
         result.append((
             labels.get(employer, employer), _month(month), len(periods),
             sum(p.get("status") == "Cerrado" for p in periods),
-            _sum(p.get("applied_usd") for p in periods),
-            _sum(_period_credit_cash(p) for p in periods),
+            _sum(financial_position(p)['financial_applied_usd'] for p in periods),
+            _sum(financial_position(p)['financial_covered_usd'] if p.get('remitted_total_usd') is not None
+                 else _period_credit_cash(p) for p in periods),
             _sum(_complementary_total(p) for p in periods),
             _sum(_period_pending(p) for p in periods),
             len({e["name"] for p in periods for e in p.get("exceptions") or [] if e.get("name")}),
@@ -473,7 +462,8 @@ def _write_guide(book, scope):
         ("Modalidad y cierre", "Histórica y operativa usan iguales conceptos de resultado. Cierre indica si el período está bloqueado, no que sus diferencias estén resueltas."),
         ("N/D", "No disponible o no aplicable, no equivale a cero. En histórico no se inventan cobranza ni deducción."),
         ("Cuenta por cobrar", "Aplicado neto menos depósitos asignados, considerando tolerancias. Las compensaciones confirmadas a aplicaciones ya reducen el aplicado neto; no se descuentan dos veces. Cobranza y deducción son informativas, no generan CxC."),
-        ("Detalle de deducción", "Deducido y Cobranza no deducida suman solo filas con evidencia suficiente. Cobranza sin detalle muestra el importe solicitado todavía sin esa evidencia."),
+        ("Totales del período", "Aplicado total conserva el importe anterior a compensaciones; Asignado total incluye depósitos y compensaciones confirmadas. Coinciden con los totales del formulario y calendario. No sume de nuevo las partidas complementarias a Asignado total. Pendiente se controla por aplicación, sin compensar clientes distintos entre sí."),
+        ("Control de cobranza", "La diferencia compara cobranza contra aplicaciones efectivas; es informativa y no modifica la CxC. El detalle de empresa pertenece únicamente al depósito."),
         ("Partidas y excepciones", "Reúne alertas detectadas y casos documentados. Un caso puede explicar una alerta. Sus importes NO se suman para obtener una deuda."),
         ("Partidas complementarias del core", "En Partidas y excepciones se omiten las conciliadas sin saldo ni gestión pendiente; su distribución se conserva en las hojas de detalle y depósitos. Incluye importadas no canceladas, aun en borrador, por fecha contable y empresa. Monto USD es el remanente: débito positivo y crédito negativo. Conserva débito/crédito en moneda original y utilizado en USD. Un importe sin signo contable identificable queda sin determinar. Las partidas ya utilizadas no se descuentan otra vez."),
         ("CxC por ajuste de depósito", "Ajustes manuales negativos con subcategoría de tratamiento CxC a la empresa y distribuidos en depósitos confirmados: se muestran positivos como saldo trasladado a la empresa, aunque la partida esté totalmente distribuida. Contabilizar no equivale a cobrar. Al desconciliar el depósito desaparece el traslado; la aplicación vuelve a pendiente."),
@@ -492,9 +482,11 @@ def _write_guide(book, scope):
 
 
 def _write_summary(sheet, data, employer_label, generated_at):
+    from credinomina_reconciliation.period_presentation import financial_position
     periods = data["periods"]
     summary_rows = []
     for period in periods:
+        position = financial_position(period)
         historical_mode = period.get("reconciliation_mode") == "Historica"
         first_date, last_date = _historical_dates(period) if historical_mode else (None, None)
         summary_rows.append((
@@ -502,11 +494,11 @@ def _write_summary(sheet, data, employer_label, generated_at):
             "Histórica" if historical_mode else "Operativa",
             period.get("historical_scope") if historical_mode else period.get("collection_cycle"),
             first_date, last_date, _date(period.get("remittance_due_date")),
-            _control_state(period.get("control_state")),
+            _control_state(position["control_state"]),
             NA if historical_mode else _money(period.get("expected_usd")),
             NA if historical_mode else _known_deductions(period),
-            _money(period.get("applied_usd")), _complementary_total(period),
-            _money(period.get("remitted_usd")),
+            position["financial_applied_usd"], _complementary_total(period),
+            position["financial_covered_usd"],
             _period_pending(period),
             NA if historical_mode else _employee_due(period),
             NA if historical_mode else _money(period.get("employer_gap_usd")),
@@ -578,7 +570,7 @@ def _core_item_needs_follow_up(balance):
     """
     pending = balance.get('pending_usd')
     return not (
-        balance.get('financial_status') == 'Conciliada'
+        balance.get('financial_status') in {'Conciliada', 'Documentado', 'Vigente', 'Registro contable verificado'}
         and pending is not None and money(pending) == 0
         and not money(balance.get('management_pending_usd'))
         and balance.get('accounting_status') not in {'Pendiente de registro', 'Asiento informado'}
@@ -599,23 +591,37 @@ def _collection_cash(claim):
 
 
 def _period_credit_cash(period):
+    direct = _sum(r.get("historical_remitted_usd") for r in period.get("historical_rows") or [])
     if period.get("reconciliation_mode") == "Historica":
-        return _sum(r.get("historical_remitted_usd") for r in period.get("historical_rows") or [])
-    return _sum(_collection_cash(r) for r in period.get("rows") or [])
+        return direct
+    # Direct applications can also be projected into collection rows: count cash once.
+    return _sum([direct, *(
+        entry.get("importe_usd") for row in period.get("rows") or []
+        for entry in _json_list(row.get("remittance_detail"))
+        if entry.get("destino") != "Partida complementaria" and not entry.get("aplicacion_directa")
+    )])
 
 
 def _period_pending(period):
+    if period.get('pending_usd') is not None:
+        return money_float(period['pending_usd'])
     # Sum positive balances per claim, never offset another client's debt with
     # an excess. Reuse the historical balance already computed by reconciliation.
-    if period.get("reconciliation_mode") == "Historica":
-        values = (max(money(row.get("historical_balance_usd")), 0)
-                  for row in period.get("historical_rows") or [])
-    else:
-        values = (_collection_pending(row) for row in period.get("rows") or [])
+    from credinomina_reconciliation.period_totals import direct_amounts_by_collection
+    sources = period.get("historical_rows") or []
+    values = [max(money(row.get("historical_balance_usd")), 0) for row in sources]
+    if period.get("reconciliation_mode") != "Historica":
+        direct = direct_amounts_by_collection(sources)
+        for row in period.get("rows") or []:
+            projected = [entry for entry in _json_list(row.get("remittance_detail")) if entry.get("aplicacion_directa")]
+            values.append(max(money(row.get("applied_usd")) - direct[row.get("name")]
+                + money(row.get("rounding_adjustment_usd")) - sum_money(e.get("diferencia_usd") for e in projected)
+                - money(_collection_cash(row)) + sum_money(e.get("importe_usd") for e in projected), 0))
     return money_float(sum_money(values))
 
 
 def _collection_detail(period, claim):
+    quality = collection_quality(claim)
     comments = " | ".join(str(item) for item in (
         claim.get("comments"), claim.get("application_comment"),
         claim.get("inherited_exception_comment"),
@@ -625,13 +631,13 @@ def _collection_detail(period, claim):
         claim.get("client_number"), claim.get("employee_number"), claim.get("client_name"),
         claim.get("national_id"), claim.get("loan_number"), claim.get("installment_number"),
         None, None, None, claim.get("application_reference"),
-        _money(claim.get("expected_usd")),
-        _money(claim.get("deducted_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
+        NA if quality["quality_status"] == "Revisar base de comparación" else _money(claim.get("expected_usd")),
+        NA,  # Retired deduction column is projected out by _write_table.
         _money(claim.get("applied_usd")), _complementary_total(claim),
         _collection_cash(claim),
         _money(claim.get("collection_shortfall_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
         _collection_pending(claim),
-        " / ".join(str(item) for item in (claim.get("deduction_status"), claim.get("application_status")) if item),
+        quality["quality_status"],
         comments,
         None, None, None, None,
     )
@@ -769,6 +775,17 @@ def _base_sheet(sheet, title):
 
 
 def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_columns=(), total_columns=()):
+    retired = {"Deducido USD", "Deducido sin depósito asignado USD", "Cobranza sin detalle USD"}
+    keep = [index for index, heading in enumerate(headers, 1) if heading not in retired]
+    if len(keep) != len(headers):
+        mapping = {old: new for new, old in enumerate(keep, 1)}
+        rows = [tuple(row[index - 1] for index in keep) for row in rows]
+        headers = tuple(headers[index - 1] for index in keep)
+        money_columns = {mapping[c] for c in money_columns if c in mapping}
+        date_columns = {mapping[c] for c in date_columns if c in mapping}
+        total_columns = {mapping[c] for c in total_columns if c in mapping}
+    headers = tuple(heading.replace("Cobranza no deducida conocida", "Diferencia cobranza/aplicación")
+                    .replace("Cobranza no deducida", "Diferencia cobranza/aplicación") for heading in headers)
     _base_sheet(sheet, title)
     sheet["A2"] = _safe_text(scope)
     sheet["A2"].font = Font(name="Arial", size=10, italic=True, color="5A6673")

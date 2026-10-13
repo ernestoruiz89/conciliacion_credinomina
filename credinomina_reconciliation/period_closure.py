@@ -98,6 +98,11 @@ class ClosureScope:
 
     def has_operative_application(self):
         if frappe.db.exists("CN Source Row", {
+            "parenttype": "CN Accounting Import", "event_type": "Aplicacion", "effective": 1,
+            "historical_period": self.period.name,
+        }):
+            return True
+        if frappe.db.exists("CN Source Row", {
             "event_type": "Aplicacion", "effective": 1, "collection_period": self.period.name,
         }):
             return True
@@ -147,22 +152,17 @@ def pending_registered_targets(target_filters):
 
 
 def validate_direct_applications(period):
-    """Neither paid applications nor a matching payroll subset can bypass closure."""
+    """Validate financial coverage independently of collection quality."""
     from frappe import _
-    from credinomina_reconciliation.rounding import money, sum_money
-    from credinomina_reconciliation.reconciliation import net_application_amount
-    rows = {row.name for row in period.collection_rows}
+    from credinomina_reconciliation.rounding import money
     for source in frappe.get_all("CN Source Row", filters={
         "parenttype": "CN Accounting Import", "parentfield": "rows",
         "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
     }, fields=["name", "amount", "application_adjustment_usd", "match_status",
                "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0):
-        links = entries(source.application_allocation_detail)
-        linked = sum_money(link.get("amount_usd") for link in links if link.get("collection_row_id") in rows)
-        # The full application must be linked, but a difference against the
-        # collection is informational and does not invalidate settled cash.
-        if source.match_status != "Conciliado" or linked != money(net_application_amount(source)):
-            frappe.throw(_("Falta vincular completamente la aplicación {0} con la cobranza del período.").format(source.name))
+        # Missing collection links are informational, not missing money.
+        if source.match_status != "Conciliado":
+            frappe.throw(_("Revise la aplicación efectiva {0} del período antes del cierre.").format(source.name))
         if money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
             "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste",
         }:

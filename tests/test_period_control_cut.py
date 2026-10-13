@@ -43,8 +43,8 @@ class PeriodControlCutTests(unittest.TestCase):
 
         self.assertEqual(period.status, "Pendiente")
         self.assertEqual(result["status"], period.status)
-        self.assertIn("Cobranza no deducida confirmada US$ 20.00", period.control_cut_summary)
-        self.assertIn("deducido sin depósito asignado US$ 10.00", period.control_cut_summary)
+        self.assertIn("Diferencia cobranza/aplicación (informativo) US$ 20.00", period.control_cut_summary)
+        self.assertIn("Aplicado pendiente US$ 10.00", period.control_cut_summary)
         self.assertIn("excepciones abiertas 1", period.control_cut_summary)
         self.assertIn("detalles de depósito pendientes 1", period.control_cut_summary)
         self.assertIn("El período permanece abierto", period.notes)
@@ -57,7 +57,7 @@ class PeriodControlCutTests(unittest.TestCase):
         period.collection_rows[0].fx_variance_usd = 2
         period.collection_rows[0].rounding_adjustment_usd = -0.01
         summary = period_module._control_cut_summary(period, 0, 0)
-        self.assertIn("deducido sin depósito asignado US$ 7.99", summary)
+        self.assertIn("Aplicado pendiente US$ 9.99", summary)
 
     def test_history_has_no_invented_employee_receivable(self):
         period = self._period()
@@ -155,20 +155,23 @@ class PeriodControlCutTests(unittest.TestCase):
              patch.object(period_module, "_pending_registered_targets", return_value=False):
             with self.assertRaises(ValueError):
                 period_module.close_period(period.name)
-        self.assertIn("filas aplicadas y remitidas", reject.call_args.args[0].lower())
+        self.assertIn("aplicaciones cubiertas", reject.call_args.args[0].lower())
         period.save.assert_not_called()
 
     def test_empty_operative_period_cannot_close(self):
         period = SimpleNamespace(
             name="PER-EMPTY", employer="EMP-1", status="Borrador", reconciliation_mode="Operativa",
-            collection_rows=[], check_permission=Mock(),
+            collection_rows=[], check_permission=Mock(), recalculate_totals=Mock(),
         )
         with patch.object(period_module.frappe, "get_doc", return_value=period), \
              patch.object(period_module.frappe, "throw", side_effect=ValueError) as reject, \
-             patch.object(period_module, "_reconcile_if_sources", return_value=None):
+             patch.object(period_module, "_reconcile_if_sources", return_value=None), \
+             patch.object(period_module, "_pending_remittance_details_for_period", return_value=[]), \
+             patch.object(period_module.frappe, "db", SimpleNamespace(count=lambda *_: 0)), \
+             patch.object(period_module, "_has_operative_application", return_value=False):
             with self.assertRaises(ValueError):
                 period_module.close_period(period.name)
-        self.assertIn("Cargue la cobranza", reject.call_args.args[0])
+        self.assertIn("sin aplicaciones efectivas", reject.call_args.args[0])
 
     def test_historical_status_alone_cannot_close_without_applications(self):
         period = SimpleNamespace(

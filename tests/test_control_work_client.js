@@ -16,7 +16,8 @@ assert.equal(context.renderWorkClient({...item, category: 'Saldo a favor de la e
 assert.equal(context.renderWorkClient({...item, kind: 'accounting_registration'}), html);
 assert.equal(context.renderWorkClient({kind: 'deposit_detail'}), '');
 assert.equal(context.renderWorkClient({...item, category: undefined, kind: 'pending_application'}), html);
-assert.ok(source.includes('${renderWorkClient(action)}'));
+assert.ok(!source.includes('${renderWorkClient(action)}')); // One identity per case, not repeated in each task.
+assert.ok(source.includes('acciones del caso'));
 const missing = context.renderWorkClient({...item, client_name: '', client_number: ''});
 assert.ok(missing.includes('Nombre no informado'));
 assert.ok(missing.includes('Nro. Cliente: No informado'));

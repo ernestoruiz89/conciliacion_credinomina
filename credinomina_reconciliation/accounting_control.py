@@ -3,46 +3,42 @@ from collections import defaultdict
 
 from credinomina_reconciliation.accounting_evidence import is_deposit, same_ledger_evidence
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
+from credinomina_reconciliation.complementary_balances import financial_balance, reconciliation_state
 
 MONEY_FIELDS = ("debit_nio", "credit_nio", "net_nio", "debit_usd", "credit_usd", "net_usd")
 
 
 def _deposit_status(deposit):
-    # Show the actual reconciliation result, not the document lifecycle status.
-    return deposit.get("result") or ""
+    if deposit.get('cash_identity_status') == 'Revisar identidad':
+        return 'Revisar identidad del depósito'
+    from credinomina_reconciliation.deposit_presentation import reconciliation_status
+    return reconciliation_status(deposit)
 
 
-def _status(row, item=None):
+def _status(row, item=None, parent=None, collections=None, progress=None):
     if item:
         if item.get("docstatus") == 2:
             return "Partida cancelada; evidencia conservada"
-        if item.get("registration_exception"):
-            return "Registro contable verificado"
-        if item.get("category") == "Saldo a favor del cliente" and item.get("docstatus") == 1:
-            return (item.get("result") or "Por revisar") + " · " + (item.get("credit_management_status") or "Pendiente")
-        if item.get("docstatus") == 1 and item.get("category") not in {"Ajuste de aplicación", "Compensación entre partidas", "Saldo a favor de la empresa", "Saldo a favor del cliente"}:
-            if item.get("cash_assigned_usd") is None:
-                return "Estado de depósito no disponible"
-            assigned = abs(money(item["cash_assigned_usd"]))
-            return "Conciliado" if assigned and assigned >= abs(money(item.get("amount_usd"))) else "Parcialmente conciliado" if assigned else "Pendiente"
+        if item.get("category"):
+            balance = item.get("_financial_balance")
+            if balance is None:
+                from credinomina_reconciliation.complementary_balances import CASH_CATEGORIES
+                if item.get("category") in CASH_CATEGORIES and item.get("docstatus") == 1 and item.get("cash_assigned_usd") is None:
+                    return "Estado de depósito no disponible"
+                balance = financial_balance(item, [{"amount_usd": item.get("cash_assigned_usd") or 0}])
+            return reconciliation_state(balance)
         return (item.get("compensation_status") or item.get("result") or item.get("review_status")
                 or "Por revisar")
     if row.get("match_status") == "Ignorado":
         return "Ignorado para conciliación"
-    deposit = row.get("deposit_match_status")
-    if deposit == "Conciliada: depósito + ajuste":
-        return deposit
-    if deposit == "Depósito conciliado":
-        return "Conciliado"
-    if deposit == "Depósito parcial":
-        return "Parcialmente conciliado"
-    if deposit == "Aplicación compensada":
-        return "Compensada totalmente"
+    if row.get('event_type') == 'Aplicacion':
+        from credinomina_reconciliation.company_transactions import application_progress
+        return (progress if progress is not None else application_progress(row, parent or {}, collections))["state"]
     if row.get("event_type") == "Ajuste":
         return "Por revisar"
     if row.get("application_adjustment_status") and row["application_adjustment_status"] != "Sin ajuste":
         return row["application_adjustment_status"]
-    return deposit if deposit and deposit != "Sin deposito" else "Pendiente"
+    return "Pendiente"
 
 
 def _amounts(row, currency, rate):
@@ -61,8 +57,10 @@ def _amounts(row, currency, rate):
     return values, ""
 
 
-def build_rows(sources, imports, items, clients=(), deposits=()):
+def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=None, progress=None):
     """Count mirrors once, but never remove physical lines by value similarity."""
+    from credinomina_reconciliation.deposit_accounting_sources import ledger_deposits
+    deposits = ledger_deposits(deposits)
     by_item = {item["name"]: item for item in items}
     by_deposit = defaultdict(list)
     by_deposit_name = {deposit["name"]: deposit for deposit in deposits}
@@ -110,6 +108,20 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
         if not client_name and len(matches) == 1:
             client_name = matches[0].get("client_name") or ""
         date = str(row.get("event_date") or row.get("source_date") or row.get("posting_date") or "")[:10]
+        financial = (progress or {}).get(row.get('name'))
+        if not item and not deposit and financial and financial.get('employer'):
+            employer = financial['employer']
+        financial_warning = '; '.join(financial.get('observations') or []) if financial else ''
+        warning = '; '.join(filter(None, [warning, financial_warning]))
+        pending_amount = financial.get('pending_usd') if financial else None
+        if deposit:
+            pending_amount = (None if deposit.get('amount_usd') is None else money_float(
+                money(deposit['amount_usd']) - money(deposit.get('allocated_usd')) - money(deposit.get('justified_surplus_usd'))))
+            if deposit.get('_cash_primary_key') != deposit.get('accounting_source_key'):
+                pending_amount = None
+                warning = '; '.join(filter(None, [warning, 'El saldo financiero pertenece al depósito y se muestra una sola vez; esta fila conserva su movimiento contable original.']))
+        elif item and item.get('_financial_balance'):
+            pending_amount = item['_financial_balance'].get('pending_usd')
         return {"event_date": date, "month": date[:7], "source_account": row.get("source_account") or "Sin identificar",
             "source_currency": currency or "Sin identificar", "nio_currency": "NIO", "usd_currency": "USD", **values,
             "fx_rate": rate if currency == "NIO" else None,
@@ -117,12 +129,25 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             "loan_number": row.get("loan_number") or row.get("source_loan_number") or (item or {}).get("loan_number") or "",
             "employer": employer, "voucher": row.get("source_voucher") or row.get("voucher") or "",
             "movement_type": row.get("accounting_classification") or row.get("event_type") or "Por revisar",
-            "state": _deposit_status(deposit) if deposit else _status(row, item),
+            "state": _deposit_status(deposit) if deposit else _status(row, item, parent, collections, financial),
+            "applied_usd": financial.get('net_usd') if financial else None,
+            "assigned_usd": financial.get('assigned_usd') if financial else None,
+            "pending_usd": pending_amount,
+            "audit_action": "Ver origen",
+            "recorded_application_state": row.get('deposit_match_status') or '',
+            "recorded_deposit_result": (deposit or {}).get("result") or "",
+            "accounting_status": (item or {}).get("accounting_status") or "",
+            "management_status": (item or {}).get("credit_management_status") or "",
+            "category": (item or {}).get("category") or "", "reason_type": (item or {}).get("reason_type") or "",
+            "subcategory": (item or {}).get("subcategory") or "",
+            "treatment_status": ((item or {}).get("_financial_balance") or {}).get("financial_status") or (item or {}).get("review_status") or "",
             "description": row.get("source_description") or row.get("description") or "",
             "remittance_allocation": deposit["name"] if deposit else "", "bank_account": (deposit or {}).get("bank_account") or "",
             "accounting_import": source_import, "complementary_item": (item or {}).get("name") or "",
             "source_file": row.get("source_file") or parent.get("bulk_source_file") or parent.get("source_file") or "",
             "source_hash": row.get("source_file_hash") or parent.get("bulk_source_hash") or parent.get("file_hash") or "",
+            "source_row": row.get('source_row'), "source_row_id": row.get('name') if source_import else '',
+            "source_idx": row.get('idx') if source_import else None,
             "evidence_key": row.get("accounting_source_key") or "", "warning": warning,
             "identity_conflict": int(bool(identity_warning)),
             "movement_count": 1, "missing_conversion": missing_conversion,
@@ -141,7 +166,7 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             item = None
         deposit, warning = deposit_for(source, parent)
         if deposit:
-            represented_deposits.add(deposit["name"])
+            represented_deposits.add((deposit["name"], deposit.get('accounting_source_key')))
         output.append(make_row(source, parent, item, deposit, warning))
     for item in items:
         if not item.get("accounting_source_key"):
@@ -153,7 +178,7 @@ def build_rows(sources, imports, items, clients=(), deposits=()):
             continue
         output.append(make_row(item, item=item))
     for deposit in deposits:
-        if not deposit.get("accounting_source_key") or deposit["name"] in represented_deposits:
+        if not deposit.get("accounting_source_key") or (deposit["name"], deposit.get('accounting_source_key')) in represented_deposits:
             continue
         output.append(make_row(deposit, deposit=deposit))
     for row in output:
@@ -178,6 +203,20 @@ def summarize(rows):
         result.append({"month": month, "source_account": account, "source_currency": currency,
             "nio_currency": "NIO", "usd_currency": "USD", "movement_count": len(group),
             "missing_conversion": sum(row["missing_conversion"] for row in group),
-            **{field: money_float(sum_money(row[field] for row in group if row[field] is not None))
-               if any(row[field] is not None for row in group) else None for field in MONEY_FIELDS}})
+            **monetary_totals(group)})
+    return result
+
+
+def monetary_totals(rows):
+    """Unknown amounts poison only their applicable total, never known subtotals.
+
+    USD originals have no NIO original amount; that is not missing evidence.
+    An unidentified currency, in contrast, cannot certify either currency total.
+    """
+    result = {}
+    for field in MONEY_FIELDS:
+        applicable = [row for row in rows if not (field.endswith('_nio') and row.get('source_currency') == 'USD')]
+        missing = sum(row.get(field) is None for row in applicable)
+        known = money_float(sum_money(row.get(field) for row in applicable if row.get(field) is not None))
+        result.update({field: None if missing else known, field + '_known': known, field + '_missing': missing})
     return result

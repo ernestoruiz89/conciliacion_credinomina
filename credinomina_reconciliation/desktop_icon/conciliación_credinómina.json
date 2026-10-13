@@ -1,0 +1,20 @@
+{
+  "doctype": "Desktop Icon",
+  "name": "Conciliación Credinómina",
+  "label": "Conciliación Credinómina",
+  "app": "credinomina_reconciliation",
+  "standard": 1,
+  "icon_type": "App",
+  "link_type": "External",
+  "link": "/app/conciliacion-credinomina",
+  "logo_url": "/assets/credinomina_reconciliation/images/credinomina-logo.svg",
+  "icon": "arrow-left-right",
+  "bg_color": "blue",
+  "hidden": 0,
+  "restrict_removal": 0,
+  "roles": [],
+  "creation": "2026-10-12 00:00:00.000000",
+  "modified": "2026-10-12 22:00:00.000000",
+  "owner": "Administrator",
+  "modified_by": "Administrator"
+}

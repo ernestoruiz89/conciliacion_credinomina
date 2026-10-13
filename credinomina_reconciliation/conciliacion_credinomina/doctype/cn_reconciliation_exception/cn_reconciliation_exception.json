@@ -6,10 +6,10 @@
   "engine": "InnoDB",
   "field_order": [
     "case_tab", "classification_section", "usd_currency", "nio_currency", "exception_key",
-    "status", "exception_type", "cause_category", "amount_column", "amount_usd", "amount_nio",
+    "status", "exception_type", "cause_category", "control_area", "blocks_closure", "classification_reason", "amount_column", "amount_usd", "amount_nio",
     "relation_section", "select_related_case", "related_case_type", "related_case_id", "related_case_summary",
     "complementary_item", "origin_period", "employer", "period", "client_column", "client_name", "client_number", "loan_number", "collection_row_id",
-    "description_section", "description", "origin_section", "source_import", "origin_column", "source_row",
+    "description_section", "description", "origin_section", "legacy_name", "source_import", "origin_column", "source_row",
     "follow_up_tab", "planning_section", "assigned_to", "commitment_date", "planning_column", "next_action",
     "support_section", "external_reference", "support_column", "evidence_file",
     "core_section", "core_voucher", "core_evidence_type", "core_evidence_name", "core_evidence_key", "core_evidence_fingerprint", "core_verification_summary", "core_column", "core_verified_on", "core_verified_by",
@@ -17,6 +17,9 @@
     "history_tab", "history_section", "follow_up_actions"
   ],
   "fields": [
+    {"fieldname": "control_area", "fieldtype": "Select", "label": "Ámbito del seguimiento", "options": "Financiera\nCalidad de cobranza\nRegistro contable\nLegado por revisar", "default": "Financiera", "reqd": 1, "in_standard_filter": 1},
+    {"fieldname": "blocks_closure", "fieldtype": "Check", "label": "Bloquea el cierre financiero", "default": "1", "description": "Un supervisor puede quitar el bloqueo con justificación. El caso seguirá pendiente en seguimiento; esto no modifica saldos ni permite cerrar con diferencias financieras."},
+    {"fieldname": "classification_reason", "fieldtype": "Small Text", "label": "Justificación de clasificación", "description": "Requerida al cambiar el ámbito o autorizar el cierre sin resolver este caso. Se conserva en el historial."},
     {"fieldname": "case_tab", "fieldtype": "Tab Break", "label": "Caso relacionado"},
     {"fieldname": "classification_section", "fieldtype": "Section Break", "label": "Clasificación e importe de la excepción"},
     {"fieldname": "amount_column", "fieldtype": "Column Break"},
@@ -31,6 +34,7 @@
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "read_only": 1},
     {"fieldname": "description_section", "fieldtype": "Section Break", "label": "Descripción del caso"},
     {"fieldname": "origin_section", "fieldtype": "Section Break", "label": "Referencia al archivo de movimientos", "collapsible": 1},
+    {"fieldname": "legacy_name", "fieldtype": "Data", "label": "Identificador anterior", "read_only": 1, "no_copy": 1, "depends_on": "legacy_name", "description": "Hash conservado como referencia después de asignar el número legible. El nuevo identificador no cambia al modificar el período."},
     {"fieldname": "origin_column", "fieldtype": "Column Break"},
     {"fieldname": "follow_up_tab", "fieldtype": "Tab Break", "label": "Seguimiento y resolución"},
     {"fieldname": "planning_section", "fieldtype": "Section Break", "label": "Próxima gestión"},
@@ -76,7 +80,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-10-02 23:40:00.000000",
+  "modified": "2026-10-12 12:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Reconciliation Exception",
@@ -88,6 +92,7 @@
     {"create": 1, "read": 1, "report": 1, "role": "Operador Credinomina", "write": 1}
   ],
   "sort_field": "modified",
+  "search_fields": "exception_type,legacy_name",
   "sort_order": "DESC",
   "states": [],
   "track_changes": 1

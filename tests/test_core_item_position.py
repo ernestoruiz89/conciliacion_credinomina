@@ -28,7 +28,6 @@ class CoreItemPositionTests(unittest.TestCase):
         item = self.item(category='Compensación entre partidas', compensated_usd=5)
         self.assertEqual(position.signed_pending(item, financial_balance(item)), -2.35)
         for changes in [dict(docstatus=2), dict(registration_exception='EXC'),
-                        dict(review_action='No conciliatoria'),
                         dict(category='Compensación entre partidas', compensated_usd=7.35)]:
             item = self.item(**changes)
             self.assertEqual(position.signed_pending(item, financial_balance(item)), 0)
@@ -87,7 +86,7 @@ class CoreItemPositionTests(unittest.TestCase):
         baseline = load_workbook(io.BytesIO(build_control_workbook(data | {'core_complementary_items': []}, **args)), data_only=True)
         for name in ('Detalle cliente', 'Depósitos', 'Distribución depósitos', 'Cruces'):
             self.assertEqual(list(book[name].values), list(baseline[name].values))
-        self.assertEqual(book['Detalle cliente']['Q5'].value, 7.35)
+        self.assertEqual(book['Detalle cliente']['P5'].value, 7.35)
         self.assertEqual(book['Depósitos']['J5'].value, 7.35)
         self.assertEqual(book['Distribución depósitos']['F5'].value, item['name'])
         with_exception = load_workbook(io.BytesIO(build_control_workbook(data, **(args | {

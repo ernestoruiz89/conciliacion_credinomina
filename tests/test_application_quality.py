@@ -35,33 +35,31 @@ class ApplicationQualityTests(unittest.TestCase):
         row = self.row()
         row.update(deduction_status="Deduccion parcial", deducted_usd=80)
         self.assertEqual(collection_quality(row, COLLECTION)["quality_difference_usd"], 0)
-        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_difference_usd"], 20)
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_difference_usd"], 0)
         row.applied_usd = 80
-        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_difference_usd"], -20)
 
     def test_invalid_deduction_does_not_fall_back_to_collection(self):
         row = self.row()
         row.deduction_status = "Importes inconsistentes"
-        result = collection_quality(row, EMPLOYER_DETAIL)
-        self.assertEqual(result["quality_status"], "Revisar base de comparación")
-        self.assertIsNone(result["quality_difference_usd"])
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL), collection_quality(row, COLLECTION))
 
     def test_nio_conversion_requires_basis(self):
         row = self.row()
         row.update(deduction_status="Deduccion total", deducted_nio=3662.43)
-        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según cobranza")
         row.expected_usd = 0
         self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Revisar base de comparación")
 
     def test_no_deduction_and_no_application_is_quality_conformity(self):
         row = self.row()
         row.update(deduction_status="No deducido", applied_usd=0)
-        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Conforme según deducción")
+        self.assertEqual(collection_quality(row, EMPLOYER_DETAIL)["quality_status"], "Aplicación insuficiente")
 
     def test_identified_complement_not_counted_as_loan_application(self):
         row = self.row()
         row.update(applied_usd=90, complementary_usd=10)
-        self.assertEqual(collection_quality(row)["quality_status"], "Conforme según cobranza")
+        self.assertEqual(collection_quality(row)["quality_difference_usd"], -10)
 
     def test_multiple_quotas_cannot_net_their_differences(self):
         first, second = self.row(), self.row()
@@ -99,16 +97,21 @@ class ApplicationQualityTests(unittest.TestCase):
         self.assertEqual(json.loads(source.application_allocation_detail)[0]["amount_usd"], 100)
 
     def test_engine_does_not_force_an_excess_into_collection(self):
-        self.assertEqual(self.match(120).match_status, "Sin coincidencia")
+        self.assertEqual(self.match(120).match_status, "Conciliado")
+
+    def test_excess_identified_by_unique_client_is_not_dropped_for_missing_credit(self):
+        result = self.match(120, source_values={"loan_number": ""})
+        self.assertEqual(result.collection_row_id, "C1")
+        self.assertEqual(json.loads(result.application_allocation_detail)[0]["amount_usd"], 120)
 
     def test_engine_uses_only_selected_base_when_both_details_exist(self):
         self.assertEqual(self.match(100, deduction=80).match_status, "Conciliado")
-        self.assertEqual(self.match(100, deduction=80, basis=EMPLOYER_DETAIL).match_status, "Sin coincidencia")
+        self.assertEqual(self.match(100, deduction=80, basis=EMPLOYER_DETAIL).match_status, "Conciliado")
         self.assertEqual(self.match(80, deduction=80, basis=EMPLOYER_DETAIL).match_status, "Conciliado")
 
     def test_selected_missing_detail_never_falls_back_even_with_reference(self):
-        self.assertEqual(self.match(basis=EMPLOYER_DETAIL, reference="R").match_status, "Sin coincidencia")
-        self.assertEqual(self.match(basis=None).match_status, "Sin coincidencia")
+        self.assertEqual(self.match(basis=EMPLOYER_DETAIL, reference="R").match_status, "Conciliado")
+        self.assertEqual(self.match(basis=None).match_status, "Conciliado")
 
     def test_one_period_does_not_mix_bases_per_row(self):
         first, second = self.row(), self.row()
@@ -116,8 +119,8 @@ class ApplicationQualityTests(unittest.TestCase):
         second.parent = "P"
         self.assertEqual(source_quality([first, second], {"P": COLLECTION})["quality_status"], "Conforme según cobranza")
         detail = source_quality([first, second], {"P": EMPLOYER_DETAIL})
-        self.assertEqual(detail["quality_basis"], EMPLOYER_DETAIL)
-        self.assertEqual(detail["quality_status"], "Revisar base de comparación")
+        self.assertEqual(detail["quality_basis"], COLLECTION)
+        self.assertEqual(detail["quality_status"], "Conforme según cobranza")
 
     def test_explicit_reference_identifies_excess_for_quality_not_cash(self):
         source = self.match(120, reference="EXPLICIT")
@@ -136,6 +139,14 @@ class ApplicationQualityTests(unittest.TestCase):
         other.update(name="C2", parent="P1", loan_number="109-1", client_number="1")
         other.as_dict = lambda: dict(other)
         self.assertEqual(self.match(other=other).match_status, "Ambiguo")
+
+    def test_unique_exact_collection_amount_needs_no_employer_detail(self):
+        other = self.row()
+        other.update(name="C2", parent="P1", loan_number="109-1", client_number="1", expected_usd=150)
+        other.as_dict = lambda: dict(other)
+        result = self.match(other=other)
+        self.assertEqual(result.match_status, "Conciliado")
+        self.assertEqual(result.collection_row_id, "C1")
 
     def test_credit_matches_assigned_period_with_different_accounting_reference(self):
         source = self.match(reference="1621", source_values={"reference": "0010148518", "historical_period": "P1"})

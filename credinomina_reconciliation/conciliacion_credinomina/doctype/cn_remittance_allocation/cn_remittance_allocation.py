@@ -73,6 +73,11 @@ class CNRemittanceAllocation(Document):
         self._invalidate_changed_detail_credits()
         from credinomina_reconciliation.detail_balances import update_detail_balances
         update_detail_balances(self)
+        self._update_financial_status()
+
+    def _update_financial_status(self):
+        from credinomina_reconciliation.deposit_presentation import reconciliation_status
+        self.financial_status = reconciliation_status(self)
 
     def _invalidate_changed_detail_credits(self):
         previous = self.get_doc_before_save()
@@ -99,6 +104,8 @@ class CNRemittanceAllocation(Document):
             self.result = "Pendiente"
 
     def _validate_deposit(self):
+        if self.docstatus == 1 and self.get('cash_identity_status') in {'Revisar identidad', 'Origen vinculado'}:
+            frappe.throw(_("Revise primero la identidad del efectivo. Un origen vinculado no constituye otro depósito."))
         allowed = allowed_employers(self.employer)
         self.deposit_amount = money(self.deposit_amount)
         if not self.deposit_date:
@@ -116,7 +123,9 @@ class CNRemittanceAllocation(Document):
                     frappe.throw(_("Fila {0}: indique al menos un identificador del cliente.").format(row.idx))
                 if row.get("employer") and row.employer not in allowed:
                     frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
-            clients = load_client_index(employers=allowed)
+            # Historical company membership is proved by portfolio/application
+            # evidence; today's master company must not exclude transferred staff.
+            clients = load_client_index()
             loans = load_detail_loan_clients(self.detail_rows, clients, allowed)
             complete_detail_clients(self.detail_rows, clients, self.employer, allowed, loans)
         selected = [row.period for row in self.get("detail_periods") or []]
@@ -158,13 +167,14 @@ class CNRemittanceAllocation(Document):
                 "deposit_currency": self.deposit_currency,
                 "deposit_amount": self.deposit_amount,
             },
-            fields=["name", "deposit_voucher"],
+            fields=["name", "deposit_voucher", "bank_account", "source_description"],
         )
         if not (self.docstatus == 0 and self.get("accounting_source_key")) and any(
             row.name != self.name
             and clean_text(row.deposit_voucher) == self.deposit_voucher
+            and (row.get('bank_account') == self.bank_account or 'NO IDENTIFICADA' in {row.get('bank_account'), self.bank_account})
             for row in duplicates
-        ):
+        ) and self.get('cash_identity_status') != 'Depósito independiente verificado':
             frappe.throw(_("Este depósito ya fue registrado. Si son dos depósitos distintos, indique comprobantes diferentes."))
         assigned = decimal_value(0)
         for target in self.targets or []:
@@ -290,6 +300,7 @@ class CNRemittanceAllocation(Document):
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
         guard_imported_removal(self, "cancelar")
         self._assert_can_reverse_distribution()
+        self.financial_status = "No participa"
 
     def on_trash(self):
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
@@ -335,6 +346,8 @@ class CNRemittanceAllocation(Document):
 
     def before_update_after_submit(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.accounting_deposits import validate_evidence
+        validate_evidence(self, previous)
         from credinomina_reconciliation.client_credit import guard_deposit_changes
         guard_deposit_changes(self, previous)
         if previous:
@@ -355,6 +368,8 @@ class CNRemittanceAllocation(Document):
             self.result = "Pendiente"
         from credinomina_reconciliation.detail_balances import update_detail_balances
         update_detail_balances(self)
+
+        self._update_financial_status()
 
     def _reconciliation_inputs_changed(self, previous):
         def input_value(document, fieldname):
@@ -462,7 +477,7 @@ def create_complementary_item(remittance_name: str, modified: str, values):
     item = frappe.new_doc("CN Complementary Item")
     for field in ("category", "subcategory", "voucher", "voucher_line", "posting_date", "currency", "amount",
                   "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type",
-                  "credit_client", "credit_detail_row", "credit_treatment", "credit_assigned_to", "credit_commitment_date"):
+                  "credit_client", "credit_detail_row", "credit_treatment", "credit_assigned_to", "credit_commitment_date", "receivable_due_date"):
         if field in values:
             item.set(field, values[field])
     item.reference = document.deposit_reference
@@ -654,7 +669,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
         target.detail_row = ""
         target.detail_row_label = ""
     allowed = allowed_employers(document.employer)
-    clients = load_client_index(employers=allowed)
+    clients = load_client_index()
     loans = load_detail_loan_clients(records, clients, allowed)
     rate = flt(document.get("fx_rate")) if remittance_fx_basis(document) else 0
     amounts = []

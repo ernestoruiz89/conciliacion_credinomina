@@ -1,13 +1,32 @@
 """Standalone financial/accounting work, including records without a period."""
 from datetime import date
 import frappe
+from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.complementary_balances import FIELDS, CREDIT_CATEGORIES, load_balances
 
 
-def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=None, adjustment_receivables=()):
+TASK_AMOUNT_LABELS = {
+    'application_cash': 'Pendiente de cubrir',
+    'employee_shortfall': 'Diferencia de control (informativa)',
+    'credit_management': 'Pendiente de devolver/aplicar',
+    'company_receivable': 'Pendiente de cobrar',
+    'accounting_registration': 'Importe por registrar/verificar',
+    'complementary_balance': 'Pendiente de distribuir/compensar',
+    'adjustment_classification': 'Importe por clasificar',
+    'deposit_detail': 'Depósito por detallar',
+    'review_deposit_detail': 'Importe del depósito por revisar',
+    'unassigned_deposit': 'Dinero sin distribuir',
+    'classify_bank': 'Importe por identificar',
+    'pending_application': 'Depósito pendiente de aplicar',
+    'historical_application': 'Aplicado por vincular',
+    'operational_application': 'Aplicado por vincular',
+}
+
+
+def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=None, adjustment_receivables=(), identity_deposits=()):
     today = str(as_of or date.today())[:10]
     tasks = []
-    def add(item, kind, summary, action, amount=None, *, exception=False):
+    def add(item, kind, summary, action, amount=None, *, exception=False, amount_kind=None):
         related = (credit_periods or {}).get(item["name"], []) if not item.get("period") else []
         due = item.get("commitment_date") if exception else item.get("credit_commitment_date")
         responsible = item.get("assigned_to") if exception else item.get("credit_assigned_to")
@@ -18,10 +37,15 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
             "related_periods": related,
             "period_context": ("Períodos del depósito vinculados al cliente" if item.get("category") == "Saldo a favor del cliente"
                                else "Períodos del depósito") if related else "",
-            "summary": summary, "next_action": action, "amount_usd": amount, "due_date": due,
+            "summary": summary, "next_action": action, "amount_usd": amount,
+            "amount_kind": amount_kind or TASK_AMOUNT_LABELS.get(kind, 'Importe del caso'), "due_date": due,
+            "event_date": str(item.get('origin_date') or item.get('posting_date') or item.get('creation') or '')[:10],
             "category": item.get("category") if not exception else None,
             "client_name": item.get("client_name") or "",
             "client_number": item.get("client_number") or "",
+            "loan_number": item.get("loan_number") or "",
+            "reason_type": item.get("reason_type") or "",
+            "description": item.get("description") or "",
             "responsible": responsible or "", "target_doctype": "CN Reconciliation Exception" if exception else "CN Complementary Item",
             "target_name": item["name"], "action_label": {
                 'company_receivable': 'Aplicar cobro / Compensar CxC', 'credit_management': 'Gestionar saldo',
@@ -35,25 +59,57 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
         if item.get('category') == 'Ajuste de conciliación' and item.get('subcategory_effect') in (None, '', 'Por clasificar'):
             add(item, 'adjustment_classification', 'Ajuste de conciliación por clasificar',
                 'Seleccione una subcategoría. Distribuir el depósito no determina si el faltante sigue siendo una CxC.', abs(balance['original_usd']))
-        if balance["financial_status"] == "Revisar distribución" or balance["pending_usd"]:
+        if balance["financial_status"] == "Revisar distribución":
+            add(item, "complementary_balance", "Partida complementaria · Revisar distribución",
+                (balance.get('amount_issue') or "La distribución es inconsistente") +
+                ". Compare la evidencia original y los vínculos; el importe observado no es una nueva CxC ni dinero disponible.",
+                abs(balance['original_usd']), amount_kind='Importe observado')
+        elif balance["pending_usd"]:
             add(item, "complementary_balance", "Partida complementaria · " + balance["financial_status"],
                 "Revisar el concepto y distribuir, ajustar o compensar el importe pendiente.", balance["pending_usd"])
         if item.get("category") in CREDIT_CATEGORIES and item.get("docstatus") == 1 and balance["management_pending_usd"]:
             add(item, "credit_management", item["category"] + " por gestionar",
-                "Documentar devolución o aplicación externa con referencia y soporte; no vuelve a liberar el depósito original.", balance["management_pending_usd"])
+                "Documentar devolución o aplicación externa con referencia y soporte opcional; no vuelve a liberar el depósito original.", balance["management_pending_usd"],
+                amount_kind='Pendiente de devolver/aplicar')
         if (not item.get("registration_exception") and not item.get("accounting_exception")
                 and balance["accounting_status"] in {"Pendiente de registro", "Asiento informado"}
                 and balance["financial_status"] not in {"Cancelada", "Revertida", "No conciliatoria"}):
             add(item, "accounting_registration", "Partida pendiente de registro o verificación en el core",
-                "Crear / Ver excepción de registro contable y verificar el asiento contra la importación.", abs(balance["original_usd"]))
+                "Crear / Ver excepción de registro contable y verificar el asiento contra la importación.", abs(balance["original_usd"]),
+                amount_kind='Importe por registrar/verificar')
     for item in adjustment_receivables:
-        add(item, 'company_receivable', 'CxC a la empresa por ajuste pendiente de cobro',
-            'Gestionar depósito o compensación vinculada. Registrar el asiento en el core no liquida esta deuda.', item['receivable_usd'])
+        reviewing = item.get('receivable_usd') is None
+        add(item, 'company_receivable', 'CxC por ajuste · Revisar cobros' if reviewing else 'CxC a la empresa por ajuste pendiente de cobro',
+            item.get('observation') if reviewing else 'Gestionar depósito o compensación vinculada. Registrar el asiento en el core no liquida esta deuda.',
+            item.get('observed_usd') if reviewing else item['receivable_usd'],
+            amount_kind='Importe observado' if reviewing else 'Pendiente de cobrar')
+        if reviewing:
+            tasks[-1]['action_label'] = 'Revisar cobros vinculados'
+        if not all(item.get(field) for field in ('credit_assigned_to', 'credit_commitment_date', 'receivable_due_date')):
+            add(item, 'receivable_setup', 'CxC · Seguimiento por completar',
+                'Verificar vencimiento financiero, responsable y compromiso de gestión. No cambia ni liquida la deuda.',
+                item.get('observed_usd') if reviewing else item.get('receivable_usd'),
+                amount_kind='Importe observado' if reviewing else 'CxC pendiente de gestionar')
+            tasks[-1]['action_label'] = 'Completar seguimiento de CxC'
+            tasks[-1]['priority'] = 1
     for item in exceptions:
         if item.get("status") not in {"Abierta", "En revision"}:
             continue
-        add(item, "open_exception", "Excepción · " + (item.get("exception_type") or item.get("status")),
-            item.get("next_action") or "Registrar la gestión, responsable y fecha compromiso.", item.get("amount_usd"), exception=True)
+        legacy = item.get("control_area") == "Legado por revisar"
+        from credinomina_reconciliation.exception_policy import blocks_closure
+        label = "Bloquea cierre" if blocks_closure(item) else "Seguimiento sin bloqueo de cierre"
+        add(item, "open_exception", "Excepción · " + (item.get("exception_type") or item.get("status")) + " · " + label,
+            "Supervisor: revisar clasificación del flujo anterior, responsable y fecha compromiso. Conservar evidencia."
+            if legacy else item.get("next_action") or "Registrar la gestión, responsable y fecha compromiso.",
+            item.get("amount_usd"), exception=True)
+    for deposit in identity_deposits:
+        if deposit.get('cash_identity_status') != 'Revisar identidad':
+            continue
+        add(deposit, 'deposit_identity', 'Depósito · Identidad del efectivo por revisar',
+            deposit.get('cash_identity_reason') or 'Verifique si existe un solo depósito con varias líneas contables. No confirme ni concilie efectivo duplicado.',
+            deposit.get('amount_usd'), amount_kind='Importe observado; no sumar dos veces')
+        tasks[-1].update(target_doctype='CN Remittance Allocation', action_label='Revisar origen del depósito',
+                         event_date=str(deposit.get('deposit_date') or '')[:10], priority=1)
     return tasks
 
 
@@ -114,19 +170,41 @@ def load_follow_up(year=None, employer=None):
         if year:
             filters["posting_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
         items = frappe.get_list("CN Complementary Item", filters=filters,
-            fields=[*FIELDS, "subcategory_effect", "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit"], limit_page_length=0)
+            fields=[*FIELDS, "subcategory_effect", "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit", "reason_type"], limit_page_length=0)
     if frappe.has_permission("CN Reconciliation Exception", "read"):
         exceptions = frappe.get_list("CN Reconciliation Exception", filters={**scope, "status": ["in", ["Abierta", "En revision"]]},
-            fields=["name", "employer", "period", "status", "exception_type", "amount_usd", "assigned_to", "commitment_date", "next_action", "creation"],
+            fields=["name", "employer", "period", "status", "exception_type", "control_area", "blocks_closure", "amount_usd", "assigned_to", "commitment_date", "next_action", "creation",
+                    "client_name", "client_number", "loan_number", "description", "complementary_item"],
             limit_page_length=0)
+        origins = {item['name']: item.get('posting_date') for item in items}
+        missing = sorted({item.get('complementary_item') for item in exceptions if item.get('complementary_item')} - set(origins))
+        if missing and frappe.has_permission('CN Complementary Item', 'read'):
+            for offset in range(0, len(missing), 500):
+                origins.update({item['name']: item.get('posting_date') for item in frappe.get_list(
+                    'CN Complementary Item', filters={'name': ['in', missing[offset:offset + 500]]},
+                    fields=['name', 'posting_date'], limit_page_length=0)})
+        period_dates = {}
+        period_names = sorted({item.get('period') for item in exceptions if item.get('period')})
+        if period_names and frappe.has_permission('CN Reconciliation Period', 'read'):
+            for offset in range(0, len(period_names), 500):
+                period_dates.update({item['name']: item.get('payroll_month') for item in frappe.get_list(
+                    'CN Reconciliation Period', filters={'name': ['in', period_names[offset:offset + 500]]},
+                    fields=['name', 'payroll_month'], limit_page_length=0)})
+        for item in exceptions:
+            item['origin_date'] = origins.get(item.get('complementary_item')) or period_dates.get(item.get('period')) or item.get('creation')
         if year:
-            exceptions = [item for item in exceptions if str(item.get("commitment_date") or item.get("creation") or "")[:4] == str(year)]
+            exceptions = [item for item in exceptions if str(item.get('origin_date') or '')[:4] == str(year)]
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
     receivables = load_receivables(employer=employer, year=year) if frappe.has_permission('CN Complementary Item', 'read') and frappe.has_permission('CN Remittance Allocation', 'read') else []
-    if not items and not exceptions and not receivables:
+    identity_deposits = frappe.get_list('CN Remittance Allocation', filters={**scope, 'docstatus': 0,
+        'cash_identity_status': 'Revisar identidad',
+        **({'deposit_date': ['between', [f'{year}-01-01', f'{year}-12-31']]} if year else {})},
+        fields=['name', 'employer', 'amount_usd', 'deposit_date', 'cash_identity_status', 'cash_identity_reason'],
+        limit_page_length=0) if frappe.has_permission('CN Remittance Allocation', 'read') else []
+    if not items and not exceptions and not receivables and not identity_deposits:
         return []
     from frappe.utils import nowdate
-    return build_follow_up(items, load_balances(items), exceptions, as_of=nowdate(), credit_periods=load_credit_periods(items), adjustment_receivables=receivables)
+    return build_follow_up(items, load_balances(items), exceptions, as_of=nowdate(), credit_periods=load_credit_periods(items), adjustment_receivables=receivables, identity_deposits=identity_deposits)
 
 
 def merge_follow_up(existing, additional):
@@ -138,16 +216,16 @@ def merge_follow_up(existing, additional):
         item.get("period_label") or "", item.get("summary") or ""))
 
 
-def filter_work(items, kind="", responsible="", due="", as_of=None):
-    if not (kind or responsible or due):
+def filter_work(items, kind="", responsible="", due="", as_of=None, search="", min_amount=None, sort_by=""):
+    if not (kind or responsible or due or search or min_amount not in (None, '') or sort_by):
         return items
     grouped = any('actions' in item for item in items)
     if grouped:
         items = [action for item in items for action in item.get('actions', [item])]
     today = str(as_of or date.today())[:10]
-    groups = {"payments": {"pending_application"}, "credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification"},
-              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification"},
-              "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank", "pending_application"}}
+    groups = {"payments": {"pending_application"}, "credits": {"credit_management"}, "complements": {"complementary_balance", "company_receivable", "adjustment_classification", "receivable_setup"},
+              "accounting": {"accounting_registration"}, "exceptions": {"open_exception", "overdue_exception", "company_receivable", "adjustment_classification", "receivable_setup"},
+              "deposits": {"deposit_detail", "review_targets", "review_deposit_detail", "unassigned_deposit", "classify_bank", "pending_application", "deposit_identity"}}
     result = []
     for item in items:
         if kind in groups and item.get("kind") not in groups[kind]:
@@ -155,6 +233,9 @@ def filter_work(items, kind="", responsible="", due="", as_of=None):
         if kind == "periods" and item.get("kind") in set().union(*groups.values()):
             continue
         if responsible and responsible.casefold() not in str(item.get("responsible") or "").casefold():
+            continue
+        if search and search.strip().casefold() not in ' '.join(str(item.get(field) or '') for field in (
+            'client_name', 'client_number', 'loan_number', 'employer_name', 'target_name', 'period_label', 'summary', 'next_action', 'category', 'reason_type', 'description')).casefold():
             continue
         date_value = item.get("due_date")
         if due == "overdue" and not (date_value and date_value < today):
@@ -164,23 +245,38 @@ def filter_work(items, kind="", responsible="", due="", as_of=None):
         if due == "upcoming" and not (date_value and date_value >= today):
             continue
         result.append(item)
-    return group_work_cases(result) if grouped else result
+    result = group_work_cases(result) if grouped else result
+    if min_amount not in (None, ''):
+        minimum = money(min_amount)
+        result = [item for item in result if item.get('amount_usd') is not None and abs(money(item['amount_usd'])) >= minimum]
+    if sort_by == 'amount':
+        result.sort(key=lambda item: (item.get('amount_usd') is None, -abs(money(item.get('amount_usd'))), item.get('target_name') or ''))
+    elif sort_by == 'oldest':
+        result.sort(key=lambda item: (item.get('event_date') or item.get('due_date') or '9999', item.get('target_name') or ''))
+    return result
 
 
 def group_work_cases(tasks):
-    """Count documents once while retaining independent financial/accounting work."""
+    """One case per document/company; never hide independent shared obligations."""
     groups = {}
     for task in tasks:
-        key = (task.get('target_doctype'), task.get('target_name'))
-        if not all(key):
+        key = (task.get('target_doctype'), task.get('target_name'), task.get('employer'))
+        if not all(key[:2]):
             key = (*key, task.get('kind'), task.get('employer'), task.get('period'))
         groups.setdefault(key, []).extend(task.get('actions', [task]))
     result = []
     for actions in groups.values():
         actions = sorted(actions, key=lambda item: (item.get('priority', 3), item.get('due_date') or '9999', item.get('kind') or ''))
         first = actions[0]
+        # One principal pending amount, not a sum of overlapping financial and
+        # accounting tasks. Every secondary amount remains in the expandable detail.
+        ranking = {'company_receivable': 0, 'application_cash': 0, 'credit_management': 1, 'complementary_balance': 2,
+                   'accounting_registration': 9, 'adjustment_classification': 8}
+        primary = min(actions, key=lambda action: (action.get('amount_usd') is None, ranking.get(action.get('kind'), 3)))
         group = dict(first, actions=actions, action_count=len(actions),
-            amount_usd=first.get('amount_usd') if len(actions) == 1 else None)
+            amount_usd=primary.get('amount_usd'), amount_label=primary.get('summary') or '',
+            amount_kind=primary.get('amount_kind') or TASK_AMOUNT_LABELS.get(primary.get('kind'), 'Importe del caso'),
+            event_date=min((action['event_date'] for action in actions if action.get('event_date')), default=''))
         if len(actions) > 1:
             group['summary'] = first.get('category') or first.get('target_name') or 'Caso pendiente'
             group['next_action'] = 'Revise las acciones del caso; sus importes no se suman.'

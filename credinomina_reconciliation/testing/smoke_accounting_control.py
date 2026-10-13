@@ -52,18 +52,21 @@ def run():
         standalone.review_notes = "No representa pago de cliente"
         standalone.save()
         _, rows, *_ = execute({"month": "2025-04-01", "source_account": marker})
-        assert next(row for row in rows if row["complementary_item"] == standalone.name)["state"] == "No conciliatoria"
+        unclassified = next(row for row in rows if row["complementary_item"] == standalone.name)
+        assert unclassified["state"] == "Pendiente"
+        assert unclassified["treatment_status"] == "Por aclarar (no conciliatoria)"
         assert sum(row["credit_usd"] for row in rows) == 60  # original turnover is unchanged
         # New filters match the displayed values, not the source import's status.
         base = {"month": "2025-04-01", "source_account": marker}
-        for filters, expected in [({"movement_type": "Aplicacion"}, 1), ({"state": "No conciliatoria"}, 1),
-                                  ({"movement_type": "Aplicacion", "state": "No conciliatoria"}, 0),
+        for filters, expected in [({"movement_type": "Aplicacion"}, 1), ({"state": "Pendiente"}, 3),
+                                  ({"treatment_status": "Por aclarar (no conciliatoria)"}, 1),
+                                  ({"movement_type": "Aplicacion", "treatment_status": "Por aclarar (no conciliatoria)"}, 0),
                                   ({"movement_type": "", "state": ""}, 3)]:
             _, selected, _, _, kpis = execute({**base, **filters})
             assert len(selected) == expected, (filters, selected)
             assert next(kpi["value"] for kpi in kpis if kpi["label"] == "Movimientos") == expected
             assert next(kpi["value"] for kpi in kpis if kpi["label"] == "Créditos US$") == sum(row["credit_usd"] or 0 for row in selected)
-        _, selected, _, _, kpis = execute({**base, "state": "No conciliatoria", "summary": 1})
+        _, selected, _, _, kpis = execute({**base, "treatment_status": "Por aclarar (no conciliatoria)", "summary": 1})
         assert len(selected) == 1 and selected[0]["movement_count"] == 1 and selected[0]["credit_usd"] == 10
         assert selected[0]["source_currency"] == "USD"
         deposit = frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": employer.name,

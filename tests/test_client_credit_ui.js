@@ -82,7 +82,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     frm.doc.credit_pending_usd = 0;
     events.refresh(frm);
     assert.equal(shown.record_credit_management, false);
-    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category:"Saldo a favor del cliente", docstatus:1, credit_management_status:"Resuelto"});
+    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category:"Saldo a favor del cliente", docstatus:1, credit_management_status:"Resuelto", _cn_balance:{state:"Conciliado"}});
     assert.equal(indicator[1], "green");
     const added = [];
     context.frappe.listview_settings["CN Complementary Item"].onload({page:{add_inner_button: (label, action) => {if (label === "Saldos de clientes pendientes") action();}}, filter_area:{add: filter => added.push(filter)}});

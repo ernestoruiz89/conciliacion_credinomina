@@ -13,6 +13,7 @@ import frappe
 
 from credinomina_reconciliation.application_aging import application_balances
 from credinomina_reconciliation.application_context import load_application_context
+from credinomina_reconciliation.accounting_client_summary import collection_links, collection_link_issue
 from credinomina_reconciliation.complementary_balances import FIELDS, CREDIT_CATEGORIES, financial_balance
 from credinomina_reconciliation.core_item_position import signed_pending
 from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables
@@ -53,6 +54,26 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
     live_items = {row['name']: row for row in items if row.get('docstatus') != 2}
     visible_deposits = {row['name']: row for row in deposits if row.get('docstatus') != 2}
     warnings = []
+    # Audit the ORIGINAL links before projecting dates. A cut must not repair
+    # over-allocation, negatives or shared capacity errors merely by clipping.
+    current_links, link_issues, usage = {}, {}, defaultdict(lambda: money(0))
+    for row in sources:
+        parent = imports.get(row.get('parent'), {})
+        if (row.get('historical_period') or parent.get('historical_period')
+                or parent.get('historical_backfill') or row.get('processing_route') == 'Historica'):
+            continue
+        try:
+            links = collection_links(row, converted_amount(row, 'USD'))
+            current_links[row['name']] = links
+            for link in links:
+                usage[link.get('collection_row_id')] += max(money(link.get('amount_usd')), 0)
+        except (ValueError, TypeError):
+            link_issues[row['name']] = 'Detalle de distribución inválido; revise los vínculos de la aplicación.'
+    for row in sources:
+        if row['name'] in current_links:
+            issue = collection_link_issue(current_links[row['name']], converted_amount(row, 'USD'), collections, usage)
+            if issue:
+                link_issues[row['name']] = issue
     histories = defaultdict(list)
     for row in offsets:
         histories[row['parent']].append(row)
@@ -102,8 +123,13 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
     future_collections = set()
     collection_sources = defaultdict(set)
     for row in sources:
-        links = _journal(row.get('application_allocation_detail'), row['name'])
-        if not links and row.get('collection_row_id'):
+        if row.get('event_type') != 'Aplicacion' or not row.get('effective') or row.get('match_status') == 'Ignorado':
+            continue
+        links = current_links.get(row['name'], [])
+        if row['name'] in link_issues:
+            row['_cutoff_distribution_issue'] = link_issues[row['name']]
+            warnings.append(f"{row['name']}: {link_issues[row['name']]}")
+        if not links and row.get('collection_row_id') and row['name'] not in link_issues:
             links = [dict(collection_row_id=row['collection_row_id'], amount_usd=converted_amount(row, 'USD'))]
         in_cutoff = _day(row.get('event_date')) <= cutoff
         for link in links:
@@ -113,25 +139,32 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
                 future_collections.add(key)
         if not in_cutoff:
             continue
+        current_applied = converted_amount(row, 'USD')
         row.update(application_adjustment_usd=money_float(adjustments[row['name']]),
                    historical_remitted_usd=0, historical_detail=[])
         # A later application adjustment may have reduced today's links. The
         # restored excess stays pending, never silently disappears from the cut.
         applied = converted_amount(row, 'USD')
-        if links and applied is not None:
-            remaining = money(applied)
-            clipped = []
-            for link in links:
-                amount = min(max(money(link.get('amount_usd')), money(0)), remaining)
-                clipped.append(dict(link, amount_usd=money_float(amount)))
-                remaining -= amount
-            if len(clipped) == 1 and remaining:
-                clipped[0]['amount_usd'] = money_float(applied)
-            row['application_allocation_detail'] = clipped
+        if links and applied is not None and row['name'] not in link_issues:
+            # Only a fully linked SINGLE claim can absorb the known dated
+            # application adjustment without inventing an allocation order.
+            if len(links) == 1 and money(links[0].get('amount_usd')) == money(current_applied):
+                links = [dict(links[0], amount_usd=money_float(applied))]
+            elif sum_money(link.get('amount_usd') for link in links) > money(applied):
+                row['_cutoff_distribution_issue'] = 'No se puede atribuir el ajuste fechado entre varias cobranzas al corte; revise la distribución.'
+                warnings.append(f"{row['name']}: {row['_cutoff_distribution_issue']}")
+            row['application_allocation_detail'] = links
         eligible_sources[row['name']] = row
+    projected_capacity = defaultdict(lambda: money(0))
+    for row in eligible_sources.values():
+        if row.get('_cutoff_distribution_issue'):
+            continue
+        for link in collection_links(row, converted_amount(row, 'USD')):
+            projected_capacity[link.get('collection_row_id')] += money(link.get('amount_usd'))
     collection_keys = {}
     for name, row in collections.items():
         row.update(remittance_detail=[], rounding_adjustment_usd=0, fx_variance_usd=0)
+        row['applied_usd'] = money_float(projected_capacity[name])
         collection_keys[(row['parent'], row.get('row_key'))] = name
 
     credits_by_deposit = defaultdict(list)
@@ -270,7 +303,7 @@ def load_cutoff(filters):
         fields = list(dict.fromkeys([*FIELDS, 'accounting_source_key', 'source_date', 'source_debit', 'source_credit',
             'source_voucher', 'source_row', 'source_description', 'source_client_name', 'client_name', 'client_number',
             'loan_number', 'reference', 'voucher', 'registered_deposit', 'credit_history', 'credit_resolved_usd',
-            'claim_id', 'accounting_exception']))
+            'claim_id', 'accounting_exception', 'reason_type', 'subcategory']))
         items = list(records('CN Complementary Item', filters={'docstatus': ['!=', 2]}, fields=fields))
         # The reverse link is on the originating item. No unrestricted Exception read.
         origins = {item.get('accounting_exception'): item['name'] for item in items if item.get('accounting_exception')}
@@ -280,8 +313,11 @@ def load_cutoff(filters):
             'CN Complementary Item', 'compensations', fields=['parent', 'compensation_date', 'amount_usd']))
         deposits = list(records('CN Remittance Allocation', filters={'docstatus': ['!=', 2]}, fields=[
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
-            'amount_usd', 'allocation_detail', 'result', 'notes']))
-        return reconstruct(load_application_context(), deposits, items, offsets, cutoff, filters)
+            'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit']))
+        context = load_application_context()
+        from credinomina_reconciliation.cutoff_evidence import require_cutoff_evidence
+        require_cutoff_evidence(context, deposits, items, cutoff)
+        return reconstruct(context, deposits, items, offsets, cutoff, filters)
     except ValueError as error:
         frappe.throw(str(error))
 

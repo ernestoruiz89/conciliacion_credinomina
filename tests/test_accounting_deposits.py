@@ -111,9 +111,10 @@ class DepositTests(unittest.TestCase):
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0]["credit_nio"], 3662.43)
             self.assertEqual(result[0]["credit_usd"], 100)
-            self.assertEqual(result[0]["state"], "Pendiente")
+            self.assertEqual(result[0]["state"], "Sin conciliar")
+            self.assertEqual(result[0]["recorded_deposit_result"], "Pendiente")
             self.assertEqual(result[0]["remittance_allocation"], cash["name"])
-        cash.update(docstatus=1, result="Conciliado")
+        cash.update(docstatus=1, result="Conciliado", amount_usd=120, allocated_usd=120)
         self.assertEqual(build_rows([row], parents, [], deposits=[cash])[0][0]["state"], "Conciliado")
 
     def test_unknown_employer_not_forced(self):

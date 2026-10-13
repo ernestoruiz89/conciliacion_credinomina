@@ -1,4 +1,6 @@
 """First-stage application quality; never evidence of payroll deduction or cash."""
+import json
+
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 
 PENDING_DEDUCTION = {None, "", "Pendiente de detalle", "Inferida por depósito"}
@@ -8,26 +10,41 @@ EMPLOYER_DETAIL = "Detalle de empresa"
 BASES = {COLLECTION, EMPLOYER_DETAIL}
 
 
+def application_cash_covered(row, entries=None):
+    """Credit coverage only; executed signed complements are separate destinations."""
+    if entries is None:
+        entries = row.get("remittance_detail") or []
+        if isinstance(entries, str):
+            entries = json.loads(entries)
+    separate = sum((money(entry.get("importe_usd")) for entry in entries
+                    if entry.get("destino") == "Partida complementaria"), money(0))
+    return money_float(max(money(row.get("remitted_usd")) - separate
+                           - money(row.get("rounding_adjustment_usd")), 0))
+
+
+def application_cash_status(row, entries=None):
+    applied = money(row.get("applied_usd"))
+    covered = money(application_cash_covered(row, entries))
+    if not applied and not covered:
+        return "Pendiente"
+    if covered > applied:
+        return "Diferencia aplicacion vs deposito"
+    if covered >= applied:
+        return "Aplicado y remitido"
+    return "Depósito parcial" if covered else "Aplicacion encontrada"
+
+
 def collection_quality(row, basis=COLLECTION):
-    status = row.get("deduction_status")
     expected = money(row.get("expected_usd"))
     expected_nio = money(row.get("expected_nio"))
-    reference = expected if basis in BASES else None
-    if basis == EMPLOYER_DETAIL:
-        if status not in VALID_DEDUCTION:
-            reference = None
-        else:
-            reference = money(row.get("deducted_usd"))
-            nio = money(row.get("deducted_nio"))
-            if not reference and nio:
-                reference = (money(nio * expected / expected_nio)
-                             if expected > 0 and expected_nio > 0 else None)
-    elif basis == COLLECTION and not expected and expected_nio:
+    basis = COLLECTION  # Legacy selection is retained only as audit evidence.
+    reference = expected
+    if not expected and expected_nio:
         reference = None  # Missing conversion is not a zero-valued collection.
     if reference is None:
         return {"quality_basis": basis or "", "quality_status": "Revisar base de comparación",
                 "quality_expected_usd": None, "quality_difference_usd": None}
-    reference = money(max(reference - money(row.get("complementary_usd")), 0))
+    # Deposit fees/credits explain cash, never rewrite the requested collection.
     difference = money(money(row.get("applied_usd")) - reference)
     result = ("Conforme según cobranza" if basis == "Cobranza" else "Conforme según deducción")
     if difference:

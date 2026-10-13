@@ -63,7 +63,7 @@ def _is_core_import(document):
     import frappe
 
     if document.get("doctype") != "CN Accounting Import":
-        return document.get("accounting_source_key") or (
+        return document.get("accounting_source_key") or document.get('accounting_sources') or (
             document.get("name") and frappe.db.get_value(
                 document.doctype, document.name, "accounting_source_key"
             )

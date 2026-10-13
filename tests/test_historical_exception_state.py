@@ -1,4 +1,4 @@
-"""A matched historical cash flow is not cleared while an exception is open."""
+"""Financial reconciliation does not hide or resolve an open exception."""
 
 import unittest
 from unittest.mock import patch
@@ -11,7 +11,7 @@ from credinomina_reconciliation.conciliacion_credinomina.page.control_credinomin
 
 
 class HistoricalExceptionStateTests(unittest.TestCase):
-    def test_open_exception_overrides_historical_reconciled_badge(self):
+    def test_open_exception_is_separate_from_historical_financial_badge(self):
         period = frappe._dict({
             "name": "H-2025-04-15", "employer": "EMP-1",
             "payroll_month": "2025-04-01", "reconciliation_mode": "Historica",
@@ -45,7 +45,7 @@ class HistoricalExceptionStateTests(unittest.TestCase):
             data = control_credinomina.get_control_data(year=2025)
             detail = control_credinomina._build_control_data("Todos", detail_period=period.name)["periods"][0]
 
-        self.assertEqual(data["periods"][0]["control_state"], "historico_excepcion")
+        self.assertEqual(data["periods"][0]["control_state"], "conciliado")
         self.assertNotIn("exceptions", data["periods"][0])
         self.assertEqual(len(detail["exceptions"]), 1)
 

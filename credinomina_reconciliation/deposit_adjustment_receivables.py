@@ -43,6 +43,7 @@ def build_receivables(items, balances, employer=None, year=None, *, settlements=
                 continue
             paid, compensated = money(0), money(0)
             recoveries = []
+            invalid_recovery = False
             for receipt in settlements:
                 if (receipt.get('receivable_origin') != item.get('name')
                         or receipt.get('employer') != company or receipt.get('docstatus') != 1):
@@ -56,20 +57,35 @@ def build_receivables(items, balances, employer=None, year=None, *, settlements=
                     amount = sum((money(entry.get('amount_usd')) for entry in value.get('distributions') or []), money(0))
                     paid += amount
                     kind = 'Depósito'
+                invalid_recovery = invalid_recovery or amount < 0
                 recoveries.append(dict(name=receipt['name'], kind=kind, amount_usd=money_float(amount),
                     date=receipt.get('posting_date'), distributions=value.get('distributions') or []))
             remaining = group['amount'] - paid - compensated
-            if not remaining and not include_settled:
+            reviewing = remaining < 0 or invalid_recovery
+            if not remaining and not include_settled and not reviewing:
                 continue
+            observation = (f'Revisar cobros: CxC original US$ {group["amount"]:.2f}, '
+                f'cobrado US$ {paid:.2f}, compensado US$ {compensated:.2f}. '
+                'El saldo queda sin determinar hasta corregir los vínculos; el exceso no es un saldo a favor.') if reviewing else ''
             source = item.as_dict() if callable(getattr(item, 'as_dict', None)) else dict(item)
             output.append(dict(source, employer=company or None,
                 receivable_original_usd=money_float(group['amount']),
                 receivable_paid_usd=money_float(paid), receivable_compensated_usd=money_float(compensated),
-                receivable_usd=money_float(remaining), recoveries=recoveries,
+                receivable_usd=None if reviewing else money_float(remaining), recoveries=recoveries,
+                observed_usd=money_float(max(-remaining, abs(min(paid, 0)), abs(min(compensated, 0)))) if reviewing else None,
+                observation=observation,
                 related_deposits=', '.join(sorted(group['deposits'])),
                 period=next(iter(group['periods'])) if len(group['periods']) == 1 else item.get('period'),
-                receivable_status='Revisar cobros' if remaining < 0 else 'Cobrada' if not remaining else 'Parcialmente cobrada' if paid or compensated else 'Pendiente de cobro'))
+                receivable_status='Revisar cobros' if reviewing else 'Cobrada' if not remaining else 'Parcialmente cobrada' if paid or compensated else 'Pendiente de cobro'))
     return output
+
+
+def receivable_total(rows):
+    """Unknown recovery evidence makes the total unknown, never a credit."""
+    rows = list(rows)
+    if any(row.get('receivable_usd') is None for row in rows):
+        return None
+    return money_float(sum((money(row['receivable_usd']) for row in rows), money(0)))
 
 
 def load_receivables(employer=None, year=None, item_names=None):
@@ -82,7 +98,8 @@ def load_receivables(employer=None, year=None, item_names=None):
     }, fields=['name', 'employer', 'docstatus', 'category', 'accounting_source_key',
         'amount_usd', 'posting_date', 'review_action', 'accounting_status', 'period',
         'client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'description',
-        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date']))
+        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type',
+        'receivable_due_date', 'receivable_due_origin', 'receivable_setup_pending']))
     settlements = load_settlements(items)
     all_items = [*items, *settlements]
     balances = load_balances(all_items)
@@ -105,13 +122,17 @@ def load_receivables(employer=None, year=None, item_names=None):
 
 
 def load_settlements(items, *, include_cancelled=False):
+    from credinomina_reconciliation.report_records import require_complete_evidence
     names = sorted({item.get('name') for item in items if item.get('name')})
     rows = []
     for offset in range(0, len(names), 500):
-        rows.extend(records('CN Complementary Item', filters={
+        filters = {
             'receivable_origin': ['in', names[offset:offset + 500]],
-            **({} if include_cancelled else {'docstatus': ['!=', 2]})},
+            **({} if include_cancelled else {'docstatus': ['!=', 2]})}
+        batch = list(records('CN Complementary Item', filters=filters,
             fields=['name', 'receivable_origin', 'employer', 'docstatus', 'category', 'posting_date',
                 'amount_usd', 'compensated_usd', 'compensation_pending_usd', 'accounting_status',
                 'receivable_method', 'receivable_counterpart']))
+        require_complete_evidence('CN Complementary Item', [row.name for row in batch], filters=filters)
+        rows.extend(batch)
     return rows

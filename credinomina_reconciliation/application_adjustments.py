@@ -57,12 +57,16 @@ def refresh_rows(rows):
         ) if row.event_type == "Aplicacion" else ""
 
 
-def cash_coverage(row, saved_collections=(), lock=False):
+def cash_coverage(row, saved_collections=(), lock=False, context=None):
     """Reserve cash once per deposit/claim, including unconfirmed manual targets.
 
     Operational cash belongs to a collection shared by applications. Only its
     uncovered capacity is adjustable; never attribute that cash to two rows.
     """
+    if context is not None:
+        if lock:
+            raise ValueError('A candidate preview cannot be used to confirm an adjustment')
+        return context.coverage(row, saved_collections)
     links = frappe.parse_json(row.get("application_allocation_detail") or "[]")
     ids = {link.get("collection_row_id") for link in links} | set(saved_collections)
     if row.get("collection_row_id"):
@@ -105,6 +109,12 @@ def cash_coverage(row, saved_collections=(), lock=False):
     reserved = defaultdict(lambda: money(0))
     for deposit_claim in paid.keys() | planned.keys():
         reserved[deposit_claim[1]] += max(paid[deposit_claim], planned[deposit_claim])
+    return coverage_from_reservations(row, collections, reserved, snapshots)
+
+
+def coverage_from_reservations(row, collections, reserved, snapshots=None):
+    """Shared arithmetic for batch previews and current, locked confirmation reads."""
+    links = frappe.parse_json(row.get("application_allocation_detail") or "[]")
     historical = max(reserved[("H", row.name)], money(row.get("historical_remitted_usd")))
     if not collections:
         available = max(money(net_amount(row)) - historical, money(0))
@@ -120,7 +130,7 @@ def cash_coverage(row, saved_collections=(), lock=False):
             for name, collection in collections.items())
         available = min(available, max(money(net_amount(row)) - historical, money(0)))
     return {"adjustable_usd": money_float(available), "protected_usd": money_float(money(net_amount(row)) - available),
-            "snapshots": snapshots}
+            "snapshots": snapshots or {}}
 
 
 def allocation_signature(entries):
@@ -140,9 +150,11 @@ def assert_cash_preserved(snapshots):
             frappe.throw(_("El ajuste cambiaría la distribución existente del depósito {0}. No se guardó el cambio; revise los vínculos de la aplicación.").format(name))
 
 
-def adjustment_block_reason(row, item_name=None, saved_periods=(), saved_collections=()):
+def adjustment_block_reason(row, item_name=None, saved_periods=(), saved_collections=(), context=None):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _source_linked_periods
 
+    if context is not None:
+        return context.block_reason(row, saved_periods, saved_collections)
     periods = set(_source_linked_periods(row)) | set(saved_periods)
     for name in saved_collections:
         parent = frappe.db.get_value("CN Collection Row", name, "parent")
@@ -162,10 +174,12 @@ def assert_adjustable(row, item_name=None, saved_periods=(), saved_collections=(
         frappe.throw(reason)
 
 
-def application_link_error(doc, row, parent):
+def application_link_error(doc, row, parent, resolved_employer=None):
     """Shared eligibility for the picker and the actual adjustment validation."""
+    from credinomina_reconciliation.application_context import linked_application_employer
     if (row.parenttype != "CN Accounting Import" or row.event_type != "Aplicacion"
-            or not row.effective or row.currency != "USD" or parent.employer != doc.employer
+            or not row.effective or row.currency != "USD" or not doc.employer
+            or (linked_application_employer(row, parent) if resolved_employer is None else resolved_employer) != doc.employer
             or parent.docstatus == 2 or parent.status not in {"Importado", "Importado con excepciones"}):
         return _("Seleccione una aplicación vigente en US$ de la misma empresa.")
     known_periods = {row.historical_period, row.collection_period} | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
