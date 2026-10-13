@@ -30,4 +30,9 @@ assert.ok(restricted.includes('Vista parcial') && restricted.includes('>—</div
 const css = context.helpers.styles();
 assert.match(css, /\.cn-period-detail \.cn-detail-table \.cn-number[^}]*white-space: nowrap/);
 assert.match(css, /\.cn-period-detail \.cn-period-collections[^}]*min-width: 1080px/);
+assert.match(css, /--cn-surface: var\(--bg-color/);
+assert.match(css, /\.cn-panel \{[^}]*background: var\(--cn-surface\)/);
+assert.match(css, /\.cn-matrix tbody th\.cn-company \{[^}]*background: var\(--cn-surface\)/);
+assert.match(css, /\.cn-conciliado, \.cn-historico_conciliado \{ background: var\(--cn-success-bg\)/);
+assert.doesNotMatch(css, /\.cn-panel \{[^}]*background: white/);
 console.log('OK: period modal separates cash stages, keeps seven columns, details, escaped links and nowrap amounts.');

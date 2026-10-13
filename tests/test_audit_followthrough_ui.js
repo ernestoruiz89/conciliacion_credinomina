@@ -30,8 +30,9 @@ assert.ok(!context.frappe.query_reports['Estado de Cuenta Operativo'].filters
 vm.runInContext(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item_list.js`, 'utf8'), context);
 const html = context.frappe.listview_settings['CN Complementary Item'].formatters.accounting_status('Registrada', {},
     {_cn_balance: {pending_usd: 0, company_receivable_usd: 500}});
-assert.ok(html.includes('Por cobrar US$: 500.00'));
-assert.ok(html.includes('Sin distribuir/compensar US$: 0.00'));
+assert.ok(html.includes('title="Registrada · Sin distribuir/compensar US$: 0.00 · Por cobrar US$: 500.00"'));
+assert.ok(!html.includes('<br>'));
+assert.ok(html.includes('white-space:nowrap') && html.includes('var(--text-color)'));
 const schema = JSON.parse(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item.json`, 'utf8'));
 assert.deepEqual(schema.fields.filter(f => f.in_standard_filter).map(f => f.fieldname).sort(),
     ['accounting_status', 'category', 'employer', 'posting_date']);
