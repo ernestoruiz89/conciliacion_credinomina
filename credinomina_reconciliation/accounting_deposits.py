@@ -99,7 +99,9 @@ def _bank_account(row):
 def create_deposits(records, source_file, file_hash):
     from credinomina_reconciliation.deposit_accounting_sources import (
         source_parent, source_writer, grouping_key, evidence_values, append_source,
+        record_imported_source, grouped_source_fits,
     )
+    from credinomina_reconciliation.manual_deposit_matching import find_candidates, link_manual_candidate
     if not records:
         return []
     if not frappe.has_permission(DOCTYPE, "create"):
@@ -131,37 +133,31 @@ def create_deposits(records, source_file, file_hash):
                 frappe.throw(_("Fila {0}: este movimiento ya se registró como partida complementaria. Revise ese registro antes de importarlo como depósito para no duplicar su efecto.").format(row["source_row"]))
             if row.get("resolved_employer"):
                 frappe.get_doc("CN Employer", row["resolved_employer"]).check_permission("read")
-            duplicates = frappe.get_all(DOCTYPE, filters={"docstatus": ["!=", 2],
-                'employer': row.get('resolved_employer') or '',
-                "deposit_reference": row["bank_deposit_reference"], "deposit_date": row["deposit_date"],
-                "deposit_currency": row["deposit_currency"], "deposit_amount": row["deposit_amount"]},
-                fields=['name', 'bank_account', 'deposit_voucher', 'source_description', 'cash_identity_status'])
             bank, bank_reason = _bank_account(row)
-            from credinomina_reconciliation.deposit_evidence import extract_deposit
-            def possible_repeat(candidate):
-                if candidate.get('cash_identity_status') == 'Origen vinculado':
-                    return False
-                if clean_text(candidate.get('deposit_voucher')) != clean_text(row.get('voucher')):
-                    return False
-                hints = extract_deposit({}, candidate.get('source_description') or '')
-                if all(hints.get(field) and row.get(field) for field in ('bank_name_hint', 'bank_number_hint')):
-                    return all(hints[field] == row[field] for field in ('bank_name_hint', 'bank_number_hint'))
-                return candidate.get('bank_account') == bank or UNIDENTIFIED_BANK_ACCOUNT in {candidate.get('bank_account'), bank}
-            duplicates = [candidate for candidate in duplicates if possible_repeat(candidate)]
+            duplicates = find_candidates(row, bank)
             group_key = grouping_key(row, file_hash)
             grouped = frappe.db.get_value(DOCTYPE, {'deposit_group_key': group_key,
-                'docstatus': 0, 'cash_identity_status': ['!=', 'Origen vinculado']}, 'name', for_update=True) if group_key else None
+                'docstatus': ['in', [0, 1]], 'consolidated_deposit': ['is', 'not set']}, 'name', for_update=True) if group_key else None
             if grouped:
-                document = frappe.get_doc(DOCTYPE, grouped)
+                document = frappe.get_doc(DOCTYPE, grouped, for_update=True)
                 document.check_permission('write')
-                with source_writer():
-                    if append_source(document, evidence_values(row, source_file, file_hash)):
-                        document.save()
-                row['remittance_allocation'] = document.name
+                if document.docstatus == 0:
+                    with source_writer():
+                        if append_source(document, evidence_values(row, source_file, file_hash)):
+                            document.save()
+                    row['remittance_allocation'] = document.name
+                    continue
+                if document.get('cash_identity_status') != 'Revisar identidad' and grouped_source_fits(document, row):
+                    record_imported_source(document, row, source_file, file_hash, group_key)
+                    row['remittance_allocation'] = document.name
+                    continue
+            linked = link_manual_candidate(duplicates, row, bank, source_file, file_hash, group_key)
+            if linked:
+                row['remittance_allocation'] = linked.name
                 continue
             notes = ["Importado de contabilidad. Revise y confirme el depósito; no se ha conciliado.", bank_reason]
             if duplicates:
-                notes.append("Posible repetición: ya existe un depósito con referencia, fecha, moneda e importe iguales. Se conservó esta línea en borrador; revise antes de confirmar para no duplicar efectivo.")
+                notes.append("Posible repetición: existe un depósito con la misma referencia o fecha e importe. No se pudo establecer una coincidencia única y completa. Revise el origen antes de confirmar para no duplicar efectivo.")
             if not row.get("resolved_employer") or row["resolved_employer"] == UNIDENTIFIED_EMPLOYER:
                 notes.append("Empresa pendiente de identificar: " + (row.get("employer_text") or "Sin dato"))
             if not row.get("bank_deposit_currency"):

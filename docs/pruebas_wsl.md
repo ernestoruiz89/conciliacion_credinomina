@@ -385,3 +385,36 @@ depurador ni modificación de credenciales. Se habilitó temporalmente el acceso
 al Desk del sitio de ensayo y se restauró su configuración al terminar.
 No se desplegó a producción. Estos resultados no acreditan aún un despliegue
 en la versión exacta Frappe 15.111.1 ni rendimiento con el volumen productivo.
+
+## Depósitos manuales y contabilidad posterior — 13 de octubre de 2026
+
+La carga individual y masiva vinculan coincidencias únicas a depósitos manuales
+en borrador o confirmados. La evidencia se añade sin reescribir la distribución
+ni la tasa del depósito. Los candidatos ambiguos quedan en revisión.
+
+Validación local de esta mejora:
+
+- Frappe 15.117.0: 57 pruebas relacionadas y 116 subpruebas aprobadas.
+- Suite general con contexto Frappe inicializado: 1,442 pruebas y 872 subpruebas
+  aprobadas; cuatro fallos preexistentes. Los mismos cuatro se reprodujeron sobre
+  una copia de `HEAD` anterior a estos cambios: dos expectativas de columnas del
+  resumen Excel, la lista esperada de parches y una etiqueta de totales de CxC.
+- Frappe 16.51.0, sitio `cn-reconciliation-test.local`: pasó
+  `smoke_manual_deposit_accounting.run`. Verifica borrador y confirmado, carga
+  individual/masiva, comprobante manual vacío, varias líneas para un efectivo,
+  reintentos, evidencia contradictoria, adjunto único, reporte sin duplicación,
+  datos bancarios incompletos, varios candidatos, comprobantes distintos,
+  referencia discrepante, archivo distinto, exceso contable y un depósito en C$
+  que conserva su tasa original. Una distribución real con período cerrado
+  conserva sus destinos y resultados. También pasó `smoke_financial_origins.run`.
+  Ambos ensayos revierten sus datos; el nuevo compara los conteos antes/después.
+- Pasaron las pruebas JavaScript de carga masiva, carga de la herramienta,
+  control contable y revisión de orígenes financieros.
+
+Repetición de la prueba funcional, exclusivamente en el sitio descartable:
+
+```bash
+bench --site cn-reconciliation-test.local execute credinomina_reconciliation.testing.smoke_manual_deposit_accounting.run
+```
+
+No se desplegaron estos cambios en producción ni se ejecutó una migración de datos.
