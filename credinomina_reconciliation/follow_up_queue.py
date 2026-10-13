@@ -44,6 +44,7 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
             "client_name": item.get("client_name") or "",
             "client_number": item.get("client_number") or "",
             "loan_number": item.get("loan_number") or "",
+            "cause_category": (item.get("cause_category") or "") if exception else "",
             "reason_type": item.get("reason_type") or "",
             "description": item.get("description") or "",
             "responsible": responsible or "", "target_doctype": "CN Reconciliation Exception" if exception else "CN Complementary Item",
@@ -174,7 +175,7 @@ def load_follow_up(year=None, employer=None):
     if frappe.has_permission("CN Reconciliation Exception", "read"):
         exceptions = frappe.get_list("CN Reconciliation Exception", filters={**scope, "status": ["in", ["Abierta", "En revision"]]},
             fields=["name", "employer", "period", "status", "exception_type", "control_area", "blocks_closure", "amount_usd", "assigned_to", "commitment_date", "next_action", "creation",
-                    "client_name", "client_number", "loan_number", "description", "complementary_item"],
+                    "client_name", "client_number", "loan_number", "cause_category", "description", "complementary_item"],
             limit_page_length=0)
         origins = {item['name']: item.get('posting_date') for item in items}
         missing = sorted({item.get('complementary_item') for item in exceptions if item.get('complementary_item')} - set(origins))
@@ -235,7 +236,7 @@ def filter_work(items, kind="", responsible="", due="", as_of=None, search="", m
         if responsible and responsible.casefold() not in str(item.get("responsible") or "").casefold():
             continue
         if search and search.strip().casefold() not in ' '.join(str(item.get(field) or '') for field in (
-            'client_name', 'client_number', 'loan_number', 'employer_name', 'target_name', 'period_label', 'summary', 'next_action', 'category', 'reason_type', 'description')).casefold():
+            'client_name', 'client_number', 'loan_number', 'employer_name', 'target_name', 'period_label', 'summary', 'next_action', 'category', 'cause_category', 'reason_type', 'description')).casefold():
             continue
         date_value = item.get("due_date")
         if due == "overdue" and not (date_value and date_value < today):

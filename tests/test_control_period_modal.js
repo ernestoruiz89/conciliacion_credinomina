@@ -4,7 +4,7 @@ const source = fs.readFileSync(path.join(__dirname,
     '../credinomina_reconciliation/conciliacion_credinomina/page/control_credinomina/control_credinomina.js'), 'utf8');
 const context = vm.createContext({__: text => text, frappe: {pages: {'control-credinomina': {}},
     datetime: {str_to_user: value => value}}});
-vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderPeriodApplicationTable, renderOperationalSummary, applyPeriodDifferenceFilter, applyApplicationDifferenceFilter, hasApplicationDepositDifference, styles}; })();'), context);
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderPeriodApplicationTable, renderPeriodExceptions, renderOperationalSummary, applyPeriodDifferenceFilter, applyApplicationDifferenceFilter, hasApplicationDepositDifference, styles}; })();'), context);
 const row = {client_name: 'Cliente <script>', client_number: '7740', loan_number: '13997-1', installment_number: '1',
     expected_usd: 28.43, deducted_usd: 28.43, applied_usd: 0, remitted_usd: 0,
     pending_payment_usd: 28.43, pending_payment_deposits: [{name: 'DEP <1>', amount_usd: 28.43}],
@@ -81,6 +81,18 @@ assert.equal(context.helpers.applyApplicationDifferenceFilter(applicationDetail,
 assert.equal(applicationRegion.hidden, true);
 assert.equal(applicationEmpty.hidden, false);
 assert.equal(context.helpers.renderPeriodApplicationTable({...unlinkedPeriod, historical_rows: []}, false).includes('No hay aplicaciones asignadas'), true);
+const exceptions = context.helpers.renderPeriodExceptions([{name: 'CN-EXC-11-2025-001',
+    client_name: 'JUAN <ALBERTO> MONTOYA', client_number: '5584', loan_number: '001589-1',
+    cause_category: 'Por determinar', description: 'Liquidación aplicada pero aún no pagada',
+    amount_usd: 840.56, status: 'Abierta', next_action: 'Revisar pago',
+    assigned_to: 'Usuario oculto', evidence_file: 'archivo-oculto.pdf'}]);
+assert.equal((exceptions.match(/<th>/g) || []).length, 7);
+assert.ok(exceptions.includes('JUAN &lt;ALBERTO&gt; MONTOYA'));
+assert.ok(exceptions.includes('Nro. Cliente: 5584') && exceptions.includes('Crédito: 001589-1'));
+assert.ok(exceptions.includes('Revisar pago') && exceptions.includes('Liquidación aplicada pero aún no pagada'));
+assert.ok(!exceptions.includes('Responsable') && !exceptions.includes('Soporte'));
+assert.ok(!exceptions.includes('Usuario oculto') && !exceptions.includes('archivo-oculto.pdf'));
+assert.ok(context.helpers.renderPeriodExceptions([]).includes('No hay excepciones abiertas'));
 const restricted = context.helpers.renderOperationalSummary({...period, pending_application_usd: null, payment_evidence_restricted: true});
 assert.ok(restricted.includes('Vista parcial') && restricted.includes('>—</div>'));
 const css = context.helpers.styles();

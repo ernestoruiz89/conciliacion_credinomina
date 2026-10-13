@@ -51,7 +51,8 @@ class FollowUpQueueTests(unittest.TestCase):
                 "employer": "EMP", "client_name": "ANA PEREZ", "client_number": "00123"}
         with patch("credinomina_reconciliation.follow_up_queue.frappe.has_permission", side_effect=lambda dt, *_: dt == "CN Complementary Item"), \
                 patch("credinomina_reconciliation.follow_up_queue.frappe.get_list", return_value=[item]) as query, \
-                patch("credinomina_reconciliation.follow_up_queue.load_balances", return_value={item["name"]: financial_balance(item)}):
+                patch("credinomina_reconciliation.follow_up_queue.load_balances", return_value={item["name"]: financial_balance(item)}), \
+                patch("frappe.utils.nowdate", return_value="2026-10-12"):
             tasks = load_follow_up(2025, "EMP")
         query.assert_called_once()
         self.assertIn("client_name", query.call_args.kwargs["fields"])
@@ -85,6 +86,35 @@ class FollowUpQueueTests(unittest.TestCase):
         merged = merge_follow_up(existing, rows)
         self.assertEqual(len(merged), 1)
         self.assertEqual((merged[0]["kind"], merged[0]["period_label"]), ("open_exception", "Sin período"))
+
+    def test_exception_identity_and_reason_reach_filtered_work_queue(self):
+        case = {"name": "CN-EXC-11-2025-001", "status": "Abierta", "employer": "ACEREAL",
+                "period": "ACEITERA-11-2025-03", "exception_type": "Aplicación con saldo pendiente",
+                "client_name": "JUAN ALBERTO MONTOYA RIOS", "client_number": "5584",
+                "loan_number": "001589-1", "cause_category": "Liquidación pendiente de pago",
+                "description": "Liquidación aplicada pero aún no pagada", "amount_usd": 840.56}
+        task = build_follow_up([], {}, [case], as_of="2026-10-12")[0]
+        self.assertEqual((task["client_name"], task["client_number"], task["loan_number"]),
+                         ("JUAN ALBERTO MONTOYA RIOS", "5584", "001589-1"))
+        self.assertEqual(task["cause_category"], "Liquidación pendiente de pago")
+        self.assertEqual(task["description"], "Liquidación aplicada pero aún no pagada")
+        for term in ("JUAN ALBERTO", "5584", "001589-1", "Liquidación pendiente"):
+            self.assertEqual(len(filter_work([task], search=term)), 1)
+
+    def test_exception_identity_is_loaded_for_work_view(self):
+        case = {"name": "CN-EXC-11-2025-001", "status": "Abierta", "client_name": "JUAN ALBERTO",
+                "client_number": "5584", "loan_number": "001589-1",
+                "cause_category": "Liquidación pendiente de pago", "description": "Pendiente de pagar"}
+        with patch("credinomina_reconciliation.follow_up_queue.frappe.has_permission",
+                   side_effect=lambda dt, *_: dt == "CN Reconciliation Exception"), \
+                patch("credinomina_reconciliation.follow_up_queue.frappe.get_list", return_value=[case]) as query, \
+                patch("frappe.utils.nowdate", return_value="2026-10-12"):
+            task = load_follow_up()[0]
+        self.assertEqual((task["client_name"], task["client_number"], task["loan_number"]),
+                         ("JUAN ALBERTO", "5584", "001589-1"))
+        self.assertEqual(task["cause_category"], "Liquidación pendiente de pago")
+        self.assertTrue({"client_name", "client_number", "loan_number", "cause_category", "description"}
+                        <= set(query.call_args.kwargs["fields"]))
 
     def test_resolved_credit_does_not_generate_management_and_no_accounting_duplicate(self):
         item = {"name": "C", "category": "Saldo a favor del cliente", "docstatus": 1, "amount_usd": 10,
