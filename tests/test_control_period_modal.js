@@ -3,7 +3,7 @@ const fs = require('node:fs'), vm = require('node:vm'), path = require('node:pat
 const source = fs.readFileSync(path.join(__dirname,
     '../credinomina_reconciliation/conciliacion_credinomina/page/control_credinomina/control_credinomina.js'), 'utf8');
 const context = vm.createContext({__: text => text, frappe: {pages: {'control-credinomina': {}}}});
-vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderOperationalSummary, applyPeriodDifferenceFilter, styles}; })();'), context);
+vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'globalThis.helpers = {renderPeriodCollectionTable, renderUnlinkedApplicationTable, renderOperationalSummary, applyPeriodDifferenceFilter, styles}; })();'), context);
 const row = {client_name: 'Cliente <script>', client_number: '7740', loan_number: '13997-1', installment_number: '1',
     expected_usd: 28.43, deducted_usd: 28.43, applied_usd: 0, remitted_usd: 0,
     pending_payment_usd: 28.43, pending_payment_deposits: [{name: 'DEP <1>', amount_usd: 28.43}],
@@ -41,6 +41,19 @@ assert.ok(summary.includes('Pago recibido por aplicar'));
 assert.ok(summary.includes('Asignado'));
 assert.ok(summary.includes('Ver control de cobranza'));
 assert.ok(summary.includes('no es saldo a favor'));
+const unlinked = {client_name: 'Cliente <script>', client_number: '7080', loan_number: '11995-1',
+    parent: 'IMPORT-1', reference: 'REF-1', net_applied_usd: 408.08, historical_remitted_usd: 0,
+    historical_balance_usd: 408.08, deposit_match_status: 'Sin deposito'};
+const unlinkedPeriod = {...period, unlinked_application_rows: [unlinked]};
+const unlinkedSummary = context.helpers.renderOperationalSummary(unlinkedPeriod);
+assert.ok(unlinkedSummary.includes('1 aplicación sin cobranza vinculada'));
+assert.match(unlinkedSummary, /408[.,]08/);
+const unlinkedTable = context.helpers.renderUnlinkedApplicationTable(unlinkedPeriod);
+assert.ok(unlinkedTable.includes('Aplicaciones sin cobranza vinculada'));
+assert.ok(unlinkedTable.includes('Cliente &lt;script&gt;') && !unlinkedTable.includes('<script>'));
+assert.ok(unlinkedTable.includes('data-unlinked-import="IMPORT-1"'));
+assert.ok(unlinkedTable.includes('11995-1') && unlinkedTable.includes('Sin deposito'));
+assert.equal(context.helpers.renderUnlinkedApplicationTable(period), '');
 const restricted = context.helpers.renderOperationalSummary({...period, pending_application_usd: null, payment_evidence_restricted: true});
 assert.ok(restricted.includes('Vista parcial') && restricted.includes('>—</div>'));
 const css = context.helpers.styles();

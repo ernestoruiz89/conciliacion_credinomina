@@ -201,7 +201,7 @@ def get_period_detail(period_name: str):
     period = data["periods"][0]
     result = {"name": period_name, "detail_loaded": True, **{
         field: period[field] for field in (
-            "rows", "historical_rows", "exceptions", "surpluses", "rounding_movements",
+            "rows", "historical_rows", "unlinked_application_rows", "exceptions", "surpluses", "rounding_movements",
         )
     }}
     if period.get("reconciliation_mode") == "Operativa":
@@ -338,6 +338,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
     period_names = [period.name for period in periods]
     rows_by_period = defaultdict(list)
     historical_rows_by_period = defaultdict(list)
+    unlinked_applications_by_period = defaultdict(list)
     exceptions_by_period = defaultdict(list)
     surplus_by_period = defaultdict(list)
     movements_by_period = defaultdict(list)
@@ -377,6 +378,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "loan_number", "installment_number", "amount", "currency", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status",
                 "historical_remitted_usd", "historical_balance_usd",
                 "historical_detail", "deposit_match_status", "deposit_match_reason",
+                "collection_row_id", "application_allocation_detail",
             ],
             order_by="event_date asc, idx asc",
             limit_page_length=_row_limit(30000, full_export),
@@ -385,8 +387,12 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             allowed_imports = readable_imports({row.parent for row in historical_rows})
             historical_rows = [row for row in historical_rows if row.parent in allowed_imports]
         annotate_application_exceptions(historical_rows)
+        operative_periods = {period.name for period in periods if period.reconciliation_mode == "Operativa"}
         for row in historical_rows:
             historical_rows_by_period[row.historical_period].append(row)
+            if (detail_period and row.historical_period in operative_periods and not row.collection_row_id
+                    and not json.loads(row.application_allocation_detail or "[]")):
+                unlinked_applications_by_period[row.historical_period].append(row)
         exceptions = frappe.get_list(
             "CN Reconciliation Exception",
             filters={
@@ -491,6 +497,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "rounding_movement_count": len(period_movements),
                 "rows": period_rows,
                 "historical_rows": historical_rows_by_period[period.name],
+                "unlinked_application_rows": unlinked_applications_by_period[period.name],
                 "exceptions": exceptions_by_period[period.name],
                 "surpluses": period_surpluses,
                 "rounding_movements": period_movements,
