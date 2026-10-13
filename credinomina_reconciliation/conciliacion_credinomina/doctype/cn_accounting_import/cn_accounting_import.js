@@ -73,15 +73,15 @@ function accountingClientSummaryTable(rows, page = 0) {
     const total = field => rows.some(row => row[field] == null) ? null
         : rows.reduce((sum, row) => sum + Math.round(Number(row[field]) * 100), 0) / 100;
     const body = rows.slice(page * 50, (page + 1) * 50).map(row => {
-        const color = row.status === "Conciliado" ? "var(--green-50, #edfdf3)" : row.status === "Revisar" ? "var(--yellow-50, #fffae6)" : "transparent";
-        return `<tr style="background:${color}"><td><strong>${esc(row.client_name)}</strong>
+        const accent = row.status === "Conciliado" ? "var(--green-500, #2f9e44)" : row.status === "Revisar" ? "var(--orange-500, #cc6b00)" : "var(--border-color, #d1d5db)";
+        return `<tr><td style="border-left:3px solid ${accent};color:var(--text-color)"><strong>${esc(row.client_name)}</strong>
             <div class="text-muted">${esc((row.loans || []).join(", "))}</div>
             ${(row.observations || []).map(note => `<div class="text-warning">${esc(note)}</div>`).join("")}</td>
             <td>${esc(row.client_number || "—")}</td>
             ${fields.map(field => `<td class="text-right" style="white-space:nowrap">${amount(row[field])}</td>`).join("")}
-            <td>${esc(__(row.status))}</td></tr>`;
+            <td><span style="display:inline-block;padding:2px 8px;border:1px solid ${accent};border-radius:999px;color:var(--text-color);background-color:var(--bg-color)">${esc(__(row.status))}</span></td></tr>`;
     }).join("");
-    return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px)">
+    return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px);color:var(--text-color);background-color:var(--bg-color);--bs-table-color:var(--text-color);--bs-table-bg:var(--bg-color);--bs-table-border-color:var(--border-color)">
         <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Aplicado neto US$", "Asignado a depósitos US$", "Ajuste de centavos US$", "Saldo US$", "Estado"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${body || `<tr><td colspan="7">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
         <tfoot><tr><th colspan="2">${esc(__("Total de clientes filtrados"))} (${rows.length})</th>

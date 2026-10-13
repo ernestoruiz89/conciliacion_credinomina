@@ -22,7 +22,7 @@ frappe.listview_settings["CN Complementary Item"] = {
             if (balance?.company_receivable_usd) lines.push(`${__("Por cobrar US$")}: ${Number(balance.company_receivable_usd).toFixed(2)}`);
             if (balance && balance.company_receivable_usd === null) lines.push(__("CxC con cobros por revisar · importe sin determinar"));
             if (balance?.amount_issue) lines.push(__(balance.amount_issue));
-            return `<div style="white-space:normal;line-height:1.35" title="${esc(lines.join(" · "))}">${lines.map(esc).join("<br>")}</div>`;
+            return `<span style="display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;padding:2px 7px;border:1px solid var(--border-color);border-radius:999px;color:var(--text-color);background-color:var(--control-bg, var(--bg-color))" title="${esc(lines.join(" · "))}">${esc(accounting)}</span>`;
         },
     },
     onload(listview) {
