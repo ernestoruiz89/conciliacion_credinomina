@@ -125,8 +125,12 @@ def coverage_from_reservations(row, collections, reserved, snapshots=None):
         if not links and row.get("collection_row_id"):
             link_amounts[row.collection_row_id] = money(net_amount(row))
         unlinked = max(money(net_amount(row)) - sum_money(link_amounts.values()), money(0))
+        # Payroll totals can be stale while an import is being rebuilt. A
+        # missing applied balance is not cash: only real targets/journals may
+        # reserve its linked application amount.
         available = unlinked + sum_money(
-            min(link_amounts[name], max(money(collection.applied_usd) - reserved[("C", name)], money(0)))
+            (min(link_amounts[name], max(money(collection.applied_usd) - reserved[("C", name)], money(0)))
+             if reserved[("C", name)] > 0 else link_amounts[name])
             for name, collection in collections.items())
         available = min(available, max(money(net_amount(row)) - historical, money(0)))
     return {"adjustable_usd": money_float(available), "protected_usd": money_float(money(net_amount(row)) - available),

@@ -31,7 +31,7 @@ def run():
                     if mode == "Operativa":
                         period.append("collection_rows", {"client": client.name, "client_name": marker,
                             "client_number": marker, "loan_number": f"18565{index}-1", "row_key": marker + str(index),
-                            "expected_usd": 50, "deducted_usd": 50, "currency": "USD"})
+                            "expected_usd": 50, "currency": "USD"})
                     periods.append(period.insert())
                 imports = []
                 for index, period in enumerate(periods):
