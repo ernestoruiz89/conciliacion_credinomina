@@ -1486,10 +1486,16 @@ def _prepare_remittance_details(
     """Reserve a deposit for its client detail instead of guessing a split."""
     from credinomina_reconciliation.remittance_detail import manual_detail_targets
     from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
+    from credinomina_reconciliation.paying_employers import allowed_employers, load_payer_map
     # The company engine uses lightweight parent records; the individual engine
     # supplies a complete Document. Load selected periods in one batched query.
     attach_periods(remittances)
     by_deposit = {deposit["id"]: deposit for deposit in deposits}
+    payer_map = load_payer_map()
+    allowed_by_remittance = {
+        item.name: sorted(allowed_employers(item.employer, payer_map))
+        for item in remittances
+    }
     names = [item.name for item in remittances]
     from credinomina_reconciliation.client_credit import load_credits
     client_credits = load_credits(names)
@@ -1514,8 +1520,7 @@ def _prepare_remittance_details(
     detail_loan_clients = None
     if client_catalog is not None:
         from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
-        allowed = {company for deposit in deposits
-                   for company in (deposit.get("allowed_groups") or [deposit.get("group")]) if company}
+        allowed = {company for companies in allowed_by_remittance.values() for company in companies}
         detail_loan_clients = load_detail_loan_clients(detail_rows, client_catalog, allowed)
     reserved = {
         (entry["deposit_id"], entry["claim_id"])
@@ -1535,10 +1540,11 @@ def _prepare_remittance_details(
         deposit = by_deposit[deposit_id]
         apply_fifo = bool(getattr(item, "apply_fifo", 0))
         rows = rows_by_parent[item.name]
+        allowed_groups = allowed_by_remittance.get(item.name, [])
         if client_catalog is not None:
             from credinomina_reconciliation.remittance_credit_selection import complete_detail_clients
             complete_detail_clients(rows, client_catalog, item.employer,
-                                    deposit.get("allowed_groups") or [item.employer], detail_loan_clients)
+                                    allowed_groups, detail_loan_clients)
         attached_detail = bool(item.detail_file or item.detail_hash)
         # A registered deposit is evidence of cash received, not of its
         # per-client split. Explicit targets (including a documented
@@ -1644,7 +1650,7 @@ def _prepare_remittance_details(
             if manual:
                 plan["targets"], plan["reason"] = manual_detail_targets(
                     plan["row"], claims, manual, amount, item.employer, selected_periods(item),
-                    allowed_groups=deposit.get("allowed_groups"),
+                    allowed_groups=allowed_groups,
                     allow_other_periods=bool(item.get("allow_manual_other_periods")),
                 )
                 if not plan["targets"]:
@@ -1655,7 +1661,7 @@ def _prepare_remittance_details(
                 plan["row"], claims, amount, item.employer,
                 selected_periods(item),
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
-                allowed_groups=deposit.get("allowed_groups"),
+                allowed_groups=allowed_groups,
                 apply_fifo=apply_fifo, reserved_amounts=reserved_amounts,
             )
             if not targets:
