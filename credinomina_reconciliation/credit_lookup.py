@@ -17,6 +17,10 @@ def get_credit_rows(doctype, *, filters, fields, loan_field, loans):
         if isinstance(value, (list, tuple)):
             operator, operand = value
             if operator == "in":
+                # MariaDB rejects ``IN ()``. An empty scope means there can be
+                # no matching evidence, so avoid issuing the query entirely.
+                if not operand:
+                    return []
                 condition = table[field].isin(operand)
             elif operator == "!=":
                 condition = table[field] != operand
