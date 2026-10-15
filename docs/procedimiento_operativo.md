@@ -323,6 +323,8 @@ Para trabajar con una persona concreta, abra su fila en **2. Detalle** y pulse *
 
 No repita en Destinos una asignación que ya quedó conciliada automáticamente. La distribución completa incluye también saldos a favor, aunque estos no se agreguen como pagos a créditos en esa tabla.
 
+Una misma fila puede vincular manualmente varias aplicaciones contables con referencias distintas cuando coinciden empresa, crédito e identidad del cliente. Debe existir un identificador de cliente coincidente; el nombre por sí solo no autoriza esta excepción. Se conservan las referencias originales y el motivo de la fila registra la aceptación manual. La suma de destinos debe coincidir con el importe de la fila y siguen vigentes las restricciones de período y disponibilidad. La selección automática continúa exigiendo la referencia informada.
+
 Si necesita vincular explícitamente una fila a aplicaciones de otros períodos abiertos, active **Permitir vínculos manuales con períodos distintos a los seleccionados** en **Asignación manual (opcional)**. Guarde y concilie. El selector inicia entonces con **Usar períodos del detalle** desmarcado. Se conservan los controles de empresa, cliente, crédito, importe y disponibilidad; la búsqueda automática y FIFO siguen limitados a los períodos seleccionados. Ampliar solamente el filtro de búsqueda no sustituye esta autorización del vínculo.
 
 ### Conciliar varias aplicaciones de una persona
