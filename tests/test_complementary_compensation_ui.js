@@ -65,7 +65,7 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
     const linkedIndicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({
-        docstatus: 1, _cn_balance: {state: "Vinculado a depósito", pending_usd: 0}});
+        docstatus: 1, origin_deposit: "DEP-4-2026-0049"});
     assert.equal(linkedIndicator[0], "Vinculado a depósito");
     assert.equal(linkedIndicator[1], "blue");
     frm.doc.compensation_pending_usd = 70;

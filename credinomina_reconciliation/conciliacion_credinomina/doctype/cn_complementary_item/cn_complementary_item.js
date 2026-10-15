@@ -355,6 +355,7 @@ frappe.ui.form.on("CN Complementary Item", {
     },
     refresh(frm) {
         if (frm.doc.origin_deposit) {
+            frm.toolbar?.set_indicator?.();
             frm.dashboard.set_headline_alert(__("Vinculado a depósito. Se conserva como evidencia, sin saldo disponible y sin contar como partida conciliada ni pendiente. No puede utilizarse en otro depósito ni compensar otras partidas."), "blue");
             frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.origin_deposit));
             frm.disable_save();
