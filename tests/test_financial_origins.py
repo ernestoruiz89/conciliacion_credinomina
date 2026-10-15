@@ -104,8 +104,38 @@ def test_actual_ledger_changes_still_rejected_without_rounding_or_coercing_text(
         source_fx_rate=36.6243, source_voucher='001013797')
     previous = frappe._dict(accounting_sources=[source])
     document = frappe._dict(accounting_sources=[dict(source, **{field: value})])
-    with patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
+    with patch.object(frappe, 'throw', side_effect=ValueError) as throw, pytest.raises(ValueError):
         origins.validate_sources(document, previous)
+    assert f'Línea 1 de accounting_sources — campos modificados: {field}.' in throw.call_args.args[0]
+
+
+def test_ledger_error_lists_only_changed_fields_on_each_affected_line():
+    sources = [line('K1', 100, 12324), line('K2', 200, 12325), line('K3', 300, 12326)]
+    previous = frappe._dict(accounting_sources=sources)
+    document = frappe._dict(accounting_sources=[
+        dict(sources[0], source_credit=101, source_fx_rate=36.5),
+        dict(sources[1], source_credit=200.0),
+        dict(sources[2], source_voucher='<script>alterado</script>'),
+    ])
+    with patch.object(frappe, 'throw', side_effect=ValueError) as throw, pytest.raises(ValueError):
+        origins.validate_sources(document, previous)
+    message = throw.call_args.args[0]
+    assert 'Línea 1 de accounting_sources — campos modificados: source_credit, source_fx_rate.' in message
+    assert 'Línea 2' not in message
+    assert 'Línea 3 de accounting_sources — campos modificados: source_voucher.' in message
+    assert '<script>' not in message
+
+
+@pytest.mark.parametrize('before,after,expected', [
+    ([], [line('K1', 100, 1)], 'accounting_sources: línea 1 agregada.'),
+    ([line('K1', 100, 1)], [], 'accounting_sources: línea 1 eliminada.'),
+])
+def test_ledger_error_identifies_added_and_removed_lines(before, after, expected):
+    previous = frappe._dict(accounting_sources=before)
+    document = frappe._dict(accounting_sources=after)
+    with patch.object(frappe, 'throw', side_effect=ValueError) as throw, pytest.raises(ValueError):
+        origins.validate_sources(document, previous)
+    assert expected in throw.call_args.args[0]
 
 
 def receivable(**values):
