@@ -105,8 +105,8 @@ def _internal_issues(item, deposit):
             ('source_currency', 'deposit_currency', 'moneda')]:
         if not clean_text(item.get(original)) or clean_text(item.get(original)) != clean_text(deposit.get(target)):
             issues.append(_('No coincide {0}.').format(label))
-    if deposit.get('deposit_voucher') and clean_text(item.get('source_voucher')) != clean_text(deposit.deposit_voucher):
-        issues.append(_('No coincide el asiento.'))
+    # Each internal movement keeps its own ledger voucher. It need not match
+    # the bank receipt's voucher or the vouchers of the other selected lines.
     if not all(item.get(field) for field in ('accounting_source_key', 'source_file', 'source_file_hash',
                                             'source_row', 'source_account', 'source_voucher')):
         issues.append(_('Falta evidencia original de archivo, fila, cuenta o asiento.'))
@@ -125,8 +125,6 @@ def inspect_selection(deposit, origins, kind):
             issues.extend(f'{item.name}: {issue}' for issue in _internal_issues(item, deposit))
             values.append({**{field: item.get(field) for field in EVIDENCE_FIELDS},
                            'source_loan_number': item.get('loan_number'), 'origin_complementary_item': item.name})
-        if len({clean_text(item.get('source_voucher')) for item in origins}) != 1:
-            issues.append(_('Las partidas tienen asientos distintos; revise la selección.'))
         for item in origins:
             totals[item.get('source_currency') or 'Sin identificar'] += money(item.get('source_credit'))
     else:

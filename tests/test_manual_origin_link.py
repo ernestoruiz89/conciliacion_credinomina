@@ -41,15 +41,28 @@ def test_original_currency_total_and_565_lines_do_not_use_rounded_usd():
     dict(source_date='2026-10-30'), dict(source_debit=1), dict(tmov='02', tdoc='12'),
     dict(docstatus=1), dict(related_application='APPLICATION'), dict(registered_deposit='OTHER'),
     dict(origin_deposit='OTHER'), dict(category='Otros ingresos'), dict(source_file_hash=''),
-    dict(compensated_usd=1), dict(review_action='No conciliatoria')])
+    dict(compensated_usd=1), dict(review_action='No conciliatoria'), dict(source_voucher='')])
 def test_differences_stay_for_review(change):
     result, _ = link.inspect_selection(receipt(), [item(**change)], 'internal')
     assert result['issues'] and not result['already_linked']
 
 
-def test_multiple_vouchers_and_other_existing_origin_need_review():
-    result, _ = link.inspect_selection(receipt(), [item(source_credit=1800), item('B', source_credit=1850, source_voucher='V2')], 'internal')
-    assert any('asientos distintos' in issue for issue in result['issues'])
+@pytest.mark.parametrize('deposit_voucher', ['', 'V', 'BANK-VOUCHER'])
+def test_internal_movements_keep_individual_vouchers_for_one_bank_deposit(deposit_voucher):
+    doc = receipt(deposit_voucher=deposit_voucher)
+    origins = [item(source_credit=1800), item('B', source_credit=1850, source_voucher='V2')]
+    result, sources = link.inspect_selection(doc, origins, 'internal')
+    assert result['issues'] == [] and result['difference'] == 0
+    assert [source['source_voucher'] for source in sources] == ['V', 'V2']
+    assert doc.deposit_voucher == deposit_voucher
+    doc.accounting_sources = sources
+    for origin in origins:
+        origin.origin_deposit = doc.name
+    retry, _ = link.inspect_selection(doc, origins, 'internal')
+    assert retry['already_linked'] and retry['issues'] == []
+
+
+def test_other_existing_origin_needs_review():
     doc = receipt()
     doc.accounting_source_key = 'OTHER'
     assert link.inspect_selection(doc, [item()], 'internal')[0]['issues']
