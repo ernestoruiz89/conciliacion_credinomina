@@ -329,6 +329,11 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         candidate.pop("_client_identity_name", None)
     from credinomina_reconciliation.client_credit import load_credits
     reserved_credit = sum((money(item.amount_usd) for item in load_credits([doc.name])), money(0))
+    from credinomina_reconciliation.credit_application import funding_totals
+    credit_paid = funding_totals(candidate['historical_application'] for candidate in candidates if candidate.get('historical_application'))
+    for candidate in candidates:
+        if candidate.get('historical_application'):
+            candidate['due_usd'] = float(max(money(candidate['due_usd']) - credit_paid[candidate['historical_application']], money(0)))
     result = pending_selection(candidates, deposits, doc.name, money(doc.amount_usd) - reserved_credit, targets)
     result["reserved_cents"] += int(reserved_credit * 100)
     result["employer"] = doc.employer

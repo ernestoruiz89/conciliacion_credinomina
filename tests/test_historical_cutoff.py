@@ -80,6 +80,20 @@ class HistoricalCutoffTests(unittest.TestCase):
         result = self.cut(deposits=[deposit], items=[item])['summary'][0]
         self.assertEqual((result['deposit_pending_usd'], result['company_credit_usd']), (-20, 0))
 
+    def test_credit_application_and_reversal_cover_only_after_their_dates(self):
+        deposit = self.deposit(amount_usd=20, deposit_date='2025-04-30', allocation_detail=[])
+        item = self.item(category='Saldo a favor del cliente', result='Saldo a favor documentado',
+            accounting_source_key='', registered_deposit='D', credit_resolved_usd=0, credit_history=[
+                dict(operation_id='USE', application_id='A', fecha='2025-05-01', importe_usd=19.99),
+                dict(operation_id='REV', reverses='USE', application_id='A', fecha='2025-06-01', importe_usd=-19.99)])
+        for day, application_pending, credit_pending in [('2025-04-30', 100, -20),
+                ('2025-05-01', 80.01, -.01), ('2025-06-01', 100, -20)]:
+            with self.subTest(day=day):
+                result = self.cut(day, [deposit], [item])
+                self.assertEqual(result['summary'][0]['application_pending_usd'], application_pending)
+                self.assertEqual(result['summary'][0]['client_credit_usd'], credit_pending)
+                self.assertEqual(result['summary'][0]['deposit_pending_usd'], 0)
+
     def test_draft_core_deposit_included_manual_draft_and_cancelled_excluded(self):
         deposits = [self.deposit(name='CORE', docstatus=0, accounting_source_key='K'),
             self.deposit(name='MANUAL', docstatus=0), self.deposit(name='VOID', docstatus=2)]

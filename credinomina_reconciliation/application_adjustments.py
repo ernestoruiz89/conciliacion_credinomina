@@ -109,6 +109,8 @@ def cash_coverage(row, saved_collections=(), lock=False, context=None):
     reserved = defaultdict(lambda: money(0))
     for deposit_claim in paid.keys() | planned.keys():
         reserved[deposit_claim[1]] += max(paid[deposit_claim], planned[deposit_claim])
+    from credinomina_reconciliation.credit_application import funding_totals
+    reserved[("H", row.name)] += funding_totals([row.name])[row.name]
     return coverage_from_reservations(row, collections, reserved, snapshots)
 
 

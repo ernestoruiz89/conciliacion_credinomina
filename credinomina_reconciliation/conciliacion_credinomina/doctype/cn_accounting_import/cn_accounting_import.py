@@ -2016,6 +2016,11 @@ def _distribute_deposits(
 
     # A single-deposit run can use only the capacity left by other deposits.
     # Signed complements retain their sign; settled claims remain at zero.
+    from credinomina_reconciliation.credit_application import funding_totals
+    fixed_coverage = dict(fixed_coverage or {})
+    for application, amount in funding_totals(historical_applications).items():
+        key = "H:" + application
+        fixed_coverage[key] = money(fixed_coverage.get(key)) + amount
     if fixed_coverage:
         for claim in claims:
             covered = money(fixed_coverage.get(claim["id"]))
@@ -2636,6 +2641,8 @@ def _rebuild_period_balances(
     periods, source_rows, deposit_pairs, allocation,
     closed_state, closed_links, complementary_items, source_status_collections=(), status_source_ids=None,
 ):
+    from credinomina_reconciliation.credit_application import with_funding
+    allocation = with_funding(allocation, source_rows)
     totals_context = PeriodTotalsContext(periods, source_rows)
     period_by_name = {period.name: period for period in periods}
     rows_by_name = {}
@@ -2704,6 +2711,8 @@ def _rebuild_period_balances(
                 "importe_usd": amount,
                 "destino": "Partida complementaria" if claim_id.startswith("X:") else "Cobranza",
                 "origen": entry["origin"],
+                **({"saldo_a_favor": entry["credit_item"], "operacion": entry["credit_operation"],
+                    "deposito_origen": entry["origin_deposit"]} if entry.get("credit_item") else {}),
                 **({"aplicacion_directa": entry["direct_application"]} if entry.get("direct_application") else {}),
             }
         )
@@ -2971,6 +2980,8 @@ def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocatio
 
 def _rebuild_historical_balances(periods, source_rows, allocation):
     """Second-stage-only backfill: core applications versus paired deposits."""
+    from credinomina_reconciliation.credit_application import with_funding
+    allocation = with_funding(allocation, source_rows)
     historical_periods = {
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
@@ -3003,6 +3014,8 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
                 "fecha": str(account.event_date or ""),
                 "importe_usd": entry["amount_usd"],
                 "origen": entry["origin"],
+                **({"saldo_a_favor": entry["credit_item"], "operacion": entry["credit_operation"],
+                    "deposito_origen": entry["origin_deposit"]} if entry.get("credit_item") else {}),
             }
         )
 
