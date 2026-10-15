@@ -186,8 +186,23 @@ def validate_sources(doc, previous):
         numeric_fields = {'source_debit', 'source_credit', 'source_fx_rate', 'source_row'}
         return [{field: decimal_value(row.get(field)) if field in numeric_fields else str(row.get(field) or '')
                  for field in (*EVIDENCE_FIELDS, 'origin_complementary_item')} for row in rows or []]
-    if fingerprint(doc.get('accounting_sources')) != fingerprint(previous.get('accounting_sources') if previous else []):
-        frappe.throw(_('Las líneas contables de origen son inmutables; use la importación o la revisión de identidad del depósito.'))
+    current_sources = fingerprint(doc.get('accounting_sources'))
+    previous_sources = fingerprint(previous.get('accounting_sources') if previous else [])
+    if current_sources != previous_sources:
+        changes = []
+        for index in range(max(len(current_sources), len(previous_sources))):
+            if index >= len(previous_sources):
+                changes.append(_('accounting_sources: línea {0} agregada.').format(index + 1))
+            elif index >= len(current_sources):
+                changes.append(_('accounting_sources: línea {0} eliminada.').format(index + 1))
+            else:
+                fields = [field for field in previous_sources[index]
+                          if current_sources[index][field] != previous_sources[index][field]]
+                if fields:
+                    changes.append(_('Línea {0} de accounting_sources — campos modificados: {1}.').format(
+                        index + 1, ', '.join(fields)))
+        frappe.throw(_('Las líneas contables de origen son inmutables; use la importación o la revisión de identidad del depósito.')
+                     + '<br><br>' + '<br>'.join(changes))
     if any(clean_text(doc.get(field)) != clean_text(previous.get(field) if previous else '') for field in IDENTITY_FIELDS):
         frappe.throw(_('La identidad del efectivo solo se modifica mediante Revisar origen del depósito.'))
 
