@@ -121,7 +121,17 @@ def execute(filters=None):
         row["employer_receivable_nio"] = money_float(company_by_period[row.name][1])
         row["company_credit_usd"] = money_float(credit_by_period.get(row.name, 0))
         row["historical_pending_usd"] = 0
-    return get_columns(), data
+    if filters.get("view") == "Detalle":
+        return get_columns(), data
+    return get_summary_columns(), data
+
+
+def get_summary_columns():
+    columns = {column["fieldname"]: column for column in get_columns()}
+    return [columns[field] for field in (
+        "name", "payroll_month", "employer", "financial_state", "closure_state",
+        "financial_applied_usd", "financial_covered_usd", "pending_usd", "exception_count",
+    )]
 
 
 def get_columns():

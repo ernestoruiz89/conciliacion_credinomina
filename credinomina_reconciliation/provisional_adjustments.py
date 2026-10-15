@@ -110,6 +110,8 @@ def guard_period(period):
 def _load_period(name):
     period = frappe.get_doc("CN Reconciliation Period", name, for_update=True)
     period.check_permission("write")
+    if period.get("no_collection"):
+        frappe.throw(_("Un período sin cobranza no genera ajustes de la conciliación 1."))
     if period.status == "Cerrado" or period.reconciliation_mode == "Historica":
         frappe.throw(_("Seleccione un período operativo abierto."))
     if not period.collection_rows:

@@ -2802,7 +2802,10 @@ def _rebuild_period_balances(
             source.update(source_quality(targets, period_bases))
         if source.historical_period:
             if source.historical_period in period_by_name:
-                source.update(source_quality(targets, period_bases))
+                if period_by_name[source.historical_period].get("no_collection"):
+                    source.update({"quality_basis": "", "quality_status": "No aplica: período sin cobranza"})
+                else:
+                    source.update(source_quality(targets, period_bases))
             # Historical periods are deliberately absent from this operative
             # pass. Their application-level cash status was already rebuilt;
             # looking for payroll rows here would overwrite it as unpaid.

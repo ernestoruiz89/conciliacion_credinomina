@@ -20,11 +20,11 @@ frappe.ui.form.on("CN Reconciliation Period", {
             proposals.df.cannot_add_rows = true;
             proposals.df.cannot_delete_rows = true;
         }
-        if (frm.doc.reconciliation_mode !== "Historica") addTemplateButtons(frm);
+        if (frm.doc.reconciliation_mode !== "Historica" && !frm.doc.no_collection) addTemplateButtons(frm);
         if (frm.is_new()) return;
         frm.add_custom_button(__("Ver cortes registrados"), () => showRegisteredCuts(frm), __("Más opciones"));
 
-        if (frm.doc.reconciliation_mode !== "Historica") addExportButton(frm);
+        if (frm.doc.reconciliation_mode !== "Historica" && !frm.doc.no_collection) addExportButton(frm);
         if (frm.doc.status === "Cerrado") {
             if (frappe.session.user === "Administrator" || frappe.user.has_role("System Manager") || frappe.user.has_role("Supervisor Credinomina")) {
                 frm.add_custom_button(__("Reabrir período"), () => showReopenDialog(frm));
@@ -39,7 +39,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
             return;
         }
 
-        if (!frm.doc.prepared_deposit) {
+        if (!frm.doc.prepared_deposit && !frm.doc.no_collection) {
             frm.add_custom_button(__("Generar ajustes provisionales"), () => updateProvisionalAdjustments(frm, "generate_proposals"), __("Más opciones"));
             if ((frm.doc.provisional_adjustments || []).length) {
                 frm.add_custom_button(__("Aprobar ajustes provisionales"), () => frappe.confirm(
@@ -49,7 +49,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
             }
         }
 
-        frm.add_custom_button(__("1. Cargar cobranza"), async () => {
+        if (!frm.doc.no_collection) frm.add_custom_button(__("1. Cargar cobranza"), async () => {
             if (frm.is_dirty()) await frm.save();
             frappe.call({
                 method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period.import_collection",
@@ -60,9 +60,12 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
 
         frm.add_custom_button(__("Cerrar período"), () => requestClose(frm));
-        if (frm.get_perm?.(0, "write") && (frm.doc.collection_rows || []).length) {
+        if (!frm.doc.no_collection && frm.get_perm?.(0, "write") && (frm.doc.collection_rows || []).length) {
             frm.add_custom_button(__("Conciliación 1: validar aplicaciones"), () => reconcileCollection(frm));
         }
+    },
+    no_collection(frm) {
+        frm.refresh();
     },
     collection_cycle(frm) {
         setRemittanceDateEditing(frm);
@@ -140,6 +143,11 @@ async function updateProvisionalAdjustments(frm, action) {
 function refreshApplicationQuality(frm) {
     const wrapper = frm.fields_dict?.quality_html?.$wrapper;
     if (!wrapper) return;
+    wrapper.off(".cnQuality");
+    if (frm.doc.no_collection) {
+        wrapper.html(`<div class="alert alert-info">${frappe.utils.escape_html(__("Período sin cobranza. La conciliación 1 no aplica. Asigne las aplicaciones contables importadas a este período y concílielas contra sus depósitos. Para cerrar, todas las aplicaciones deben estar cubiertas y los depósitos y excepciones deben estar resueltos."))}</div>`);
+        return;
+    }
     if (frm.doc.reconciliation_mode === "Historica") { wrapper.empty(); return; }
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     // Display the current quality comparison without rewriting archived/closed data.
@@ -150,21 +158,45 @@ function refreshApplicationQuality(frm) {
         return {...row, quality_expected_usd: missing ? null : expected, quality_difference_usd: difference,
             quality_status: missing ? "Revisar base de comparación" : difference < 0 ? "Aplicación insuficiente" : difference > 0 ? "Aplicación en exceso" : "Conforme según cobranza"};
     });
+    const filters = [
+        ["all", "Todas"], ["differences", "Solo diferencias"],
+        ["shortfall", "Aplicación insuficiente"], ["excess", "Aplicación en exceso"],
+        ["missing", "Revisar base de comparación"], ["conforming", "Conformes"],
+    ];
+    const selected = frm._cn_quality_filter || "all";
+    const visible = rows.filter(row => {
+        const difference = row.quality_difference_usd;
+        if (selected === "differences") return difference != null && difference !== 0;
+        if (selected === "shortfall") return difference != null && difference < 0;
+        if (selected === "excess") return difference != null && difference > 0;
+        if (selected === "missing") return difference == null;
+        if (selected === "conforming") return difference === 0;
+        return true;
+    });
     const money = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     wrapper.html(`<h4>${esc(__("Control de calidad de la aplicación"))}</h4>
         <p>${esc(__("Las conciliaciones 1 y 2 pueden realizarse en cualquier orden. Para conciliar depósitos sin esta base, asigne las aplicaciones del core a este período desde su importación. El cierre exige aplicaciones vinculadas y pagadas, sin pendientes de depósitos ni excepciones abiertas. Las diferencias informativas de la conciliación 1 se conservan y no requieren aprobar ajustes provisionales para cerrar."))}</p>
         <p>${esc(__("Conforme no significa depositado. El estado financiero depende de aplicaciones cubiertas por depósitos o compensaciones confirmadas, no de las diferencias de cobranza."))}</p>
         ${!rows.length ? `<div class="alert alert-warning">${esc(__("Conciliación 1 pendiente: todavía no se ha cargado la cobranza. Esto no impide conciliar depósitos ni cerrar si se cumplen todos los controles financieros."))}</div>` : ""}
         <p>${esc(__("Cobranza contra aplicaciones efectivas del core. El detalle de empresa se carga únicamente en el depósito. Este control no acredita pagos ni crea CxC."))}</p>
+        <div class="row mb-3"><div class="col-sm-4"><label>${esc(__("Mostrar"))}
+            <select class="form-control" data-quality="filter">${filters.map(([value, label]) =>
+                `<option value="${value}" ${selected === value ? "selected" : ""}>${esc(__(label))}</option>`).join("")}</select>
+        </label></div></div>
+        <p role="status">${esc(__("Mostrando {0} de {1} filas", [visible.length, rows.length]))}</p>
         <div class="table-responsive"><table class="table table-bordered">
         <thead><tr>${["Cliente", "Crédito", "Cobranza US$", "Aplicado US$", "Diferencia US$", "Resultado del control"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map(row => `<tr>
+        <tbody>${visible.map(row => `<tr>
             <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td>
             <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_expected_usd)}</td>
             <td class="text-right">${money(row.applied_usd)}</td>
             <td class="text-right">${money(row.quality_status === "Revisar base de comparación" || !row.quality_status ? null : row.quality_difference_usd)}</td>
             <td><span class="indicator-pill ${String(row.quality_status || "").startsWith("Conforme") ? "green" : "orange"}">${esc(__(row.quality_status || "Pendiente de actualizar"))}</span></td>
-        </tr>`).join("")}</tbody></table></div>`);
+        </tr>`).join("")}${!visible.length && rows.length ? `<tr><td colspan="6" class="text-muted">${esc(__("No hay filas que coincidan con el filtro."))}</td></tr>` : ""}</tbody></table></div>`);
+    wrapper.on("change.cnQuality", '[data-quality="filter"]', event => {
+        frm._cn_quality_filter = event.currentTarget.value;
+        refreshApplicationQuality(frm);
+    });
 }
 
 async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {

@@ -10,6 +10,10 @@ Para una carga histórica, siga preparación, cartera, movimientos contables, pe
 
 Cada procedimiento explica la acción y el control posterior. Guardar un documento, adjuntar un archivo y conciliar son operaciones distintas. Antes de una confirmación, revise el importe, la empresa, el cliente y los vínculos. Una referencia parecida o un total que cuadra no demuestra por sí solo una distribución correcta.
 
+Para pagos fuera de la cobranza, marque **No tiene cobranza** en el período. Asigne las aplicaciones desde la importación contable y concílielas con sus depósitos. La conciliación 1 no aplica: no se solicita archivo de cobranza ni se generan ajustes provisionales por su ausencia. El cierre exige aplicaciones efectivas cubiertas, destinos y detalles de depósito válidos y ausencia de excepciones que bloqueen el cierre. Un período vacío o con aplicaciones pendientes de depósito no puede cerrarse.
+
+Un período operativo sin cobranza puede coexistir con el período regular de la misma empresa, mes y ciclo. No marque esta opción para ocultar una cobranza ya cargada: si hay archivos, filas o ajustes vinculados, cree un período separado para el pago fuera de cobranza. Los períodos cerrados conservan el bloqueo de edición.
+
 Los ejemplos numéricos son didácticos y están expresados en US$, salvo indicación de C$. Las autorizaciones institucionales para reembolsos, reclasificaciones y correcciones deben obtenerse fuera de la app cuando corresponda. El manual no concede esas autorizaciones.
 
 ## Responsabilidades y acceso

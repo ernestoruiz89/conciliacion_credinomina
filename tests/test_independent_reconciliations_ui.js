@@ -78,5 +78,10 @@ const frm = {
         Object.assign(frm.doc, state); buttons.clear(); handlers.refresh(frm);
         assert.ok(!buttons.has("Conciliación 1: validar aplicaciones"));
     }
+    Object.assign(frm.doc, {status: "Pendiente", reconciliation_mode: "Operativa", no_collection: 1});
+    buttons.clear(); handlers.refresh(frm);
+    assert.ok(!buttons.has("1. Cargar cobranza"));
+    assert.ok(!buttons.has("Generar ajustes provisionales"));
+    assert.ok(buttons.has("Cerrar período"));
     console.log("PASS: first-stage action saves, calls its own endpoint, reloads; closed/historical/empty periods excluded.");
 })().catch(error => {console.error(error); process.exitCode = 1;});
