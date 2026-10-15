@@ -98,6 +98,59 @@ class ManualRemittanceDetailTests(unittest.TestCase):
                                 amount_usd=12.52, detail_row="ROW"))
         self.assertEqual(self.reconcile()[2]["DEP"], "Conciliado")
 
+    def setup_distinct_references(self):
+        self.row.update(employer='EMP', client='3964', client_number='3964', loan_number='001120-1',
+                        application_reference='43778388', deducted_usd=765.07, deducted_nio=0)
+        self.claims = [dict(id='H:' + name, kind='H', group='EMP', period='APRIL', client='3964',
+                           client_number='3964', loan_number='1120-1', amount_usd=amount, references=[reference])
+                       for name, amount, reference in [('A', 764.59, '43778388'), ('B', .48, '0010143635')]]
+        self.manual = [dict(id='TARGET-' + name, deposit_id='DEP', claim_id='H:' + name,
+                            amount_usd=amount, detail_row='ROW') for name, amount in [('A', 764.59), ('B', .48)]]
+        self.deposits[0]['amount_usd'] = 765.07
+
+    def test_distinct_references_close_explicit_detail_without_duplicate_cash(self):
+        self.setup_distinct_references()
+        context, result, statuses, row = self.reconcile()
+        self.assertEqual(context['instructions'], [])
+        self.assertEqual(statuses['DEP'], 'Conciliado')
+        self.assertEqual(row['match_status'], 'Conciliada')
+        self.assertIn('referencias distintas', row['match_reason'])
+        self.assertEqual(len(result['allocations']), 2)
+        self.assertEqual([a['amount_usd'] for a in result['allocations']], [764.59, .48])
+        self.assertEqual(result['deposit_remaining']['DEP'], 0)
+        self.assertEqual(self.row.application_reference, '43778388')
+        self.assertEqual(self.claims[1]['references'], ['0010143635'])
+        self.assertEqual(self.reconcile()[1]['allocations'], result['allocations'])
+
+    def test_distinct_references_still_require_client_credit_company_and_valid_amount(self):
+        for change in ({'client': 'OTHER'}, {'client_number': 'OTHER'}, {'loan_number': '1120-2'},
+                       {'group': 'OTHER'}, {'national_id': 'OTHER'}, {'period': 'OTHER'}):
+            with self.subTest(change=change):
+                self.setup_distinct_references()
+                self.row.national_id = 'CED-3964'
+                self.claims[1].update(change)
+                targets, _ = manual_detail_targets(self.row, self.claims, self.manual, 765.07, 'EMP', 'APRIL')
+                self.assertEqual(targets, [])
+        self.setup_distinct_references()
+        self.manual[1]['amount_usd'] = .49
+        self.assertEqual(manual_detail_targets(self.row, self.claims, self.manual, 765.07, 'EMP', 'APRIL')[0], [])
+
+    def test_reference_override_requires_explicit_identity_not_just_name_or_loan(self):
+        self.setup_distinct_references()
+        for field in ('client', 'client_number', 'loan_number'):
+            row = dict(self.row)
+            if field == 'loan_number':
+                row['loan_number'] = ''
+            else:
+                row['client'] = row['client_number'] = ''
+            self.assertEqual(manual_detail_targets(row, self.claims, self.manual, 765.07, 'EMP', 'APRIL')[0], [])
+
+    def test_automatic_selection_still_obeys_application_reference(self):
+        self.setup_distinct_references()
+        targets, _ = suggest_detail_targets(self.row, self.claims, 765.07, 'EMP', 'APRIL')
+        self.assertFalse(any(target['claim_id'] == 'H:B' for target in targets))
+        self.assertEqual(self.reconcile([])[2]['DEP'], 'Revisar filas')
+
     def test_multiple_target_credits_do_not_guess_a_single_loan_number(self):
         self.manual[0]["amount_usd"] = 10
         self.manual.append(dict(id="TARGET-2", deposit_id="DEP", claim_id="H:B",

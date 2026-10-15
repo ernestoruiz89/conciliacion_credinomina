@@ -41,7 +41,7 @@ def _same_id(left: Any, right: Any) -> bool:
     return bool(clean_text(left)) and canonical_identifier(left) == canonical_identifier(right)
 
 
-def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
+def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any], *, check_reference=True) -> bool:
     if row.get("employer") and clean_text(row["employer"]) != clean_text(claim.get("group")):
         return False
     if row.get("client") and claim.get("client") and row["client"] != claim["client"]:
@@ -88,11 +88,23 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool
     ):
         return False
     reference = clean_text(row.get("application_reference"))
-    if reference and claim.get("kind") != "X" and reference not in {
+    if check_reference and reference and claim.get("kind") != "X" and reference not in {
         clean_text(value) for value in claim.get("references", ())
     }:
         return False
     return True
+
+
+def _manual_application_identity_matches(row, claim, employer):
+    """Only explicit application links may cross references with proven identity."""
+    if claim.get("kind") != "H" or not clean_text(row.get("loan_number")):
+        return False
+    if clean_text(row.get("employer") or employer) != clean_text(claim.get("group")):
+        return False
+    same_client = (bool(row.get("client") and row.get("client") == claim.get("client"))
+                   or any(_same_id(row.get(field), claim.get(field))
+                          for field in ("client_number", "national_id", "employee_number")))
+    return same_client and _candidate_matches(row, claim, check_reference=False)
 
 
 def _unidentified_complement_link(row, claim, instruction):
@@ -132,6 +144,7 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     periods = _period_scope(period)
     targets = []
     unidentified_complements = []
+    different_references = []
     other_periods = set()
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
@@ -157,7 +170,9 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         elif _unidentified_complement_link(row, claim, instruction):
             unidentified_complements.append(claim["id"].removeprefix("X:"))
         elif not _candidate_matches(row, claim):
-            return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
+            if not _manual_application_identity_matches(row, claim, employer):
+                return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
+            different_references.append(claim["id"].removeprefix("H:"))
         if (not money(instruction["amount_usd"]) or
                 (money(instruction["amount_usd"]) < 0 and claim.get("kind") != "X")):
             return [], "Solo las partidas complementarias admiten importes negativos"
@@ -167,6 +182,10 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
         return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
     reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+    if different_references:
+        reason += "; referencias distintas aceptadas con cliente, crédito y empresa coincidentes: " + ", ".join(
+            dict.fromkeys(different_references)
+        )
     if other_periods:
         reason += "; vínculo autorizado con otros períodos: " + ", ".join(sorted(other_periods))
     if unidentified_complements:
