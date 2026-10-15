@@ -51,3 +51,4 @@ credinomina_reconciliation.patches.v1_0.classify_exception_closure
 credinomina_reconciliation.patches.v1_0.review_financial_origins
 
 credinomina_reconciliation.patches.v1_0.add_employee_receivable_subcategory
+credinomina_reconciliation.patches.v1_0.submit_linked_accounting_origins

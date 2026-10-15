@@ -355,7 +355,7 @@ frappe.ui.form.on("CN Complementary Item", {
     },
     refresh(frm) {
         if (frm.doc.origin_deposit) {
-            frm.dashboard.set_headline_alert(__("Este movimiento respalda el origen contable de un depósito. No representa otro ingreso ni un destino financiero."), "blue");
+            frm.dashboard.set_headline_alert(__("Vinculado a depósito. Se conserva como evidencia, sin saldo disponible y sin contar como partida conciliada ni pendiente. No puede utilizarse en otro depósito ni compensar otras partidas."), "blue");
             frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.origin_deposit));
             frm.disable_save();
             return;
@@ -668,7 +668,9 @@ async function cn_compensate_items_dialog(frm) {
                     const credit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category);
                     return {filters: {name: ["!=", frm.doc.name], docstatus: ["!=", 2],
                         registration_exception: ["is", "not set"],
+                        origin_deposit: ["is", "not set"],
                         category: ["not in", ["Ajuste de aplicación", "Diferencia por tolerancia",
+                            "Vinculado a depósito",
                             ...(credit ? ["Saldo a favor de la empresa", "Saldo a favor del cliente"] : [])]],
                         ...(credit && frm.doc.employer ? {employer: frm.doc.employer} : {}),
                         ...(credit ? {accounting_source_key: ["is", "set"], source_debit: [">", 0], source_credit: 0} : {}),

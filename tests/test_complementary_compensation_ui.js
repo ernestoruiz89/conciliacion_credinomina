@@ -40,6 +40,8 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     events.refresh(frm);
     assert.equal(typeof actions["Compensar con otra partida"], "function");
     await actions["Compensar con otra partida"]();
+    assert.equal(dialog.fields.find(field => field.fieldname === "counterpart").get_query().filters.origin_deposit[1], "not set");
+    assert.ok(dialog.fields.find(field => field.fieldname === "counterpart").get_query().filters.category[1].includes("Vinculado a depósito"));
     assert.ok(!dialog.fields.find(field => field.fieldname === "counterpart").get_query().filters.category[1].includes("Saldo a favor del cliente"));
     assert.equal(calls[0], "save");
     assert.equal(dialog.disabled, true);
@@ -62,6 +64,10 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     frm.doc.compensation_pending_usd = 0;
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
+    const linkedIndicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({
+        docstatus: 1, _cn_balance: {state: "Vinculado a depósito", pending_usd: 0}});
+    assert.equal(linkedIndicator[0], "Vinculado a depósito");
+    assert.equal(linkedIndicator[1], "blue");
     frm.doc.compensation_pending_usd = 70;
     allow = false;
     events.refresh(frm);

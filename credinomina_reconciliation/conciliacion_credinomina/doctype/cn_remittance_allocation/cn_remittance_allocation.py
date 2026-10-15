@@ -277,10 +277,12 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("No combine una partida complementaria con una fila de cobranza."))
             complementary = frappe.db.get_value(
                 "CN Complementary Item", target.complementary_item,
-                ["docstatus", "period", "amount_usd", "category"], as_dict=True,
+                ["docstatus", "period", "amount_usd", "category", "origin_deposit"], as_dict=True,
             )
             if not complementary or complementary.docstatus != 1:
                 frappe.throw(_("Confirme primero la partida complementaria."))
+            if complementary.get('origin_deposit') or complementary.category == 'Vinculado a depósito':
+                frappe.throw(_("El origen contable vinculado es evidencia del depósito; no puede asignarse también como destino."))
             if complementary.category in {"Saldo a favor de la empresa", "Saldo a favor del cliente"}:
                 frappe.throw(_("El saldo a favor se vincula desde la partida al depósito; no se asigna como pago en Destinos."))
             if complementary.category == TOLERANCE_CATEGORY:

@@ -2,6 +2,7 @@
 import hashlib
 import json
 from collections import defaultdict
+from contextvars import ContextVar
 
 import frappe
 from frappe import _
@@ -15,7 +16,9 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 
 DEPOSIT = 'CN Remittance Allocation'
 ITEM = 'CN Complementary Item'
+LINKED_CATEGORY = 'Vinculado a depósito'
 MAX_SELECTION = 2000
+_submitting_origin = ContextVar('cn_submitting_accounting_origin', default=None)
 ITEM_FIELDS = list(dict.fromkeys(['name', 'modified', 'docstatus', 'employer', 'category',
     'review_action', 'origin_deposit', 'related_application', 'related_import', 'registered_deposit',
     'registration_exception', 'receivable_origin', 'period', 'loan_number', 'application_adjustment_usd',
@@ -84,8 +87,11 @@ def _load(deposit_name, selection, kind, *, lock=False):
 
 def _internal_issues(item, deposit):
     issues = []
-    if (item.get('docstatus') != 0 or item.get('category') != 'Por clasificar'
-            or item.get('review_action') != 'Pendiente de revisión'
+    linked_origin = item.get('origin_deposit') == deposit.name
+    pending_review = item.get('category') == 'Por clasificar' and item.get('review_action') == 'Pendiente de revisión'
+    linked_review = linked_origin and item.get('category') == LINKED_CATEGORY and item.get('review_action') == 'Partida de depósito'
+    if ((item.get('docstatus') != 0 and not (item.get('docstatus') == 1 and linked_origin))
+            or not (pending_review or linked_review)
             or item.get('accounting_classification') != INTERNAL
             or TYPES.get((accounting_code(item.get('tmov')), accounting_code(item.get('tdoc')))) != INTERNAL):
         issues.append(_('Solo se vinculan movimientos internos en borrador pendientes de revisión.'))
@@ -224,6 +230,26 @@ def _insert_sources(deposit, values, timestamp, *, set_primary=True):
         frappe.db.set_value(DEPOSIT, deposit.name, {field: values[0].get(field) for field in EVIDENCE_FIELDS}, update_modified=False)
 
 
+def _submit_internal_origins(deposit, origins, reason):
+    """Normal Frappe submission, scoped to these validated evidence documents."""
+    pending = [origin for origin in origins if origin.docstatus == 0]
+    for origin in pending:
+        origin.check_permission('submit')
+    for origin in pending:
+        was_linked = bool(origin.get('origin_deposit'))
+        origin.origin_deposit = deposit.name
+        origin.category = LINKED_CATEGORY
+        origin.reference = deposit.deposit_reference
+        origin.review_action = 'Partida de depósito'
+        origin.review_status = 'Origen contable vinculado'
+        origin.review_notes = (origin.get('review_notes') if was_linked else '') or reason
+        token = _submitting_origin.set(origin)
+        try:
+            origin.submit()
+        finally:
+            _submitting_origin.reset(token)
+
+
 @frappe.whitelist(methods=['POST'])
 def link(deposit_name, selection, token, reason, kind='internal'):
     from credinomina_reconciliation.accounting_batch_store import creation_guard
@@ -235,6 +261,8 @@ def link(deposit_name, selection, token, reason, kind='internal'):
         result, values = inspect_selection(deposit, origins, kind)
         _check_ownership(deposit, origins, values, kind)
         if result['already_linked'] and not result['issues']:
+            if kind == 'internal':
+                _submit_internal_origins(deposit, origins, reason)
             return dict(result, status='Vinculado', name=deposit.name)
         if token != result['token']:
             frappe.throw(_('Los datos cambiaron desde la revisión. Vuelva a comprobar la selección.'))
@@ -248,13 +276,13 @@ def link(deposit_name, selection, token, reason, kind='internal'):
         # Narrow evidence writes preserve confirmed distributions, closed periods,
         # operational dates, cash amounts and their original exchange rate.
         if not result['issues']:
+            if kind == 'internal':
+                _submit_internal_origins(deposit, origins, reason)
             _insert_sources(deposit, values, timestamp, set_primary=kind == 'internal')
             for origin in origins:
-                if kind == 'internal':
-                    updates = dict(origin_deposit=deposit.name, review_status='Origen contable vinculado', review_notes=reason)
-                else:
+                if kind == 'deposit':
                     updates = dict(consolidated_deposit=deposit.name, cash_identity_status='Origen vinculado', cash_identity_reason=reason)
-                frappe.db.set_value(origin.doctype, origin.name, dict(updates, modified=timestamp, modified_by=frappe.session.user))
+                    frappe.db.set_value(origin.doctype, origin.name, dict(updates, modified=timestamp, modified_by=frappe.session.user))
             if kind == 'deposit':
                 frappe.db.set_value(DEPOSIT, deposit.name, 'linked_core_deposit', origins[0].name, update_modified=False)
                 origins[0].add_comment('Comment', _('Origen contable vinculado a {0}. {1}').format(deposit.name, reason))
@@ -265,7 +293,10 @@ def link(deposit_name, selection, token, reason, kind='internal'):
 
 
 def guard_item(doc, previous=None):
-    if doc.get('origin_deposit') or (previous and previous.get('origin_deposit')):
+    if doc.get('origin_deposit') or doc.get('category') == LINKED_CATEGORY or (previous and previous.get('origin_deposit')):
+        if (_submitting_origin.get() is doc and doc.docstatus == 1
+                and previous and previous.docstatus == 0):
+            return True
         frappe.throw(_('Esta partida es origen contable de un depósito. Se conserva como evidencia y no admite cambios ni efectos financieros.'))
 
 

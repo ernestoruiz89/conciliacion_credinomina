@@ -8,7 +8,7 @@ from frappe.utils.file_manager import save_file
 from credinomina_reconciliation import manual_origin_link as api
 from credinomina_reconciliation.accounting_review import create_review_items
 from credinomina_reconciliation.deposit_accounting_sources import source_writer, append_source
-from credinomina_reconciliation.complementary_balances import financial_balance
+from credinomina_reconciliation.complementary_balances import financial_balance, reconciliation_state
 from credinomina_reconciliation.conciliacion_credinomina.report.control_mensual_de_movimientos_contables.control_mensual_de_movimientos_contables import execute as control
 
 
@@ -65,15 +65,41 @@ def run():
         assert snapshot(doc) == saved, (saved, snapshot(doc))
         assert len(doc.accounting_sources) == 565
         assert {source.source_voucher for source in doc.accounting_sources} == {row['voucher'] for row in records}
+        assert frappe.db.count(api.ITEM, {'origin_deposit': doc.name, 'docstatus': 1}) == 565
         assert api.link(doc.name, names, 'old-token', 'Retry')['already_linked']
         assert not create_review_items(records, file.file_url, marker)
         items[0].reload()
         assert items[0].origin_deposit == doc.name and financial_balance(items[0])['pending_usd'] == 0
+        assert reconciliation_state(financial_balance(items[0])) == 'Vinculado a depósito'
+        from credinomina_reconciliation.complementary_transactions import load_transactions
+        transactions, _, _ = load_transactions('Partidas complementarias contables', True,
+            {'employer': company.name}, ['2026-10-01', '2026-10-31'])
+        assert not transactions
+        assert items[0].category == api.LINKED_CATEGORY
+        assert items[0].reference == doc.deposit_reference and items[0].review_action == 'Partida de depósito'
         assert frappe.db.count('File', {'file_url': file.file_url, 'attached_to_name': doc.name}) == 1
         report = [row for row in control(dict(month='2026-10-01', employer=company.name))[1]
                   if row.get('remittance_allocation') == doc.name]
         assert len(report) == 565 and sum(row['credit_usd'] for row in report) == 565
         assert sum(row['pending_usd'] is not None for row in report) == 1
+        # Upgrade an old linked draft through submit, without adding another
+        # source line or changing cash. A repeated migration does nothing.
+        from credinomina_reconciliation.patches.v1_0.submit_linked_accounting_origins import execute as migrate
+        frappe.db.set_value(api.ITEM, items[0].name, dict(docstatus=0, category='Por clasificar',
+                                                       review_action='Pendiente de revisión', reference=''))
+        # Schema is loaded before this rollback-only test; never run DDL here.
+        with patch.object(frappe, 'reload_doc'):
+            migrate()
+        assert frappe.db.get_value(api.ITEM, items[0].name, 'docstatus') == 1
+        items[0].reload()
+        assert items[0].category == api.LINKED_CATEGORY and items[0].reference == doc.deposit_reference
+        assert items[0].review_action == 'Partida de depósito'
+        submitted_modified = frappe.db.get_value(api.ITEM, items[0].name, 'modified')
+        with patch.object(frappe, 'reload_doc'):
+            migrate()
+        assert frappe.db.get_value(api.ITEM, items[0].name, 'modified') == submitted_modified
+        doc.reload()
+        assert len(doc.accounting_sources) == 565 and snapshot(doc) == saved
         # A linked item cannot become a second financial target through ordinary saves.
         frappe.db.savepoint('origin_tamper')
         try:
@@ -90,7 +116,19 @@ def run():
         review.reload()
         assert result['status'] == review.origin_link_status == 'Pendiente de revisión'
         assert not review.accounting_sources and not frappe.db.get_value(api.ITEM, choices[0].name, 'origin_deposit')
+        assert frappe.db.get_value(api.ITEM, choices[0].name, 'docstatus') == 0
         assert '0.01' in review.origin_link_notes
+
+        # A later reconciliation must not turn the submitted ledger origins
+        # into another cash destination just because their reference now matches.
+        confirmed = receipt(marker + '-NO-SECOND-PAYMENT')
+        evidence_items, _ = movements(confirmed)
+        apply(confirmed, [item.name for item in evidence_items])
+        from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
+        reconcile_deposit(confirmed)
+        confirmed.reload()
+        assert confirmed.allocated_usd == 0 and confirmed.unallocated_usd == 100
+        assert not confirmed.targets
 
         # Late accounting receipt on day 30 backs the day 13 manual cash.
         manual = receipt(marker + '-CORE')
@@ -132,6 +170,8 @@ def run():
         assert snapshot(closed) == saved and [row.as_dict() for row in closed.targets] == targets
         assert frappe.db.get_value(period.doctype, period.name, 'status') == 'Cerrado'
         return dict(linked_565_lines_once=True, distinct_ledger_vouchers_preserved=True,
+                    origins_submitted=True, legacy_drafts_submitted_idempotently=True,
+                    classified_and_referenced=True, no_second_payment=True,
                     core_receipt_later_posting=True, reimport_idempotent=True,
                     differences_pending=True, closed_distribution_preserved=True, rollback=True)
     finally:

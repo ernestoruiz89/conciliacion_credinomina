@@ -19,6 +19,9 @@ def is_active(item):
 
 def progress(item, balance):
     original = abs(money(balance.get("original_usd")))
+    if item.get('origin_deposit'):
+        return {"state": "Vinculado a depósito", "original_usd": money_float(original),
+                "resolved_usd": 0, "pending_usd": 0, "status_detail": "Respaldo del depósito"}
     if balance.get('financial_status') == 'Revisar distribución':
         return {"state": "Revisar distribución", "original_usd": money_float(original),
                 "resolved_usd": None, "pending_usd": balance.get('pending_usd'),
@@ -47,9 +50,10 @@ def load_transactions(kind, drafts, scope, dates, detail=False):
         "source_client_name", "reference", "voucher", "source_voucher", "accounting_reference"]
         + (["source_description", "review_notes"] if detail else [])))
     items = frappe.get_list("CN Complementary Item", filters={**scope, "docstatus": ["!=", 2],
+        "origin_deposit": ["is", "not set"],
         "accounting_source_key": ["is", "set" if from_accounting else "not set"], date_field: ["between", dates]},
         fields=fields, limit_page_length=0)
-    items = [item for item in items if (drafts or is_active(item))
+    items = [item for item in items if not item.get('origin_deposit') and (drafts or is_active(item))
              and not (item.get("category") == "Diferencia por tolerancia" and item.get("status") == "Revertido")]
     # Only financially active items can use confirmed cash distribution.
     active = [item for item in items if is_active(item)]
@@ -76,6 +80,8 @@ def load_transactions(kind, drafts, scope, dates, detail=False):
 def month_amounts(items):
     amounts = {}
     for item in items:
+        if item.get('origin_deposit'):
+            continue  # Evidence is neither pending nor reconciled financial activity.
         key = (item.get("employer") or "", str(item.get("event_date") or "")[:7])
         total = amounts.setdefault(key, {"total_usd": money(0), "covered_usd": money(0)})
         row = item["_progress"]

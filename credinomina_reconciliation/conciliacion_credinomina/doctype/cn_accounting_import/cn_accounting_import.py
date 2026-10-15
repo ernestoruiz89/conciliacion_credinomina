@@ -859,7 +859,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     collection_rows = [row for period in periods for row in period.collection_rows]
     complementary_items = frappe.get_all(
         "CN Complementary Item",
-        filters={"docstatus": 1, "category": ["not in", [COMPANY_CREDIT, CLIENT_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas"]], **company_filters},
+        filters={"docstatus": 1, "origin_deposit": ["is", "not set"], "category": ["not in", [COMPANY_CREDIT, CLIENT_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
             "client_number", "loan_number", "installment_number",
@@ -1098,6 +1098,8 @@ def _allocate_complementary_items(items, periods):
     row_ids = {row.name for period in periods for row in period.collection_rows}
     allocations = defaultdict(list)
     for item in items:
+        if item.get('origin_deposit') or item.get('category') == 'Vinculado a depósito':
+            continue
         if explicit.get(item.name) in row_ids:
             allocations[(explicit[item.name], clean_text(item.reference))].append(item)
             continue

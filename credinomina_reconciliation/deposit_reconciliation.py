@@ -166,7 +166,8 @@ def reconcile_deposit(document, progress=None, undo=False):
     originals = [row.as_dict() for row in source_rows]
     complements = frappe.get_all("CN Complementary Item", filters={
         "docstatus": 1, "employer": scope,
-        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas"]],
+        "origin_deposit": ["is", "not set"],
+        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]],
     }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key"], limit_page_length=0)
     complementary_by_target = engine._allocate_complementary_items(complements, periods)
     others = frappe.get_all("CN Remittance Allocation", filters={

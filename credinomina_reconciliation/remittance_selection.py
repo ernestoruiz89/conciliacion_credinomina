@@ -205,7 +205,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         "CN Remittance Allocation", filters={"docstatus": 1, "employer": ["in", reconciliation_companies(doc.employer)]},
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
-    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["not in", ["Saldo a favor de la empresa", "Saldo a favor del cliente", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas"]]},
+    items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "origin_deposit": ["is", "not set"], "category": ["not in", ["Saldo a favor de la empresa", "Saldo a favor del cliente", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas", "Vinculado a depósito"]]},
         fields=["name", "reference", "amount_usd", "employer", "period",
                 "client_number", "loan_number", "installment_number", "description", "source_client_name",
                 "credit_client", "voucher", "generic_distribution"],
