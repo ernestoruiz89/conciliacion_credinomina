@@ -81,7 +81,8 @@ function linkAccountingOrigins(frm) {
         {fieldname: "kind", fieldtype: "Select", label: __("Tipo de origen"), options: "Movimientos internos\nDepósito del core", default: "Movimientos internos", onchange: reset,
             description: __("Se muestran partidas internas pendientes y depósitos del core en borrador. El depósito del core debe estar sin detalle ni destinos.")},
         {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset},
-        {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset},
+        {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset,
+            description: __("Filtro de búsqueda. Déjelo vacío para seleccionar movimientos internos de distintos asientos; cada uno conserva su asiento original.")},
         {fieldname: "search", fieldtype: "Button", label: __("Buscar movimientos"), click: search},
         {fieldname: "select_all", fieldtype: "Button", label: __("Seleccionar todas las partidas"), click() {
             if (kind() !== "internal") return frappe.msgprint(__("Seleccione un único depósito del core."));

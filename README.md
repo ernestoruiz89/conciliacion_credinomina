@@ -1315,6 +1315,10 @@ Si la carga no logró reconocer el depósito manual, abra ese depósito y pulse
 permite elegir **Movimientos internos** o **Depósito del core**, buscar por
 referencia/asiento y seleccionar los registros. **Seleccionar todas las partidas**
 incluye todas las filas de la búsqueda, aunque la tabla esté paginada.
+Los movimientos internos pueden tener asientos distintos entre sí y respecto
+al comprobante del depósito. Se conservan los asientos originales; deben coincidir
+empresa, referencia, fecha y moneda, y la suma debe cubrir exactamente el depósito.
+Deje vacío el filtro **Asiento** para buscar movimientos de distintos asientos.
 
 Pulse **Comprobar selección**, revise total, moneda, diferencias y documente el
 comprobante. **Vincular al depósito** agrega las filas a `accounting_sources`,

@@ -28,6 +28,7 @@ def run():
         def receipt(ref, amount=100, confirmed=True, employer=None):
             doc = frappe.get_doc(dict(doctype=api.DEPOSIT, employer=employer or company.name,
                 bank_account=bank.name, deposit_reference=ref, deposit_date='2026-10-13',
+                deposit_voucher=marker + '-BANK',
                 deposit_currency='USD', deposit_amount=amount)).insert()
             if confirmed:
                 doc.submit()
@@ -38,7 +39,7 @@ def run():
                 event_type='Ajuste', accounting_classification='Movimiento interno', tmov='01', tdoc='01',
                 classification_reason='Movimiento interno', source_account='1602', source_currency='USD',
                 source_credit=credit, source_debit=0, amount_usd=credit, event_date='2026-10-13',
-                voucher=marker, accounting_reference=doc.deposit_reference,
+                voucher=f'{marker}-LEDGER-{i}', accounting_reference=doc.deposit_reference,
                 source_row=i + 1, source_description=f'DEPOSITO {doc.deposit_reference} Cliente {i}',
                 resolved_employer=doc.employer) for i, credit in enumerate(credits)]
             return create_review_items(rows, file.file_url, marker), rows
@@ -63,6 +64,7 @@ def run():
         doc.reload()
         assert snapshot(doc) == saved, (saved, snapshot(doc))
         assert len(doc.accounting_sources) == 565
+        assert {source.source_voucher for source in doc.accounting_sources} == {row['voucher'] for row in records}
         assert api.link(doc.name, names, 'old-token', 'Retry')['already_linked']
         assert not create_review_items(records, file.file_url, marker)
         items[0].reload()
@@ -129,7 +131,8 @@ def run():
         closed.reload()
         assert snapshot(closed) == saved and [row.as_dict() for row in closed.targets] == targets
         assert frappe.db.get_value(period.doctype, period.name, 'status') == 'Cerrado'
-        return dict(linked_565_lines_once=True, core_receipt_later_posting=True, reimport_idempotent=True,
+        return dict(linked_565_lines_once=True, distinct_ledger_vouchers_preserved=True,
+                    core_receipt_later_posting=True, reimport_idempotent=True,
                     differences_pending=True, closed_distribution_preserved=True, rollback=True)
     finally:
         frappe.db.rollback()

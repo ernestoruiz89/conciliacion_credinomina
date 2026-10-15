@@ -391,6 +391,10 @@ de acciones o en la pestaña **Origen contable**:
 2. Busque por referencia o asiento y marque las filas. **Seleccionar todas las
    partidas** abarca todas las páginas del resultado, hasta 2.000 partidas; para
    un depósito del core seleccione un solo documento.
+   Los movimientos internos pueden tener distintos asientos; no necesitan
+   coincidir con el comprobante del depósito. Deje vacío **Asiento** para incluirlos
+   en la búsqueda. Deben coincidir empresa, referencia, fecha y moneda, y la suma
+   debe ser igual al importe del depósito. Cada movimiento conserva su asiento.
 3. Pulse **Comprobar selección**. Verifique total, moneda, fecha y advertencias,
    e indique el comprobante que respalda su decisión.
 4. Si coincide, pulse **Vincular al depósito**. Las filas aparecen en **Líneas
