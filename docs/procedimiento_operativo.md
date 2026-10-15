@@ -16,6 +16,16 @@ Un período operativo sin cobranza puede coexistir con el período regular de la
 
 Los ejemplos numéricos son didácticos y están expresados en US$, salvo indicación de C$. Las autorizaciones institucionales para reembolsos, reclasificaciones y correcciones deben obtenerse fuera de la app cuando corresponda. El manual no concede esas autorizaciones.
 
+## Reporte Resumen de Conciliación
+
+La vista **Resumen**, predeterminada, conserva una fila por período. La vista **Detalle** agrupa por período, empresa, cliente y crédito, acumulando las cuotas del mismo crédito. Incluye **Comentario de primera conciliación** (`first_exception_comment`) con los comentarios distintos de sus filas de cobranza. Los filtros de empresa, período, mes, modalidad y ciclo se conservan al cambiar de vista.
+
+Ambas vistas muestran cobranza enviada, aplicación neta y depósito asignado en US$. **Cobranza − aplicación** positivo significa que falta aplicar; negativo, que la aplicación supera la cobranza. **Aplicación − depósito** es la diferencia directa, antes de saldos a favor y ajustes. El depósito es solamente lo asignado a estas aplicaciones, no el monto completo de los depósitos bancarios. Las partidas complementarias con otro destino quedan fuera de esa cifra.
+
+El **Saldo a favor utilizado** se muestra separado del depósito. El **Pendiente por cubrir** suma los faltantes de cada aplicación o fila de cobranza: aplicación neta + ajustes de conciliación − depósito − saldo a favor utilizado, con mínimo cero por obligación. No compensa faltantes con excedentes de otras obligaciones. Por eso una aplicación cubierta con saldo a favor puede tener diferencia contra depósito y pendiente cero. La aplicación neta ya incorpora los ajustes de aplicación confirmados.
+
+**Solo con diferencias** incluye diferencias monetarias, ausencia de cobranza exigible y evidencia que requiere revisión, aunque una diferencia esté explicada por saldo a favor o ajuste. En Resumen muestra el período completo si cualquiera de sus clientes/créditos presenta diferencias; en Detalle muestra únicamente los clientes/créditos afectados. El contador **Con diferencias** evita que faltantes y excesos queden ocultos por un total neto cero. Los períodos históricos y **No tiene cobranza** indican **No aplica** en la primera comparación. Los importes sin conversión o evidencia suficiente se muestran como **No determinable** y no generan un total que los trate como cero.
+
 ## Responsabilidades y acceso
 
 | Participante | Trabajo habitual | Control que debe conservar |

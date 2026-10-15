@@ -60,9 +60,9 @@ class EmployeeReceivableViewsTest(unittest.TestCase):
 
     def test_reports_do_not_infer_worker_debt_from_missing_detail(self):
         with patch.object(frappe, "get_list", side_effect=lambda doctype, **kwargs: [self.period] if doctype == "CN Reconciliation Period" else []), patch.object(frappe, "get_all", side_effect=self.get_all):
-            _columns, summary = resumen_de_conciliacion.execute()
-        self.assertEqual(summary[0]["employee_shortfall_usd"], 130)
-        self.assertEqual(summary[0]["employee_shortfall_nio"], 4810)
+            _columns, summary = resumen_de_conciliacion.execute()[:2]
+        self.assertEqual(summary[0]["collection_difference_usd"], 130)
+        self.assertEqual(summary[0]["collection_usd"], 200)
 
         with patch.object(estado_de_cuenta_operativo, "get_periods", return_value=[self.period]), \
              patch.object(estado_de_cuenta_operativo.frappe, "get_all", return_value=self.rows):
@@ -75,9 +75,9 @@ class EmployeeReceivableViewsTest(unittest.TestCase):
     def test_inconsistent_detail_is_not_a_confirmed_receivable_in_reports(self):
         self.rows[1].update(deducted_usd=50, deducted_nio=3700, deduction_status="Importes inconsistentes")
         with patch.object(frappe, "get_list", side_effect=lambda doctype, **kwargs: [self.period] if doctype == "CN Reconciliation Period" else []), patch.object(frappe, "get_all", side_effect=self.get_all):
-            _, summary = resumen_de_conciliacion.execute()
-        self.assertEqual(summary[0]["employee_shortfall_usd"], 130)
-        self.assertEqual(summary[0]["employer_receivable_usd"], 70)
+            _, summary = resumen_de_conciliacion.execute()[:2]
+        self.assertEqual(summary[0]["collection_difference_usd"], 130)
+        self.assertEqual(summary[0]["application_usd"], 70)
         with patch.object(estado_de_cuenta_operativo, "get_periods", return_value=[self.period]), patch.object(estado_de_cuenta_operativo.frappe, "get_all", return_value=self.rows):
             _, detail = estado_de_cuenta_operativo._collection_report()
         self.assertEqual(detail[1]["operational_status"], "Aplicación insuficiente")

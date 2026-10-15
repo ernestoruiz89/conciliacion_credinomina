@@ -7,6 +7,7 @@ import frappe
 from credinomina_reconciliation import client_credit, credit_application
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.testing.smoke_client_credit import must_fail
+from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion.resumen_de_conciliacion import execute as report
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period.cn_reconciliation_period import close_period
 
@@ -107,9 +108,17 @@ def run():
             operative.reload(); op_import.reload(); deposit.reload(); origin_period.reload()
             assert operative.pending_usd == 0 and operative.remitted_total_usd == 20.76, operative.as_dict()
             assert op_import.rows[0].historical_remitted_usd == 20.76
+            for view in ('Resumen', 'Detalle'):
+                rows = report({'period': operative.name, 'view': view})[1]
+                assert len(rows) == 1, rows
+                row = rows[0]
+                assert row['collection_usd'] == row['application_usd'] == 20.76, row
+                assert row['deposit_usd'] == 0 and row['credit_used_usd'] == 20.76, row
+                assert row['deposit_difference_usd'] == 20.76 and row['open_usd'] == 0, row
+                assert row['collection_difference_usd'] == 0, row
             assert deposit.as_dict() == frozen_deposit and origin_period.as_dict() == frozen_period
             return dict(partial_application=True, remainder_usd=.01, closed_origin_unchanged=True,
                         repeated_reconciliation=True, duplicate_and_overpayment_rejected=True, reversal=True,
-                        closed_destination_guard=True, operative_destination=True)
+                        closed_destination_guard=True, operative_destination=True, report_credit_coverage=True)
     finally:
         frappe.db.rollback()

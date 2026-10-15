@@ -7,6 +7,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_i
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.period_pending import get_period_pending
 from credinomina_reconciliation.testing.smoke_client_credit import must_fail
+from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion.resumen_de_conciliacion import execute as report
 
 
 def run():
@@ -55,12 +56,22 @@ def run():
             periods.close_period(period.name)
             period.reload(); deposit.reload(); normal.reload()
             assert period.status == 'Cerrado' and not period.collection_rows
+            summary = report({'period': period.name})[1]
+            detail = report({'period': period.name, 'view': 'Detalle'})[1]
+            assert len(summary) == len(detail) == 1
+            for row in [summary[0], detail[0]]:
+                assert row['name'] == period.name and row['employer'] == employer.name
+                assert row['collection_control'] == 'No aplica' and row['collection_usd'] is None
+                assert row['application_usd'] == row['deposit_usd'] == 100
+                assert row['deposit_difference_usd'] == row['open_usd'] == 0
+            assert detail[0]['client_number'] == client.name and detail[0]['loan_number'] == '109136-1'
+            assert not report({'period': period.name, 'view': 'Detalle', 'only_differences': 1})[1]
             assert deposit.allocation_detail == original_cash
             assert normal.status != 'Cerrado'
             period.no_collection = 0
             must_fail(lambda: period.save())
             return dict(no_collection_required=True, unpaid_close_rejected=True,
                         paid_close_accepted=True, first_stage_not_pending=True,
-                        regular_period_preserved=True, original_cash_preserved=True)
+                        regular_period_preserved=True, original_cash_preserved=True, report_views_verified=True)
     finally:
         frappe.db.rollback()
