@@ -60,9 +60,10 @@ class ReportRecordsTests(unittest.TestCase):
                     applied_usd=1, payroll_month='2025-01-01')
                     for i in range(start, min(start + kwargs['limit_page_length'], 10001))]
         with patch.object(frappe, 'get_list', side_effect=query):
-            columns, rows = report.execute()
+            columns, rows = report.execute()[:2]
         self.assertEqual(len(rows), 10001)
-        self.assertEqual(sum(row['historical_pending_usd'] for row in rows), 10001)
+        # No source details were supplied: do not invent customer-level amounts.
+        self.assertTrue(all(row['application_usd'] is None for row in rows))
         self.assertEqual(rows[-1]['name'], 'P10000')
 
     def test_operational_aging_includes_row_after_old_hundred_thousand_limit(self):

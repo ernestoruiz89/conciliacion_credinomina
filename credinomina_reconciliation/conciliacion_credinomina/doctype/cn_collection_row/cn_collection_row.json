@@ -11,6 +11,7 @@
     "applied_usd",
     "quality_difference_usd",
     "quality_status",
+    "first_exception_comment",
     "usd_currency",
     "nio_currency",
     "row_key",
@@ -30,7 +31,6 @@
     "deduction_match_note",
     "application_reference",
     "application_comment",
-    "first_exception_comment",
     "applied_nio",
     "complementary_usd",
     "quality_section",
@@ -65,7 +65,7 @@
       "label": "Resultado del control",
       "read_only": 1,
       "in_list_view": 1,
-      "columns": 3
+      "columns": 2
     },
     {
       "fieldname": "quality_expected_usd",
@@ -142,7 +142,7 @@
       "fieldname": "client_name",
       "fieldtype": "Data",
       "in_list_view": 1,
-      "columns": 3,
+      "columns": 2,
       "label": "Nombre del cliente",
       "description": "Nombre y apellidos del cliente en la cobranza.",
       "reqd": 1
@@ -280,7 +280,8 @@
       "fieldname": "first_exception_comment",
       "fieldtype": "Small Text",
       "label": "Excepción de cobranza vs aplicación",
-      "in_list_view": 0
+      "in_list_view": 1,
+      "columns": 2
     },
     {
       "fieldname": "applied_usd",
