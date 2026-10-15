@@ -613,6 +613,12 @@ Respalde tanto la base (incluido Version) como los archivos privados.
 
 **Aplicación futura** documenta una operación externa ya realizada; no crea automáticamente un pago futuro en el core. No registre una intención como gestión cumplida. Si el saldo era de otra persona o empresa, solicite autorización y corrija la clasificación de forma trazable antes de redistribuir.
 
+Para cubrir una **aplicación contable importada** con un saldo ya documentado, abra la partida confirmada y use **Aplicar a aplicación contable**. Seleccione la aplicación pendiente, el importe parcial o total y la fecha real de uso del saldo. La aplicación debe estar vinculada a un período de destino abierto; para un saldo del cliente, debe corresponder al mismo cliente y crédito, aunque el número del crédito tenga ceros iniciales diferentes. Un saldo de empresa se aplica dentro de esa empresa.
+
+La acción reduce el pendiente de la aplicación y del período de destino y deja el remanente en el saldo a favor. Por ejemplo, de US$20.77 se pueden aplicar US$20.76 y conservar US$0.01. No requiere reabrir el período de origen: el depósito y su distribución histórica quedan intactos. El historial identifica la aplicación, importación, período, fecha, usuario e importe; no se crea otro depósito ni un asiento en el core. **Documentar devolución o aplicación** sigue siendo seguimiento externo y no sustituye este vínculo.
+
+Use **Revertir gestión** para corregir un vínculo: conserva la operación original, registra la reversión, restaura el remanente y vuelve a calcular el pendiente del período de destino. Este período debe estar abierto. Las consultas al corte respetan las fechas de aplicación y reversión del saldo.
+
 Al abrir **Crear saldo a favor del cliente**, la **Fecha de la partida** propone la fecha del depósito. La **Fecha compromiso de gestión** propone el último día del mes siguiente a esa fecha. Por ejemplo, una partida del 15 de noviembre de 2025 propone el 31 de diciembre de 2025, aunque se registre en octubre de 2026. Revise la fecha de la partida antes de confirmar. Si la cambia, el compromiso se recalcula mientras no haya sido personalizado; una fecha compromiso editada manualmente se conserva. Esta fecha organiza la gestión y no cambia un vencimiento financiero.
 
 Seleccione **Motivo del saldo a favor** según la evidencia, no por el valor predeterminado. Entre las opciones están **Por refinanciamiento** y **Por cancelación**. El motivo puede corregirse después de confirmar la partida; cambiarlo no altera importes, beneficiarios ni gestiones realizadas.

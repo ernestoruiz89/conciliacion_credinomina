@@ -266,6 +266,15 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
                 collections[key]['rounding_adjustment_usd'] = money_float(
                     money(collections[key]['rounding_adjustment_usd']) + money(detail['diferencia_usd']))
 
+    from credinomina_reconciliation.credit_application import journal_allocations
+    for entry in journal_allocations(projected_items.values(), set(eligible_sources), cutoff):
+        source = eligible_sources[entry['application_id']]
+        source['historical_remitted_usd'] = money_float(money(source['historical_remitted_usd']) + money(entry['importe_usd']))
+        source['historical_detail'].append(dict(importe_usd=entry['importe_usd'], fecha=entry['fecha'],
+            referencia=entry['item'], origen='Saldo a favor', saldo_a_favor=entry['item'],
+            deposito_origen=entry['deposit'], operacion=entry['operation_id']))
+        source['match_status'] = 'Conciliado'
+
     balances = {name: financial_balance(item, distributions[name]) for name, item in projected_items.items()}
     core = []
     for name, item in projected_items.items():

@@ -132,6 +132,9 @@ class CandidateContext:
                         paid[(deposit.name, claim)] += money(entry.get('importe_usd'))
         for key in paid.keys() | planned.keys():
             self.reserved[key[1]] += max(paid[key], planned[key])
+        from credinomina_reconciliation.credit_application import funding_totals
+        for application, amount in funding_totals(applications).items():
+            self.reserved[('H', application)] += amount
 
     def coverage(self, row, saved_collections=()):
         from credinomina_reconciliation.application_adjustments import coverage_from_reservations

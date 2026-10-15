@@ -40,7 +40,8 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, '../credinomina_reconciliat
     const choices = dialog.options.fields.find(f => f.fieldname === 'management').options;
     assert.equal(choices.length, 1);
     assert.match(choices[0], /formatted-2025-05-10/);
-    assert.match(dialog.options.fields[0].options, /ni libera dinero/i);
+    assert.match(dialog.options.fields[0].options, /ni modifica el depósito original/i);
+    assert.match(dialog.options.fields[0].options, /se restaura el remanente y el pendiente del período/i);
     assert.equal(dialog.options.fields.find(f => f.fieldname === 'reason').reqd, 1);
     await dialog.options.primary_action({management: choices[0], event_date: '2026-10-03', reason: 'Corrección'});
     assert.equal(calls.at(-1).args.modified, 'server-version');

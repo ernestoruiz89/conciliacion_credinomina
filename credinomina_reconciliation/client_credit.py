@@ -284,6 +284,8 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
     history.append({"operation_id": uuid4().hex, "tratamiento": treatment, "importe_usd": money_float(amount), "fecha": str(getdate(event_date)),
                     "referencia": clean_text(reference), "soporte": support_file, "observaciones": clean_text(notes),
                     "usuario": frappe.session.user, "registrado_el": str(now_datetime())})
+    from credinomina_reconciliation.credit_application import validate_dated_history
+    validate_dated_history(item.amount_usd, history)
     resolved = money(item.get("credit_resolved_usd")) + amount
     status = "Resuelto" if resolved == money(item.amount_usd) else "Parcialmente resuelto"
     frappe.db.set_value(item.doctype, item.name, {
@@ -321,6 +323,12 @@ def get_management_history(item_name):
 @frappe.whitelist(methods=["POST"])
 def reverse_management(item_name, modified, entry_id, event_date, reason):
     """Correct recorded external management; never refund or release bank cash."""
+    initial = frappe.get_doc("CN Complementary Item", item_name)
+    initial.check_permission("read")
+    selected = next((entry for entry in management_history(initial) if entry['entry_id'] == entry_id), None)
+    if selected and selected.get('application_id'):
+        from credinomina_reconciliation.credit_application import reverse
+        return reverse(item_name, modified, entry_id, event_date, reason)
     item = frappe.get_doc("CN Complementary Item", item_name, for_update=True)
     item.check_permission("write")
     item.check_permission("submit")

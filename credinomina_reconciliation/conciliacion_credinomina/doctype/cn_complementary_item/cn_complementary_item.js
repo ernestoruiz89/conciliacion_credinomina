@@ -444,14 +444,15 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.toggle_display("select_credit_detail", !confirmed && frm.doc.category === "Saldo a favor del cliente");
             frm.toggle_display("record_credit_management", confirmed && Number(frm.doc.credit_pending_usd) > 0 && !!frm.get_perm(0, "submit"));
             if (confirmed && Number(frm.doc.credit_pending_usd) > 0 && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
+                frm.add_custom_button(__("Aplicar a aplicación contable"), () => cn_apply_credit_to_application(frm));
                 frm.add_custom_button(__("Documentar devolución o aplicación"), () => cn_record_client_credit_management(frm));
-                frm.change_custom_button_type?.(__("Documentar devolución o aplicación"), null, "primary");
+                frm.change_custom_button_type?.(__("Aplicar a aplicación contable"), null, "primary");
             }
             if (confirmed && frm.get_perm(0, "submit") && frm.get_perm(0, "write") && frm.doc.credit_history && frm.doc.credit_history !== "[]") {
                 frm.add_custom_button(__("Revertir gestión"), () => cn_reverse_credit_management(frm), __("Más acciones"));
             }
             frm.dashboard.set_headline_alert(confirmed
-                ? __("Saldo a favor documentado. Gestión: {0}. Registrar gestión documenta una devolución o aplicación externa; no genera pagos ni asientos y no libera efectivo del depósito original.", [frm.doc.credit_management_status || "Pendiente"])
+                ? __("Saldo a favor documentado. Gestión: {0}. Use Aplicar a aplicación contable para cubrir una aplicación importada y conservar el remanente. Documentar devolución o aplicación solo registra una gestión externa. El depósito original conserva su distribución.", [frm.doc.credit_management_status || "Pendiente"])
                 : __("Identifique el beneficiario y depósito del excedente. Indique importe positivo, motivo, responsable y fecha compromiso. Si esta partida ya fue importada, reclasifíquela aquí; no cree otra copia."), "blue");
             return;
         }
@@ -537,9 +538,12 @@ function cn_client_credit_history(frm) {
     const esc = v => frappe.utils.escape_html(String(v ?? ""));
     const proof = url => /^(\/private\/files\/|\/files\/|https?:\/\/)/i.test(url || "")
         ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${__("Ver soporte")}</a>` : "—";
+    const destination = row => row.application_id
+        ? `${row.import_name ? `<a href="/app/cn-accounting-import/${encodeURIComponent(row.import_name)}">${esc(row.import_name)}</a>` : esc(row.application_id)}<br>${esc(row.application_id)}${row.period ? `<br><a href="/app/cn-reconciliation-period/${encodeURIComponent(row.period)}">${esc(row.period)}</a>` : ""}`
+        : "—";
     wrapper.html(history.length ? `<div style="overflow:auto"><table class="table table-bordered"><thead><tr>
-        <th>${__("Fecha")}</th><th>${__("Gestión")}</th><th>${__("US$")}</th><th>${__("Referencia")}</th><th>${__("Soporte")}</th><th>${__("Registrado por")}</th><th>${__("Observaciones")}</th></tr></thead><tbody>
-        ${history.map(row => `<tr><td>${esc(frappe.datetime.str_to_user(row.fecha))}</td><td>${esc(row.tratamiento)}</td><td>${esc(format_currency(row.importe_usd, "USD"))}</td><td>${esc(row.referencia)}</td><td>${proof(row.soporte)}</td><td>${esc(row.usuario)}</td><td>${esc(row.observaciones)}</td></tr>`).join("")}</tbody></table></div>`
+        <th>${__("Fecha")}</th><th>${__("Gestión")}</th><th>${__("US$")}</th><th>${__("Referencia")}</th><th>${__("Aplicación / período")}</th><th>${__("Soporte")}</th><th>${__("Registrado por")}</th><th>${__("Observaciones")}</th></tr></thead><tbody>
+        ${history.map(row => `<tr><td>${esc(frappe.datetime.str_to_user(row.fecha))}</td><td>${esc(row.tratamiento)}</td><td>${esc(format_currency(row.importe_usd, "USD"))}</td><td>${esc(row.referencia)}</td><td>${destination(row)}</td><td>${proof(row.soporte)}</td><td>${esc(row.usuario)}</td><td>${esc(row.observaciones)}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="text-muted">${__("Sin gestiones documentadas. Clasificar el saldo no significa que ya fue devuelto o aplicado.")}</p>`);
 }
 
@@ -556,7 +560,7 @@ async function cn_reverse_credit_management(frm) {
         `${index + 1}. ${row.tratamiento} · ${format_currency(row.importe_usd, "USD")} · ${row.fecha ? frappe.datetime.str_to_user(row.fecha) : __("Sin fecha")}`, row.entry_id]));
     let busy = false;
     const dialog = new frappe.ui.Dialog({title: __("Revertir gestión documentada"), fields: [
-        {fieldtype: "HTML", options: `<p>${__("Corrige únicamente el seguimiento registrado en esta app. Conserva el registro original y su soporte. No revierte pagos en el core ni libera dinero del depósito.")}</p>`},
+        {fieldtype: "HTML", options: `<p>${__("Conserva el registro original y su soporte. Si revierte una aplicación contable del saldo, se restaura el remanente y el pendiente del período de destino. No revierte pagos en el core ni modifica el depósito original.")}</p>`},
         {fieldname: "management", fieldtype: "Select", label: __("Gestión a revertir"), options: [...choices.keys()], reqd: 1},
         {fieldname: "event_date", fieldtype: "Date", label: __("Fecha de reversión"), default: frappe.datetime.get_today(), reqd: 1},
         {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo de la corrección"), reqd: 1},
@@ -605,6 +609,59 @@ async function cn_record_client_credit_management(frm) {
         } finally {busy = frm._cn_credit_management_busy = false; dialog.get_primary_btn().prop("disabled", false);}
     }});
     dialog.show();
+}
+
+async function cn_apply_credit_to_application(frm) {
+    if (frm._cn_credit_management_busy) return;
+    frm._cn_credit_management_busy = true;
+    try {
+        if (frm.is_dirty()) await frm.save();
+        const itemName = frm.doc.name;
+        const {message: data} = await frappe.call({method: "credinomina_reconciliation.credit_application.candidates",
+            args: {item_name: itemName}});
+        if (frm.doc.name !== itemName) return;
+        if (!data?.rows?.length) return frappe.msgprint(__("No hay aplicaciones pendientes del beneficiario en períodos abiertos. Importe y vincule primero la aplicación a su período."));
+        const choices = new Map(data.rows.map((row, index) => [
+            `${index + 1}. ${row.event_date} · ${row.client_name || ""} · ${row.loan_number || ""} · ${row.reference || ""} · ${row.period} · ${format_currency(row.pending_usd, "USD")}`, row]));
+        let busy = false;
+        const first = choices.keys().next().value;
+        let dialog;
+        const update = () => {
+            if (!dialog) return;
+            const row = choices.get(dialog.get_value("application"));
+            if (!row) return;
+            dialog.set_value("amount_usd", Math.min(Number(data.pending_usd), Number(row.pending_usd)));
+            dialog.set_value("event_date", [row.event_date, frm.doc.posting_date].filter(Boolean).sort().at(-1));
+        };
+        dialog = new frappe.ui.Dialog({title: __("Aplicar saldo a aplicación contable"), size: "large", fields: [
+            {fieldtype: "HTML", options: `<p>${__("Reduce el pendiente de la aplicación importada y el saldo a favor por el importe indicado. Conserva el remanente y la distribución del depósito original, aunque su período esté cerrado.")}</p>`},
+            {fieldname: "application", fieldtype: "Select", label: __("Aplicación contable pendiente"), options: [...choices.keys()], default: first, reqd: 1, onchange: update},
+            {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe a aplicar US$"), reqd: 1},
+            {fieldname: "event_date", fieldtype: "Date", label: __("Fecha de aplicación del saldo"), reqd: 1},
+            {fieldname: "notes", fieldtype: "Small Text", label: __("Observaciones")},
+        ], primary_action_label: __("Aplicar saldo"), async primary_action(values) {
+            if (busy || frm._cn_credit_management_busy) return;
+            const row = choices.get(values.application);
+            if (!row) return;
+            busy = frm._cn_credit_management_busy = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                const {message: result} = await frappe.call({method: "credinomina_reconciliation.credit_application.apply",
+                    args: {item_name: itemName, modified: data.modified, application_id: row.name,
+                        amount_usd: values.amount_usd, event_date: values.event_date, notes: values.notes},
+                    freeze: true, freeze_message: __("Aplicando saldo y actualizando el período…")});
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.msgprint(__("Saldo aplicado. Remanente: {0}. Pendiente de la aplicación: {1}.",
+                    [format_currency(result.pending_usd, "USD"), format_currency(result.application_pending_usd, "USD")]));
+            } finally {
+                busy = frm._cn_credit_management_busy = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        }});
+        dialog.show();
+        update();
+    } finally {frm._cn_credit_management_busy = false;}
 }
 
 async function cn_comp_create_exception(frm) {
