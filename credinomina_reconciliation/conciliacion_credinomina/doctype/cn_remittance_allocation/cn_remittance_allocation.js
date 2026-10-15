@@ -183,7 +183,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         if (!frm.is_new() && frm.doc.docstatus !== 2 && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Revisar origen del depósito"), () => reviewDepositOrigin(frm), __("Más opciones"));
-            frm.add_custom_button(__("Vincular origen contable"), () => linkAccountingOrigins(frm));
         }
         frm.toggle_display("link_accounting_origins", !frm.is_new() && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         loadPayingCompanies(frm);
