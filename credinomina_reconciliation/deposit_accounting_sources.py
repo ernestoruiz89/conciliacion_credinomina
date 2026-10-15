@@ -180,7 +180,12 @@ def validate_sources(doc, previous):
             frappe.throw(_('El origen vinculado conserva la identidad bancaria original y no admite otros destinos ni detalle. Modifique el depósito que representa el efectivo.'))
     from credinomina_reconciliation.accounting_deposits import EVIDENCE_FIELDS
     def fingerprint(rows):
-        return [{field: str(row.get(field) or '') for field in (*EVIDENCE_FIELDS, 'origin_complementary_item')} for row in rows or []]
+        # Browser JSON drops numeric trailing zeros (1623.0 becomes 1623).
+        # Compare exact numeric values without rounding away evidence changes;
+        # keep textual identifiers such as vouchers and TMOV/TDOC unchanged.
+        numeric_fields = {'source_debit', 'source_credit', 'source_fx_rate', 'source_row'}
+        return [{field: decimal_value(row.get(field)) if field in numeric_fields else str(row.get(field) or '')
+                 for field in (*EVIDENCE_FIELDS, 'origin_complementary_item')} for row in rows or []]
     if fingerprint(doc.get('accounting_sources')) != fingerprint(previous.get('accounting_sources') if previous else []):
         frappe.throw(_('Las líneas contables de origen son inmutables; use la importación o la revisión de identidad del depósito.'))
     if any(clean_text(doc.get(field)) != clean_text(previous.get(field) if previous else '') for field in IDENTITY_FIELDS):

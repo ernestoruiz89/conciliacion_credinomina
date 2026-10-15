@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from unittest.mock import patch
 
 import frappe
@@ -55,6 +56,56 @@ def test_origins_cannot_be_forged_removed_or_modified_by_normal_form_saves():
         with patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
             origins.validate_sources(document, previous)
     origins.validate_sources(previous, previous)
+
+
+@pytest.mark.parametrize('stored_number', [float, Decimal])
+def test_selecting_detail_period_accepts_browser_serialization_of_ledger_numbers(stored_number):
+    from credinomina_reconciliation.accounting_deposits import validate_evidence
+
+    source = dict(line('K1', stored_number('1623.00'), 12324),
+        source_date=date(2026, 4, 17), source_currency='NIO',
+        source_debit=stored_number('0.00'), source_fx_rate=stored_number('36.624300000'))
+    previous = frappe._dict(source, accounting_sources=[source], detail_periods=[])
+    browser_source = dict(source, source_date='2026-04-17', source_credit=1623,
+        source_debit=0, source_fx_rate=36.6243)
+    document = frappe._dict(browser_source, accounting_sources=[browser_source],
+        detail_periods=[dict(period='ACEITERA-4-2026-01', applied_usd=43.18)])
+    with patch.object(frappe, 'throw', side_effect=ValueError):
+        validate_evidence(document, previous)
+    assert document.accounting_sources == [browser_source]
+    assert previous.accounting_sources == [source]
+
+
+@pytest.mark.parametrize('field,before,after', [
+    ('source_debit', 1581.36, '1581.360000000'),
+    ('source_credit', Decimal('1623.00'), 1623),
+    ('source_fx_rate', Decimal('36.000000000'), 36),
+    ('source_row', 12324, '12324.0'),
+    ('source_debit', None, 0),
+])
+def test_ledger_numeric_representations_preserve_the_same_evidence(field, before, after):
+    source = dict(line('K1', 1623, 12324), **{field: before})
+    previous = frappe._dict(accounting_sources=[source])
+    document = frappe._dict(accounting_sources=[dict(source, **{field: after})])
+    with patch.object(frappe, 'throw', side_effect=ValueError):
+        origins.validate_sources(document, previous)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('source_debit', '0.000000001'), ('source_credit', '1623.000000001'),
+    ('source_fx_rate', '36.624300001'), ('source_row', 12325),
+    ('source_date', '2026-04-18'), ('source_voucher', '001013798'),
+    ('tmov', '2'), ('tdoc', '12.0'), ('source_description', 'Alterada'),
+    ('accounting_source_key', 'OTHER'), ('source_file_hash', 'OTHER'),
+    ('origin_complementary_item', 'OTHER'),
+])
+def test_actual_ledger_changes_still_rejected_without_rounding_or_coercing_text(field, value):
+    source = dict(line('K1', 1623, 12324), source_date='2026-04-17',
+        source_fx_rate=36.6243, source_voucher='001013797')
+    previous = frappe._dict(accounting_sources=[source])
+    document = frappe._dict(accounting_sources=[dict(source, **{field: value})])
+    with patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
+        origins.validate_sources(document, previous)
 
 
 def receivable(**values):
