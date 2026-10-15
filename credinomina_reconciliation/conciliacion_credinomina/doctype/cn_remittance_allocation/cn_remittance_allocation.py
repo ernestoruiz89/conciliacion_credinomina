@@ -533,8 +533,8 @@ def create_client_credit_items_bulk(remittance_name: str, modified: str, rows,
     if not frappe.has_permission("CN Complementary Item", "create") or not frappe.has_permission("CN Complementary Item", "submit"):
         frappe.throw(_("Necesita permisos para crear y confirmar partidas complementarias."), frappe.PermissionError)
     rows = frappe.parse_json(rows) if isinstance(rows, str) else rows
-    if not isinstance(rows, list) or not 2 <= len(rows) <= 200:
-        frappe.throw(_("Seleccione entre 2 y 200 filas para crear saldos a favor."))
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
+        frappe.throw(_("Seleccione entre 1 y 200 filas para crear saldos a favor."))
     if (reason_type not in {"Error de la empresa", "Pago adicional no informado", "Por refinanciamiento",
                             "Por cancelación", "Otro por aclarar"}
             or not clean_text(description) or credit_treatment not in {"Pendiente de decisión", "Devolución", "Aplicación futura"}

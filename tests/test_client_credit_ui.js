@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const handlers = {}, calls = [], props = {}, shown = {}, buttons = {};
 let dialog, historyHTML = "", reloads = 0, pendingManagement, canCreate = true, canSubmit = true, dialogCount = 0;
-const context = vm.createContext({__: (text, values) => values ? text.replace("{0}", values[0]) : text,
+const context = vm.createContext({setTimeout: callback => callback(), __: (text, values) => values ? text.replace("{0}", values[0]) : text,
     format_currency: amount => `USD ${amount}`, frappe: {
     ui: {form: {on: (dt, events) => {handlers[dt] = events;}}, Dialog: class {
         constructor(options) {this.options = options; this.values = {}; dialog = this; dialogCount++;}
@@ -172,6 +172,31 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
     assert.equal(dialogCount, count);
     canSubmit = true;
+    // The selection action must work for a single pending row as well as several.
+    let selected = [], selectionChanged, bulkAction, bulkHidden;
+    const grid = deposit.fields_dict.detail_rows.grid;
+    Object.assign(grid, {custom_buttons: {}, grid_buttons: {},
+        get_selected_children: () => selected,
+        add_custom_button: (_label, action) => {bulkAction = action; return {toggleClass: (_class, hidden) => {bulkHidden = hidden;}};},
+        wrapper: {off() {return this;}, on(_event, _selector, action) {selectionChanged = action; return this;}},
+    });
+    context.addBulkClientCreditButton(deposit);
+    assert.equal(bulkHidden, true);
+    const beforeEmptySelection = dialogCount;
+    await bulkAction();
+    assert.equal(dialogCount, beforeEmptySelection);
+    selected = [row]; selectionChanged();
+    assert.equal(bulkHidden, false);
+    await bulkAction();
+    assert.equal(dialog.options.title, "Crear saldo a favor del cliente");
+    assert.equal(dialog.options.primary_action_label, "Crear y confirmar saldo a favor");
+    assert.ok(dialog.options.fields[0].options.includes('data-credit-amount="R"'));
+    dialog.hide();
+    selected = [row, {...row, name: "R2"}]; selectionChanged();
+    assert.equal(bulkHidden, false);
+    row.pending_usd = 0; selectionChanged();
+    assert.equal(bulkHidden, true);
+    row.pending_usd = 10;
     // Defaults must use the saved row, not the stale object from before save.
     deposit.is_dirty = () => true;
     let saves = 0;
