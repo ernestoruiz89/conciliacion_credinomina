@@ -52,7 +52,8 @@ class CNComplementaryItem(Document):
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
         from credinomina_reconciliation.manual_origin_link import guard_item
-        guard_item(self, previous)
+        if guard_item(self, previous):
+            return  # The linking service validated this immutable ledger evidence.
         from credinomina_reconciliation.receivable_recovery import guard_receipt
         guard_receipt(self, previous)
         client_credit.guard_credit_category(self, previous)
@@ -128,6 +129,8 @@ class CNComplementaryItem(Document):
                 frappe.throw(_("El periodo no pertenece a la empresa indicada."))
 
     def on_submit(self):
+        if self.get('origin_deposit'):
+            return  # Confirmed evidence never creates another financial effect.
         if self.category in client_credit.CREDIT_CATEGORIES:
             from credinomina_reconciliation.provisional_adjustments import is_materializing
             if self.flags.get("defer_reconciliation") and is_materializing():

@@ -9,6 +9,20 @@ from credinomina_reconciliation.conciliacion_credinomina.report.transacciones_po
 
 
 class ComplementaryTransactionsTests(unittest.TestCase):
+    def test_linked_origins_are_neither_reconciled_nor_pending_transactions(self):
+        for status in (0, 1):
+            item = self.item(origin_deposit='D', category='Vinculado a depósito', docstatus=status)
+            position = transactions.progress(item, financial_balance(item))
+            self.assertEqual(position['state'], 'Vinculado a depósito')
+            self.assertEqual((position['resolved_usd'], position['pending_usd']), (0, 0))
+            item['_progress'] = position
+            self.assertEqual(transactions.month_amounts([item]), {})
+            with patch.object(frappe, 'get_list', return_value=[item]) as query:
+                records, rows, _ = transactions.load_transactions(
+                    'Partidas complementarias contables', True, {}, ['2025-01-01', '2025-12-31'])
+            self.assertEqual((records, rows), ([], []))
+            self.assertEqual(query.call_args.kwargs['filters']['origin_deposit'], ['is', 'not set'])
+
     def item(self, **values):
         return frappe._dict(dict(name="C1", employer="A", category="Otros ingresos", amount_usd=100, docstatus=1,
             source_date="2025-04-15", posting_date="2025-05-01", client_number="1", source_client_name="Ana") | values)

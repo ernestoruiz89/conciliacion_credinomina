@@ -6,7 +6,7 @@ frappe.listview_settings["CN Complementary Item"] = {
         if (doc.status === "Revertido") return [__("Revertida"), "gray", "status,=,Revertido"];
         const state = (doc._cn_balance || doc.__onload?.cn_balance)?.state;
         return [__(state || (doc._cn_balance_error || doc.__onload?.cn_balance_error ? "Saldo no disponible" : "Consultando conciliación")),
-            {Conciliado: "green", Parcial: "orange", Pendiente: "red", "Revisar distribución": "red"}[state] || "gray", ""];
+            {Conciliado: "green", Parcial: "orange", Pendiente: "red", "Revisar distribución": "red", "Vinculado a depósito": "blue"}[state] || "gray", ""];
     },
     formatters: {
         accounting_status(value, df, doc) {

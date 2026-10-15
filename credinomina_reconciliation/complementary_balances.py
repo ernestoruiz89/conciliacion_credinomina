@@ -107,10 +107,12 @@ def reconciliation_state(balance):
         return status
     if status == "Revisar distribución" or (pending is not None and money(pending) < 0):
         return "Revisar distribución"
+    if status == 'Origen contable vinculado':
+        return 'Vinculado a depósito'
     if pending is None:
         return "Pendiente"
     if money(pending) == 0 and status in {
-        "Conciliada", "Documentado", "Vigente", "Registro contable verificado", "Origen contable vinculado",
+        "Conciliada", "Documentado", "Vigente", "Registro contable verificado",
     }:
         return "Conciliado"
     return "Parcial" if money(used) > 0 and money(pending) > 0 else "Pendiente"

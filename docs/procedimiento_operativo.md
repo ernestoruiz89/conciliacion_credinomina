@@ -409,6 +409,15 @@ contable original sigue visible en cada línea. El depósito del core debe estar
 en borrador y sin detalle ni destinos. Si ya fue conciliado por separado, revise
 primero su distribución. Las partidas internas vinculadas quedan como evidencia,
 no disponibles para generar otra aplicación, compensación o distribución.
+Al vincularlas, se envían automáticamente con concepto **Vinculado a depósito**,
+referencia igual a la del depósito y tratamiento **Partida de depósito**. Se
+requiere permiso para enviar las partidas; la operación se completa en una sola
+transacción. Los casos con diferencias permanecen en borrador. Al actualizar y
+ejecutar la migración, los borradores previamente vinculados se confirman y
+clasifican si su evidencia sigue siendo válida, conservando la conciliación.
+Su estado es **Vinculado a depósito**: no cuentan como partidas conciliadas ni
+pendientes, no tienen saldo disponible y no pueden reutilizarse para otro depósito
+o compensar otras partidas. El importe original se conserva únicamente para auditoría.
 
 Un comprobante bancario puede representar varias líneas de la contabilidad. Si el archivo contiene evidencia explícita coincidente de empresa, banco/cuenta, referencia, comprobante, fecha e importe, el importador las guarda en **Líneas contables de origen** de un solo depósito. No elimina líneas parecidas: el Control Mensual conserva cada débito y crédito; el efectivo se cuenta una vez. La vista previa distingue depósitos de líneas contables.
 

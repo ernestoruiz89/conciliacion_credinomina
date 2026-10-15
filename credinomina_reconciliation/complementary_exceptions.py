@@ -250,7 +250,7 @@ def get_registration_candidates(exception_name, voucher):
                 "parentfield": "rows", "voucher": voucher.strip(), "event_type": "Ajuste"}, pluck="name", limit_page_length=0))
     references.extend((ITEM, row) for row in frappe.get_list(ITEM,
         filters={"employer": ["in", companies], "source_voucher": voucher.strip(),
-            "accounting_source_key": ["is", "set"]}, pluck="name", limit_page_length=0))
+            "accounting_source_key": ["is", "set"], "origin_deposit": ["is", "not set"]}, pluck="name", limit_page_length=0))
     result, seen = [], set()
     for kind, name in references:
         muted = frappe.flags.mute_messages

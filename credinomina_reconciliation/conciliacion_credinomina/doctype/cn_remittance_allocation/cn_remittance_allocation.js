@@ -79,7 +79,7 @@ function linkAccountingOrigins(frm) {
     dialog = new frappe.ui.Dialog({title: __("Vincular origen contable al depósito"), size: "extra-large", fields: [
         {fieldtype: "HTML", options: `<p>${__("Seleccione el origen del mismo ingreso. La fecha de carga puede ser posterior; se comparan la empresa, referencia, fecha del depósito, moneda e importe. Esta acción conserva la distribución ya realizada.")}</p>`},
         {fieldname: "kind", fieldtype: "Select", label: __("Tipo de origen"), options: "Movimientos internos\nDepósito del core", default: "Movimientos internos", onchange: reset,
-            description: __("Se muestran partidas internas pendientes y depósitos del core en borrador. El depósito del core debe estar sin detalle ni destinos.")},
+            description: __("Las partidas internas se enviarán como Vinculado a depósito, con su referencia y tratamiento Partida de depósito. Se requiere permiso para enviar. El depósito del core debe estar en borrador, sin detalle ni destinos.")},
         {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset},
         {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset,
             description: __("Filtro de búsqueda. Déjelo vacío para seleccionar movimientos internos de distintos asientos; cada uno conserva su asiento original.")},

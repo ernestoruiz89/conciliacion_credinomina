@@ -56,7 +56,7 @@ def build_follow_up(items, balances, exceptions, *, as_of=None, credit_periods=N
             }.get(kind, 'Revisar caso')})
     for item in items:
         balance = balances[item["name"]]
-        if item.get("docstatus") == 2:
+        if item.get("docstatus") == 2 or item.get('origin_deposit'):
             continue
         if item.get('category') == 'Ajuste de conciliación' and item.get('subcategory_effect') in (None, '', 'Por clasificar'):
             add(item, 'adjustment_classification', 'Ajuste de conciliación por clasificar',

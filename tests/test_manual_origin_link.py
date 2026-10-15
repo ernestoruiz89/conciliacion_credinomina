@@ -1,11 +1,11 @@
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import frappe
 import pytest
 
 from credinomina_reconciliation import manual_origin_link as link
 from credinomina_reconciliation.accounting_control import build_rows
-from credinomina_reconciliation.complementary_balances import financial_balance
+from credinomina_reconciliation.complementary_balances import financial_balance, reconciliation_state
 from credinomina_reconciliation.core_item_position import signed_pending
 from credinomina_reconciliation.company_statement import build_detail, summarize
 
@@ -75,8 +75,12 @@ def test_mixed_currencies_are_not_added_as_if_they_were_the_same_money():
     assert result['totals_by_currency'] == {'NIO': 3600, 'USD': 50} and result['issues']
 
 
-def test_retry_recognizes_only_complete_matching_evidence_and_link():
-    doc, origin = receipt(), item(origin_deposit='D')
+@pytest.mark.parametrize('docstatus,category,action', [
+    (0, 'Por clasificar', 'Pendiente de revisión'),
+    (1, link.LINKED_CATEGORY, 'Partida de depósito'),
+])
+def test_retry_recognizes_only_complete_matching_evidence_and_link(docstatus, category, action):
+    doc, origin = receipt(), item(origin_deposit='D', docstatus=docstatus, category=category, review_action=action)
     _, sources = link.inspect_selection(doc, [origin], 'internal')
     doc.accounting_sources = sources
     doc.accounting_source_key = 'I'
@@ -100,14 +104,21 @@ def test_later_core_posting_and_upload_do_not_change_bank_date_or_distribution()
     assert link.inspect_selection(doc, [origin], 'deposit')[0]['issues']
 
 
-def test_linked_internal_has_no_second_financial_balance_or_ledger_turnover():
-    doc, origin = receipt(), item(origin_deposit='D')
+@pytest.mark.parametrize('docstatus', [0, 1])
+def test_linked_internal_has_no_second_financial_balance_or_ledger_turnover(docstatus):
+    doc, origin = receipt(), item(origin_deposit='D', docstatus=docstatus,
+        category=link.LINKED_CATEGORY, review_action='Partida de depósito')
     _, doc.accounting_sources = link.inspect_selection(doc, [origin], 'internal')
     doc.accounting_source_key = 'I'
     doc.allocated_usd = 100
     balance = financial_balance(origin)
     assert balance['pending_usd'] == signed_pending(origin, balance) == 0
     assert balance['used_usd'] == 0  # Evidence is not another cash distribution.
+    assert reconciliation_state(balance) == 'Vinculado a depósito'
+    from credinomina_reconciliation.follow_up_queue import build_follow_up
+    assert not build_follow_up([origin], {origin.name: balance}, [])
+    origin.update(_balance=balance, _signed_pending_usd=signed_pending(origin, balance))
+    assert not build_detail([], [origin], [], [])
     for mirrors in ([], [dict(origin, name='ROW', event_type='Ajuste', parent='IMP', complementary_item='I')]):
         rows, _ = build_rows(mirrors, {'IMP': dict(name='IMP', employer='EMP')}, [origin], deposits=[doc])
         assert len(rows) == 1 and rows[0]['credit_nio'] == 3650
@@ -116,9 +127,65 @@ def test_linked_internal_has_no_second_financial_balance_or_ledger_turnover():
 
 
 def test_ordinary_saves_cannot_forge_or_repurpose_linked_items():
-    for doc, previous in [(item(origin_deposit='D'), None), (item(), item(origin_deposit='D'))]:
+    for doc, previous in [(item(origin_deposit='D'), None), (item(), item(origin_deposit='D')),
+                         (item(docstatus=1, origin_deposit='D'), item(origin_deposit='D')),
+                         (item(category=link.LINKED_CATEGORY), None)]:
         with patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
             link.guard_item(doc, previous)
+
+
+def test_origin_submission_uses_normal_submit_without_reconciliation_and_resets_context():
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item import CNComplementaryItem
+    previous = item()
+    origin = item(check_permission=Mock(), get_doc_before_save=lambda: previous, _reconcile=Mock())
+
+    def submit():
+        origin.docstatus = 1
+        CNComplementaryItem.validate(origin)
+        CNComplementaryItem.on_submit(origin)
+
+    origin.submit = Mock(side_effect=submit)
+    link._submit_internal_origins(receipt(), [origin], 'Comprobante revisado')
+    origin.check_permission.assert_called_once_with('submit')
+    origin.submit.assert_called_once()
+    origin._reconcile.assert_not_called()
+    assert origin.origin_deposit == 'D' and origin.review_status == 'Origen contable vinculado'
+    assert origin.category == link.LINKED_CATEGORY
+    assert origin.reference == 'REF' and origin.review_action == 'Partida de depósito'
+    assert origin.review_notes == 'Comprobante revisado'
+    assert link._submitting_origin.get() is None
+    link._submit_internal_origins(receipt(), [origin], 'Retry')
+    origin.submit.assert_called_once()
+
+
+def test_submit_permissions_for_all_origins_precede_mutation():
+    first = item(check_permission=Mock(), submit=Mock())
+    second = item('B', check_permission=Mock(side_effect=PermissionError), submit=Mock())
+    with pytest.raises(PermissionError):
+        link._submit_internal_origins(receipt(), [first, second], 'Revisado')
+    first.submit.assert_not_called()
+    assert not first.origin_deposit
+
+
+def test_failed_submission_cannot_leave_a_trusted_validation_context():
+    origin = item(check_permission=Mock(), submit=Mock(side_effect=ValueError))
+    with pytest.raises(ValueError):
+        link._submit_internal_origins(receipt(), [origin], 'Revisado')
+    assert link._submitting_origin.get() is None
+
+
+def test_confirmed_origin_cannot_be_selected_or_allocated_as_another_payment():
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import CNRemittanceAllocation
+    from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _allocate_complementary_items
+    origin = item(docstatus=1, category=link.LINKED_CATEGORY, origin_deposit='D')
+    target = frappe._dict(amount_usd=10, complementary_item=origin.name)
+    with patch.object(frappe.db, 'get_value', return_value=origin), \
+            patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
+        CNRemittanceAllocation._validate_target(target)
+    period = frappe._dict(collection_rows=[frappe._dict(name='ROW')])
+    with patch('credinomina_reconciliation.provisional_adjustments.explicit_complement_rows',
+               return_value={origin.name: 'ROW'}):
+        assert not _allocate_complementary_items([origin], [period])
 
 
 def test_stale_preview_and_permission_checks_precede_writes():

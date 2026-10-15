@@ -263,7 +263,7 @@ def _prefilter_recovery_candidates(rows, method):
             periods.update(entry['periodo'] for entry in journal if entry.get('periodo'))
             items.update(entry['partida'] for entry in journal if entry.get('partida') and not entry.get('periodo'))
         else:
-            if (row.get('receivable_origin') or row.get('registration_exception') or row.get('related_application')
+            if (row.get('origin_deposit') or row.get('receivable_origin') or row.get('registration_exception') or row.get('related_application')
                     or row.get('registered_deposit') or row.category in set(CREDIT_CATEGORIES) | {'Ajuste de aplicación', 'Diferencia por tolerancia'}
                     or (row.docstatus == 1 and row.category != 'Compensación entre partidas')
                     or row.get('review_action') in {'Ajuste de aplicación', 'Partida de depósito', 'Reversión identificada'}):
@@ -337,12 +337,13 @@ def search_recovery_destinations(doctype, txt, searchfield, start, page_len, fil
         search_fields = ('name', 'deposit_reference', 'bank_account')
         date_field = 'deposit_date'
     else:
-        scope = {'docstatus': ['!=', 2], 'employer': employer, 'name': ['!=', filters.get('item_name')]}
+        scope = {'docstatus': ['!=', 2], 'employer': employer, 'name': ['!=', filters.get('item_name')],
+                 'origin_deposit': ['is', 'not set']}
         search_fields = ('name', 'reference', 'voucher', 'description')
         date_field = 'posting_date'
     offset, limit, found, result = max(cint(start), 0), min(max(cint(page_len), 1), 50), 0, []
     fields = (['amount_usd', 'allocated_usd', 'justified_surplus_usd', 'allocation_detail'] if method == 'Depósito' else
-              ['category', 'review_action', 'amount_usd', 'registration_exception', 'related_application',
+              ['category', 'review_action', 'amount_usd', 'registration_exception', 'related_application', 'origin_deposit',
                'registered_deposit', 'receivable_origin', 'period', 'accounting_source_key', 'source_debit', 'source_credit'])
     rows = iter(records(doctype, fields=['name', 'employer', 'docstatus', date_field, *fields], filters=scope,
                 or_filters={field: ['like', '%' + (txt or '')[:200] + '%'] for field in search_fields},

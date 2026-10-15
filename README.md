@@ -1331,7 +1331,18 @@ Un depósito registrado el 13/10 puede vincularse con contabilidad cargada el
 del core, la fecha de contabilización. El origen del core debe seguir en borrador,
 sin detalle ni destinos; queda conservado como **Origen vinculado**. Los movimientos
 internos deben estar pendientes de revisión, sin otros efectos financieros;
-conservan su clasificación y pasan a ser solo respaldo del depósito.
+al vincularlos se envían (`docstatus = 1`) con concepto **Vinculado a depósito**,
+tratamiento **Partida de depósito** y la referencia del depósito. Se requiere
+permiso para enviar las partidas. Conservan su clasificación contable original
+y pasan a ser solo respaldo del depósito; no se ofrecen como destinos ni generan
+otra aplicación. Las diferencias permanecen en borrador para revisión.
+Estas partidas muestran **Vinculado a depósito**, no **Conciliado**. Su pendiente
+y disponibilidad son cero; se excluyen de los contadores de conciliación de
+partidas, del trabajo pendiente y de los selectores de compensación o reutilización.
+El importe original sigue visible como evidencia, sin sumarse otra vez al saldo.
+La migración `submit_linked_accounting_origins` confirma y clasifica los borradores
+ya vinculados cuya evidencia completa sigue siendo válida, sin duplicar líneas
+ni recalcular saldos. Los vínculos inconsistentes quedan registrados para revisión.
 
 Las diferencias de empresa, referencia, fecha del depósito, asiento, moneda o
 importe ofrecen **Dejar para revisión**: guarda la selección, diferencias y motivo

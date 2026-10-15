@@ -234,7 +234,8 @@ def reconcile_scoped(item, scope, *, action="cancelar la partida"):
             row._historical_backfill = row.processing_route == "Historica" or (
                 row.processing_route != "Operativa" and bool(document.historical_backfill or document.historical_period))
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "employer": ["in", scope["companies"]],
-        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, ADJUSTMENT, "Compensación entre partidas"]]},
+        "origin_deposit": ["is", "not set"],
+        "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]]},
         fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution",
                 "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key"],
         limit_page_length=0)
