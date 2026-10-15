@@ -708,7 +708,7 @@ function addBulkClientCreditButton(frm, attempt = 0) {
     frm.bulkClientCreditButton = grid.add_custom_button(label, () => createBulkClientCredits(frm), "bottom");
     const refresh = () => {
         const selected = grid.get_selected_children();
-        const available = selected.length >= 2 && selected.every(row => canCreateDetailClientCredit(frm, row));
+        const available = selected.length >= 1 && selected.every(row => canCreateDetailClientCredit(frm, row));
         frm.bulkClientCreditButton.toggleClass("hidden", !available);
     };
     grid.wrapper.off("change.cnBulkClientCredits", ".grid-row-check")
@@ -720,8 +720,8 @@ async function createBulkClientCredits(frm) {
     if (frm.bulk_detail_credit_workflow || frm.detail_credit_workflow || frm.company_credit_workflow) return;
     const grid = frm.fields_dict.detail_rows?.grid;
     const selectedNames = (grid?.get_selected_children?.() || []).map(row => row.name);
-    if (selectedNames.length < 2) {
-        frappe.msgprint(__("Seleccione al menos dos filas con importe pendiente."));
+    if (!selectedNames.length) {
+        frappe.msgprint(__("Seleccione al menos una fila con importe pendiente."));
         return;
     }
     frm.bulk_detail_credit_workflow = true;
@@ -746,7 +746,7 @@ async function createBulkClientCredits(frm) {
             }
         };
         dialog = new frappe.ui.Dialog({
-            title: __("Crear saldos a favor del cliente"), size: "large",
+            title: __(rows.length === 1 ? "Crear saldo a favor del cliente" : "Crear saldos a favor del cliente"), size: "large",
             onhide() { frm.bulk_detail_credit_workflow = false; },
             fields: [
                 {fieldname: "rows_preview", fieldtype: "HTML", options: `<div class="alert alert-warning">${esc(__("Se creará una partida independiente por cada fila. El motivo y el comentario se compartirán; revise el importe individual de cada saldo. No se aplica a los créditos."))}</div>
@@ -767,7 +767,7 @@ async function createBulkClientCredits(frm) {
                     onchange: updateCommitmentDate, reqd: 1},
                 {fieldname: "description", fieldtype: "Small Text", label: __("Comentario / justificación"), default: "Inmaterial", reqd: 1},
             ],
-            primary_action_label: __("Crear y confirmar {0} saldos", [rows.length]),
+            primary_action_label: rows.length === 1 ? __("Crear y confirmar saldo a favor") : __("Crear y confirmar {0} saldos", [rows.length]),
             async primary_action(values) {
                 if (dialog.running) return;
                 const amounts = rows.map(row => {
@@ -792,8 +792,9 @@ async function createBulkClientCredits(frm) {
                     });
                     dialog.hide();
                     await frm.reload_doc();
-                    frappe.show_alert({message: __("Se crearon {0} saldos a favor independientes.",
-                        [response.message.created.length]), indicator: "green"});
+                    const createdCount = response.message.created.length;
+                    frappe.show_alert({message: createdCount === 1 ? __("Se creó un saldo a favor.")
+                        : __("Se crearon {0} saldos a favor independientes.", [createdCount]), indicator: "green"});
                 } finally {
                     dialog.running = false;
                     dialog.enable_primary_action();
