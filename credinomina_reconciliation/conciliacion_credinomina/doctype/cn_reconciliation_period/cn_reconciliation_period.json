@@ -13,6 +13,7 @@
     "payroll_month",
     "period_column",
     "reconciliation_mode",
+    "no_collection",
     "application_basis",
     "status",
     "status_before_close",
@@ -97,6 +98,13 @@
   ],
   "fields": [
     {
+      "fieldname": "no_collection",
+      "fieldtype": "Check",
+      "label": "No tiene cobranza",
+      "default": "0",
+      "description": "Pagos fuera de cobranza: concilie las aplicaciones contables asignadas al período contra sus depósitos. No requiere conciliación de cobranza contra aplicación."
+    },
+    {
       "fieldname": "application_basis",
       "fieldtype": "Select",
       "label": "Base de la primera conciliación",
@@ -112,7 +120,7 @@
       "fieldname": "provisional_tab",
       "fieldtype": "Tab Break",
       "label": "Ajustes provisionales",
-      "depends_on": "eval:doc.reconciliation_mode != 'Historica'"
+      "depends_on": "eval:doc.reconciliation_mode != 'Historica' && !doc.no_collection"
     },
     {
       "fieldname": "provisional_adjustments",
@@ -281,7 +289,7 @@
       "label": "Detalle y notas"
     },
     {
-      "depends_on": "eval:doc.reconciliation_mode != 'Historica'",
+      "depends_on": "eval:doc.reconciliation_mode != 'Historica' && !doc.no_collection",
       "fieldname": "collection_detail_section",
       "fieldtype": "Section Break",
       "label": "Cuotas del período"
@@ -485,7 +493,8 @@
       "depends_on": "eval:doc.reconciliation_mode != 'Historica'",
       "fieldname": "files_section",
       "fieldtype": "Section Break",
-      "label": "Archivos y evidencia"
+      "label": "Archivos y evidencia",
+      "depends_on": "eval:!doc.no_collection"
     },
     {
       "fieldname": "collection_file",

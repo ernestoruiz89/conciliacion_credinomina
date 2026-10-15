@@ -15,8 +15,8 @@ from credinomina_reconciliation.remittance_periods import selected_periods, atta
 SETTLED = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
 
 
-def application_issue(row, progress=None):
-    first_pending = (row.get("processing_route") == "Operativa"
+def application_issue(row, progress=None, no_collection=False):
+    first_pending = (not no_collection and row.get("processing_route") == "Operativa"
                      and not str(row.get("quality_status") or "").startswith("Conforme"))
     if progress is None:
         # Pure callers may supply a net amount rather than the core amount.
@@ -170,7 +170,7 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
         unavailable = dict(state='Revisar distribución', net_usd=None, assigned_usd=None, pending_usd=None,
                            observations=[_('Cobertura financiera no disponible; revise el origen y sus permisos.')])
         issues.extend(issue for row in rows if row.parent in allowed
-                      if (issue := application_issue(row, progress.get(row.name, unavailable))))
+                      if (issue := application_issue(row, progress.get(row.name, unavailable), no_collection=period.get("no_collection"))))
     else:
         restricted.append("CN Accounting Import")
     deposit_issues, payments = [], []

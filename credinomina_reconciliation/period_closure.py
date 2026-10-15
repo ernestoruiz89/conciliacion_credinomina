@@ -155,11 +155,14 @@ def validate_direct_applications(period):
     """Validate financial coverage independently of collection quality."""
     from frappe import _
     from credinomina_reconciliation.rounding import money
-    for source in frappe.get_all("CN Source Row", filters={
+    sources = frappe.get_all("CN Source Row", filters={
         "parenttype": "CN Accounting Import", "parentfield": "rows",
         "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
     }, fields=["name", "amount", "application_adjustment_usd", "match_status",
-               "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0):
+               "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0)
+    if period.get("no_collection") and not sources:
+        frappe.throw(_("Asigne al menos una aplicación contable efectiva al período sin cobranza antes de cerrarlo."))
+    for source in sources:
         # Missing collection links are informational, not missing money.
         if source.match_status != "Conciliado":
             frappe.throw(_("Revise la aplicación efectiva {0} del período antes del cierre.").format(source.name))

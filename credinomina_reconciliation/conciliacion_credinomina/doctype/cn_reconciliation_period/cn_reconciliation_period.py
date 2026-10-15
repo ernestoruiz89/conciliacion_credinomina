@@ -87,6 +87,7 @@ class CNReconciliationPeriod(Document):
         if self.payroll_month:
             self.payroll_month = getdate(self.payroll_month).replace(day=1)
         self._validate_mode()
+        self._validate_no_collection()
         from credinomina_reconciliation.legacy_employer_detail import guard_legacy_evidence
         guard_legacy_evidence(self)
         self._set_due_date()
@@ -95,6 +96,15 @@ class CNReconciliationPeriod(Document):
         self.recalculate_totals()
         from credinomina_reconciliation.provisional_adjustments import guard_period
         guard_period(self)
+
+    def _validate_no_collection(self):
+        if not self.get("no_collection"):
+            return
+        previous = self.get_doc_before_save()
+        evidence = ("collection_rows", "collection_file", "collection_import_sha256",
+                    "provisional_adjustments", "prepared_deposit", "employer_response_file")
+        if any(self.get(field) or (previous and previous.get(field)) for field in evidence):
+            frappe.throw(_("No puede marcar No tiene cobranza si el período tiene cobranza, archivos o ajustes vinculados. Conserve esa evidencia y cree un período separado para el pago fuera de cobranza."))
 
     def _validate_closed_transition(self):
         previous = self.get_doc_before_save()
@@ -259,6 +269,7 @@ class CNReconciliationPeriod(Document):
             fields=[
                 "name", "collection_cycle", "cutoff_date", "reconciliation_mode", "historical_scope",
                 "historical_application_date", "historical_start_date", "historical_end_date",
+                "no_collection",
             ],
             limit_page_length=1000,
         )
@@ -279,6 +290,9 @@ class CNReconciliationPeriod(Document):
                 )
                 conflict = historical_scopes_conflict(existing, proposed)
             else:
+                # A payment outside payroll can coexist with the regular cycle.
+                if bool(candidate.get("no_collection")) != bool(self.get("no_collection")):
+                    continue
                 conflict = cycles_conflict(
                     candidate.collection_cycle or MONTHLY, self.collection_cycle or MONTHLY,
                     candidate.cutoff_date, self.cutoff_date,
@@ -333,6 +347,8 @@ def _attached_file(document, file_url):
 
 
 def _assert_editable(period):
+    if period.get("no_collection"):
+        frappe.throw(_("Este período está marcado No tiene cobranza. Vincule las aplicaciones contables y concílielas contra sus depósitos."))
     if period.reconciliation_mode == "Historica":
         frappe.throw(_("En un período histórico importe aplicaciones y depósitos; no la cobranza."))
     if period.status == "Cerrado":
@@ -756,6 +772,12 @@ def close_period(period_name: str, progress_id: str = ""):
         {"period": period.name, "status": ["in", ["Abierta", "En revision"]], "blocks_closure": 1},
     ):
         frappe.throw(_("Resuelva las excepciones que bloquean el cierre. Un supervisor puede clasificar las informativas sin alterar los saldos."))
+    if getattr(period, "no_collection", 0):
+        period._validate_no_collection()
+        from credinomina_reconciliation.period_closure import validate_direct_applications
+        validate_direct_applications(period)
+        if _pending_registered_targets({"historical_application": ["in", scope.application_ids()]}):
+            frappe.throw(_("Hay destinos de depósitos pendientes o inválidos para las aplicaciones del período sin cobranza."))
     if period.reconciliation_mode == "Historica":
         application_ids = scope.application_ids()
         if not application_ids:
@@ -879,6 +901,8 @@ def reopen_period(period_name: str, reason: str):
 def export_collection(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("read")
+    if period.get("no_collection"):
+        frappe.throw(_("Un período sin cobranza no genera archivo de cobranza."))
     if period.reconciliation_mode == "Historica":
         frappe.throw(_("La modalidad histórica no genera archivo de cobranza."))
     if not period.collection_rows:
@@ -943,6 +967,8 @@ def export_collection(period_name: str):
 def reconcile_first(period_name: str):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
+    if period.get("no_collection"):
+        frappe.throw(_("La conciliación 1 no aplica a un período sin cobranza. Concilie las aplicaciones contra sus depósitos."))
     _assert_editable(period)
     if period.reconciliation_mode == "Historica" or not period.collection_rows:
         frappe.throw(_("Cargue la base de la primera conciliación en un período operativo."))
