@@ -1173,7 +1173,7 @@ acompañe el estado oficial del core cuando el cliente necesite el saldo
 contractual de capital, intereses y préstamo.
 
 El reporte independiente **Estado de Cuenta por Empresa**, en **6. Control y
-reportes**, abre en **Resumen** y agrupa saldos pendientes por empresa. **Detalle**
+reportes**, abre en **Resumen** y separa contabilidad del core y gestión por empresa. **Detalle**
 usa las mismas columnas monetarias y agrega fecha, cliente, crédito, documento
 de origen, estado y observaciones. La exportación estándar conserva la vista
 seleccionada. El **Estado de Cuenta Operativo** mantiene su detalle anterior.
@@ -1187,18 +1187,32 @@ automática. En **Depósitos**, la columna **A partidas complementarias USD** mu
 solo efectivo distribuido: una tolerancia negativa no inventa efectivo. No se suman
 entre sí el importe de la partida y su distribución; los cálculos de saldos no cambian.
 
-El saldo informativo suma: aplicado sin depósito, partidas del core pendientes
-(incluidas las **Por clasificar**, débito positivo y crédito negativo), saldos a
-favor de empresa/clientes por gestionar (negativos) y depósitos sin conciliar
-(negativos), más CxC de ajustes de depósito explícitamente clasificadas.
-Ejemplo REPSA: `4,474.07 − 7.35 − 0.18 − 154.28 − 3,173.81 + 0.01 = 1,138.46`.
-No ejecuta compensaciones ni convierte la cobranza en CxC. Solo se considera el
-remanente de cada partida; los ajustes ya aplicados no se descuentan otra vez.
-El depósito pendiente excluye asignaciones y saldos a favor ya documentados,
-para no duplicarlos. Incluye depósitos importados del core aún sin confirmar;
-excluye borradores manuales y cancelados. Las fechas filtran el origen de los
-movimientos, no reconstruyen saldos históricos. Si falta un importe o su signo,
-el saldo de la empresa queda sin determinar, nunca como cero.
+**Saldo contable core** es la suma de los débitos originales menos los créditos
+originales. Conserva los asientos conciliados, compensados o cancelados dentro
+de la app: esas acciones no revierten la contabilidad original. Una línea que
+aparece en una importación y como origen de una partida o depósito se cuenta una
+sola vez; líneas físicas distintas se conservan. El crédito contable de un
+depósito puede diferir de su importe bancario bruto.
+
+Para comparar con el Excel, seleccione **Sección: Contabilidad del core**, la
+misma empresa, cuenta, moneda y fechas. US$ convierte y redondea cada línea con
+su tasa de origen/importación. La vista ampliada conserva débitos, créditos y
+saldo originales C$, cuenta, asiento, archivo y fila. Desde limita movimientos;
+no incorpora un saldo anterior. Los movimientos no importados deben identificarse
+al cotejar el archivo. Sin conversión, el total afectado queda sin determinar.
+
+**Gestión** muestra por separado saldos a favor y CxC por gestionar, sin sumarlos
+al saldo contable. Los saldos a favor y depósitos sin asignar se presentan
+positivos. La vista ampliada incluye aplicaciones y partidas del core por
+conciliar; estas últimas conservan el signo débito/crédito. No hay un neto que
+sume contabilidad y gestión. Por ejemplo, aplicado 100 contra depósito 90 deja
+saldo contable 10; una CxC documentada por 10 aparece en Gestión y no lo convierte
+en 20. El depósito pendiente excluye asignaciones y reservas ya documentadas.
+**Corte histórico al** reconstruye la gestión según fechas, compensaciones y
+reversiones vigentes, y limita la contabilidad por fecha de cada asiento original.
+Los filtros de cuenta y moneda aplican a contabilidad; gestión conserva el alcance
+por empresa. **Sin registro** mantiene visibles complementarias manuales cuyo
+asiento aún requiere atención, incluso cuando su gestión financiera ya terminó.
 
 **Subcategorías de partidas:** el catálogo está en **1. Preparación**. El Link
 **Subcategoría** es obligatorio en **Ajuste de conciliación**, también al crear

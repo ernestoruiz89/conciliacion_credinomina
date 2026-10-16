@@ -220,7 +220,8 @@ class HistoricalCutoffTests(unittest.TestCase):
 
     def test_report_cutoff_is_explicit_and_exports_its_date(self):
         result = self.cut()
-        with patch('credinomina_reconciliation.historical_cutoff.load_cutoff', return_value=result), patch(
+        with patch.object(statement, 'load_core_detail', return_value=[]), \
+                patch('credinomina_reconciliation.historical_cutoff.load_cutoff', return_value=result), patch(
                 'credinomina_reconciliation.historical_cutoff.cutoff_message', return_value='Corte'):
             columns, rows, message = statement.execute({'cutoff_date': '2025-04-30'})
             self.assertEqual(rows[0]['cutoff_date'], '2025-04-30')
@@ -252,11 +253,13 @@ class HistoricalCutoffTests(unittest.TestCase):
     def test_native_export_summary_and_detail_agree_with_warning(self):
         result = self.cut()
         result['warnings'] = ['Distribución pendiente al corte']
-        with patch('credinomina_reconciliation.historical_cutoff.load_cutoff', return_value=result), patch(
+        with patch.object(statement, 'load_core_detail', return_value=[]), \
+                patch('credinomina_reconciliation.historical_cutoff.load_cutoff', return_value=result), patch(
                 'credinomina_reconciliation.historical_cutoff.cutoff_message', return_value='Corte'):
             summary = statement.execute({'cutoff_date': '2025-04-30'})[1]
             detail = statement.execute({'cutoff_date': '2025-04-30', 'view_mode': 'Detalle'})[1]
-        self.assertEqual(sum(row['balance_usd'] for row in detail), summary[0]['balance_usd'])
+        self.assertEqual(sum(row['application_pending_usd'] for row in detail), summary[0]['application_pending_usd'])
+        self.assertEqual(sum(row['core_balance_usd'] for row in detail), summary[0]['core_balance_usd'])
         self.assertEqual(summary[0]['cutoff_warning'], detail[0]['cutoff_warning'])
 
     def test_grouped_aging_preserves_cutoff_metadata(self):

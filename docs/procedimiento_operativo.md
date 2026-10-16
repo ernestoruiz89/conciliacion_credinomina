@@ -853,14 +853,14 @@ No use un saldo neto de empresa como autorización para compensar automáticamen
 | Reporte o vista | Pregunta que responde | Precaución |
 | --- | --- | --- |
 | Estado de Cuenta Operativo | Qué está solicitado, aplicado, cubierto y pendiente por caso | Cobranza y deducción son informativas; no es el saldo contractual del core |
-| Estado de Cuenta por Empresa | Posición resumida o detalle por empresa con las mismas columnas de saldo | Un saldo neto no ejecuta compensaciones entre beneficiarios |
+| Estado de Cuenta por Empresa | Débitos, créditos y saldo contable del core; saldos a favor y CxC por gestionar en columnas separadas | Gestión no se suma al saldo contable |
 | Antigüedad de Saldos | Qué CxC está pendiente y con qué vencimiento | Para saldos a una fecha pasada active Corte histórico; cambiar solo la fecha no basta |
 | Antigüedad de Saldos por Empresa | La misma deuda agrupada, sin detalle por cliente | Abrir el detalle para identificar la aplicación o ajuste responsable |
 | Control Mensual de Movimientos Contables | Qué líneas del core se importaron, sus débitos y créditos originales y convertidos | No es una balanza integrada; cotejar con la balanza externa |
 | Transacciones por Empresa | Cuántas transacciones hay por mes y grado de conciliación por importe | Los colores no son porcentajes por cantidad de filas |
 | Control de Credinómina | Períodos, depósitos, saldos y gestiones que faltan | El mes de recepción del dinero puede ser distinto al de la cobranza |
 
-En **Estado de Cuenta por Empresa**, el resumen distingue aplicado pendiente, complementarias del core pendientes por clasificar con su signo contable, saldos a favor de empresa y clientes, depósitos sin conciliar y CxC por ajustes. Las reservas y efectivo sin asignar se presentan por separado para explicar el saldo. Una partida del core totalmente conciliada sin gestión pendiente no se vuelve a sumar como pendiente por clasificar.
+En **Estado de Cuenta por Empresa**, **Saldo contable core** calcula débitos originales menos créditos originales, incluidos los movimientos ya conciliados. Una partida manual, saldo a favor o CxC no modifica esos asientos. **Gestión** muestra separadamente los remanentes por atender, sin sumarlos al saldo contable: saldos a favor y CxC positivos; la vista ampliada incluye aplicaciones, core por conciliar y depósitos sin asignar. Un origen repetido entre importación, partida y depósito se representa una sola vez; líneas físicas distintas permanecen. Para comparar con un Excel use **Sección: Contabilidad del core**, empresa, cuenta, moneda y fechas iguales. La vista ampliada muestra importes originales C$, tasa, archivo y fila. Desde limita los movimientos y no incorpora saldo anterior. Los filtros de cuenta y moneda afectan solo a la sección contable.
 
 Los dos reportes de antigüedad separan **No vencido**, **1–15**, **16–30**, **31–60**, **61–90** y **Más de 90 días**. Para aplicaciones, revise los plazos de pago registrados del período y la empresa. Las CxC por ajustes usan **Vencimiento de la CxC**, separado de **Fecha compromiso de gestión**. Cambiar el compromiso no cambia su antigüedad. Una CxC anterior sin vencimiento acreditado permanece en **Sin fecha**. El día del vencimiento aún no cuenta como día de mora: si vence el 10 de mayo, el 11 es día 1, el 25 es día 15 y el 26 es día 16. Revise vencimientos y configuración antes de interpretar los rangos.
 
@@ -894,7 +894,7 @@ Pulse la celda para abrir **Transacciones del mes** y consulte sus documentos e 
 
 Cuando falta una conversión o hay una distribución por revisar, **Antigüedad de Saldos** muestra **Total pendiente de determinar** y **Subtotal conocido US$**. El reporte por empresa conserva ambos conceptos y las observaciones. El subtotal excluye los importes no determinables y no debe usarse como CxC completa. Los estados de cuenta y el resumen de control Excel conservan N/D en los saldos afectados.
 
-En **Estado de Cuenta por Empresa**, entrar a una cifra del resumen conserva sus filtros de origen. **Volver al resumen** restaura esos filtros, incluida la selección de todas las empresas. La vista compacta coloca el saldo neto junto a Empresa y muestra encabezados cortos; desmarque Vista compacta para consultar las etiquetas completas y la matriz de detalle.
+En **Estado de Cuenta por Empresa**, entrar a una cifra del resumen abre el detalle de su sección contable o de gestión. **Volver al resumen** restaura los filtros, incluida la selección de todas las empresas. La vista compacta coloca débitos, créditos y saldo contable junto a Empresa, seguidos de saldos a favor y CxC por gestionar; desmárquela para consultar la matriz y trazabilidad completas.
 
 El detalle mensual de aplicaciones presenta **Partidas complementarias US$**: compensaciones confirmadas y ajustes de conciliación con su signo de cobertura. El **Pendiente** se calcula como aplicado menos complementarias menos depositado. El importe de las complementarias no representa efectivo adicional. Los datos separados se conservan como evidencia de cálculo.
 
@@ -910,7 +910,7 @@ Una cobranza en C$ sin equivalente US$ aparece como **Cobranza sin equivalente U
 
 Al recuperar una **CxC por ajuste**, el selector propone depósitos o compensaciones admisibles para esa empresa. Antes de confirmar muestra disponible, importe a utilizar y remanentes. Los destinos ya seleccionados y los saldos a favor documentados reducen el disponible. Confirmar vuelve a validar los saldos y permisos; la vista previa no reserva dinero ni sustituye esa validación.
 
-En **Estado de Cuenta por Empresa**, **Vista compacta** muestra en el detalle empresa, cliente, tipo, saldo, estado y documento. Desmárquela para consultar la matriz y trazabilidad completas; no cambia la población ni sus importes. Un neto cero sigue mostrando las partidas pendientes sin vincular.
+En **Estado de Cuenta por Empresa**, **Vista compacta** distingue la sección contable y la de gestión, junto con cliente, tipo, importes y documento. Desmárquela para consultar cuenta, moneda, tasa, archivo y fila original. Un saldo contable cero puede coexistir con saldos a favor o CxC pendientes; no se compensan automáticamente.
 
 En el calendario, **Ir al mes** permite saltar directamente al mes deseado. La vista inicial prioriza el mes corriente o el primer mes con actividad del año consultado; al alternar con Trabajo de conciliación conserva el desplazamiento.
 
@@ -1025,7 +1025,7 @@ Las tarjetas, el resumen y el Excel usan los totales del período: **Aplicado to
 
 En el depósito, el resumen separa **Depositado**, **Aplicado a créditos**, **Partidas complementarias** (incluye saldos a favor documentados) y **Sin distribuir**. La acción principal indica el siguiente paso según el documento; no confirma ni concilia automáticamente.
 
-En **Estado de Cuenta por Empresa**, haga clic en un importe o en **Partidas pendientes** para abrir su detalle. Puede filtrar por componente, estado, concepto, motivo o identidad. El saldo neto cero puede contener obligaciones y créditos sin vincular: el conteo de pendientes evita interpretarlo como conciliación. Los filtros de origen no excluyen cobros posteriores al calcular los saldos actuales; para reconstruir saldos a una fecha use **Corte histórico al**.
+En **Estado de Cuenta por Empresa**, haga clic en un importe, en **Movimientos del core** o en **Partidas pendientes** para abrir el detalle correspondiente. Puede elegir **Contabilidad del core**, **Gestión** o ambas. Los saldos a favor y CxC por gestionar no se suman al saldo contable. Los filtros de origen no excluyen cobros posteriores al calcular la gestión actual; para reconstruirla a una fecha use **Corte histórico al**, que también limita cada asiento original por su fecha contable.
 
 Los estados de cuenta muestran los criterios principales y agrupan los adicionales en **Más filtros**. Los filtros con valor permanecen visibles, incluido un corte histórico abierto desde otra pantalla. En la lista de complementarias, los criterios adicionales siguen disponibles mediante el filtro avanzado de Frappe.
 

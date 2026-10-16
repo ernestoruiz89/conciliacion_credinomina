@@ -21,7 +21,7 @@ class CompanySummaryExportTests(TestCase):
                                   **{key: value if key == field else 0 for key, _ in METRICS}))
         positions.append(dict(employer='Sin importe', balance_usd=None,
                               **{key: None if key == 'core_pending_usd' else 0 for key, _ in METRICS}))
-        with patch.object(report, 'load_detail', return_value=positions):
+        with patch.object(report, 'load_detail', return_value=positions), patch.object(report, 'load_core_detail', return_value=[]):
             columns, rows, message = report.execute({'view_mode': 'Resumen'})
         payload = build_control_workbook(
             {'year': 'Todos', 'periods': [],
@@ -32,15 +32,17 @@ class CompanySummaryExportTests(TestCase):
         self.assertEqual(book.sheetnames[:2], ['Resumen', 'Resumen mensual'])
         sheet = book['Resumen']
         self.assertEqual([cell.value for cell in sheet[4]], [column['label'] for column in columns])
-        self.assertEqual([cell.value for cell in sheet[5]],
-                         ['REPSA', 6, 0, 4474.07, -7.35, -0.18, -154.28, -3173.81, 0.01, 0, 1138.46])
-        self.assertEqual(sheet['E6'].value, 'N/D')
-        self.assertEqual(sheet['K6'].value, 'N/D')
-        self.assertEqual(sheet['D6'].value, 0)
-        self.assertEqual(sheet['B6'].value, 1)
-        self.assertEqual(sheet['C6'].value, 0)
-        self.assertEqual(sheet['K5'].number_format, MONEY_FORMAT)
-        self.assertEqual(sheet.auto_filter.ref, 'A4:K6')
+        by_field = {column['fieldname']: index for index, column in enumerate(columns, 1)}
+        for field, expected in {'core_balance_usd': 0, 'client_credit_usd': 154.28,
+                                'company_credit_usd': .18, 'company_receivable_usd': .01,
+                                'application_pending_usd': 4474.07, 'deposit_pending_usd': 3173.81}.items():
+            self.assertEqual(sheet.cell(5, by_field[field]).value, expected)
+            self.assertEqual(sheet.cell(5, by_field[field]).number_format, MONEY_FORMAT)
+        self.assertEqual(sheet.cell(6, by_field['core_pending_usd']).value, 'N/D')
+        self.assertEqual(sheet.cell(6, by_field['core_balance_usd']).value, 0)
+        self.assertNotIn('balance_usd', by_field)
+        from openpyxl.utils import get_column_letter
+        self.assertEqual(sheet.auto_filter.ref, f'A4:{get_column_letter(len(columns))}6')
         self.assertEqual(sheet['A9'].value, message)
 
     def test_empty_summary_retains_report_headers(self):
@@ -50,4 +52,5 @@ class CompanySummaryExportTests(TestCase):
         sheet = load_workbook(io.BytesIO(payload))['Resumen']
         self.assertEqual([cell.value for cell in sheet[4]],
                          [column['label'] for column in report.get_columns()])
-        self.assertEqual(sheet.auto_filter.ref, 'A4:K4')
+        from openpyxl.utils import get_column_letter
+        self.assertEqual(sheet.auto_filter.ref, f'A4:{get_column_letter(len(report.get_columns()))}4')

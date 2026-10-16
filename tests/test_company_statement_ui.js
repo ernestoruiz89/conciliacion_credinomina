@@ -11,6 +11,8 @@ assert.ok(report.filters.some(f => f.fieldname === 'employer' && f.options === '
 assert.ok(report.filters.some(f => f.fieldname === 'cutoff_date' && f.fieldtype === 'Date' && !f.reqd));
 assert.ok(report.filters.some(f => f.fieldname === 'accounting_queue' && f.fieldtype === 'Check'));
 assert.ok(report.filters.some(f => f.fieldname === 'origin_type'));
+assert.ok(report.filters.some(f => f.fieldname === 'statement_scope' && f.options.includes('Contabilidad del core')));
+assert.ok(report.filters.some(f => f.fieldname === 'source_account'));
 const col = {fieldname: 'balance_usd', fieldtype: 'Currency'}, base = v => `formatted:${v}`;
 assert.match(report.formatter(null, null, col, {balance_usd: null}, base), /—/);
 assert.equal(report.formatter(0, null, col, {balance_usd: 0}, base), 'formatted:0');
@@ -44,4 +46,15 @@ assert.equal(filterValues.accounting_queue, 1);
 assert.equal(filterValues.component, '');
 back();
 assert.deepEqual(filterValues, scoped, 'The accounting queue drill restores the original summary filters');
+const coreLink = report.formatter(635.38, null, {fieldname:'core_balance_usd',fieldtype:'Currency'},
+    {employer:'ACEREAL',core_balance_usd:635.38}, base);
+assert.match(coreLink, /Contabilidad del core/);
+drill.call({'data-detail':JSON.stringify({employer:'ACEREAL',component:'core_balance_usd',statement_scope:'Contabilidad del core'})}, {preventDefault(){}});
+assert.equal(filterValues.statement_scope, 'Contabilidad del core');
+assert.equal(filterValues.accounting_queue, 0);
+back();
+assert.deepEqual(filterValues, scoped);
+Object.assign(filterValues, {statement_scope:'Gestión', component:'core_balance_usd'});
+report.filters.find(filter => filter.fieldname === 'statement_scope').on_change(live);
+assert.equal(filterValues.component, '', 'Changing sections clears an incompatible drill-down component');
 console.log('OK: company statement summary/detail, monetary formatting and original filter restoration.');

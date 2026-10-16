@@ -57,7 +57,7 @@ def _amounts(row, currency, rate):
     return values, ""
 
 
-def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=None, progress=None):
+def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=None, progress=None, include_financial=True):
     """Count mirrors once, but never remove physical lines by value similarity."""
     from credinomina_reconciliation.deposit_accounting_sources import ledger_deposits
     deposits = ledger_deposits(deposits)
@@ -110,19 +110,19 @@ def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=
         if not client_name and len(matches) == 1:
             client_name = matches[0].get("client_name") or ""
         date = str(row.get("event_date") or row.get("source_date") or row.get("posting_date") or "")[:10]
-        financial = (progress or {}).get(row.get('name'))
+        financial = (progress or {}).get(row.get('name')) if include_financial else None
         if not item and not deposit and financial and financial.get('employer'):
             employer = financial['employer']
         financial_warning = '; '.join(financial.get('observations') or []) if financial else ''
         warning = '; '.join(filter(None, [warning, financial_warning]))
         pending_amount = financial.get('pending_usd') if financial else None
-        if deposit:
+        if deposit and include_financial:
             pending_amount = (None if deposit.get('amount_usd') is None else money_float(
                 money(deposit['amount_usd']) - money(deposit.get('allocated_usd')) - money(deposit.get('justified_surplus_usd'))))
             if deposit.get('_cash_primary_key') != deposit.get('accounting_source_key'):
                 pending_amount = None
                 warning = '; '.join(filter(None, [warning, 'El saldo financiero pertenece al depósito y se muestra una sola vez; esta fila conserva su movimiento contable original.']))
-        elif item and item.get('_financial_balance'):
+        elif include_financial and item and item.get('_financial_balance'):
             pending_amount = item['_financial_balance'].get('pending_usd')
         return {"event_date": date, "month": date[:7], "source_account": row.get("source_account") or "Sin identificar",
             "source_currency": currency or "Sin identificar", "nio_currency": "NIO", "usd_currency": "USD", **values,
@@ -131,7 +131,7 @@ def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=
             "loan_number": row.get("loan_number") or row.get("source_loan_number") or (item or {}).get("loan_number") or "",
             "employer": employer, "voucher": row.get("source_voucher") or row.get("voucher") or "",
             "movement_type": row.get("accounting_classification") or row.get("event_type") or "Por revisar",
-            "state": _deposit_status(deposit) if deposit else _status(row, item, parent, collections, financial),
+            "state": (_deposit_status(deposit) if deposit else _status(row, item, parent, collections, financial)) if include_financial else "Origen contable",
             "applied_usd": financial.get('net_usd') if financial else None,
             "assigned_usd": financial.get('assigned_usd') if financial else None,
             "pending_usd": pending_amount,

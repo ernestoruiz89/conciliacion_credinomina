@@ -450,7 +450,7 @@ def _write_company_statement(sheet, data, scope):
 def _write_guide(book, scope):
     notes = [
         ("Naturaleza del informe", "Fotografía de la conciliación a la fecha de exportación. Descargue nuevamente para actualizar. No sustituye la balanza contable."),
-        ("Resumen", "Estado de Cuenta por Empresa en modalidad Resumen: mismas columnas y saldos actuales, incluidos movimientos sin período. El año filtra la fecha de origen; no es un corte histórico. Todos incluye todos los años. Los saldos a favor conservan signo negativo y N/D no equivale a cero."),
+        ("Resumen", "Estado de Cuenta por Empresa: saldo contable del core = débitos originales menos créditos originales. Saldos a favor y CxC por gestionar se muestran separados, sin sumarlos al saldo contable. El año filtra la fecha de origen; no es un corte histórico. Todos incluye todos los años. Los saldos a favor por gestionar se muestran positivos y N/D no equivale a cero."),
         ("Resumen mensual", "Una fila por empresa y mes. Agrupa todos los períodos del mes, aunque sean quincenales o por fecha exacta. Incluye meses con depósitos y sin períodos."),
         ("Dos bases de fecha", "Aplicaciones y asignaciones: mes de cobranza. Depósitos completos: fecha de recepción. No se calcula una diferencia entre ambos totales mensuales."),
         ("Empresa pagadora", "El depósito completo se cuenta una sola vez para quien paga. Distribución depósitos muestra la empresa destino, aunque sea diferente."),

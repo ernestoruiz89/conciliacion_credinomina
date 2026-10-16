@@ -209,15 +209,15 @@ def test_invalid_deposit_propagates_unknown_to_excel_summary():
     from credinomina_reconciliation.control_export import build_control_workbook
     from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as report
     detail = statement.build_detail([],[],[],[deposit(allocated_usd=110)])
-    with patch.object(report, 'load_detail', return_value=detail):
+    with patch.object(report, 'load_detail', return_value=detail), patch.object(report, 'load_core_detail', return_value=[]):
         columns, rows, message = report.execute({'view_mode':'Resumen'})
     payload = build_control_workbook({'year':'Todos','periods':[],
         'company_statement':dict(columns=columns,rows=rows,message=message)}, exceptions=[], actions=[],
         employer_label='E', generated_at=datetime(2026,10,12))
     sheet = load_workbook(io.BytesIO(payload))['Resumen']
     values = dict(zip([cell.value for cell in sheet[4]], [cell.value for cell in sheet[5]]))
-    assert values['Saldo neto informativo US$'] == 'N/D'
-    assert values['Depósito sin conciliar US$'] == 'N/D'
+    assert values['Saldo contable core US$'] == 0
+    assert values['Depósitos sin asignar US$'] == 'N/D'
     assert values['Partidas pendientes'] == 1
 
 
