@@ -418,3 +418,38 @@ bench --site cn-reconciliation-test.local execute credinomina_reconciliation.tes
 ```
 
 No se desplegaron estos cambios en producción ni se ejecutó una migración de datos.
+
+## Rendimiento del corte histórico — 16 de octubre de 2026
+
+El cálculo de CxC ahora agrupa los cobros por partida de origen y empresa una
+sola vez. Antes recorría todas las partidas por cada CxC y empresa beneficiaria.
+El corte deja de leer los historiales de efectivo actual de aplicaciones y
+cobranzas que inmediatamente reemplaza por la reconstrucción fechada. Conserva
+los vínculos actuales y capacidades para detectar distribuciones inválidas.
+
+La comprobación de evidencia restringida consulta primero nombres y carga los
+campos de detalle solo para documentos no visibles, en lotes de hasta 500. Sigue
+rechazando saldos cuyo respaldo necesario esté restringido, sin revelar sus
+identificadores. No se recorta por empresa la población de pagos cruzados.
+
+Validación local:
+
+- Cuatro nuevas pruebas verifican resultados idénticos al omitir historiales
+  actuales, conservación de entradas, una sola lectura de la población de
+  cobros, empresas y cancelaciones, paginación y evidencia restringida.
+- Ensayo sintético de reconstrucción completa: 4,000 aplicaciones, 12,000
+  partidas (4,000 CxC, 4,000 cobros y 4,000 partidas ajenas) y 8,000 depósitos.
+  Con el cálculo anterior de CxC: 2.287 s; con el índice: 0.599 s, aproximadamente
+  3.8 veces más rápido. Se comparó el resultado completo, incluido el contexto
+  de conciliación, y fue idéntico. Son tiempos de una ejecución local en memoria;
+  no incluyen consultas a base de datos ni acreditan tiempos de producción.
+- En el sitio Frappe local `cn-reconciliation-test.local`, el reporte completo
+  con corte al 31/08/2026 conserva exactamente columnas, filas y mensaje.
+- Suite Python con Frappe 15.117.0: 1,590 pruebas y 907 subpruebas aprobadas.
+  Los seis fallos restantes se reprodujeron también sobre una copia limpia del
+  `HEAD` anterior: expectativas de categorías, lista de parches, valor inicial
+  de FIFO, etiquetas de CxC, número de consultas de candidatos y resumen Excel.
+
+Los cambios están en el código local. No se desplegaron a producción ni
+requieren cambios de esquema; queda por medir el tiempo completo en el servidor
+con su volumen y permisos reales después de actualizarlo.

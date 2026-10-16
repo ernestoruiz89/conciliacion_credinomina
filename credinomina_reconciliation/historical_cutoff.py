@@ -345,7 +345,9 @@ def load_cutoff(filters, *, include_bridge=False):
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
             'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit',
             *(['deposit_currency', 'deposit_amount', 'fx_rate', 'deposit_voucher'] if include_bridge else [])]))
-        context = load_application_context()
+        # Current cash journals are discarded by reconstruct(). Read only the
+        # links/capacities needed to audit them; replay cash from dated deposits.
+        context = load_application_context(include_current_settlements=False)
         from credinomina_reconciliation.cutoff_evidence import require_cutoff_evidence
         require_cutoff_evidence(context, deposits, items, cutoff)
         return reconstruct(context, deposits, items, offsets, cutoff, filters, include_bridge=include_bridge)
