@@ -76,7 +76,7 @@ class ApplicationQualityTests(unittest.TestCase):
             row.update(deducted_usd=deduction, deduction_status="Deduccion parcial")
         row.as_dict = lambda: dict(row)
         source = frappe._dict(name="A1", event_type="Aplicacion", effective=1,
-            currency="USD", amount=amount, event_date="2026-09-15", loan_number="109-1", client_number="1")
+            currency="USD", amount=amount, event_date="2026-09-15", loan_number="109-1", client_number="1", historical_period="P1")
         source.as_dict = lambda: dict(source)
         source.reference = reference
         source.update(source_values or {})
@@ -132,13 +132,17 @@ class ApplicationQualityTests(unittest.TestCase):
         other = self.row()
         other.update(name="C2", parent="P1", loan_number="109-1", client_number="1", application_reference="EXPLICIT")
         other.as_dict = lambda: dict(other)
-        self.assertEqual(self.match(120, other, "EXPLICIT").match_status, "Sin coincidencia")
+        source = self.match(120, other, "EXPLICIT")
+        self.assertFalse(source.collection_row_id)
+        self.assertIn("Primera conciliación pendiente", source.match_reason)
 
     def test_ambiguous_identity_is_not_forced_into_one_quota(self):
         other = self.row()
         other.update(name="C2", parent="P1", loan_number="109-1", client_number="1")
         other.as_dict = lambda: dict(other)
-        self.assertEqual(self.match(other=other).match_status, "Ambiguo")
+        source = self.match(other=other)
+        self.assertFalse(source.collection_row_id)
+        self.assertIn("Mas de una cuota", source.match_reason)
 
     def test_unique_exact_collection_amount_needs_no_employer_detail(self):
         other = self.row()
@@ -180,12 +184,32 @@ class ApplicationQualityTests(unittest.TestCase):
         other.update(name="C2", parent="P1", loan_number="109-1", client_number="")
         other.as_dict = lambda: dict(other)
         source = self.match(other=other, collection_values={"client_number": ""})
-        self.assertEqual(source.match_status, "Ambiguo")
+        self.assertFalse(source.collection_row_id)
+        self.assertIn("Mas de una cuota", source.match_reason)
 
     def test_reference_mismatch_without_assigned_period_does_not_guess(self):
-        source = self.match(reference="1621", source_values={"reference": "ASIENTO"})
+        source = self.match(reference="1621", source_values={"reference": "ASIENTO", "historical_period": ""})
         self.assertEqual(source.match_status, "Sin coincidencia")
-        self.assertIn("referencias", source.match_reason)
+        self.assertIn("sin período operativo asignado", source.match_reason)
+
+    def test_unassigned_application_cannot_match_even_same_month_credit_and_reference(self):
+        source = self.match(reference="EXPLICIT", source_values={"historical_period": ""})
+        self.assertEqual(source.match_status, "Sin coincidencia")
+        self.assertFalse(source.collection_row_id)
+        self.assertFalse(json.loads(source.application_allocation_detail or "[]"))
+
+    def test_identical_credit_in_another_period_is_not_a_candidate(self):
+        other = self.row()
+        other.update(name="C2", parent="OTHER", loan_number="109-1", client_number="1")
+        other.as_dict = lambda: dict(other)
+        source = self.match(other=other)
+        self.assertEqual(source.collection_row_id, "C1")
+        self.assertEqual(source.collection_period, "P1")
+
+    def test_assignment_to_unloaded_period_cannot_fall_back_to_available_payroll(self):
+        source = self.match(source_values={"historical_period": "OTHER"})
+        self.assertEqual(source.match_status, "Sin coincidencia")
+        self.assertFalse(source.collection_row_id)
 
     def test_credit_fallback_rejects_conflicting_identity_and_installment(self):
         for conflict in ({"client_number": "OTHER"}, {"loan_number": "OTHER"}, {"installment_number": "OTHER"}):

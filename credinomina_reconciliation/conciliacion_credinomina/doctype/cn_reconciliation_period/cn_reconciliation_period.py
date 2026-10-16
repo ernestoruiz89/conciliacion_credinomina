@@ -973,7 +973,7 @@ def reconcile_first(period_name: str):
     if period.reconciliation_mode == "Historica" or not period.collection_rows:
         frappe.throw(_("Cargue la base de la primera conciliación en un período operativo."))
     frappe.has_permission("CN Accounting Import", "write", throw=True)
-    result = _reconcile_if_sources(period.employer, preserve_deposits=True)
+    result = _reconcile_if_sources(period.employer, preserve_deposits=True, period_name=period.name)
     if result is None:
         frappe.throw(_("No hay movimientos importados, depósitos confirmados ni partidas confirmadas para conciliar esta empresa. Importe las aplicaciones del core y vuelva a intentar."))
     period.reload()

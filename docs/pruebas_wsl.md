@@ -513,3 +513,26 @@ Validación local:
 
 Esta mejora requiere actualizar el código y ejecutar `bench --site <sitio> migrate`
 para agregar los campos de historial y detalle a la partida complementaria.
+
+## Primera conciliación limitada al período asignado — 16 de octubre de 2026
+
+El botón de validar aplicaciones usa el período abierto como alcance, en lugar
+de recalcular toda la empresa. El motor exige asignación explícita al período
+operativo antes de cruzar contra cobranza; cliente, crédito y referencia no
+permiten asignar automáticamente movimientos sin período. Las filas con cruces
+anteriores hacia el período se incluyen para retirar esos vínculos y recalcular
+la cobranza, conservando las distribuciones de depósitos.
+
+- Selección de 120 pruebas y 35 subpruebas aprobadas en Frappe 15.117.0 y
+  Frappe 16.52.0: selección de período, calidad de aplicaciones, ajustes,
+  importaciones, identidad y controles de cierre.
+- `smoke_first_reconciliation_period.run`, en el sitio aislado
+  `cn-reconciliation-test.local`, reproduce dos aplicaciones de septiembre sin
+  período enlazadas indebidamente a octubre. Verifica su exclusión, el total
+  correcto de octubre, el período e importación de septiembre intactos y ambos
+  depósitos sin cambios. Una conciliación posterior de toda la empresa tampoco
+  restablece los cruces indebidos. Todo se revierte y se verifican los conteos
+  iniciales al terminar.
+
+No requiere cambios de esquema. Los datos reales se recalculan al actualizar el
+servidor y ejecutar nuevamente la primera conciliación del período afectado.
