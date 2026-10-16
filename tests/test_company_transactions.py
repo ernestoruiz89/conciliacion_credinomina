@@ -59,6 +59,47 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(result["m04_percentage"], 0.9)
         self.assertFalse(result["m04_half_covered"])
 
+    def test_zero_applications_are_settled_without_hiding_invalid_distributions(self):
+        row = dict(event_type="Aplicacion", currency="USD", amount=0, effective=1, match_status="Conciliado")
+        for scope in ({}, {"historical_period": "P"}):
+            with self.subTest(scope=scope):
+                self.assertEqual(application_state(row, dict(status="Importado", **scope)), "Conciliado")
+        parent = dict(status="Importado", historical_period="P")
+        for invalid in (dict(historical_remitted_usd=.01), dict(historical_remitted_usd=-.01),
+                        dict(application_adjustment_usd=.01), dict(historical_detail="broken"),
+                        dict(currency="NIO"), dict(amount=-1)):
+            with self.subTest(invalid=invalid):
+                self.assertEqual(application_state(row | invalid, parent), "Revisar distribución")
+        self.assertEqual(application_state(row | {"application_allocation_detail":
+            '[{"collection_row_id":"C","amount_usd":1}]'}, {"status": "Importado"},
+            {"C": {"applied_usd": 1}}), "Revisar distribución")
+        self.assertEqual(application_state(row, {"status": "Borrador"}), "Pendiente")
+
+    def test_zero_application_keeps_month_amounts_known_and_is_excluded_from_difference_filters(self):
+        parent = frappe._dict(name="I", status="Importado", employer="A", historical_period="P")
+        zero = frappe._dict(name="ZERO", parent="I", event_date="2025-04-30", event_type="Aplicacion",
+            currency="USD", amount=0, effective=1, match_status="Conciliado", historical_remitted_usd=0)
+        paid = frappe._dict(zero, name="PAID", amount=100, historical_remitted_usd=100)
+        for sources, total, percentage in (([zero], 0, None), ([zero, paid], 100, 100)):
+            records = [dict(name=row.name, employer="A", date=row.event_date, state="Pendiente") for row in sources]
+            with patch.object(frappe, "has_permission", return_value=True), \
+                 patch.object(report, "load_transactions", return_value=(records, sources, {"I": parent})), \
+                 patch.object(report, "load_application_collections", return_value={}):
+                _, matrix = report.execute(dict(year=2025))[:2]
+                detail = report.get_month_detail(2025, 4, "A")
+                inconsistent = report.get_month_detail(2025, 4, "A", state="Revisar distribución")
+                differences = report.get_month_detail(2025, 4, "A", only_differences=1)
+            self.assertEqual(matrix[0]["m04_state"], "Conciliado")
+            self.assertEqual(matrix[0]["m04_conciliado"], len(sources))
+            self.assertEqual(matrix[0]["m04_review"], 0)
+            self.assertEqual(matrix[0]["m04_total_usd"], total)
+            self.assertEqual(matrix[0]["m04_covered_usd"], total)
+            self.assertEqual(matrix[0]["m04_percentage"], percentage)
+            self.assertEqual(detail["totals"]["original_usd"], total)
+            self.assertEqual(detail["totals"]["pending_usd"], 0)
+            self.assertEqual(inconsistent["rows"], [])
+            self.assertEqual(differences["rows"], [])
+
     def test_deposit_threshold_uses_exact_cents_and_drafts_add_no_coverage(self):
         for paid, yellow in (("49.99", False), ("50", True), ("50.01", True)):
             row = dict(employer="A", deposit_date="2025-04-30", docstatus=1, amount_usd=100, allocated_usd=paid)
@@ -216,6 +257,26 @@ class CompanyTransactionsTests(unittest.TestCase):
             totals = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos")["totals"]
         self.assertEqual(totals["original_usd"], 93.35)
         self.assertEqual(totals["assigned_usd"], 93.35)
+
+    def test_only_differences_filters_before_pagination_and_totals(self):
+        rows = [frappe._dict(name=f"D{index:03}", employer="A", deposit_date="2025-04-01", docstatus=1,
+                            amount_usd=100, allocated_usd=50 if index else 100,
+                            result="Parcial" if index else "Conciliado", deposit_reference=f"REF-{index:03}")
+                for index in range(106)]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            first = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", only_differences="1")
+            last = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", only_differences=1, start=100)
+            found = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", only_differences=1,
+                                            search="REF-105", state="Parcial")
+            all_rows = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", only_differences="0")
+        self.assertEqual((first["total"], first["filtered_count"], len(first["rows"])), (106, 105, 100))
+        self.assertEqual(first["rows"][0]["name"], "D001")
+        self.assertEqual(len(last["rows"]), 5)
+        self.assertEqual(first["totals"], dict(original_usd=10500, assigned_usd=5250, surplus_usd=0, pending_usd=5250))
+        self.assertEqual(last["totals"], first["totals"])
+        self.assertEqual(found["filtered_count"], 1)
+        self.assertEqual(found["rows"][0]["name"], "D105")
+        self.assertEqual(all_rows["filtered_count"], 106)
 
     def test_detail_invalid_filters_and_permission_fail_before_loading(self):
         for values in (dict(year=2025, month=13), dict(year="sql", month=1), dict(year=2025, month=1, state="Otro"),

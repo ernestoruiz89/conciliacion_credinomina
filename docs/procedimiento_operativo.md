@@ -894,6 +894,8 @@ La celda verde indica conciliación completa; rojo indica pendiente sin cobertur
 
 Pulse la celda para abrir **Transacciones del mes** y consulte sus documentos e importes. El detalle conserva el estado elegido; la inconsistencia se identifica como **Revisar distribución**. Revise la línea total del modal, que incluye todas las páginas de la selección, y la fila total del reporte. La opción de borradores cambia el universo del conteo; no transforma un borrador en dinero conciliado.
 
+En el modal, marque **Solo con diferencias** y pulse **Buscar / actualizar** para mostrar las transacciones **Parciales**, **Pendientes** o con **Revisar distribución**. Se combina con Estado y Buscar, conserva el filtro al cambiar de página y calcula el total de todas las filas filtradas. Para ver todos esos estados juntos, deje Estado vacío. Los indicadores superiores conservan el resumen completo de la empresa y mes.
+
 ## Reportes con importes pendientes de determinar
 
 **Revisar distribución** conserva una aplicación cuyo detalle de vínculos es inconsistente. Por ejemplo, una aplicación neta de US$100 con vínculos por US$150 conserva los US$100 aplicados y muestra su saldo pendiente como **N/D**. Revise el movimiento y sus destinos; esos US$150 no constituyen una nueva CxC. Los vínculos negativos o que superan el aplicado de una cuota requieren la misma revisión. No se modifican automáticamente importes originales, distribuciones ni períodos cerrados.

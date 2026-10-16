@@ -59,7 +59,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         const money = value => value == null ? "—" : esc(format_currency(value, "USD"));
         const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
         let dialog, sequence = 0, offset = 0, closed = false, busy = false;
-        let activeFilters = {state: args.state || "", search: ""};
+        let activeFilters = {state: args.state || "", search: "", only_differences: 0};
         const load = async (start = 0) => {
             const request = ++sequence;
             offset = start;
@@ -130,6 +130,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 {fieldname: "context", fieldtype: "HTML", options: `<p style="font-size:16px"><strong>${esc(args.employer || __("Sin empresa identificada"))}</strong> · ${__(months[args.month - 1])} ${esc(args.year)} · ${esc(args.transaction_type)}${Number(args.include_drafts) ? ` · ${__("Incluye borradores")}` : ""}</p>`},
                 {fieldname: "state", label: __("Estado"), fieldtype: "Select", default: args.state || "",
                     options: "\nConciliado\nParcial\nPendiente\nRevisar distribución"},
+                {fieldname: "only_differences", label: __("Solo con diferencias"), fieldtype: "Check", default: 0,
+                    description: __("Muestra parciales, pendientes y distribuciones por revisar. Se combina con Estado y Buscar.")},
                 {fieldtype: "Column Break"},
                 {fieldname: "search", label: __("Buscar"), fieldtype: "Data", description: __("Cliente, crédito, documento, referencia, asiento o cuenta bancaria.")},
                 {fieldtype: "Section Break"},
@@ -137,7 +139,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
             ],
             primary_action_label: __("Buscar / actualizar"),
             primary_action() {
-                activeFilters = {state: dialog.get_value("state") || "", search: dialog.get_value("search") || ""};
+                activeFilters = {state: dialog.get_value("state") || "", search: dialog.get_value("search") || "",
+                    only_differences: Number(dialog.get_value("only_differences")) ? 1 : 0};
                 load(0);
             },
             onhide() { closed = true; sequence++; },

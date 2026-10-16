@@ -53,6 +53,8 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.equal(calls[0].args.month, 4);
     assert.equal(calls[0].args.state, "Revisar distribución");
     assert.equal(dialog.fields[1].default, "Revisar distribución");
+    assert.equal(dialog.fields.find(field => field.fieldname === "only_differences").default, 0);
+    assert.equal(calls[0].args.only_differences, 0);
     const row = {doctype: "CN Accounting Import", document: 'IMPORT A"', row_index: 3, date: "2025-04-30", state: "Parcial",
         client_name: "<script>alert(1)</script>", client_number: "1", loan_number: "100-1", original_usd: 100, adjustment_usd: 20,
         net_usd: 80, assigned_usd: 30, rounding_usd: 0, complementary_usd:20, pending_usd: 50, observations: "<b>Shared</b>"};
@@ -77,11 +79,12 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     dialog.handlers[".cn-detail-next"]();
     assert.equal(requests.length, 1); // Ignore double-click while loading.
     const stale = requests.shift();
-    dialog.values = {state: "Pendiente", search: "Juan"};
+    dialog.values = {state: "Pendiente", search: "Juan", only_differences: 1};
     dialog.primary_action();
     assert.equal(calls.at(-1).args.start, 0);
     assert.equal(calls.at(-1).args.search, "Juan");
     assert.equal(calls.at(-1).args.state, "Pendiente");
+    assert.equal(calls.at(-1).args.only_differences, 1);
     requests.shift().resolve(payload([]));
     await flush();
     const latest = dialog.html;
@@ -89,7 +92,15 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     await flush();
     assert.equal(dialog.html, latest); // An older request cannot replace new filters.
     assert.ok(dialog.html.includes("No hay transacciones"));
+    dialog.handlers[".cn-detail-next"]();
+    assert.equal(calls.at(-1).args.start, 100);
+    assert.equal(calls.at(-1).args.only_differences, 1);
+    requests.shift().resolve(payload([]));
+    await flush();
+    dialog.values.only_differences = 0;
     dialog.primary_action();
+    assert.equal(calls.at(-1).args.only_differences, 0);
+    assert.equal(calls.at(-1).args.start, 0);
     requests.shift().reject(new Error("Unavailable"));
     await flush();
     assert.ok(dialog.html.includes("reintentar"));
