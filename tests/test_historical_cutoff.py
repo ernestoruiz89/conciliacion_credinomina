@@ -56,6 +56,19 @@ class HistoricalCutoffTests(unittest.TestCase):
         self.assertEqual(cut['applications'][0]['amount_usd'], 80)
         self.assertEqual(cut['summary'][0]['core_pending_usd'], 0)
 
+    def test_settled_manual_item_pending_registration_appears_only_after_its_origin_date(self):
+        item = self.item(name='MANUAL', posting_date='2025-05-01', category='Compensación entre partidas',
+                         accounting_source_key='', accounting_status='Pendiente de registro',
+                         compensated_usd=20)
+        offsets = [dict(parent='MANUAL', compensation_date='2025-05-01', amount_usd=20)]
+        before = self.cut('2025-04-30', deposits=[], items=[item], offsets=offsets)
+        after = self.cut('2025-05-01', deposits=[], items=[item], offsets=offsets)
+        self.assertEqual(before['summary'][0]['accounting_pending_count'], 0)
+        self.assertEqual(after['summary'][0]['accounting_pending_count'], 1)
+        control = next(row for row in after['detail'] if row['source_document'] == 'MANUAL')
+        self.assertEqual((control['balance_usd'], control['accounting_status']),
+                         (0, 'Pendiente de registro'))
+
     def test_compensation_and_reversal_use_their_dates(self):
         item = self.item(category='Compensación entre partidas', amount_usd=100, compensated_usd=25)
         offsets = [dict(parent='C', compensation_date='2025-05-01', amount_usd=40),

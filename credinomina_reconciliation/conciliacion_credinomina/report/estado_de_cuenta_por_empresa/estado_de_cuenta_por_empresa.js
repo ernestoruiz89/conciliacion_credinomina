@@ -2,7 +2,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
     filters: [
         {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1},
         {fieldname: "compact_view", label: __("Vista compacta"), fieldtype: "Check", default: 1,
-            description: __("En Detalle muestra tipo, cliente, saldo, estado y origen. Desmarque para ver la matriz y toda la trazabilidad.")},
+            description: __("En Detalle muestra cliente, saldo, origen y registro contable. Desmarque para ver la matriz y toda la trazabilidad.")},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
             description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
@@ -14,8 +14,11 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
                 .map(([value, label]) => ({value, label: __(label)}))]},
-        {fieldname: "status", label: __("Estado de conciliación"), fieldtype: "Autocomplete", options: ["Conciliado", "Pendiente", "Parcial", "Revisar distribución", "Sin conversión US$", "Importado del core; sin confirmar", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros"],
+        {fieldname: "accounting_queue", label: __("Solo complementarias sin registro"), fieldtype: "Check", default: 0,
+            description: __("Muestra las partidas complementarias manuales cuyo asiento aún no está confirmado en el core, tengan o no saldo en este reporte.")},
+        {fieldname: "status", label: __("Estado de conciliación"), fieldtype: "Autocomplete", options: ["Conciliado", "Pendiente", "Parcial", "Revisar distribución", "Sin conversión US$", "Importado del core; sin confirmar", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros", "Solo control contable"],
             description: __("Las sugerencias se actualizan con los estados de las partidas de esta consulta.")},
+        {fieldname: "origin_type", label: __("Origen"), fieldtype: "Select", options: "\nCore\nComplementaria manual\nDepósito manual\nPeríodo"},
         {fieldname: "category", label: __("Concepto"), fieldtype: "Autocomplete", options: ["Por clasificar", "Ajuste de conciliación", "Ajuste de aplicación", "Compensación entre partidas", "Otros ingresos", "Cobranza administrativa", "Saldo a favor del cliente", "Saldo a favor de la empresa"]},
         {fieldname: "reason_type", label: __("Motivo"), fieldtype: "Autocomplete", options: ["Error de la empresa", "Pago adicional no informado", "Por refinanciamiento", "Por cancelación", "Otro por aclarar"]},
         {fieldname: "subcategory", label: __("Subcategoría"), fieldtype: "Link", options: "CN Complementary Subcategory"},
@@ -30,7 +33,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         .cn-company-statement .dt-row-header .dt-cell__content {
             white-space:normal;line-height:1.2;overflow:visible;padding:4px 8px;
         }`, "cn-company-statement-style");
-        const advanced = ["cutoff_date", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
+        const advanced = ["cutoff_date", "origin_type", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
         let expanded = false;
         const display = () => advanced.forEach(name => {
             const control = report.get_filter(name);
@@ -51,7 +54,8 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                     frappe.query_reports["Estado de Cuenta por Empresa"].filters.map(filter =>
                         [filter.fieldname, report.get_filter_value(filter.fieldname) ?? ""]));
             }
-            report.set_filter_value({view_mode: "Detalle", employer: detail.employer || "", component: detail.component || ""});
+            report.set_filter_value({view_mode: "Detalle", employer: detail.employer || "", component: detail.component || "",
+                ...(detail.accounting_queue ? {accounting_queue: 1} : {})});
         });
         report.page.add_inner_button(__("Volver al resumen"), () => {
             const filters = report.cn_summary_filters || {view_mode: "Resumen", component: ""};
@@ -71,9 +75,11 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         }
         const html = default_formatter(value, row, column, data);
         if (data && !data.source_document && data.employer &&
-                ((column.fieldtype === "Currency" && Number(value)) || column.fieldname === "pending_count")) {
+                ((column.fieldtype === "Currency" && Number(value)) || column.fieldname === "pending_count" ||
+                 (column.fieldname === "accounting_pending_count" && Number(value)))) {
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
-                component: column.fieldname === "balance_usd" || column.fieldname === "pending_count" ? "" : column.fieldname}));
+                component: column.fieldtype === "Currency" && column.fieldname !== "balance_usd" ? column.fieldname : "",
+                accounting_queue: column.fieldname === "accounting_pending_count" ? 1 : 0}));
             return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__("Ver partidas pendientes")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
         }
         return html;

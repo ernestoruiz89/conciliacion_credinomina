@@ -4,10 +4,13 @@ const context = vm.createContext({__: x => x, $: node => ({attr: key => node[key
 vm.runInContext(fs.readFileSync(path.join(__dirname,
     '../credinomina_reconciliation/conciliacion_credinomina/report/estado_de_cuenta_por_empresa/estado_de_cuenta_por_empresa.js'), 'utf8'), context);
 const report = context.frappe.query_reports['Estado de Cuenta por Empresa'];
+context.frappe.utils = {escape_html: text => text};
 assert.equal(report.filters[0].default, 'Resumen');
 assert.equal(report.filters[0].options, 'Resumen\nDetalle');
 assert.ok(report.filters.some(f => f.fieldname === 'employer' && f.options === 'CN Employer'));
 assert.ok(report.filters.some(f => f.fieldname === 'cutoff_date' && f.fieldtype === 'Date' && !f.reqd));
+assert.ok(report.filters.some(f => f.fieldname === 'accounting_queue' && f.fieldtype === 'Check'));
+assert.ok(report.filters.some(f => f.fieldname === 'origin_type'));
 const col = {fieldname: 'balance_usd', fieldtype: 'Currency'}, base = v => `formatted:${v}`;
 assert.match(report.formatter(null, null, col, {balance_usd: null}, base), /—/);
 assert.equal(report.formatter(0, null, col, {balance_usd: 0}, base), 'formatted:0');
@@ -32,4 +35,13 @@ const scoped = {...filterValues};
 drill.call({'data-detail':JSON.stringify({employer:'Alfa',component:'core_pending_usd'})}, {preventDefault(){}});
 back();
 assert.deepEqual(filterValues, scoped, 'A summary initially filtered to one company remains scoped');
+const queueLink = report.formatter(2, null, {fieldname:'accounting_pending_count', fieldtype:'Int'},
+    {employer:'Alfa', accounting_pending_count:2}, base);
+assert.match(queueLink, /cn-statement-detail/);
+assert.match(queueLink, /accounting_queue/);
+drill.call({'data-detail':JSON.stringify({employer:'Alfa', component:'', accounting_queue:1})}, {preventDefault(){}});
+assert.equal(filterValues.accounting_queue, 1);
+assert.equal(filterValues.component, '');
+back();
+assert.deepEqual(filterValues, scoped, 'The accounting queue drill restores the original summary filters');
 console.log('OK: company statement summary/detail, monetary formatting and original filter restoration.');
