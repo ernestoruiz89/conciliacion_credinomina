@@ -211,6 +211,15 @@ def cash_needs_review(deposit):
     return deposit.get('cash_identity_status') == 'Revisar identidad'
 
 
+def is_linked_origin(deposit):
+    return bool(deposit.get('consolidated_deposit') or deposit.get('cash_identity_status') == 'Origen vinculado')
+
+
+def assert_usable_cash(deposit):
+    if is_linked_origin(deposit):
+        frappe.throw(_('Este registro es origen contable de otro depósito y no puede utilizarse para asignar dinero, conciliar o crear saldos a favor. Use el depósito principal.'))
+
+
 @frappe.whitelist(methods=['POST'])
 def link_duplicate_origin(deposit_name, canonical_name, modified, reason):
     """Explicitly archive a cash-free draft as another origin of a bank receipt.

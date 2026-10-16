@@ -453,3 +453,38 @@ Validación local:
 Los cambios están en el código local. No se desplegaron a producción ni
 requieren cambios de esquema; queda por medir el tiempo completo en el servidor
 con su volumen y permisos reales después de actualizarlo.
+
+## Actualización de archivos acumulados — 16 de octubre de 2026
+
+La carga masiva compara aplicaciones, partidas complementarias y orígenes de
+depósitos por evidencia contable y número de ocurrencias. Conserva los documentos
+anteriores, incluidos sus vínculos y conciliación. El archivo anterior delimita
+las ausencias que se muestran para revisión manual y se guardan en una lista
+completa descargable; no se anulan movimientos automáticamente. Los depósitos
+manuales siguen admitiendo evidencia nueva por la coincidencia bancaria existente.
+Un origen vinculado queda bloqueado para usos financieros, también desde el servidor.
+
+Validación local:
+
+- Selección de 208 pruebas y 100 subpruebas aprobadas en Frappe 15.117.0 y
+  Frappe 16.52.0. Además se verificó la descarga completa de 620 ausencias,
+  protección contra fórmulas CSV y rechazo de cargas de otros usuarios.
+- Cuatro archivos de pruebas JavaScript aprobados: carga masiva, carga de la
+  herramienta, orígenes financieros y vinculación manual de orígenes.
+- `smoke_cumulative_accounting.run`, con SQL y controladores reales en
+  `cn-reconciliation-test.local`: tres tipos de origen, archivos ampliados y
+  reordenados, una aplicación adicional idéntica, reintento sin duplicados,
+  vínculos con depósitos manuales y tres ausencias posteriores. Los documentos
+  anteriores se comparan completos y permanecen iguales. Todo se revierte y
+  los conteos iniciales se verifican al finalizar.
+- También pasaron `smoke_manual_deposit_accounting.run` y
+  `smoke_financial_origins.run`: evidencia añadida a distribuciones conciliadas
+  con períodos cerrados, tasas bancarias originales conservadas, varios orígenes
+  para un solo efectivo y casos ambiguos que requieren revisión. Se utilizó un
+  Redis temporal de ensayo porque el servicio local estaba detenido; se cerró
+  al terminar. No se modificó producción.
+
+El modo acumulado permite un reporte nuevo sin movimientos, siempre que conserve
+el encabezado contable válido, para informar todas las ausencias del alcance anterior.
+Las cargas iniciales vacías siguen rechazándose. No requiere migración de esquema;
+la versión instalada del servidor debe actualizarse antes de usar la mejora.

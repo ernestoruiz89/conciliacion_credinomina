@@ -281,7 +281,7 @@ def matching_exception_notes(
             matched.append(
                 {
                     "origin": origin,
-                    "gap_usd": payment_gap,
+                    "gap_usd": money_float(payment_gap),
                     "comment": comment,
                     "exception_id": clean_text(note.get("exception_id")),
                 }

@@ -74,6 +74,8 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
 (async () => {
     context.frappe.credinomina.openAccountingBulk();
     const portfolioField = dialog.opts.fields.find(field => field.fieldname === "portfolio_snapshot");
+    assert.equal(dialog.opts.fields.find(field => field.fieldname === "cumulative_import").default, 1);
+    assert.equal(dialog.opts.fields.find(field => field.fieldname === "previous_source_file").mandatory_depends_on, "eval:doc.cumulative_import");
     assert.equal(portfolioField.reqd, 1);
     assert.equal(portfolioField.label, "Corte de cartera");
     await dialog.primary();
@@ -179,6 +181,18 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.equal(dialog.disabled, true, "An old cached preview must be refreshed before confirmation");
     assert.ok(html.includes("Pulse Nuevo análisis"));
     legacy = false;
+    dialog.secondary();
+    Object.assign(state.summary, {cumulative_import: true, missing_origins_count: 620, deposit_count: 0,
+        complementary_count: 0, rows: 0, missing_origins: [{doctype: "CN Remittance Allocation", document: "DEP/ORIGIN",
+            row: 2, employer: "<Empresa>", voucher: "<script>", event_date: "2026-10-15", currency: "USD", debit: 0, credit: 100}]});
+    await dialog.primary();
+    assert.equal(dialog.disabled, true, "Absence review alone must not create or delete documents");
+    assert.ok(html.includes("Descargar lista completa para revisión (CSV)"));
+    assert.ok(html.includes("missing_origins?token=token"));
+    assert.ok(html.includes("/app/cn-remittance-allocation/DEP%2FORIGIN"));
+    assert.ok(html.includes("&lt;script&gt;") && !html.includes("<script>"));
+    assert.ok(html.includes("620") && html.includes("el CSV contiene la lista completa"));
+    assert.equal(dialog.props["previous_source_file:read_only"], 1);
     state.status = "Error";
     state.phase = "create";
     state.resumable = true;

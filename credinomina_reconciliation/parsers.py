@@ -441,8 +441,9 @@ def _native_deposit_amount(description: str, fallback: Any) -> tuple[str, float]
     return "USD", parse_amount(fallback)
 
 
-def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str, Any]]:
-    records = _records_from_header(read_table(file_name, content), "cuenta_contable")
+def parse_accounting_movements(file_name: str, content: bytes, *, allow_empty: bool = False) -> list[dict[str, Any]]:
+    table = read_table(file_name, content)
+    records = _records_from_header(table, "cuenta_contable")
     parsed = []
     original_rows = set()
     for row_number, record in records:
@@ -549,7 +550,7 @@ def parse_accounting_movements(file_name: str, content: bytes) -> list[dict[str,
         if classification == DEPOSIT:
             from credinomina_reconciliation.deposit_evidence import extract_deposit
             parsed[-1].update(extract_deposit(record, description))
-    if not parsed:
+    if not parsed and (not allow_empty or not any("cuenta_contable" in [normalize_header(cell) for cell in row] for row in table)):
         raise SourceFileError("No se encontraron movimientos contables con importe.")
     return parsed
 

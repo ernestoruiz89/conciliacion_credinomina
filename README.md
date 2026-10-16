@@ -348,6 +348,37 @@ empresa correspondiente.
 Desde la lista de **Importación contable**, use **Carga masiva**
 para subir un archivo con aplicaciones de varios meses o empresas:
 
+Para actualizar un reporte que contiene los movimientos anteriores más los nuevos,
+mantenga **Archivo acumulado (conservar movimientos ya registrados)** y adjunte
+tanto el reporte nuevo como el **Archivo acumulado anterior**, completos y con
+el mismo alcance y moneda. No elimine las cargas anteriores. La comparación
+conserva las aplicaciones, partidas complementarias y líneas de depósitos que ya
+existen, incluidos sus identificadores, tratamientos y conciliación. Solo crea
+las ocurrencias adicionales; dos líneas idénticas presentes en el reporte siguen
+siendo dos movimientos. Se comparan fecha, cuenta, moneda, asiento, referencia,
+débito, crédito, descripción, TMOV/TDOC y crédito del cliente, sin depender del
+nombre del archivo ni del orden de las filas. Una tasa distinta requiere revisión.
+
+**Movimientos anteriores ausentes** muestra los orígenes guardados que estaban en
+el archivo anterior y faltan en el nuevo. La lista completa se descarga en CSV,
+también después de terminar la carga. Una ausencia puede indicar anulación,
+corrección o cambio de filtros del core: **no elimina, cancela ni modifica saldos**.
+Revise cada documento antes de decidir su tratamiento. Si disminuye el número de
+líneas idénticas, la lista señala candidatos y advierte que debe verificarse cuál
+corresponde. Para una primera carga o un archivo que contiene exclusivamente
+movimientos nuevos, desmarque **Archivo acumulado**.
+
+Los depósitos manuales sin origen contable no se consideran duplicados ni ausentes.
+Las líneas nuevas pasan por la vinculación bancaria existente: una coincidencia
+única y completa agrega evidencia a `accounting_sources` y conserva el efectivo,
+la tasa y la distribución del depósito manual. Un depósito convertido en
+**Origen vinculado** no permite confirmar, asignar destinos, cargar detalle,
+conciliar ni generar saldos a favor; se utiliza únicamente el depósito principal.
+
+La comparación se guarda con la carga. Si otra carga incorpora evidencia coincidente
+entre bloques, se detiene y exige un nuevo análisis; los bloques ya guardados
+permanecen disponibles. Esto evita duplicar movimientos al reanudar.
+
 1. Adjunte el archivo y seleccione USD o NIO. Para NIO, indique una tasa para
    toda la carga; si las fechas requieren tasas distintas, divida los archivos.
    Seleccione un **Corte de cartera** importado: es obligatorio para analizar,
@@ -389,7 +420,7 @@ para subir un archivo con aplicaciones de varios meses o empresas:
    Al terminar, identificados y no identificados también aparecen en tablas separadas.
 3. Pulse **Analizar archivo** y revise los grupos por empresa y fecha exacta
    de aplicación y las partidas complementarias que quedarán en revisión;
-   las líneas similares del archivo o de cargas previas se advierten como posibles
+   fuera del modo acumulado, las líneas similares del archivo o de cargas previas se advierten como posibles
    duplicados, pero **se importan todas** y participan en los totales y conciliación.
    Solo se evita recrear una misma fila del mismo archivo ya registrado; para
    actualizarla, reprocese su documento existente.

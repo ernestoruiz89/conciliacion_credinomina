@@ -122,6 +122,8 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
 
     doc = frappe.get_doc("CN Remittance Allocation", remittance_name)
     doc.check_permission("write")
+    from credinomina_reconciliation.deposit_accounting_sources import assert_usable_cash
+    assert_usable_cash(doc)
     if doc.docstatus == 2:
         frappe.throw(_("El depósito está cancelado."))
     doc._assert_open_related_periods()

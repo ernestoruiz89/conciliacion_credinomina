@@ -172,10 +172,14 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.set_query("employer", "targets", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
-        if (frm.doc.cash_identity_status === "Origen vinculado") {
+        if (frm.doc.cash_identity_status === "Origen vinculado" || frm.doc.consolidated_deposit) {
             frm.dashboard.set_headline_alert(__("Este documento conserva un origen contable; no representa otro efectivo. Consulte el depósito vinculado."), "blue");
             frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.consolidated_deposit));
             frm.disable_save();
+            for (const field of ["link_accounting_origins", "load_deposit_detail", "use_applications_detail", "use_collection_detail",
+                "select_detail_credit", "refresh_distribution", "select_pending_targets", "link_detail_targets", "create_complementary"]) {
+                frm.toggle_display(field, false);
+            }
             return;
         }
         if (frm.doc.cash_identity_status === "Revisar identidad") {

@@ -104,6 +104,10 @@ class CNRemittanceAllocation(Document):
             self.result = "Pendiente"
 
     def _validate_deposit(self):
+        from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin, assert_usable_cash
+        if is_linked_origin(self) and (self.docstatus == 1 or any(self.get(field) for field in (
+                "targets", "detail_rows", "detail_file", "detail_periods")) or money(self.get("allocated_usd"))):
+            assert_usable_cash(self)
         if self.docstatus == 1 and self.get('cash_identity_status') in {'Revisar identidad', 'Origen vinculado'}:
             frappe.throw(_("Revise primero la identidad del efectivo. Un origen vinculado no constituye otro depósito."))
         allowed = allowed_employers(self.employer)
@@ -624,6 +628,8 @@ def import_remittance_detail(remittance_name: str):
     """Store the company's per-client deductions; reconciliation remains auditable."""
     document = frappe.get_doc("CN Remittance Allocation", remittance_name)
     document.check_permission("write")
+    from credinomina_reconciliation.deposit_accounting_sources import assert_usable_cash
+    assert_usable_cash(document)
     if not document.deposit_date or document.docstatus == 2:
         frappe.throw(_("Registre primero un depósito válido."))
     source_url = document.detail_file or document.support_file

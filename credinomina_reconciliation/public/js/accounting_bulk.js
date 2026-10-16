@@ -17,6 +17,11 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         fields: [
             {fieldtype: "HTML", options: `<p>${__("Cargue un archivo de varios meses. Se creará una importación por empresa y fecha exacta de aplicación. La contabilidad de depósitos se vinculará a los registros existentes cuando la coincidencia sea única y completa, conservando su conciliación.")}</p>`},
             {fieldtype: "Attach", fieldname: "source_file", label: __("Archivo de movimientos contables"), reqd: 1},
+            {fieldtype: "Check", fieldname: "cumulative_import", label: __("Archivo acumulado (conservar movimientos ya registrados)"), default: 1,
+                description: __("Mantenga esta opción si el archivo incluye movimientos anteriores y nuevos. Desmárquela para la primera carga o para archivos que solo contienen movimientos nuevos.")},
+            {fieldtype: "Attach", fieldname: "previous_source_file", label: __("Archivo acumulado anterior"),
+                depends_on: "eval:doc.cumulative_import", mandatory_depends_on: "eval:doc.cumulative_import",
+                description: __("Seleccione el reporte completo de la carga anterior, del mismo alcance y moneda. Permite señalar movimientos ausentes para revisión manual. No seleccione el CSV individual de una empresa.")},
             {fieldtype: "Select", fieldname: "currency", label: __("Moneda del archivo"), options: "\nUSD\nNIO", reqd: 1},
             {fieldtype: "Float", fieldname: "manual_fx_rate", label: __("Tipo de cambio C$ por US$"), precision: 8,
                 depends_on: "eval:doc.currency == 'NIO'", mandatory_depends_on: "eval:doc.currency == 'NIO'",
@@ -203,7 +208,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         await saveDraftChoices();
     });
     function lockOptions(locked) {
-        for (const field of ["source_file", "currency", "manual_fx_rate", "employer", "portfolio_snapshot", "historical_backfill"]) {
+        for (const field of ["source_file", "currency", "manual_fx_rate", "employer", "portfolio_snapshot", "historical_backfill", "cumulative_import", "previous_source_file"]) {
             dialog.set_df_property(field, "read_only", locked ? 1 : 0);
         }
     }
@@ -221,6 +226,8 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         lastSummary = summary;
         previewRows = new Map();
         let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.group_count ?? summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
+        if (summary.cumulative_import) html += `<p class="alert alert-info">${__("Actualización acumulada: las coincidencias conservan sus documentos, vínculos y conciliación. Solo se agregarán las ocurrencias nuevas. Un movimiento ausente requiere revisión manual; no se anula ni se elimina automáticamente.")}</p>`;
+        html += missingOrigins(summary);
         if (choicesDirty) html += `<p class="alert alert-warning">${__("Hay selecciones de empresa sin analizar. Pulse Nuevo análisis y luego Analizar archivo para reagrupar antes de importar.")}</p>`;
         if (Object.keys(choices).length) html += `<p>${__("Empresas seleccionadas manualmente")}: ${Object.keys(choices).length} <button type="button" class="btn btn-xs btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button></p>`;
         if (!summary.sections) {
@@ -230,7 +237,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             html += identificationSection(summary.sections.unidentified, true);
         }
         if (summary.duplicates_count) html += `<p class="alert alert-warning">${__("Hay movimientos similares. Revise las filas indicadas: se importarán todos, aunque coincidan cuenta, asiento e importe.")}</p>`;
-        for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Posibles duplicados (se importarán)")], ["already_imported", __("Filas del mismo archivo ya registradas")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
+        for (const [key, label] of [["issues", __("Filas que requieren corrección")], ["duplicates", __("Posibles duplicados (se importarán)")], ["already_imported", __("Movimientos ya registrados (se conservan)")], ["excluded", __("Movimientos que no son aplicaciones (no se importan)")]]) {
             if (!summary[`${key}_count`]) continue;
             html += `<details${key === "issues" || key === "duplicates" ? " open" : ""}><summary>${esc(label)}: ${summary[`${key}_count`]}</summary>`;
             html += table([__("Fila del archivo"), __("Motivo")], summary[key].map(row => [esc(row.row), esc(row.reason)]));
@@ -240,6 +247,18 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         if (summary.issues_count) html += `<p class="text-danger">${__("Corrija estas filas o los alias de las empresas y vuelva a analizar. No se creará ningún documento mientras existan errores.")}</p>`;
         html += `<p class="text-muted">${__("Solo se muestran movimientos reconocidos por el importador contable. Totales, encabezados y otras líneas del reporte no generan aplicaciones.")}</p>`;
         result.html(html);
+    }
+    function missingOrigins(summary) {
+        if (!summary?.missing_origins_count) return "";
+        const url = "/api/method/credinomina_reconciliation.accounting_cumulative_review.download_missing_origins?token=" + encodeURIComponent(token);
+        let html = `<details open class="alert alert-warning"><summary>${__("Movimientos anteriores ausentes: revisar posible anulación en el core")}: ${esc(summary.missing_origins_count)}</summary>
+            <p>${__("La ausencia también puede deberse a filtros o cambios del reporte. Los registros y sus efectos se conservan hasta que se resuelva cada caso.")}</p>
+            <a class="btn btn-default" href="${attr(url)}" target="_blank" rel="noopener">${__("Descargar lista completa para revisión (CSV)")}</a>`;
+        html += table([__("Documento"), __("Fila original"), __("Empresa"), __("Fecha"), __("Asiento"), __("Moneda"), __("Débito"), __("Crédito")], (summary.missing_origins || []).map(row => [
+            `<a href="/app/${row.doctype === "CN Remittance Allocation" ? "cn-remittance-allocation" : row.doctype === "CN Complementary Item" ? "cn-complementary-item" : "cn-accounting-import"}/${encodeURIComponent(row.document)}" target="_blank" rel="noopener">${esc(row.document)}</a>`,
+            esc(row.row), esc(row.employer), esc(row.event_date), esc(row.voucher), esc(row.currency), esc(row.debit), esc(row.credit)]));
+        if (summary.missing_origins_count > 100) html += `<p>${__("Se muestran las primeras 100 filas; el CSV contiene la lista completa.")}</p>`;
+        return html + "</details>";
     }
     function identificationSection(section, unidentified) {
         const count = section.rows + section.complementary_count + section.deposit_count;
@@ -327,7 +346,8 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             const state = response.message;
             if (closed) return;
             currentPhase = state.phase || "preview";
-            if (state.options) await dialog.set_values(state.options);
+            if (state.options) await dialog.set_values({...state.options,
+                cumulative_import: state.options.cumulative_import || 0, previous_source_file: state.options.previous_source_file || ""});
             if (state.options && (!choicesDirty || (choiceFile && choiceFile !== state.options.source_file))) {
                 choices = state.draft_assignments ?? state.options.employer_assignments ?? {};
                 choiceFile = state.options.source_file;
@@ -360,6 +380,7 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             } else if (state.status === "Completado") {
                 running = false;
                 let completed = `<div class="alert alert-success">${__("Carga completada. Revise las importaciones, partidas complementarias y depósitos vinculados. Los borradores no afectan saldos hasta confirmar su tratamiento.")}</div>`;
+                completed += missingOrigins(state.summary);
                 if (state.progress) completed += `<p>${esc(state.progress)}</p>`;
                 if (state.created_count > state.created.length) completed += `<p>${__("Se muestran los primeros 200 documentos. El resto está disponible en sus listas de importaciones, partidas y depósitos.")}</p>`;
                 for (const unidentified of [false, true]) {
