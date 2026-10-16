@@ -33,9 +33,11 @@ class CompanySummaryExportTests(TestCase):
         sheet = book['Resumen']
         self.assertEqual([cell.value for cell in sheet[4]], [column['label'] for column in columns])
         by_field = {column['fieldname']: index for index, column in enumerate(columns, 1)}
-        for field, expected in {'core_balance_usd': 0, 'client_credit_usd': 154.28,
-                                'company_credit_usd': .18, 'company_receivable_usd': .01,
-                                'application_pending_usd': 4474.07, 'deposit_pending_usd': 3173.81}.items():
+        for field, expected in {'core_balance_usd': 0, 'client_credit_usd': -154.28,
+                                'company_credit_usd': -.18, 'company_receivable_usd': .01,
+                                'application_pending_usd': 4474.07, 'deposit_pending_usd': -3173.81,
+                                'management_pending_usd': 4474.08, 'other_credit_usd': -3181.16,
+                                'management_net_usd': 1138.46}.items():
             self.assertEqual(sheet.cell(5, by_field[field]).value, expected)
             self.assertEqual(sheet.cell(5, by_field[field]).number_format, MONEY_FORMAT)
         self.assertEqual(sheet.cell(6, by_field['core_pending_usd']).value, 'N/D')

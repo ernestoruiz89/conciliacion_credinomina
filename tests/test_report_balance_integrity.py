@@ -139,11 +139,15 @@ def test_aging_total_and_grouped_export_distinguish_known_subtotal_from_unknown(
 def test_invalid_recovery_excel_summary_is_unknown_and_preserves_observation():
     rows = receivable(15)
     detail = build_detail([], [], [], [], adjustment_receivables=rows)
+    with patch.object(statement, 'load_detail', return_value=detail), patch.object(statement, 'load_core_detail', return_value=[]):
+        columns, summary, _ = statement.execute()
     payload = build_control_workbook(dict(year=2025, periods=[], adjustment_receivables=rows,
-        company_statement=dict(columns=statement.get_columns(), rows=summarize(detail), message='Revisar cobros')),
+        company_statement=dict(columns=columns, rows=summary, message='Revisar cobros')),
         exceptions=[], actions=[], employer_label='E', generated_at=datetime(2026,10,12))
     book = load_workbook(io.BytesIO(payload), data_only=True)
-    assert book['Resumen']['I5'].value == 'N/D' and book['Resumen']['K5'].value == 'N/D'
-    assert book['Resumen']['J5'].value == 0  # Employee debt is a separate component.
+    fields = {column['fieldname']: index for index, column in enumerate(columns, 1)}
+    assert book['Resumen'].cell(5, fields['management_net_usd']).value == 'N/D'
+    assert book['Resumen'].cell(5, fields['company_receivable_usd']).value == 'N/D'
+    assert book['Resumen'].cell(5, fields['employee_receivable_usd']).value == 0  # A separate component.
     assert book['Partidas y excepciones']['H5'].value == 'N/D'
     assert 'el exceso no es un saldo a favor' in book['Partidas y excepciones']['P5'].value

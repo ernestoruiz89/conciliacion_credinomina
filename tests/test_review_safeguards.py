@@ -106,10 +106,16 @@ class ReviewSafeguards(unittest.TestCase):
         compact = statement.get_columns(dict(view_mode='Detalle', compact_view=1))
         full = statement.get_columns(dict(view_mode='Detalle', compact_view=0))
         self.assertEqual({c['fieldname'] for c in compact}, {c['fieldname'] for c in full})
-        self.assertEqual([c['fieldname'] for c in compact if not c.get('hidden')],
-            ['employer', 'client_name', 'position_type', 'balance_usd', 'status', 'source_document'])
-        rows = [dict(employer='E', balance_usd=None, status='Sin conversión US$')]
-        self.assertEqual(statement._presentation(rows, dict(view_mode='Detalle', compact_view=1))[0]['balance_usd'], None)
+        self.assertEqual([c['fieldname'] for c in compact if not c.get('hidden') and c['fieldtype'] == 'Currency'],
+            ['statement_amount_usd'])
+        self.assertTrue({'employer', 'client_name', 'position_type', 'status', 'source_document'} <=
+            {c['fieldname'] for c in compact if not c.get('hidden')})
+        from credinomina_reconciliation.company_accounting_statement import management_detail, MANAGEMENT_FIELDS
+        rows = management_detail([dict(employer='E', balance_usd=None, status='Sin conversión US$',
+            **{field: None if field == 'core_pending_usd' else 0 for field in MANAGEMENT_FIELDS})])
+        result = statement._presentation(rows, dict(view_mode='Detalle', compact_view=1))
+        self.assertIsNone(result[0]['statement_amount_usd'])
+        self.assertIsNone(result[-1]['statement_amount_usd'])
 
     def test_financial_status_migration_is_idempotent_and_preserves_engine_result(self):
         from credinomina_reconciliation.patches.v1_0 import backfill_deposit_financial_status as migration
