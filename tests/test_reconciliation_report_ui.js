@@ -16,7 +16,10 @@ assert.ok(render('collection_difference_usd', 10).includes('text-danger'));
 assert.ok(render('deposit_difference_usd', -10).includes('text-warning'));
 assert.equal(render('open_usd', 0), '0');
 // Free-text comments and links still go through Frappe's default formatter.
-let called = false;
-report.formatter('<script>', 0, {fieldname: 'first_exception_comment'}, {}, () => {called = true; return '&lt;script&gt;';});
-assert.ok(called);
+for (const field of ['first_exception_comment', 'comments', 'application_comment', 'portfolio_credit_status']) {
+    let called = false;
+    const formatted = report.formatter('<script>', 0, {fieldname: field}, {}, () => {called = true; return '&lt;script&gt;';});
+    assert.ok(called);
+    assert.equal(formatted, '&lt;script&gt;');
+}
 console.log('Reconciliation report UI: passed');
