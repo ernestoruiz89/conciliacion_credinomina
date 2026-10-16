@@ -670,13 +670,17 @@ Los importes deben ser positivos y respetar el pendiente de cada fila y el efect
 Use **Compensar con otra partida** cuando un saldo a favor documentado tenga una contrapartida contable importada. No cree otro ingreso ni otra distribución del mismo depósito para hacer desaparecer el saldo.
 
 1. Identifique el saldo a favor confirmado y el movimiento original del core. Deben corresponder a la misma empresa identificada y, para saldos de cliente, a la misma persona por número, crédito o nombre completo verificable.
-2. Desde **Compensar con otra partida**, seleccione la contrapartida, revise el importe disponible e indique fecha, referencia y motivo solicitados. El saldo a favor requiere un débito original del core; no basta con que ambas partidas muestren el mismo importe positivo.
+2. Desde **Compensar con otra partida**, seleccione la contrapartida, el tratamiento, el importe y la fecha. El saldo a favor requiere un débito original del core; no basta con que ambas partidas muestren el mismo importe positivo. **Consume saldo** utiliza disponibilidad nueva. **Vínculo de gestión** requiere seleccionar la devolución o aplicación ya registrada que respalda ese asiento.
 3. Confirme y revise el historial y pendiente de compensación de ambas partidas. La app conserva el débito original para el control mensual; una partida del core completamente compensada deja de representar un pendiente por clasificar.
-4. La compensación reduce **Pendiente de gestión US$** y el saldo disponible para nuevas aplicaciones desde su fecha efectiva. El vínculo no acredita por sí solo una devolución al cliente. Si se trasladó a otra cuenta, dé seguimiento allí o documente una excepción; no registre otra gestión que vuelva a consumir el mismo importe.
+4. **Consume saldo** reduce **Pendiente de gestión US$** desde la fecha de compensación. **Vínculo de gestión** concilia la contrapartida sin descontar otra vez la gestión identificada. El vínculo conserva el identificador de esa gestión en ambas partidas. No puede precederla ni superar su importe disponible, considerando sus reversiones y otros vínculos.
 
 Ejemplo: saldo a favor de US$32.63, aplicación contable de US$14.17 y compensación de US$18.46. El saldo disponible queda en US$0. **Estado de Cuenta por Empresa** descuenta cada uso desde su fecha efectiva. Una compensación del 01/06/2025 ya reduce el saldo al 31/08/2026, aunque se haya registrado después. Una reversión libera el importe desde su fecha; una corrección de fecha neutraliza las fechas anteriores sin descontarlo dos veces. El depósito conserva su distribución original.
 
-Al actualizar el sistema, ejecute la migración para recalcular los saldos existentes y reconstruya los reportes preparados. La migración conserva ambos historiales y se detiene indicando las partidas cuyo uso combinado exceda el importe en algún corte; esos casos requieren revisar la evidencia y sus reversiones, sin recortar saldos automáticamente.
+Ejemplo de vínculo documental: saldo de US$19.25 devuelto el 20/08/2025 con comprobante 001011316 y reclasificado del core el 21/11/2025. Seleccione **Vínculo de gestión** y esa devolución. El saldo disponible queda en cero desde agosto; la reclasificación se concilia en noviembre. Revertir solo el vínculo contable no vuelve a poner a disposición dinero ya devuelto. Para eliminar o revertir la gestión, primero retire sus vínculos contables correspondientes.
+
+Para una compensación existente, use **Revisar tratamiento de compensación** desde el saldo a favor. Seleccione la operación, el tratamiento y, si corresponde, la gestión. Revise el saldo resultante y documente el motivo. La decisión se guarda en ambas partidas y en sus reversiones/correcciones relacionadas, conservando importes, fechas y los dos historiales.
+
+Al actualizar, ejecute `bench --site credinomina migrate` y reconstruya los reportes preparados. La migración identifica vínculos anteriores únicamente si hay una gestión candidata única y una referencia explícita coincidente o concepto y fecha documentados; igualar importes no basta. Los casos ambiguos conservan sus registros, muestran **Revisar uso del saldo** y bloquean nuevas utilizaciones, sin impedir completar la migración. En el estado de cuenta su saldo queda sin determinar, no como cero conciliado; complete la revisión desde **Revisar tratamiento de compensación**.
 
 ### Eliminar una partida previamente cancelada
 
@@ -703,10 +707,12 @@ alguna partida después de la vista previa, vuelva a revisarla. Para una aplicac
 en un período cerrado, reabra primero el período de destino. Los cobros de CxC se
 corrigen desde su gestión de recuperación.
 
-Esta acción permite corregir las operaciones duplicadas que bloqueen la migración
-de saldos a favor: actualice el código, limpie la caché y recargue el formulario;
-elimine la operación incorrecta y vuelva a ejecutar `bench --site credinomina migrate`.
-No requiere campos nuevos ni guardar previamente el documento inconsistente.
+Use la eliminación cuando la operación sea incorrecta. Si una devolución y una
+reclasificación documentan el mismo uso, conserve ambas y utilice **Revisar tratamiento
+de compensación**. Una migración anterior bloqueada puede reintentarse después de
+actualizar el código; los vínculos ambiguos quedan pendientes de revisión sin exigir
+eliminar sus soportes. La eliminación no requiere guardar previamente el documento
+inconsistente.
 
 En un saldo a favor, use **Revertir gestión** para corregir una devolución o
 aplicación externa registrada por error. Seleccione la gestión original e indique

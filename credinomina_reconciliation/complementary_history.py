@@ -99,7 +99,8 @@ def _prepare(item_name, kind, entry_id):
     if kind == 'compensation':
         def signature(rows):
             return sorted((row['operation_id'], str(getdate(row['compensation_date'])), str(money(row['amount_usd'])),
-                           row.get('reverses_operation_id') or '', row.get('corrects_operation_id') or '') for row in rows)
+                           row.get('reverses_operation_id') or '', row.get('corrects_operation_id') or '',
+                           *(row.get(field) or '' for field in credit_usage.EFFECT_FIELDS)) for row in rows)
         if signature(groups[0]) != signature(groups[1]) or any(
                 row.get('counterpart') != other.name for group, other in zip(groups, reversed(docs)) for row in group):
             frappe.throw(_('Las dos partes del historial no coinciden; no se eliminó ninguna operación.'))
@@ -119,7 +120,7 @@ def _prepare(item_name, kind, entry_id):
             offsets._validate_correction_timeline(projected, [])
             values = dict(compensated_usd=offsets.balance(projected)['compensated_usd'])
             if doc.category in client_credit.CREDIT_CATEGORIES:
-                values.update(credit_usage.totals(projected))
+                values.update(credit_usage.totals(projected, allow_review=True))
         remaining.append(rest)
         changes.append(dict(name=doc.name, removed_count=len(group), **values))
     snapshot = [dict(name=doc.name, modified=str(doc.modified), history=_rows(doc, kind),
@@ -153,7 +154,7 @@ def delete_history(item_name, kind, entry_id, token, reason):
                     doc.flags.pop('compensation_write_token', None)
             else:
                 values = credit_usage.totals(doc, history=rest)
-                frappe.db.set_value(doc.doctype, doc.name, dict(credit_history=json.dumps(rest, ensure_ascii=False), **values))
+                frappe.db.set_value(doc.doctype, doc.name, dict(credit_history=json.dumps(rest, ensure_ascii=False), credit_usage_issue='', **values))
                 doc.clear_cache()
             # Keep an audit record outside the financial histories. No compensating
             # entry is generated, and the deleted amount no longer affects cutoffs.

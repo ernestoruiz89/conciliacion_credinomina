@@ -12,7 +12,7 @@ CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conci
 FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
-          "credit_pending_usd", "credit_management_status", "credit_assigned_to", "credit_commitment_date",
+          "credit_pending_usd", "credit_management_status", "credit_usage_issue", "credit_assigned_to", "credit_commitment_date",
           "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
           "accounting_source_key", "source_debit", "source_credit", "source_currency", "source_fx_rate", "origin_deposit"]
 _read_scope = ContextVar('cn_complementary_balance_read_scope', default=None)
@@ -90,12 +90,15 @@ def financial_balance(item, distributions=()):
         state = "Conciliada" if not pending and confirmed else "Parcial" if used else "Pendiente" if confirmed else "Pendiente de confirmar"
     if pending < 0 or used < 0 or (amount_issue and item.get('docstatus') != 2):
         state = "Revisar distribución"
+    credit_issue = item.get('credit_usage_issue') if category in CREDIT_CATEGORIES and confirmed else ''
+    if credit_issue:
+        state, management = 'Revisar distribución', None
     return {"name": item.get("name"), "original_usd": money_float(original), "used_usd": money_float(used),
             "pending_usd": money_float(pending), "financial_status": state, "used_label": kind,
             "accounting_status": item.get("accounting_status") or "Pendiente de registro",
             "management_pending_usd": money_float(management) if management is not None else None,
             "management_status": item.get("credit_management_status") or "Pendiente" if management is not None else "",
-            "amount_issue": "El importe difiere de la evidencia contable original" if amount_issue else "",
+            "amount_issue": credit_issue or ("El importe difiere de la evidencia contable original" if amount_issue else ""),
             "distributions": list(distributions)}
 
 

@@ -164,7 +164,7 @@ def _save_journal(item, entry):
     history.append(entry)
     values = credit_usage.totals(item, history=history)
     pending, status = values['credit_pending_usd'], values['credit_management_status']
-    frappe.db.set_value(item.doctype, item.name, dict(credit_history=json.dumps(history, ensure_ascii=False), **values))
+    frappe.db.set_value(item.doctype, item.name, dict(credit_history=json.dumps(history, ensure_ascii=False), credit_usage_issue='', **values))
     item.clear_cache()
     return dict(name=item.name, pending_usd=money_float(pending), status=status)
 
