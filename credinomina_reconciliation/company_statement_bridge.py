@@ -42,6 +42,8 @@ def execute(filters):
     rows = build_bridge(core, snapshot, scope.get('employer'))
     message = _('Saldo contable + diferencias identificadas + diferencia sin explicar = saldo de gestión. '
         'El saldo de gestión suma aplicaciones pendientes y CxC, y resta saldos a favor y depósitos sin asignar. '
+        'Se calcula de forma independiente: las diferencias de esta comparación no se suman nuevamente al saldo de gestión '
+        'ni crean cargos, abonos o saldos a favor. El acumulado de conciliación solo explica el paso entre ambos saldos. '
         'Cada importe de diferencia conserva su signo; no representa por sí solo un asiento a registrar. '
         'Verificar contrapartida no significa que falte registro. El redondeo de conversión no requiere asiento. '
         'Pendiente de registro corresponde al estado actual de la partida en la app; Contabilidad debe comprobar el mayor completo. '
@@ -201,10 +203,11 @@ def _explanation(company, members, nodes, ledger, context):
         nio = _total(line.get('core_balance_nio') for line in lines)
         row.update(core_amount_usd=_number(-original) if original is not None else None,
             management_amount_usd=source.get('amount_usd'),
-            bridge_concept=_('Depósito bancario distinto del crédito contable'),
+            bridge_concept=_('Diferencia entre importe bancario y crédito contable'),
             bridge_registration=_('Verificar contrapartida'), related_deposits=name,
             observation=_('Comparar el comprobante completo: el importe bancario puede incluir otras cuentas o clientes. '
-                'La diferencia no demuestra que falte un asiento.'))
+                'Esta diferencia solo explica la comparación; no se suma al saldo de gestión ni crea un cargo o abono. '
+                'No demuestra que falte un asiento.'))
         if not source.get('deposit_date'):
             row.update(bridge_concept=_('Origen contable sin depósito efectivo al corte'),
                 bridge_registration=_('Verificar fecha / estado'),
@@ -222,7 +225,8 @@ def _explanation(company, members, nodes, ledger, context):
         if rounding:
             row.update(bridge_concept=_('Redondeo de conversión por líneas'), bridge_registration=_('No requiere asiento'),
                 observation=_('El importe bancario y el crédito contable coinciden en córdobas. La diferencia surge al '
-                    'sumar conversiones redondeadas por línea frente a convertir el total.'))
+                    'sumar conversiones redondeadas por línea frente a convertir el total. '
+                    'Solo explica la comparación; no se suma al saldo de gestión ni crea un cargo o abono.'))
     elif item_keys:
         involved = [nodes[key]['source'] for key in item_keys]
         imported = any(item.get('accounting_source_key') for item in involved)
@@ -257,7 +261,7 @@ def get_columns(filters):
         dict(fieldname='observation', label=_('Explicación'), fieldtype='Data', width=420),
         dict(fieldname='source_doctype', label=_('Tipo de origen'), fieldtype='Data', hidden=1)]
     for field, label, kind in (
-        ('bridge_running_usd', 'Saldo después del movimiento US$', 'Currency'),
+        ('bridge_running_usd', 'Acumulado de conciliación US$', 'Currency'),
         ('core_amount_usd', 'Crédito contable original US$', 'Currency'),
         ('management_amount_usd', 'Importe bancario US$', 'Currency'),
         ('accounting_status', 'Estado de registro en la app', 'Data'),
