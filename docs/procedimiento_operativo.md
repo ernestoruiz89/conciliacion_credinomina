@@ -686,6 +686,28 @@ La eliminación sigue requiriendo permisos y respetando los vínculos e historia
 
 ## Corrección trazable de gestiones y compensaciones
 
+Para retirar una operación registrada por error sin crear una reversión, abra
+**Más acciones → Eliminar compensación del historial** o **Eliminar gestión del
+historial**. Seleccione la operación, revise las partidas y saldos resultantes,
+indique el motivo y pulse **Eliminar y recalcular**.
+
+La eliminación incluye las reversiones y correcciones relacionadas con esa
+operación, para no dejar movimientos sueltos. Una compensación se retira de ambas
+partidas; una aplicación del saldo a favor recalcula la aplicación importada y su
+período de destino. Se conserva la distribución del depósito. El importe retirado
+deja de afectar también los cortes históricos: reconstruya los reportes preparados.
+Los registros retirados y el motivo quedan en los comentarios de auditoría.
+
+Se comprueban los permisos y los saldos resultantes antes de guardar. Si cambió
+alguna partida después de la vista previa, vuelva a revisarla. Para una aplicación
+en un período cerrado, reabra primero el período de destino. Los cobros de CxC se
+corrigen desde su gestión de recuperación.
+
+Esta acción permite corregir las operaciones duplicadas que bloqueen la migración
+de saldos a favor: actualice el código, limpie la caché y recargue el formulario;
+elimine la operación incorrecta y vuelva a ejecutar `bench --site credinomina migrate`.
+No requiere campos nuevos ni guardar previamente el documento inconsistente.
+
 En un saldo a favor, use **Revertir gestión** para corregir una devolución o
 aplicación externa registrada por error. Seleccione la gestión original e indique
 fecha y motivo. La app agrega una entrada negativa enlazada al registro original;

@@ -58,9 +58,11 @@ def guard_document(doc, previous=None):
             frappe.throw(_("Una partida compensada no se envía ni se cancela como partida de depósito."))
 
 
-def update_totals(doc):
+def update_totals(doc, previous=None):
     if doc.category == CATEGORY:
-        if doc.docstatus != 0 and not doc.get("compensations"):
+        confirmed_before = previous and previous.docstatus == 1 and previous.category == CATEGORY
+        if (doc.docstatus != 0 and not doc.get("compensations") and not confirmed_before
+                and doc.flags.get('compensation_write_token') is not _WRITE_TOKEN):
             frappe.throw(_("Confirme desde Compensar con otra partida; no use Enviar para esta categoría."))
         if doc.related_application or doc.registered_deposit:
             frappe.throw(_("La compensación entre partidas no puede vincularse a una aplicación ni a un depósito."))

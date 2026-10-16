@@ -414,6 +414,7 @@ frappe.ui.form.on("CN Complementary Item", {
         if (!frm.is_new() && (betweenItems || compensated)) {
             frm.add_custom_button(__("Consultar saldo a fecha"), () => cn_compensation_balance_dialog(frm));
             if (compensated && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
+                if (!frm.doc.receivable_origin) frm.add_custom_button(__("Eliminar compensación del historial"), () => cn_delete_complementary_history(frm, "compensation"), __("Más acciones"));
                 frm.add_custom_button(__("Revertir compensación"), () => cn_reverse_compensation(frm));
                 if (!frm.doc.receivable_origin) frm.add_custom_button(__("Corregir fecha de compensación"), () => cn_correct_compensation_date(frm));
             }
@@ -450,6 +451,7 @@ frappe.ui.form.on("CN Complementary Item", {
                 frm.change_custom_button_type?.(__("Aplicar a aplicación contable"), null, "primary");
             }
             if (confirmed && frm.get_perm(0, "submit") && frm.get_perm(0, "write") && frm.doc.credit_history && frm.doc.credit_history !== "[]") {
+                frm.add_custom_button(__("Eliminar gestión del historial"), () => cn_delete_complementary_history(frm, "management"), __("Más acciones"));
                 frm.add_custom_button(__("Revertir gestión"), () => cn_reverse_credit_management(frm), __("Más acciones"));
             }
             frm.dashboard.set_headline_alert(confirmed
@@ -546,6 +548,53 @@ function cn_client_credit_history(frm) {
         <th>${__("Fecha")}</th><th>${__("Gestión")}</th><th>${__("US$")}</th><th>${__("Referencia")}</th><th>${__("Aplicación / período")}</th><th>${__("Soporte")}</th><th>${__("Registrado por")}</th><th>${__("Observaciones")}</th></tr></thead><tbody>
         ${history.map(row => `<tr><td>${esc(frappe.datetime.str_to_user(row.fecha))}</td><td>${esc(row.tratamiento)}</td><td>${esc(format_currency(row.importe_usd, "USD"))}</td><td>${esc(row.referencia)}</td><td>${destination(row)}</td><td>${proof(row.soporte)}</td><td>${esc(row.usuario)}</td><td>${esc(row.observaciones)}</td></tr>`).join("")}</tbody></table></div>`
         : `<p class="text-muted">${__("Sin gestiones documentadas. Clasificar el saldo no significa que ya fue devuelto o aplicado.")}</p>`);
+}
+
+async function cn_delete_complementary_history(frm, kind) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Recargue o guarde el formulario antes de eliminar una operación del historial."));
+    const itemName = frm.doc.name;
+    const method = "credinomina_reconciliation.complementary_history.";
+    const response = await frappe.call({method: method + "deletion_options", args: {item_name: itemName, kind}});
+    if (frm.doc.name !== itemName) return;
+    const rows = response.message?.rows || [];
+    if (!rows.length) return frappe.msgprint(__("No hay operaciones para eliminar."));
+    const choices = new Map(rows.map((row, index) => [
+        `${index + 1}. ${row.description} · ${row.date || __("Sin fecha")} · ${format_currency(row.amount_usd, "USD")} · ${row.count} ${__("movimientos")}`, row.entry_id]));
+    let busy = false;
+    const selector = new frappe.ui.Dialog({title: __("Eliminar operación del historial"), fields: [
+        {fieldtype: "HTML", options: `<p>${__("Se elimina la operación junto con sus reversiones y correcciones relacionadas. Los saldos se recalculan también en los cortes históricos. No se crea una nueva reversión.")}</p>`},
+        {fieldname: "operation", fieldtype: "Select", label: __("Operación"), options: [...choices.keys()], reqd: 1},
+    ], primary_action_label: __("Revisar eliminación"), async primary_action(values) {
+        if (busy || !choices.has(values.operation)) return;
+        busy = true;
+        selector.get_primary_btn().prop("disabled", true);
+        try {
+            const entry_id = choices.get(values.operation);
+            const preview = (await frappe.call({method: method + "preview_deletion", args: {item_name: itemName, kind, entry_id}})).message;
+            if (frm.doc.name !== itemName) return;
+            const esc = value => frappe.utils.escape_html(String(value ?? ""));
+            const summary = (preview.changes || []).map(row => `<li><strong>${esc(row.name)}</strong>: ${esc(row.removed_count)} ${__("movimientos eliminados")}${row.credit_pending_usd != null ? `; ${__("saldo a favor disponible")}: ${esc(format_currency(row.credit_pending_usd, "USD"))}` : `; ${__("compensado")}: ${esc(format_currency(row.compensated_usd, "USD"))}`}</li>`).join("");
+            selector.hide();
+            let deleting = false;
+            const review = new frappe.ui.Dialog({title: __("Confirmar eliminación del historial"), fields: [
+                {fieldtype: "HTML", options: `<ul>${summary}</ul><p>${__("La contrapartida o el período de la aplicación se recalcularán automáticamente. El motivo y los registros retirados quedan en los comentarios de auditoría. Reconstruya los reportes preparados después de la corrección.")}</p>`},
+                {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo de la eliminación"), reqd: 1},
+            ], primary_action_label: __("Eliminar y recalcular"), async primary_action(values) {
+                if (deleting) return;
+                deleting = true;
+                review.get_primary_btn().prop("disabled", true);
+                try {
+                    await frappe.call({method: method + "delete_history", args: {item_name: itemName, kind, entry_id, token: preview.token, reason: values.reason},
+                        freeze: true, freeze_message: __("Eliminando operación y recalculando saldos…")});
+                    review.hide();
+                    if (frm.doc.name === itemName) await frm.reload_doc();
+                    frappe.show_alert({message: __("Operación eliminada y saldos recalculados."), indicator: "green"});
+                } finally {deleting = false; review.get_primary_btn().prop("disabled", false);}
+            }});
+            review.show();
+        } finally {busy = false; selector.get_primary_btn().prop("disabled", false);}
+    }});
+    selector.show();
 }
 
 async function cn_reverse_credit_management(frm) {
