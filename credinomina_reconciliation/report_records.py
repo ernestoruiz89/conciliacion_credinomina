@@ -22,10 +22,25 @@ def require_complete_evidence(doctype, readable_names, *, filters, fields=(), re
     The optional predicate narrows broad journal scans to that visible origin.
     """
     names = set(readable_names)
-    for row in _pages(frappe.get_all, doctype, fields=["name", *fields],
+    # Most users running a report can read the entire queried population. Scan
+    # only identities first; large journals are needed solely for hidden rows.
+    # Keep the second read bounded and internal: hidden evidence never escapes.
+    hidden = []
+    for row in _pages(frappe.get_all, doctype, fields=["name"],
                       filters=filters, order_by="name asc", **kwargs):
-        if row.name not in names and (relevant is None or relevant(row)):
+        if row.name in names:
+            continue
+        if relevant is None:
             frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+        hidden.append(row.name)
+    for offset in range(0, len(hidden), PAGE_SIZE):
+        batch = hidden[offset:offset + PAGE_SIZE]
+        scope = ({**filters, "name": ["in", batch]} if isinstance(filters, dict)
+                 else [*(filters or []), ["name", "in", batch]])
+        for row in _pages(frappe.get_all, doctype, fields=list(dict.fromkeys(["name", *fields])),
+                          filters=scope, order_by="name asc", **kwargs):
+            if relevant(row):
+                frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
 
 
 def records(doctype, *, fields, filters=None, order_by="name asc", **kwargs):

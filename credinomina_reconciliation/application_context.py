@@ -42,7 +42,8 @@ def linked_application_employer(source, parent):
     return ''
 
 
-def load_application_context(employer=None, *, include_applications=True):
+def load_application_context(employer=None, *, include_applications=True, include_current_settlements=True):
+    """Load readable claims; omit current cash only when the caller reconstructs it."""
     # Dates are intentionally unrestricted: cash paid later still covers older
     # applications, and operational applications can share a collection row.
     scope = {'employer': employer} if employer else {}
@@ -61,12 +62,15 @@ def load_application_context(employer=None, *, include_applications=True):
             'national_id', 'loan_number', 'installment_number', 'currency', 'amount',
             'equivalent_currency', 'equivalent_amount', 'fx_basis', 'manual_fx_rate',
             'processing_route', 'historical_period', 'portfolio_employer', 'collection_row_id',
-            'application_allocation_detail', 'historical_remitted_usd', 'historical_detail',
+            'application_allocation_detail',
+            *(['historical_remitted_usd', 'historical_detail'] if include_current_settlements else []),
             'application_adjustment_usd'])) if include_applications else []
     collections = {row.name: row for row in child_records('CN Collection Row', periods,
         'CN Reconciliation Period', 'collection_rows', fields=[
             'name', 'parent', 'row_key', 'client', 'client_name', 'client as client_number', 'national_id', 'loan_number',
-            'installment_number', 'applied_usd', 'remittance_detail', 'rounding_adjustment_usd', 'fx_variance_usd'])} if include_applications else {}
+            'installment_number', 'applied_usd',
+            *(['remittance_detail', 'rounding_adjustment_usd', 'fx_variance_usd']
+              if include_current_settlements else [])])} if include_applications else {}
     names = {row.employer for row in [*periods.values(), *imports.values()] if row.employer}
     names.update(row.portfolio_employer for row in sources if row.portfolio_employer)
     employers = {row.name: row for row in records('CN Employer',

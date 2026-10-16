@@ -15,6 +15,12 @@ from credinomina_reconciliation.rounding import money, money_float
 
 
 def build_receivables(items, balances, employer=None, year=None, *, settlements=(), settlement_balances=None, include_settled=False):
+    # A historical cut passes every projected item as a possible recovery.
+    # Index once instead of scanning that population for each receivable/company.
+    settlements_by_origin = defaultdict(list)
+    for receipt in settlements:
+        if receipt.get('docstatus') == 1:
+            settlements_by_origin[(receipt.get('receivable_origin'), receipt.get('employer'))].append(receipt)
     output = []
     for item in items:
         if (item.get('docstatus') != 1 or item.get('category') != 'Ajuste de conciliación'
@@ -44,10 +50,7 @@ def build_receivables(items, balances, employer=None, year=None, *, settlements=
             paid, compensated = money(0), money(0)
             recoveries = []
             invalid_recovery = False
-            for receipt in settlements:
-                if (receipt.get('receivable_origin') != item.get('name')
-                        or receipt.get('employer') != company or receipt.get('docstatus') != 1):
-                    continue
+            for receipt in settlements_by_origin.get((item.get('name'), company), ()):
                 value = (settlement_balances or {}).get(receipt['name'], {})
                 if receipt.get('category') == 'Compensación entre partidas':
                     amount = money(receipt.get('compensated_usd'))
