@@ -278,6 +278,25 @@ no habilita el cierre; la falta de cobranza no bloquea una cobertura financiera 
 Los identificadores técnicos existentes de asignación directa se
 conservan por compatibilidad; la modalidad del período sigue siendo Operativa.
 
+Desde la lista **CN Reconciliation Period**, el botón **Conciliación 1 por mes**
+permite seleccionar el mes de cobranza y procesar todos sus períodos accesibles,
+incluidas ambas quincenas, sin limitarse a los filtros o la página visible. Cada
+período se procesa por separado: un error no impide continuar con los demás.
+El resultado distingue **Conforme**, **Con diferencias**, **Sin aplicaciones
+asignadas**, períodos cerrados, sin cobranza y aquellos donde no aplica esta etapa.
+**Conforme** describe el control de aplicaciones contra cobranza; el cierre
+financiero mantiene sus validaciones habituales.
+
+El enlace **Asignar y reprocesar** de un período sin aplicaciones abre un modal
+con las importaciones editables de su empresa que tienen aplicaciones operativas
+sin período. Muestra fechas, cantidad e importe, prioriza el mismo mes y señala
+las fechas de otros meses. Seleccione expresamente las importaciones que
+corresponden: se asignan sus aplicaciones pendientes y se concilia el período en
+una sola operación. Si falla, se revierte esa asignación. Los vínculos ya
+asignados a otros períodos se conservan. Al regresar al resultado mensual se
+actualiza la fila del convenio; el botón de la lista permite reabrir ese resultado
+mientras permanezca en la misma vista.
+
 ### Distribución por antigüedad (FIFO)
 
 **3. Cargar movimientos contables** actualiza las aplicaciones y sus saldos

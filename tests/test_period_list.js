@@ -21,6 +21,7 @@ assert.equal(states["Con excedente"], "Red");
 assert.equal(states.Conciliado, "Green");
 assert.equal(states.Cerrado, "Purple");
 const context = vm.createContext({__: value => value, frappe: {listview_settings: {},
+    model: {can_write: () => false},
     get_meta: () => meta, scrub: value => value.toLowerCase(),
     utils: {escape_html: value => value.replace(/</g, "&lt;").replace(/>/g, "&gt;")}}});
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_reconciliation_period_list.js"), "utf8"), context);
