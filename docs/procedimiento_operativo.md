@@ -78,7 +78,11 @@ En una importación contable individual puede elegir **Corte de cartera para val
 
 ### Guardar actualizar renombrar y desactivar un corte
 
-**Guardar** conserva los cambios permitidos de Archivo, Notas y Es Desactivar de un corte existente. No lee nuevamente el archivo, no reescribe los créditos ni recalcula sus contadores. Después de sustituir un archivo, use **Importar / actualizar corte** para procesarlo y actualizar filas y resumen. No intente corregir créditos editando resultados calculados y guardando.
+**Guardar** conserva los cambios permitidos de Archivo, Notas y Es Desactivar de un corte existente. No lee nuevamente el archivo, no reescribe los créditos ni recalcula sus contadores. Para corregir un corte, sustituya el archivo en ese mismo documento y pulse **Importar / actualizar corte**. Se reemplaza el detalle y se actualiza el resumen sin crear otro corte. No intente corregir créditos editando resultados calculados y guardando.
+
+La acción también actualiza los datos informativos de cartera de las aplicaciones vinculadas y el estado del crédito en los detalles de depósitos relacionados, incluidos los confirmados. Revisa los créditos agregados, retirados o con cambios de estado; si falta un crédito, retira la información anterior que ya no tiene respaldo. Aunque el archivo sea idéntico, vuelve a revisar las relaciones para corregir datos desactualizados. El resultado indica cuántas filas e importaciones o depósitos cambiaron y queda una nota de auditoría.
+
+**Las conciliaciones realizadas se conservan.** Esta actualización solo escribe los campos informativos de cartera: no recalcula aplicaciones ni distribuciones, no cambia importes, clientes asignados, vínculos, saldos o cierres de períodos. Si falla la actualización de un documento relacionado o faltan permisos para completarla, la operación se revierte junto con los cambios del corte.
 
 Use **Renombrar** en el menú del documento si necesita un nombre personalizado. Se conservan los vínculos y las siguientes importaciones respetan ese nombre. Renombrar no cambia la fecha del corte. Puede cargar varios cortes del mismo mes y año con nombres distintos, siempre que solo uno esté activo. Desactive el anterior antes de cargar su reemplazo; el sistema agrega un sufijo al nombre mensual si ya existe.
 

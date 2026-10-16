@@ -16,6 +16,7 @@ from credinomina_reconciliation.parsers import (
     parse_credit_portfolio,
 )
 from credinomina_reconciliation.portfolio_naming import rename_snapshot_for_date
+from credinomina_reconciliation.portfolio_refresh import refresh_portfolio_dependencies
 
 _importing_portfolio = ContextVar("cn_importing_portfolio", default=False)
 HEADER_FIELDS = ("source_file", "notes", "disabled")
@@ -183,8 +184,9 @@ def _has_legacy_numeric_credit_numbers(snapshot_name):
 @frappe.whitelist(methods=["POST"])
 def import_portfolio_snapshot(snapshot_name: str):
     _lock_portfolio_availability()
-    snapshot = frappe.get_doc("CN Credit Portfolio Snapshot", snapshot_name)
+    snapshot = frappe.get_doc("CN Credit Portfolio Snapshot", snapshot_name, for_update=True)
     snapshot.check_permission("write")
+    snapshot.check_if_locked()
     file_doc, content = _attached_file(snapshot)
     digest = file_sha256(content)
     if snapshot.file_hash == digest and snapshot.status in {
@@ -195,7 +197,10 @@ def import_portfolio_snapshot(snapshot_name: str):
             or row.validation_status != "Cliente y empresa validados"
         ) for row in snapshot.rows
     ) and not _has_legacy_numeric_credit_numbers(snapshot.name):
-        return {"snapshot_name": snapshot.name, "unchanged": True, "row_count": len(snapshot.rows)}
+        refreshed = refresh_portfolio_dependencies(snapshot, snapshot.report_date)
+        if refreshed["updated_source_rows"] or refreshed["updated_deposit_rows"]:
+            snapshot.add_comment("Comment", _portfolio_refresh_audit(refreshed))
+        return {"snapshot_name": snapshot.name, "unchanged": True, "row_count": len(snapshot.rows), **refreshed}
 
     duplicate = frappe.db.get_value(
         "CN Credit Portfolio Snapshot",
@@ -253,9 +258,10 @@ def import_portfolio_snapshot(snapshot_name: str):
     # valid. Keep normal validation/transactions and audit the import compactly.
     _save_import(snapshot, ignore_version=True)
     snapshot_name = rename_snapshot_for_date(snapshot, parsed[0]["report_date"], previous_report_date)
+    refreshed = refresh_portfolio_dependencies(snapshot, previous_report_date)
     snapshot.add_comment("Comment", _portfolio_import_audit(
         snapshot, file_doc.file_name, previous_hash, previous_count, created,
-    ))
+    ) + _portfolio_refresh_audit(refreshed))
     return {
         "snapshot_name": snapshot_name,
         "row_count": snapshot.row_count,
@@ -264,7 +270,15 @@ def import_portfolio_snapshot(snapshot_name: str):
         "status": snapshot.status,
         "created_employer_count": created["employers"],
         "created_client_count": created["clients"],
+        **refreshed,
     }
+
+
+def _portfolio_refresh_audit(result):
+    return "<p>" + escape(_(
+        "Relaciones actualizadas: {0} movimientos en {1} importaciones y {2} filas de detalle en {3} depósitos."
+    ).format(result["updated_source_rows"], result["updated_accounting_imports"],
+             result["updated_deposit_rows"], result["updated_deposits"])) + "</p>"
 
 
 def _portfolio_import_audit(snapshot, file_name, previous_hash, previous_count, created):

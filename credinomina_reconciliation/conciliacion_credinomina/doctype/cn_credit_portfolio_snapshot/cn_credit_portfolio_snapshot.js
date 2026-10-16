@@ -64,7 +64,7 @@ async function importPortfolioSnapshot(frm) {
             method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_credit_portfolio_snapshot.cn_credit_portfolio_snapshot.import_portfolio_snapshot",
             args: { snapshot_name: frm.doc.name },
             freeze: true,
-            freeze_message: __("Importando créditos y verificando clientes y empresas..."),
+            freeze_message: __("Importando créditos y actualizando los datos de cartera relacionados..."),
         });
         if (!response.message || response.exc) throw new Error("missing_import_result");
         const result = response.message;
@@ -77,15 +77,19 @@ async function importPortfolioSnapshot(frm) {
             await frm.reload_doc();
         }
         const imported = renamed ? result : frm.doc;
+        const refreshed = result.updated_source_rows || result.updated_deposit_rows;
         frappe.msgprint({
-            title: result.unchanged ? __("Corte sin cambios") : __("Corte importado"),
+            title: result.unchanged && !refreshed ? __("Corte sin cambios") : __("Corte actualizado"),
             indicator: imported.status === "Importado con alertas" ? "orange" : "green",
             message: __("{0} créditos cargados. Clientes identificados: {1}. Clientes por revisar: {2}.", [
                 imported.row_count || 0, imported.matched_client_count || 0, imported.unmatched_client_count || 0,
             ]) + (result.unchanged ? " " + __("Este archivo ya estaba importado; se conserva el detalle existente.")
                 : " " + __("Empresas creadas: {0}. Clientes creados: {1}.", [
                     result.created_employer_count || 0, result.created_client_count || 0,
-                ])),
+                ])) + " " + __("Datos de cartera actualizados: {0} movimientos en {1} importaciones y {2} filas en {3} depósitos.", [
+                    result.updated_source_rows || 0, result.updated_accounting_imports || 0,
+                    result.updated_deposit_rows || 0, result.updated_deposits || 0,
+                ]),
         });
     } catch (error) {
         // A proxy/worker error may return HTML. Never parse it as JSON or inject it

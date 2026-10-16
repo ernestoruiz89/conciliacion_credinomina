@@ -8,6 +8,7 @@ from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.paying_employers import allowed_employers
 from credinomina_reconciliation.remittance_periods import selected_periods
+from credinomina_reconciliation.report_records import INCOMPLETE_EVIDENCE
 
 IMPORTED = ["Importado", "Importado con alertas"]
 FIELDS = ("portfolio_credit_status", "portfolio_report_date", "portfolio_snapshot_used")
@@ -18,12 +19,27 @@ def period_date(period):
                or period.get("cutoff_date") or period.get("payroll_month") or "")
 
 
-def load_cuts(document, allowed):
+def load_cuts(document, allowed, *, complete=False):
     periods = selected_periods(document)
-    if not periods or not all(frappe.has_permission(doctype, "read") for doctype in (
-            "CN Reconciliation Period", "CN Accounting Import", "CN Credit Portfolio Snapshot")):
+    if not periods:
         return []
-    periods = frappe.get_list("CN Reconciliation Period", filters={
+    if not all(frappe.has_permission(doctype, "read") for doctype in (
+            "CN Reconciliation Period", "CN Accounting Import", "CN Credit Portfolio Snapshot")):
+        if complete:
+            frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+        return []
+
+    def readable(doctype, **kwargs):
+        result = frappe.get_list(doctype, **kwargs)
+        if complete:
+            # Compare the same selection (including ordering/limit) so a hidden
+            # dependency cannot clear a stored state or substitute an older cut.
+            expected = frappe.get_all(doctype, **{**kwargs, "fields": ["name"]})
+            if {row.name for row in result} != {row.name for row in expected}:
+                frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+        return result
+
+    periods = readable("CN Reconciliation Period", filters={
         "name": ["in", periods], "employer": ["in", sorted(allowed)]}, fields=[
         "name", "employer", "historical_application_date", "historical_end_date", "cutoff_date", "payroll_month"],
         limit_page_length=0)
@@ -35,7 +51,7 @@ def load_cuts(document, allowed):
         "event_type": "Aplicacion"}, or_filters={
         "historical_period": latest.name, "collection_period": latest.name},
         fields=["parent", "portfolio_snapshot_used"], limit_page_length=0)
-    imports = frappe.get_list("CN Accounting Import", filters={
+    imports = readable("CN Accounting Import", filters={
         "employer": latest.employer, "docstatus": ["!=", 2],
         "status": ["in", ["Importado", "Importado con excepciones"]]},
         or_filters={"historical_period": latest.name, "name": ["in", list({row.parent for row in sources})]},
@@ -48,12 +64,12 @@ def load_cuts(document, allowed):
                  and row.portfolio_snapshot_used)
     if not names:
         return []
-    cuts = frappe.get_list("CN Credit Portfolio Snapshot", filters={
+    cuts = readable("CN Credit Portfolio Snapshot", filters={
         "disabled": 0, "name": ["in", sorted(names)], "status": ["in", IMPORTED]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
     if not cuts or not cuts[0].report_date:
         return []
-    previous = frappe.get_list("CN Credit Portfolio Snapshot", filters={
+    previous = readable("CN Credit Portfolio Snapshot", filters={
         "disabled": 0, "status": ["in", IMPORTED], "report_date": ["<", cuts[0].report_date]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
     return cuts + previous
@@ -86,7 +102,7 @@ def apply_credit_states(details, cuts, portfolio_rows, allowed):
             break
 
 
-def update_detail_portfolio(document):
+def update_detail_portfolio(document, *, force=False):
     details = document.get("detail_rows") or []
     if not details:
         return
@@ -96,7 +112,7 @@ def update_detail_portfolio(document):
         return [(row.get("name"), row.get("loan_number"), row.get("employer"), row.get("client"))
                 for row in doc.get("detail_rows") or []]
 
-    if (previous and document.employer == previous.employer
+    if (not force and previous and document.employer == previous.employer
             and set(selected_periods(document)) == set(selected_periods(previous))
             and identity(document) == identity(previous)
             and all(row.get("portfolio_credit_status") for row in previous.get("detail_rows") or [])):
@@ -104,7 +120,7 @@ def update_detail_portfolio(document):
             row.update({field: old.get(field) for field in FIELDS})
         return
     allowed = allowed_employers(document.employer)
-    cuts = load_cuts(document, allowed)
+    cuts = load_cuts(document, allowed, complete=force)
     loans = sorted({credit_key(row.get("loan_number")) for row in details if row.get("loan_number")})
     rows = []
     if cuts:
