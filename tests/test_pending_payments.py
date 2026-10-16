@@ -117,7 +117,7 @@ class ReconcileCollectionFeedbackTests(unittest.TestCase):
              patch.object(frappe, 'throw', side_effect=throw), \
              patch.object(controller, '_reconcile_if_sources', return_value=result) as reconcile:
             response = controller.reconcile_first('P')
-            reconcile.assert_called_once_with('E', preserve_deposits=True)
+            reconcile.assert_called_once_with('E', preserve_deposits=True, period_name='P')
             return response
 
     def test_no_sources_reports_an_actionable_error(self):

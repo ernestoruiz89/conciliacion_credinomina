@@ -266,8 +266,13 @@ La asignación explícita conserva una única aplicación como destino financier
 Cuando llegue la base, sus vínculos de calidad se calculan sin duplicar la cobertura.
 
 El botón **Conciliación 1: validar aplicaciones** del período operativo actualiza
-el control contra cobranza conservando las distribuciones guardadas. El
-cierre exige completar la cobertura financiera de todas las aplicaciones
+únicamente ese período, conservando las distribuciones guardadas. Solo cruza
+aplicaciones asignadas al mismo período, directamente en la fila o mediante el
+período predeterminado de la importación. Coincidir en cliente, crédito,
+referencia o fecha no sustituye esa asignación. Las aplicaciones sin período
+quedan pendientes de asignar; si conservaban un cruce automático anterior con
+esa cobranza, volver a conciliar retira ese cruce y recalcula los totales.
+El cierre exige completar la cobertura financiera de todas las aplicaciones
 asignadas y resolver las excepciones bloqueantes. Una cobranza conforme sin pago
 no habilita el cierre; la falta de cobranza no bloquea una cobertura financiera completa.
 Los identificadores técnicos existentes de asignación directa se

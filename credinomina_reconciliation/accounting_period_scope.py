@@ -11,6 +11,7 @@ def load_imports(period):
 
 
 def selected_rows(document, period_name):
+    """Include assigned rows and old links needing cleanup, not auto-assignment."""
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
     selected = []
     for row in document.rows:

@@ -913,7 +913,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     report(30, _("Conciliando aplicaciones de pago…"))
     # Reloading with an empty parent period explicitly removes row assignments.
     # Recompute the old periods' balances without immediately matching these
-    # applications back to payroll. A later explicit reconciliation may match them.
+    # applications back to payroll. They require an explicit period assignment.
     matchable_rows = [row for row in changed_rows if row._source_import != unassigned_import]
     _match_applications(
         matchable_rows, collection_rows, deposit_pairs, complementary_by_target, periods,
@@ -1246,6 +1246,12 @@ def _match_applications_by_basis(
             source.match_status = "Sin coincidencia"
             source.match_reason = _(
                 "Aplicación del histórico: asigne el período de empresa y mes; no se compara con cobranza operativa."
+            )
+            continue
+        if not source.get("_assigned_operating_period"):
+            source.match_status = "Sin coincidencia"
+            source.match_reason = _(
+                "Aplicación sin período operativo asignado. Seleccione el período de la aplicación o el período predeterminado de su importación antes de conciliar contra cobranza."
             )
             continue
         source_employer, _employer_issue = employer_resolver.resolve(source)
