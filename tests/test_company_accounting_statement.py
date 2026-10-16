@@ -105,10 +105,12 @@ def test_cutoff_management_and_accounting_are_independent_and_summary_matches_de
         summary = report.execute({'cutoff_date': '2026-08-31'})[1][0]
         detail = report.execute({'cutoff_date': '2026-08-31', 'view_mode': 'Detalle'})[1]
     for field in statement.FIELDS:
-        assert round(sum(row.get(field, 0) for row in detail), 2) == summary[field]
+        assert round(sum(row.get(field, 0) for row in detail if not row.get('_is_statement_total')), 2) == summary[field]
     assert summary['core_balance_usd'] == -14.17
     assert summary['client_credit_usd'] == 18.46
     assert all(row['cutoff_date'] == '2026-08-31' for row in detail)
+    totals = {row['_total_component']: row['statement_amount_usd'] for row in detail if row.get('_is_statement_total')}
+    assert totals == {'core_balance_usd': -14.17, 'client_credit_usd': 18.46}
 
 
 def test_loader_reads_child_origins_and_ignores_manual_documents_without_evidence():
@@ -134,3 +136,44 @@ def test_management_drill_does_not_load_core_and_positive_credit_is_not_net():
     core.assert_not_called()
     assert values[0]['client_credit_usd'] == 60.26
     assert not any(c['fieldname'] in {'balance_usd', 'core_balance_usd'} for c in columns)
+
+
+def test_compact_detail_has_one_amount_and_final_core_balance_without_management():
+    core = ledger([evidence('APP', debit=100)], [evidence('DEP', credit=90)])
+    management = build_detail([], [], [credit(60.26)], [], adjustment_receivables=[
+        dict(name='ADJUSTMENT', employer='ACEREAL', amount_usd=-10, receivable_usd=10,
+             receivable_status='Pendiente de cobro', posting_date='2026-05-15')])
+    original = deepcopy((core, management))
+    with patch.object(report, 'load_core_detail', return_value=core), patch.object(report, 'load_detail', return_value=management):
+        columns, rows, _ = report.execute({'view_mode': 'Detalle', 'compact_view': 1})
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd']
+    amounts = {row['source_document']: row['statement_amount_usd'] for row in rows if not row.get('_is_statement_total')}
+    assert amounts == {'APP': 100, 'DEP': -90, 'CREDIT': 60.26, 'ADJUSTMENT': 10}
+    totals = {row['_total_component']: row['statement_amount_usd'] for row in rows if row.get('_is_statement_total')}
+    assert totals == {'core_balance_usd': 10, 'client_credit_usd': 60.26, 'company_receivable_usd': 10}
+    assert rows[-1]['client_name'] == 'Saldo contable del core'
+    assert rows[-1]['statement_amount_usd'] == 10
+    assert (core, management) == original
+
+
+def test_detail_totals_follow_search_scope_and_unknown_conversion():
+    core = ledger([evidence('MATCH', debit=10), evidence('OTHER', debit=100),
+        dict(evidence('MATCH-NOFX', credit=36.62), source_currency='NIO', source_fx_rate=0)])
+    with patch.object(report, 'load_core_detail', return_value=core), patch.object(report, 'load_detail') as management:
+        columns, rows, _ = report.execute({'view_mode': 'Detalle', 'statement_scope': statement.CORE,
+                                          'compact_view': 1, 'search': 'MATCH', 'component': 'core_balance_nio'})
+    management.assert_not_called()
+    assert len(rows) == 3
+    assert rows[-1]['statement_amount_usd'] is None
+    assert rows[-1]['statement_amount_nio'] == -36.62
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_nio']
+    assert report._presentation(core, {'view_mode': 'Detalle', 'search': 'ABSENT'}) == []
+
+
+def test_management_detail_total_never_fabricates_core_balance():
+    management = statement.management_detail(build_detail([], [], [credit(20.77), dict(credit(.01), name='OTHER')], []))
+    rows = report._presentation(management, {'view_mode': 'Detalle'})
+    assert len(rows) == 3
+    assert rows[-1]['_total_component'] == 'client_credit_usd'
+    assert rows[-1]['statement_amount_usd'] == 20.78
+    assert 'core_balance_usd' not in rows[-1]

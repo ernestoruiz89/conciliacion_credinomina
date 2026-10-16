@@ -1174,8 +1174,12 @@ contractual de capital, intereses y préstamo.
 
 El reporte independiente **Estado de Cuenta por Empresa**, en **6. Control y
 reportes**, abre en **Resumen** y separa contabilidad del core y gestión por empresa. **Detalle**
-usa las mismas columnas monetarias y agrega fecha, cliente, crédito, documento
-de origen, estado y observaciones. La exportación estándar conserva la vista
+en vista compacta muestra una columna **Importe US$**: débitos positivos y créditos
+negativos del core, e importes pendientes en las filas de Gestión. Al pie muestra
+totales independientes por concepto de gestión y, al final, el **Saldo contable del core**.
+Los totales respetan los filtros del reporte y nunca mezclan contabilidad y gestión.
+La vista ampliada conserva las columnas monetarias de auditoría, fecha, cliente,
+crédito, documento de origen, estado y observaciones. La exportación estándar conserva la vista
 seleccionada. El **Estado de Cuenta Operativo** mantiene su detalle anterior.
 
 Los reportes presentan las diferencias automáticas por tolerancia como **Partidas

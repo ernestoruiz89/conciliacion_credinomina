@@ -258,8 +258,9 @@ class HistoricalCutoffTests(unittest.TestCase):
                 'credinomina_reconciliation.historical_cutoff.cutoff_message', return_value='Corte'):
             summary = statement.execute({'cutoff_date': '2025-04-30'})[1]
             detail = statement.execute({'cutoff_date': '2025-04-30', 'view_mode': 'Detalle'})[1]
-        self.assertEqual(sum(row['application_pending_usd'] for row in detail), summary[0]['application_pending_usd'])
-        self.assertEqual(sum(row['core_balance_usd'] for row in detail), summary[0]['core_balance_usd'])
+        movements = [row for row in detail if not row.get('_is_statement_total')]
+        self.assertEqual(sum(row['application_pending_usd'] for row in movements), summary[0]['application_pending_usd'])
+        self.assertEqual(sum(row['core_balance_usd'] for row in movements), summary[0]['core_balance_usd'])
         self.assertEqual(summary[0]['cutoff_warning'], detail[0]['cutoff_warning'])
 
     def test_grouped_aging_preserves_cutoff_metadata(self):
