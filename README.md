@@ -278,10 +278,12 @@ no habilita el cierre; la falta de cobranza no bloquea una cobertura financiera 
 Los identificadores técnicos existentes de asignación directa se
 conservan por compatibilidad; la modalidad del período sigue siendo Operativa.
 
-Desde la lista **CN Reconciliation Period**, el botón **Conciliación 1 por mes**
+Desde la lista **CN Reconciliation Period**, el botón **Conciliación Cobranza-Aplicacion**
 permite seleccionar el mes de cobranza y procesar todos sus períodos accesibles,
 incluidas ambas quincenas, sin limitarse a los filtros o la página visible. Cada
 período se procesa por separado: un error no impide continuar con los demás.
+El modal ampliado actualiza los resultados por fila sin reconstruir la tabla,
+conservando el desplazamiento mientras avanza la conciliación o se reprocesa un convenio.
 El resultado distingue **Conforme**, **Con diferencias**, **Sin aplicaciones
 asignadas**, períodos cerrados, sin cobranza y aquellos donde no aplica esta etapa.
 **Conforme** describe el control de aplicaciones contra cobranza; el cierre
