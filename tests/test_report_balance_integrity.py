@@ -143,7 +143,7 @@ def test_invalid_recovery_excel_summary_is_unknown_and_preserves_observation():
         company_statement=dict(columns=statement.get_columns(), rows=summarize(detail), message='Revisar cobros')),
         exceptions=[], actions=[], employer_label='E', generated_at=datetime(2026,10,12))
     book = load_workbook(io.BytesIO(payload), data_only=True)
-    assert book['Resumen']['H5'].value == 'N/D' and book['Resumen']['J5'].value == 'N/D'
-    assert book['Resumen']['I5'].value == 0  # Employee debt is a separate component.
+    assert book['Resumen']['I5'].value == 'N/D' and book['Resumen']['K5'].value == 'N/D'
+    assert book['Resumen']['J5'].value == 0  # Employee debt is a separate component.
     assert book['Partidas y excepciones']['H5'].value == 'N/D'
     assert 'el exceso no es un saldo a favor' in book['Partidas y excepciones']['P5'].value

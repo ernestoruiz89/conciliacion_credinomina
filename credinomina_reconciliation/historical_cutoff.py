@@ -295,7 +295,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
     receivables = build_receivables(list(projected_items.values()), balances,
         settlements=list(projected_items.values()), settlement_balances=balances)
     detail = build_detail(applications, core, projected_items.values(), projected_deposits, filters,
-                          adjustment_receivables=receivables)
+                          adjustment_receivables=receivables, accounting_items=projected_items.values())
     return dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
                 applications=applications, receivables=receivables, periods=periods,
                 warnings=sorted(set(warnings)))
@@ -345,7 +345,7 @@ def cutoff_message(result):
     from frappe.utils import formatdate
     message = ('Corte histórico al {0}, por fecha efectiva y vínculos vigentes. '
         'Excluye operaciones posteriores; conserva las correcciones y cancelaciones actuales. '
-        'No reproduce lo que se conocía entonces. La cobranza no es CxC. '
+        'No reproduce lo que se conocía entonces. El estado de registro contable es el actual. La cobranza no es CxC. '
         'Desde/Hasta solo limitan la fecha de origen.').format(escape(formatdate(result['cutoff_date'])))
     if result['warnings']:
         message += '<br><strong>Advertencias del corte:</strong><ul>' + ''.join(

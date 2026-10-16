@@ -33,13 +33,14 @@ class CompanySummaryExportTests(TestCase):
         sheet = book['Resumen']
         self.assertEqual([cell.value for cell in sheet[4]], [column['label'] for column in columns])
         self.assertEqual([cell.value for cell in sheet[5]],
-                         ['REPSA', 6, 4474.07, -7.35, -0.18, -154.28, -3173.81, 0.01, 1138.46])
-        self.assertEqual(sheet['D6'].value, 'N/D')
-        self.assertEqual(sheet['I6'].value, 'N/D')
-        self.assertEqual(sheet['C6'].value, 0)
+                         ['REPSA', 6, 0, 4474.07, -7.35, -0.18, -154.28, -3173.81, 0.01, 0, 1138.46])
+        self.assertEqual(sheet['E6'].value, 'N/D')
+        self.assertEqual(sheet['K6'].value, 'N/D')
+        self.assertEqual(sheet['D6'].value, 0)
         self.assertEqual(sheet['B6'].value, 1)
-        self.assertEqual(sheet['I5'].number_format, MONEY_FORMAT)
-        self.assertEqual(sheet.auto_filter.ref, 'A4:I6')
+        self.assertEqual(sheet['C6'].value, 0)
+        self.assertEqual(sheet['K5'].number_format, MONEY_FORMAT)
+        self.assertEqual(sheet.auto_filter.ref, 'A4:K6')
         self.assertEqual(sheet['A9'].value, message)
 
     def test_empty_summary_retains_report_headers(self):
@@ -49,4 +50,4 @@ class CompanySummaryExportTests(TestCase):
         sheet = load_workbook(io.BytesIO(payload))['Resumen']
         self.assertEqual([cell.value for cell in sheet[4]],
                          [column['label'] for column in report.get_columns()])
-        self.assertEqual(sheet.auto_filter.ref, 'A4:I4')
+        self.assertEqual(sheet.auto_filter.ref, 'A4:K4')

@@ -42,6 +42,7 @@ class CompanyStatementTests(unittest.TestCase):
         detail = self.example()
         summary = statement.summarize(detail)
         self.assertEqual(summary, [dict(employer='REPSA', usd_currency='USD', pending_count=5,
+            accounting_pending_count=0,
             application_pending_usd=4474.07, core_pending_usd=-7.35,
             company_credit_usd=-.18, client_credit_usd=-154.28,
             deposit_pending_usd=-3173.81, company_receivable_usd=0, employee_receivable_usd=0, balance_usd=1138.45)])
@@ -83,6 +84,45 @@ class CompanyStatementTests(unittest.TestCase):
             [self.deposit(amount_usd=164.28, allocated_usd=0, justified_surplus_usd=164.28)])
         self.assertEqual(detail, [])
         self.assertEqual(statement.summarize(detail), [])
+
+    def test_manual_complementary_without_financial_balance_stays_visible_for_registration(self):
+        item = self.credit(credit_pending_usd=0, accounting_status='Pendiente de registro',
+                           description='Saldo ya aplicado')
+        detail = statement.build_detail([], [], [item], [], accounting_items=[item])
+        self.assertEqual(len(detail), 1)
+        self.assertEqual(detail[0]['source_document'], 'SF')
+        self.assertEqual(detail[0]['origin_type'], 'Complementaria manual')
+        self.assertEqual(detail[0]['accounting_status'], 'Pendiente de registro')
+        self.assertEqual(detail[0]['balance_usd'], 0)
+        self.assertEqual(detail[0]['status'], 'Solo control contable')
+        summary = statement.summarize(detail)[0]
+        self.assertEqual((summary['pending_count'], summary['accounting_pending_count'], summary['balance_usd']),
+                         (0, 1, 0))
+        self.assertEqual(len(statement.build_detail([], [], [item], [],
+            {'accounting_queue': 1}, accounting_items=[item])), 1)
+        self.assertEqual(statement.build_detail([], [], [item], [],
+            {'origin_type': 'Core'}, accounting_items=[item]), [])
+
+    def test_open_manual_item_counted_once_and_core_item_never_in_registration_queue(self):
+        manual = self.credit(accounting_status='Asiento informado')
+        core = self.core(docstatus=1, accounting_status='Pendiente de registro')
+        detail = statement.build_detail([], [core], [manual], [], accounting_items=[manual, core])
+        self.assertEqual(len(detail), 2)
+        self.assertEqual({row['source_document']: row['origin_type'] for row in detail},
+                         {'SF': 'Complementaria manual', 'C': 'Core'})
+        summary = statement.summarize(detail)[0]
+        self.assertEqual(summary['pending_count'], 2)
+        self.assertEqual(summary['accounting_pending_count'], 1)
+        queued = statement.build_detail([], [core], [manual], [],
+            {'accounting_queue': 1}, accounting_items=[manual, core])
+        self.assertEqual([row['source_document'] for row in queued], ['SF'])
+
+    def test_compact_detail_displays_origin_and_registration_and_summary_has_queue_count(self):
+        detail = report.get_columns({'view_mode': 'Detalle', 'compact_view': 1})
+        visible = {column['fieldname'] for column in detail if not column.get('hidden')}
+        self.assertTrue({'origin_type', 'accounting_status', 'source_document'} <= visible)
+        summary = report.get_columns({'compact_view': 1})
+        self.assertIn('accounting_pending_count', {column['fieldname'] for column in summary})
 
     def test_core_draft_is_included_manual_draft_and_cancelled_deposits_are_not(self):
         detail = statement.build_detail([], [], [], [

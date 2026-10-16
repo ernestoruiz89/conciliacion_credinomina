@@ -23,28 +23,42 @@ METRICS = (
 )
 FIELDS = tuple(field for field, label in METRICS)
 CREDIT_CATEGORIES = {'Saldo a favor de la empresa', 'Saldo a favor del cliente'}
+PENDING_REGISTRATION = {'Pendiente de registro', 'Asiento informado'}
+
+
+def _origin_type(source, doctype):
+    if doctype == 'CN Complementary Item':
+        return 'Core' if source.get('accounting_source_key') else 'Complementaria manual'
+    if doctype == 'CN Remittance Allocation':
+        return 'Core' if source.get('accounting_source_key') else 'Depósito manual'
+    return 'Core' if doctype == 'CN Accounting Import' else 'Período'
 
 
 def _row(source, kind, doctype, document, event_date, field, amount, **extra):
+    origin_type = _origin_type(source, doctype)
     result = dict(employer=source.get('employer'), usd_currency='USD',
         event_date=event_date, position_type=kind, source_doctype=doctype,
         source_document=document, client_name=source.get('client_name') or source.get('source_client_name'),
         client_number=source.get('client_number'), loan_number=source.get('loan_number'),
         period=source.get('period'), source_rows=source.get('source_rows'),
         reason_type=source.get('reason_type') or '',
+        origin_type=origin_type,
+        accounting_pending=(doctype == 'CN Complementary Item' and origin_type == 'Complementaria manual'
+                            and source.get('accounting_status') in PENDING_REGISTRATION),
         accounting_status=source.get('accounting_status') or '',
         management_status=source.get('credit_management_status') or '',
         subcategory=source.get('subcategory') or '',
         treatment_status=source.get('treatment_status') or '',
         observation=source.get('observation') or '', **{key: 0.0 for key in FIELDS})
-    result[field] = None if amount is None else money_float(amount)
+    if field:
+        result[field] = None if amount is None else money_float(amount)
     result['_component'] = field
-    result['balance_usd'] = result[field]
+    result['balance_usd'] = result[field] if field else 0.0
     result.update(extra)
     return result
 
 
-def build_detail(applications, core_items, credits, deposits, filters=None, *, adjustment_receivables=()):
+def build_detail(applications, core_items, credits, deposits, filters=None, *, adjustment_receivables=(), accounting_items=()):
     """Compute each remaining amount once; filters act after all-time settlement."""
     filters = filters or {}
     result = []
@@ -155,13 +169,31 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
             observed_usd=item.get('observed_usd'),
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
             accounting_status=item.get('accounting_status')))
+    # A complementary item without a financial row here can still need an
+    # accounting entry. Keep it searchable without inventing a ledger balance.
+    represented = {row['source_document'] for row in result
+                   if row['source_doctype'] == 'CN Complementary Item'}
+    for item in accounting_items:
+        if (item.get('docstatus') != 1 or item.get('accounting_source_key')
+                or item.get('accounting_status') not in PENDING_REGISTRATION
+                or item['name'] in represented):
+            continue
+        result.append(_row(item, 'Control contable', 'CN Complementary Item', item['name'],
+            item.get('posting_date'), None, 0, status='Solo control contable',
+            category=item.get('category'), reference=item.get('reference') or item.get('voucher'),
+            observation='; '.join(filter(None, [
+                'Fila de control: contribución cero al saldo de este reporte; revise la partida para conocer su saldo financiero',
+                item.get('description')]))))
+        represented.add(item['name'])
     def matches(row):
         if filters.get('employer') and row.get('employer') != filters['employer']:
             return False
         for field in ('position_type', 'status', 'category', 'subcategory', 'reason_type',
-                      'accounting_status', 'management_status', 'treatment_status'):
+                      'accounting_status', 'management_status', 'treatment_status', 'origin_type'):
             if filters.get(field) and row.get(field) != filters[field]:
                 return False
+        if str(filters.get('accounting_queue') or '0') in {'1', 'True'} and not row['accounting_pending']:
+            return False
         component = filters.get('component')
         if component in FIELDS and row.get('_component') != component:
             return False
@@ -190,14 +222,18 @@ def summarize(detail):
     for row in detail:
         employer = row.get('employer') or ''
         group = groups.setdefault(employer, dict(employer=employer or None, usd_currency='USD',
-            pending_count=0, **{field: money(0) for field in FIELDS}))
-        group['pending_count'] += 1
+            pending_count=0, accounting_pending_count=0, **{field: money(0) for field in FIELDS}))
+        if row.get('_component', True):
+            group['pending_count'] += 1
+        if row.get('accounting_pending'):
+            group.setdefault('_accounting_documents', set()).add(row['source_document'])
         for field in FIELDS:
             group[field] = (None if group[field] is None or row[field] is None
                             else group[field] + money(row[field]))
     result = []
     for employer in sorted(groups):
         row = groups[employer]
+        row['accounting_pending_count'] = len(row.pop('_accounting_documents', set()))
         row['balance_usd'] = (None if any(row[field] is None for field in FIELDS)
                               else sum_money(row[field] for field in FIELDS))
         for field in (*FIELDS, 'balance_usd'):
@@ -234,5 +270,11 @@ def load_detail(filters):
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',
                 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit'])) if wanted('deposit_pending_usd') else []
+    accounting_items = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,
+        'accounting_source_key': ['is', 'not set'], 'accounting_status': ['in', sorted(PENDING_REGISTRATION)]},
+        fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'accounting_status',
+                'posting_date', 'category', 'client_name', 'client_number', 'loan_number',
+                'period', 'reference', 'voucher', 'description', 'reason_type', 'subcategory'])) if component not in FIELDS else []
     return build_detail(applications, core, credits, deposits, filters,
-                        adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') or wanted('employee_receivable_usd') else [])
+                        adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') or wanted('employee_receivable_usd') else [],
+                        accounting_items=accounting_items)
