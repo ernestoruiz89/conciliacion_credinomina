@@ -536,3 +536,26 @@ la cobranza, conservando las distribuciones de depósitos.
 
 No requiere cambios de esquema. Los datos reales se recalculan al actualizar el
 servidor y ejecutar nuevamente la primera conciliación del período afectado.
+
+## Conciliación 1 mensual desde la lista — 16 de octubre de 2026
+
+El flujo consulta todos los períodos accesibles del mes y procesa cada uno en
+una petición independiente. Informa aplicaciones sin asignar y permite elegir
+importaciones de la misma empresa en un modal, asignarlas y reprocesar el período
+en una transacción. Verifica permisos, versiones de documentos, aplicaciones
+seleccionadas y las protecciones existentes de dinero y períodos cerrados.
+
+- 60 pruebas y 30 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0.
+- `test_monthly_first_reconciliation_ui.js` verifica que se continúa después de
+  errores, se conserva el resultado mensual, se escapa el contenido mostrado,
+  no se preseleccionan importaciones y se actualiza el resultado al reprocesar.
+  También pasó `test_period_list.js` para las columnas e indicadores existentes.
+- `smoke_monthly_first_reconciliation.run` verifica con SQL y controladores
+  reales dos empresas del mismo mes, exclusión de otro mes, reporte de falta de
+  asignación, selección de dos importaciones, reversión tras un fallo y
+  conciliación posterior conforme. Repetir la operación conserva los totales.
+  El ensayo se limita a `cn-reconciliation-test.local`, revierte sus registros
+  y comprueba los conteos iniciales.
+
+No requiere cambios de esquema. Actualizar el código y recargar la lista para
+mostrar el botón nuevo.

@@ -12,6 +12,9 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         },
     },
     onload(listview) {
+        if (frappe.model.can_write("CN Reconciliation Period") && frappe.model.can_write("CN Accounting Import")) {
+            listview.page.add_inner_button(__("Conciliación 1 por mes"), () => cn_monthly_first_dialog(listview));
+        }
         const settings = listview.list_view_settings;
         const hiddenColumns = new Set([
             "reconciliation_mode", "historical_application_date",
@@ -35,3 +38,139 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         listview.render_header(true);
     },
 };
+
+function cn_monthly_error(error) {
+    try {
+        const messages = JSON.parse(error?._server_messages || error?.responseJSON?._server_messages || "[]");
+        if (messages.length) {
+            const message = typeof messages[0] === "string" ? JSON.parse(messages[0]) : messages[0];
+            if (message.message) return String(message.message).replace(/<[^>]*>/g, "");
+        }
+    } catch (_) { /* Use the plain fallback below. */ }
+    return error?.message || __("No se pudo completar. Abra el período para revisar e intente nuevamente.");
+}
+
+function cn_monthly_first_dialog(listview) {
+    if (listview.cn_monthly_first_dialog) {listview.cn_monthly_first_dialog.show(); return;}
+    const api = "credinomina_reconciliation.monthly_first_reconciliation.";
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    let busy = false, results = [], completed = 0, month = "";
+    function render() {
+        const counts = results.reduce((all, row) => {all[row.state] = (all[row.state] || 0) + 1; return all;}, {});
+        const summary = Object.entries(counts).map(([state, count]) => `${esc(__(state))}: ${count}`).join(" · ");
+        dialog.fields_dict.results.$wrapper.html(`<p><strong>${esc(__("Mes"))}: ${esc(month.slice(0, 7))}</strong> · ${completed}/${results.length} ${esc(__("procesados"))}</p>
+            <p>${summary}</p><div style="max-height:55vh;overflow:auto"><table class="table table-bordered">
+            <thead><tr><th>${__("Convenio / período")}</th><th>${__("Resultado de conciliación 1")}</th><th>${__("Aplicaciones asignadas")}</th><th>${__("Detalle")}</th><th>${__("Acción")}</th></tr></thead>
+            <tbody>${results.map((row, index) => `<tr><td>${esc(row.employer)}<br><a href="/app/cn-reconciliation-period/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">${esc(row.name)}</a></td>
+            <td>${esc(__(row.state))}</td><td>${esc(row.assigned ?? "—")}</td>
+            <td>${esc(row.error || (row.reviewed != null ? __("{0} de {1} filas conformes; {2} con diferencias; {3} sin base.", [row.conforming, row.reviewed, row.differences, row.missing_basis]) : ""))}</td>
+            <td>${!busy && row.can_assign ? `<a href="#" data-assign="${index}">${__("Asignar y reprocesar")}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`);
+    }
+    const dialog = new frappe.ui.Dialog({title: __("Conciliación 1 por mes"), size: "extra-large", fields: [
+        {fieldname: "payroll_month", fieldtype: "Date", label: __("Mes de cobranza"), reqd: 1,
+            default: frappe.datetime.now_date().slice(0, 7) + "-01",
+            description: __("Seleccione una fecha del mes. Se procesarán todos sus períodos accesibles, sin limitarse a la página o filtros de la lista.")},
+        {fieldname: "results", fieldtype: "HTML"},
+    ], primary_action_label: __("Conciliar mes"), async primary_action(values) {
+        if (busy) return;
+        month = values.payroll_month.slice(0, 7) + "-01";
+        busy = true;
+        dialog.disable_primary_action();
+        dialog.set_df_property("payroll_month", "read_only", 1);
+        results = [];
+        completed = 0;
+        render();
+        try {
+            const response = await frappe.call({method: api + "list_periods", args: {payroll_month: month}});
+            results = (response.message || []).map(row => ({...row, state: "Pendiente"}));
+            completed = 0;
+            render();
+            for (let index = 0; index < results.length; index++) {
+                const row = results[index];
+                row.state = "Procesando";
+                render();
+                try {
+                    const response = await frappe.call({method: api + "reconcile_period", type: "POST",
+                        args: {period_name: row.name, payroll_month: month}});
+                    results[index] = {...row, ...response.message};
+                } catch (error) {
+                    results[index] = {...row, state: "Error", error: cn_monthly_error(error)};
+                }
+                completed++;
+                render();
+            }
+            if (!results.length) frappe.msgprint(__("No hay períodos accesibles para el mes seleccionado."));
+            else frappe.show_alert({message: __("Conciliación mensual finalizada. Revise el resultado de cada convenio."), indicator: "blue"});
+            listview.refresh();
+        } finally {
+            busy = false;
+            dialog.enable_primary_action();
+            dialog.set_df_property("payroll_month", "read_only", 0);
+            render();
+        }
+    }});
+    dialog.fields_dict.results.$wrapper.on("click", "[data-assign]", async event => {
+        event.preventDefault();
+        if (busy) return;
+        const index = Number(event.currentTarget.dataset.assign);
+        const row = results[index];
+        if (!row?.can_assign) return;
+        busy = true;
+        dialog.disable_primary_action();
+        dialog.set_df_property("payroll_month", "read_only", 1);
+        try {
+            await cn_monthly_assign_dialog(row.name, updated => {
+                results[index] = {...row, ...updated};
+                listview.refresh();
+            });
+        } finally {
+            busy = false;
+            dialog.enable_primary_action();
+            dialog.set_df_property("payroll_month", "read_only", 0);
+            render();
+        }
+    });
+    listview.cn_monthly_first_dialog = dialog;
+    dialog.show();
+}
+
+async function cn_monthly_assign_dialog(period, onUpdated) {
+    const api = "credinomina_reconciliation.monthly_first_reconciliation.";
+    const response = await frappe.call({method: api + "get_unassigned_imports", args: {period_name: period}});
+    const data = response.message;
+    if (!data.imports.length) {
+        frappe.msgprint(__("No hay importaciones con aplicaciones operativas pendientes de asignar que pueda editar para esta empresa. Revise o cargue los movimientos en CN Accounting Import."));
+        return;
+    }
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    return new Promise(resolve => {
+        let saving = false;
+        const dialog = new frappe.ui.Dialog({title: __("Asignar aplicaciones y reprocesar"), size: "extra-large", fields: [
+            {fieldtype: "HTML", options: `<p><strong>${esc(data.employer)} · ${esc(data.period)}</strong></p><p>${__("Seleccione las importaciones. Se asignarán sus aplicaciones pendientes al período indicado. Revise las fechas e importes, especialmente cuando correspondan a otro mes.")}</p>`},
+            {fieldname: "imports", fieldtype: "Table", cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+                data: data.imports.map(row => ({...row, import_name: row.name, selected: 0, date_scope: row.same_month ? __("Mismo mes") : __("Revisar mes")})), fields: [
+                    {fieldname: "selected", fieldtype: "Check", label: __("Asignar"), in_list_view: 1, columns: 1},
+                    {fieldname: "import_name", fieldtype: "Link", options: "CN Accounting Import", label: __("Importación"), read_only: 1, in_list_view: 1, columns: 3},
+                    {fieldname: "start_date", fieldtype: "Date", label: __("Desde"), read_only: 1, in_list_view: 1, columns: 1},
+                    {fieldname: "end_date", fieldtype: "Date", label: __("Hasta"), read_only: 1, in_list_view: 1, columns: 1},
+                    {fieldname: "count", fieldtype: "Int", label: __("Aplicaciones"), read_only: 1, in_list_view: 1, columns: 1},
+                    {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", label: __("Importe US$"), precision: 2, read_only: 1, in_list_view: 1, columns: 2},
+                    {fieldname: "date_scope", fieldtype: "Data", label: __("Mes"), read_only: 1, in_list_view: 1, columns: 1},
+                ]},
+        ], primary_action_label: __("Asignar y reprocesar"), async primary_action() {
+            if (saving) return;
+            const selected = dialog.fields_dict.imports.df.data.filter(row => row.selected);
+            if (!selected.length) {frappe.msgprint(__("Seleccione al menos una importación.")); return;}
+            saving = true;
+            dialog.disable_primary_action();
+            try {
+                const response = await frappe.call({method: api + "assign_and_reconcile", type: "POST", freeze: true,
+                    args: {period_name: period, modified: data.modified,
+                        selections: JSON.stringify(selected.map(row => ({name: row.import_name, modified: row.modified, applications: row.applications})))}});
+                onUpdated(response.message);
+                dialog.hide();
+            } finally {saving = false; dialog.enable_primary_action();}
+        }, onhide: () => resolve()});
+        dialog.show();
+    });
+}
