@@ -60,6 +60,7 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     events.refresh(frm);
     assert.equal(properties["amount:read_only"], 1);
     assert.equal(typeof actions["Consultar saldo a fecha"], "function");
+    assert.equal(typeof actions["Corregir fecha de compensación"], "function");
     delete actions["Compensar con otra partida"];
     frm.doc.compensation_pending_usd = 0;
     events.refresh(frm);
@@ -97,6 +98,25 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
     assert.equal(typeof actions["Revertir compensación"], "function");
+    context.frappe.call = async args => {
+        calls.push(args);
+        return {message: args.method.endsWith("get_date_correction_candidates") ? {
+            request_key: "correction-key", rows: [{operation_id: "original-op", counterpart: "CORE",
+                compensation_date: "2026-10-07", amount_usd: 18.46, reversed: true}],
+        } : {}};
+    };
+    context.frappe.msgprint = text => calls.push(text);
+    await actions["Corregir fecha de compensación"]();
+    const operation = dialog.fields.find(field => field.fieldname === "operation").options[0];
+    assert.ok(operation.includes("Revertida"));
+    assert.ok(dialog.fields[0].options.includes("volverá a quedar compensada"));
+    await dialog.primary_action({operation, compensation_date: "2025-06-01", reason: "Error en fecha"});
+    const correction = calls.find(value => value.method?.endsWith("correct_compensation_date"));
+    assert.equal(correction.args.operation_id, "original-op");
+    assert.equal(correction.args.compensation_date, "2025-06-01");
+    assert.equal(correction.args.request_key, "correction-key");
+    assert.equal(frm._cn_correcting_compensation_date, false);
+    assert.ok(calls.some(value => typeof value === "string" && value.includes("Reconstruya los reportes")));
     frm.doc.docstatus = 0;
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);

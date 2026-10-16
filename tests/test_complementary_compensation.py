@@ -164,6 +164,75 @@ class ComplementaryCompensationTests(unittest.TestCase):
                 left.save.assert_not_called()
                 right.save.assert_not_called()
 
+    def test_date_correction_after_reversal_preserves_history_and_all_cutoffs(self):
+        left, right = self.reversal_pair()
+        with self.reversal_context(left, right):
+            offsets.reverse_compensation('A', 'a' * 32, '2025-09-01', 'Error de fecha', 'b' * 32)
+            before = [[dict(row) for row in doc.compensations] for doc in (left, right)]
+            args = ('A', 'a' * 32, '2025-06-01', 'Fecha correcta según asiento', 'c' * 32)
+            offsets.correct_compensation_date(*args)
+            offsets.correct_compensation_date(*args)
+            for doc, history in zip((left, right), before):
+                self.assertEqual([dict(row) for row in doc.compensations[:2]], history)
+                self.assertEqual(len(doc.compensations), 5)
+                self.assertEqual(offsets.balance(doc, '2025-05-31')['compensated_usd'], 0)
+                for date in ('2025-06-01', '2025-07-01', '2025-08-01', '2025-08-31', '2025-09-01', '2026-10-03'):
+                    self.assertEqual(offsets.balance(doc, date)['compensated_usd'], 30)
+                self.assertEqual(doc.save.call_count, 2)
+            self.assertEqual([r['operation_id'] for r in offsets.get_reversible_compensations('A')['rows']], ['c' * 32])
+            self.assertEqual([r['operation_id'] for r in offsets.get_date_correction_candidates('A')['rows']], ['c' * 32])
+            with self.assertRaisesRegex(ValueError, 'ya fue corregida'):
+                offsets.correct_compensation_date('A', 'a' * 32, '2025-06-01', 'Otra', 'd' * 32)
+            offsets.reverse_compensation('A', 'c' * 32, '2025-10-01', 'Reversión posterior', 'd' * 32)
+            self.assertEqual(offsets.balance(left, '2025-09-30')['compensated_usd'], 30)
+            self.assertEqual(offsets.balance(left, '2025-10-01')['compensated_usd'], 0)
+
+    def test_correction_of_active_compensation_does_not_increase_current_usage(self):
+        left, right = self.reversal_pair()
+        with self.reversal_context(left, right):
+            offsets.correct_compensation_date('A', 'a' * 32, '2025-06-01', 'Fecha correcta', 'c' * 32)
+            for doc in (left, right):
+                self.assertEqual(len(doc.compensations), 3)
+                self.assertEqual(offsets.balance(doc)['compensated_usd'], 30)
+                self.assertEqual(offsets.balance(doc, '2025-06-01')['compensated_usd'], 30)
+            with self.assertRaisesRegex(ValueError, 'otros datos'):
+                offsets.correct_compensation_date('A', 'a' * 32, '2025-07-01', 'Fecha correcta', 'c' * 32)
+
+    def test_date_correction_rejects_invalid_pairs_dates_and_permissions_before_saving(self):
+        for problem in ('future', 'before_origin', 'same_date', 'empty_reason', 'permission', 'missing', 'amount', 'reversal', 'receivable'):
+            with self.subTest(problem=problem):
+                left, right = self.reversal_pair()
+                date, reason = '2025-06-01', 'Corrección'
+                if problem == 'future': date = '2030-01-01'
+                if problem == 'before_origin': date = '2025-03-01'
+                if problem == 'same_date': date = '2025-08-01'
+                if problem == 'empty_reason': reason = ''
+                if problem == 'permission': right.check_permission.side_effect = PermissionError
+                if problem == 'missing': right.compensations = []
+                if problem == 'amount': right.compensations[0].amount_usd = 29
+                if problem == 'receivable': right.receivable_origin = 'RECEIVABLE'
+                if problem == 'reversal': left.compensations.append(frappe._dict(operation_id='b' * 32,
+                    reverses_operation_id='a' * 32, compensation_date='2025-09-01', amount_usd=-30, counterpart='B'))
+                with self.reversal_context(left, right), patch('credinomina_reconciliation.receivable_recovery.lock_recovery_origins'), self.assertRaises((ValueError, PermissionError)):
+                    offsets.correct_compensation_date('A', 'a' * 32, date, reason, 'c' * 32)
+                left.save.assert_not_called()
+                right.save.assert_not_called()
+
+    def test_correction_cannot_overconsume_at_an_intermediate_cutoff(self):
+        left, right = self.reversal_pair()
+        with self.reversal_context(left, right):
+            offsets.reverse_compensation('A', 'a' * 32, '2025-09-01', 'Error', 'b' * 32)
+            for doc, other in ((left, right), (right, left)):
+                doc.compensations.extend([
+                    frappe._dict(operation_id='e' * 32, counterpart=other.name, amount_usd=80, compensation_date='2025-05-01'),
+                    frappe._dict(operation_id='f' * 32, counterpart=other.name, amount_usd=-80, compensation_date='2025-07-01', reverses_operation_id='e' * 32),
+                ])
+                doc.save.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'saldo compensado inválido'):
+                offsets.correct_compensation_date('A', 'a' * 32, '2025-06-01', 'Corrección', 'c' * 32)
+            left.save.assert_not_called()
+            right.save.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
