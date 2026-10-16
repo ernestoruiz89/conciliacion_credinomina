@@ -1,12 +1,17 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 let events, dialog, allow = true, creditPreview = false;
+const postingDates = {A: "2025-04-01", B: "2025-06-15", EARLIER: "2025-03-31", SAME: "2025-04-01"};
 const actions = {}, calls = [], properties = {};
 class Dialog {
     constructor(options) {
         Object.assign(this, options);
         this.values = {};
+        for (const field of this.fields) this.values[field.fieldname] = field.default;
         this.fields_dict = {summary: {$wrapper: {empty() {}, html(value) { calls.push(value); }}}};
+        for (const field of this.fields) {
+            this.fields_dict[field.fieldname] = {...this.fields_dict[field.fieldname], df: field};
+        }
         dialog = this;
     }
     get_value(field) { return this.values[field]; }
@@ -17,20 +22,20 @@ class Dialog {
     hide() { calls.push("hide"); }
 }
 const summary = name => ({name, original_usd: 100, compensated_usd: 0, pending_usd: 100,
-    posting_date: "2025-04-01", description: "<script>bad</script>"});
+    posting_date: postingDates[name], description: "<script>bad</script>"});
 const context = vm.createContext({__: text => text, format_currency: value => `USD ${value}`, frappe: {
     ui: {form: {on: (_name, handlers) => { events = handlers; }}, Dialog},
     datetime: {get_today: () => "2026-10-01", str_to_user: date => "formatted:" + date},
     utils: {escape_html: value => value.replaceAll("<", "&lt;")},
     call: async args => {calls.push(args); return {message: {left: creditPreview
         ? {...summary("CREDIT"), is_credit: true, client_name: "Ana", client_number: "123", management_pending_usd: 0}
-        : summary("A"), right: summary("B"), suggested_usd: 100, request_key: "key"}};},
+        : summary("A"), right: summary(args.args.counterpart || "B"), suggested_usd: 100, request_key: "key"}};},
     show_alert: () => calls.push("alert"), listview_settings: {},
 }});
 const base = path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_complementary_item");
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item_list.js"), "utf8"), context);
-const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
+const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_date: postingDates.A},
     is_new: () => false, is_dirty: () => true, get_perm: () => allow, trigger() {},
     set_df_property: (field, prop, value) => { properties[field + ":" + prop] = value; },
     add_custom_button: (label, handler) => {actions[label] = handler;},
@@ -46,8 +51,24 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     assert.ok(!dialog.fields.find(field => field.fieldname === "counterpart").get_query().filters.category[1].includes("Saldo a favor del cliente"));
     assert.equal(calls[0], "save");
     assert.equal(dialog.disabled, true);
+    assert.equal(dialog.values.compensation_date, "2025-04-01");
     await dialog.set_value("counterpart", "B");
     await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
+    assert.equal(dialog.values.compensation_date, "2025-06-15", "Use the later counterpart date instead of today");
+    await dialog.set_value("compensation_date", "2025-08-01");
+    await dialog.fields.find(field => field.fieldname === "credit_effect").onchange();
+    assert.equal(dialog.values.compensation_date, "2025-08-01", "Keep an edited date when refreshing the same counterpart");
+    for (const counterpart of ["EARLIER", "SAME"]) {
+        await dialog.set_value("counterpart", counterpart);
+        await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
+        assert.equal(dialog.values.compensation_date, "2025-04-01", "Use the current item's date when it is later or equal");
+    }
+    await dialog.set_value("counterpart", "");
+    await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
+    assert.equal(dialog.values.compensation_date, "2025-04-01");
+    await dialog.set_value("counterpart", "B");
+    await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
+    assert.equal(dialog.values.compensation_date, "2025-06-15", "Update the default when selecting another counterpart");
     assert.equal(dialog.values.amount_usd, 100);
     assert.equal(dialog.disabled, false);
     const html = calls.find(value => typeof value === "string" && value.includes("&lt;script>"));
