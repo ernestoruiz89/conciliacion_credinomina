@@ -488,3 +488,28 @@ El modo acumulado permite un reporte nuevo sin movimientos, siempre que conserve
 el encabezado contable válido, para informar todas las ausencias del alcance anterior.
 Las cargas iniciales vacías siguen rechazándose. No requiere migración de esquema;
 la versión instalada del servidor debe actualizarse antes de usar la mejora.
+
+## Distribución de ajustes entre aplicaciones — 16 de octubre de 2026
+
+La partida conserva su aplicación original y admite vínculos adicionales con
+importes individuales. El detalle muestra importación, aplicación, cliente,
+crédito, fecha, total distribuido y remanente. Los borradores no afectan saldos
+hasta su confirmación; cancelar revierte todos los importes y conserva el detalle.
+
+Validación local:
+
+- Selección de 149 pruebas y 44 subpruebas aprobadas tanto en Frappe 15.117.0
+  como en Frappe 16.52.0. Se excluyó una prueba con fallo previo documentado:
+  esperaba hasta cuatro consultas de candidatos y actualmente realiza seis.
+- Tres archivos JavaScript aprobados: distribución entre aplicaciones,
+  vinculación de ajustes y compensación entre partidas.
+- `smoke_application_adjustment_links.run`, con SQL y controladores reales en
+  `cn-reconciliation-test.local`: conserva el vínculo inicial de US$0.17,
+  distribuye US$0.47 entre cuatro aplicaciones y concilia el período. Verifica
+  detalle completo, rechazo de excesos y edición directa del historial,
+  cancelación de los cinco vínculos y distribución en borrador sin efecto
+  financiero previo a confirmar. Todo se revierte al terminar y se comprueban
+  los conteos iniciales. No se modificaron registros de producción.
+
+Esta mejora requiere actualizar el código y ejecutar `bench --site <sitio> migrate`
+para agregar los campos de historial y detalle a la partida complementaria.

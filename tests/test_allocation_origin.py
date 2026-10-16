@@ -53,7 +53,8 @@ class AllocationOriginTests(unittest.TestCase):
                           deposit_meta={'D': {'account': account}}, rounding_movements=[
                               dict(claim_id='H:A', deposit_id='D', name='ADJ', signed_amount_usd=.01,
                                    consumed_residual_usd=.01, period='P')])
-        with patch.object(engine, '_save_reconciled_document'):
+        with patch.object(engine, '_save_reconciled_document'), \
+             patch('credinomina_reconciliation.credit_application.load_allocations', return_value=[]):
             engine._rebuild_historical_balances([period], [row], allocation)
         details = json.loads(row.historical_detail)
         self.assertEqual([r['origen'] for r in details], [DETAIL, TOLERANCE])

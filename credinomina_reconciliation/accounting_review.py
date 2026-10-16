@@ -150,8 +150,7 @@ def validate_review_item(doc, previous=None):
         doc.related_import = ""
     if action == "Reversión identificada" and not doc.get("related_application"):
         frappe.throw(_("Vincule la aplicación original antes de marcar la reversión como identificada."))
-    reviewed = action in {"No conciliatoria", "Reversión identificada", "Partida de depósito"}
-    if reviewed and not clean_text(doc.get("review_notes")):
+    if action == "No conciliatoria" and not clean_text(doc.get("review_notes")):
         frappe.throw(_("Indique las observaciones de la revisión."))
     doc.review_status = (action if action in {"No conciliatoria", "Reversión identificada"}
                          else "Pendiente de identificar" if not doc.employer
@@ -179,7 +178,7 @@ def application_candidates(item_name, accounting_import):
     parent.check_permission("read")
     if not item.employer or (parent.employer and parent.employer != item.employer):
         frappe.throw(_("Seleccione una importación de la misma empresa."))
-    if (item.docstatus != 0 or abs(money(item.amount_usd)) <= 0
+    if (item.docstatus not in (0, 1) or (item.docstatus == 1 and item.category != CATEGORY) or abs(money(item.amount_usd)) <= 0
             or item.category in {"Compensación entre partidas", "Saldo a favor del cliente"}
             or item.get("compensations")):
         return []
@@ -192,10 +191,8 @@ def application_candidates(item_name, accounting_import):
     if not candidates:
         return []
     confirmed = defaultdict(lambda: money(0))
-    for adjustment in frappe.get_all("CN Complementary Item", filters={
-        "related_application": ["in", [row.name for row in candidates]],
-        "category": CATEGORY, "docstatus": 1, "name": ["!=", item.name],
-    }, fields=["related_application", "application_adjustment_usd"], limit_page_length=0):
+    from credinomina_reconciliation.application_adjustment_links import confirmed as confirmed_links
+    for adjustment in confirmed_links([row.name for row in candidates], exclude=item.name if item.docstatus == 0 else "", employer=item.employer):
         confirmed[adjustment.related_application] += money(adjustment.application_adjustment_usd)
     result = []
     for row in candidates:

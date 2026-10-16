@@ -90,7 +90,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         if not effective:
             # A later classification/use must not remove an earlier core movement.
             item.update(category='Por clasificar', related_application='', application_adjustment_usd=0,
-                        registration_exception='', review_action='', compensated_usd=0)
+                        application_adjustment_history='[]', registration_exception='', review_action='', compensated_usd=0)
         if item.get('registration_exception'):
             origin = live_items.get(item.get('_registration_origin'))
             if not origin:
@@ -123,10 +123,12 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         projected_items[name] = item
 
     adjustments = defaultdict(lambda: money(0))
+    from credinomina_reconciliation.application_adjustment_links import links
     for item in projected_items.values():
         if (item.get('docstatus') == 1 and item.get('category') == 'Ajuste de aplicación'
                 and item.get('related_application')):
-            adjustments[item['related_application']] += money(item.get('application_adjustment_usd'))
+            for link in links(item):
+                adjustments[link.related_application] += money(link.application_adjustment_usd)
     eligible_sources = {}
     future_collections = set()
     collection_sources = defaultdict(set)

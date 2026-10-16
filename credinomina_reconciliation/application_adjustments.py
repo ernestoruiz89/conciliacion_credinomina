@@ -44,9 +44,8 @@ def refresh_rows(rows):
     names = [row.name for row in rows if row.event_type == "Aplicacion" and row.name]
     totals = defaultdict(lambda: money(0))
     if names:
-        for item in frappe.db.sql("""select related_application, application_adjustment_usd
-            from `tabCN Complementary Item` where docstatus=1 and category=%s
-            and related_application in %s for update""", (CATEGORY, tuple(names)), as_dict=True):
+        from credinomina_reconciliation.application_adjustment_links import confirmed
+        for item in confirmed(names, lock=True):
             totals[item.related_application] += money(item.application_adjustment_usd)
     for row in rows:
         row.application_adjustment_usd = money_float(totals[row.name]) if row.event_type == "Aplicacion" else 0
@@ -214,13 +213,10 @@ def validate_adjustment(doc):
     amount = money(doc.application_adjustment_usd)
     if amount <= 0 or amount > abs(money(doc.amount_usd)):
         frappe.throw(_("El importe del ajuste debe ser positivo y no superar el importe US$ de la partida."))
-    others = frappe.db.sql("""select application_adjustment_usd from `tabCN Complementary Item`
-        where related_application=%s and category=%s and docstatus=1 and name!=%s for update""",
-        (row.name, CATEGORY, doc.name or ""), as_dict=True)
+    from credinomina_reconciliation.application_adjustment_links import confirmed
+    others = confirmed([row.name], exclude=doc.name or "", lock=True, employer=doc.employer)
     if sum_money(item.application_adjustment_usd for item in others) + amount > money(row.amount):
         frappe.throw(_("Los ajustes confirmados más este ajuste superan el importe original de la aplicación."))
-    if doc.docstatus == 1 and not (doc.review_notes or "").strip():
-        frappe.throw(_("Documente el motivo del ajuste en Observaciones de la revisión."))
     if doc.docstatus == 1:
         previous = doc.get_doc_before_save()
         if not previous or previous.docstatus != 1:
@@ -251,8 +247,8 @@ def guard_source_changes(doc):
         return
     current = {row.name: row for row in doc.rows or []}
     names = [row.name for row in previous.rows or []]
-    linked = set(frappe.get_all("CN Complementary Item", filters={"related_application": ["in", names]},
-                                pluck="related_application", limit_page_length=0)) if names else set()
+    from credinomina_reconciliation.application_adjustment_links import linked_names
+    linked = linked_names(names)
     for old in previous.rows or []:
         if old.name not in linked:
             continue
@@ -279,8 +275,18 @@ def reconcile_adjustment(doc):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _source_linked_periods
     from credinomina_reconciliation.complementary_cancellation import reconcile_scoped
 
-    row = frappe.get_doc("CN Source Row", doc.related_application)
-    periods = set(_source_linked_periods(row)) | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
+    from credinomina_reconciliation.application_adjustment_links import links
+    applications = links(doc)
+    periods, names = set(), set()
+    for link in applications:
+        row = frappe.get_doc("CN Source Row", link.related_application)
+        names.add(row.name)
+        periods.update(_source_linked_periods(row))
+        periods.update(frappe.parse_json(link.get("adjustment_periods") or "[]"))
+        for collection in frappe.parse_json(link.get("adjustment_collection_rows") or "[]"):
+            period = frappe.db.get_value("CN Collection Row", collection, "parent")
+            if period:
+                periods.add(period)
     if doc.period:
         periods.add(doc.period)
     for name in frappe.parse_json(doc.get("adjustment_collection_rows") or "[]"):
@@ -289,5 +295,5 @@ def reconcile_adjustment(doc):
             periods.add(parent)
     return reconcile_scoped(doc, {
         "companies": [doc.employer], "periods": sorted(periods - {None, ""}),
-        "applications": [row.name], "deposits": [],
+        "applications": sorted(names), "deposits": [],
     }, action="confirmar el ajuste")

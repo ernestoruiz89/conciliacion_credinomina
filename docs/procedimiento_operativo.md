@@ -498,6 +498,8 @@ El campo **Identificador de la partida en el asiento** es un dato corto que dist
 
 **Justificación** (`description`) describe qué representa la partida y por qué se registra. **Observaciones de la revisión** (`review_notes`) documenta el análisis y la decisión sobre su tratamiento, por ejemplo por qué se considera no conciliatoria. **Descripción original completa** conserva la evidencia importada del core. No es necesario copiar el mismo texto en los tres campos: origen, justificación y revisión cumplen funciones distintas.
 
+Las **Observaciones de la revisión** son opcionales al vincular y confirmar un ajuste de aplicación o preparar una partida complementaria de depósito. Para marcar un movimiento como **No conciliatoria**, sigue siendo necesario documentar el motivo.
+
 ### Partida genérica para varios clientes o empresas
 
 Un ajuste global de US$500 por diferencias menores puede afectar a varias personas sin tener un crédito único. Registre el concepto completo, marque la distribución genérica cuando corresponda y documente las empresas y porciones reales. No atribuya el total a un cliente cualquiera.

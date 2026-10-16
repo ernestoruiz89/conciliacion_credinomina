@@ -64,7 +64,13 @@ def prepare_cancellation(item):
     companies = {company for owner in company_scope(item) for company in reconciliation_companies(owner)}
     lock_cash_pool(companies)
     periods = {item.period} - {None, ""}
-    applications = {item.related_application} - {None, ""} if item.category == ADJUSTMENT else set()
+    from credinomina_reconciliation.application_adjustment_links import links
+    applications = {link.related_application for link in links(item)} if item.category == ADJUSTMENT else set()
+    for link in links(item) if applications else []:
+        periods.update(_json_names(link.get("adjustment_periods")))
+        collections = _json_names(link.get("adjustment_collection_rows"))
+        if collections:
+            periods.update(frappe.get_all("CN Collection Row", filters={"name": ["in", sorted(collections)]}, pluck="parent", limit_page_length=0))
     periods.update(_json_names(item.get("adjustment_periods")) if applications else ())
     periods.update(_application_periods(applications))
     if applications:
