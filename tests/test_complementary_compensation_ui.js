@@ -77,7 +77,7 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     assert.equal(indicator[1], "green");
     allow = true;
     frm.doc = {name: "CREDIT", docstatus: 1, category: "Saldo a favor del cliente", employer: "EMP",
-        registered_deposit: "DEP", result: "Saldo a favor documentado", credit_pending_usd: 0};
+        registered_deposit: "DEP", result: "Saldo a favor documentado", credit_pending_usd: 20};
     events.refresh(frm);
     assert.equal(typeof actions["Compensar con otra partida"], "function");
     await actions["Compensar con otra partida"]();
@@ -87,14 +87,14 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     assert.equal(filters.source_credit, 0);
     assert.equal(filters.accounting_source_key[1], "set");
     assert.ok(filters.category[1].includes("Saldo a favor del cliente"));
-    assert.ok(dialog.fields.find(field => field.fieldname === "instructions").options.includes("no cambia la distribución del depósito ni el pendiente de devolución"));
+    assert.ok(dialog.fields.find(field => field.fieldname === "instructions").options.includes("La compensación reduce el saldo disponible desde su fecha efectiva"));
     creditPreview = true;
     await dialog.set_value("counterpart", "B");
     await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
     assert.ok(calls.some(value => typeof value === "string" && value.includes("Sin vínculo contable US$")
-        && value.includes("Pendiente de gestión US$ (no cambia)") && value.includes("Nro. Cliente: 123")));
+        && value.includes("Saldo disponible US$ (se reduce al compensar)") && value.includes("Nro. Cliente: 123")));
     delete actions["Compensar con otra partida"];
-    frm.doc.compensations = [{}]; frm.doc.compensation_pending_usd = 0;
+    frm.doc.compensations = [{}]; frm.doc.compensation_pending_usd = 14.17; frm.doc.credit_pending_usd = 0;
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
     assert.equal(typeof actions["Revertir compensación"], "function");

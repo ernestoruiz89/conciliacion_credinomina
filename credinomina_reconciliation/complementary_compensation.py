@@ -10,6 +10,7 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT as CREDIT_RESULT
 from credinomina_reconciliation.client_identity import name_key
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
+from credinomina_reconciliation import credit_usage
 
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
@@ -70,6 +71,8 @@ def update_totals(doc):
     doc.compensation_status = values["status"] if values else ""
     if values and doc.category not in CREDIT_CATEGORIES:
         doc.review_status = values["status"]
+    if doc.category in CREDIT_CATEGORIES and doc.docstatus == 1 and doc.get('result') == CREDIT_RESULT:
+        doc.update(credit_usage.totals(doc))
 
 
 def guard_delete(doc):
@@ -90,8 +93,8 @@ def _eligible(doc):
             "CN Reconciliation Exception", doc.accounting_exception, "core_evidence_key"
         ):
             frappe.throw(_("El saldo a favor ya tiene un asiento verificado en su excepción; no lo compense nuevamente."))
-        # This journal links accounting evidence only. The original deposit,
-        # closed collection periods and refund-management balance stay intact.
+        # Consume available credit without changing its original deposit or
+        # claiming that the offset was a refund or a new loan payment.
         return
     if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Diferencia por tolerancia"}:
         frappe.throw(_("Seleccione un borrador, una partida en compensación o un saldo a favor confirmado; no ajustes de aplicación ni tolerancias."))
@@ -200,7 +203,13 @@ def preview_compensation(item_name, counterpart):
     left, right = _load_pair(item_name, counterpart)
     _validate_pair(left, right)
     return {"left": _summary(left), "right": _summary(right), "request_key": uuid4().hex,
-            "suggested_usd": min(balance(left)["pending_usd"], balance(right)["pending_usd"])}
+            "suggested_usd": min(_available(left), _available(right))}
+
+
+def _available(doc):
+    if doc.category in CREDIT_CATEGORIES:
+        return credit_usage.totals(doc)['credit_pending_usd']
+    return balance(doc)['pending_usd']
 
 
 def _summary(doc, as_of_date=None):
@@ -209,7 +218,7 @@ def _summary(doc, as_of_date=None):
             "is_credit": doc.category in CREDIT_CATEGORIES,
             "client_name": doc.get("client_name") or doc.get("source_client_name") or "",
             "client_number": doc.get("client_number") or "",
-            "management_pending_usd": doc.get("credit_pending_usd") if doc.category in CREDIT_CATEGORIES else None,
+            "management_pending_usd": _available(doc) if doc.category in CREDIT_CATEGORIES else None,
             **balance(doc, as_of_date)}
 
 
@@ -238,8 +247,9 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
             return {"left": _summary(left), "right": _summary(right)}
         frappe.throw(_("Esta confirmación ya se utilizó con datos diferentes."))
     for doc in (left, right):
-        if amount > money(balance(doc)["pending_usd"]):
+        if amount > money(_available(doc)):
             frappe.throw(_("El importe supera el saldo pendiente de {0}.").format(doc.name))
+        _validate_credit_timeline(doc, [dict(compensation_date=date, amount_usd=amount)])
         if any(getdate(row.compensation_date) > date for row in doc.get("compensations", [])):
             frappe.throw(_("La fecha no puede preceder a una compensación ya registrada en esta partida. Para corregir una fecha, use Corregir fecha de compensación, incluso si ya revirtió la operación."))
     from credinomina_reconciliation.receivable_recovery import validate_compensation_recovery
@@ -303,6 +313,7 @@ def get_date_correction_candidates(item_name):
 def _validate_correction_timeline(doc, additions):
     """Check daily balances, including old dates neutralized by this correction."""
     from collections import defaultdict
+    _validate_credit_timeline(doc, additions)
     changes = defaultdict(lambda: money(0))
     for row in [*doc.compensations, *additions]:
         changes[getdate(row.get("compensation_date"))] += money(row.get("amount_usd"))
@@ -312,6 +323,11 @@ def _validate_correction_timeline(doc, additions):
         capacity = abs(money(doc.amount_usd)) if day >= getdate(doc.posting_date) else money(0)
         if used < 0 or used > capacity:
             frappe.throw(_("La corrección deja un saldo compensado inválido en {0} al {1}. Revise las demás compensaciones.").format(doc.name, day))
+
+
+def _validate_credit_timeline(doc, additions):
+    if doc.category in CREDIT_CATEGORIES:
+        credit_usage.totals(doc, offsets=[*(doc.get('compensations') or []), *additions])
 
 
 @frappe.whitelist(methods=["POST"])
@@ -437,6 +453,8 @@ def reverse_compensation(item_name, operation_id, reversal_date, reason, request
         frappe.throw(_("La reversión no puede ser futura ni anterior a las compensaciones registradas."))
     if any(money(balance(doc)["compensated_usd"]) < amount for doc in (left, right)):
         frappe.throw(_("El saldo compensado no coincide con el historial."))
+    for doc in (left, right):
+        _validate_credit_timeline(doc, [dict(compensation_date=date, amount_usd=-amount)])
     for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
         other = right if doc.name == left.name else left
         doc.append("compensations", {"operation_id": request_key, "entry_key": f"{request_key}-{index}",

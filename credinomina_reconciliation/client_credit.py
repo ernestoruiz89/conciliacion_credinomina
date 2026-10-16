@@ -10,6 +10,7 @@ from frappe.utils import getdate, now_datetime
 
 from credinomina_reconciliation.parsers import canonical_credit_number, clean_text, normalize_credit_number
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
+from credinomina_reconciliation import credit_usage
 
 CATEGORY = "Saldo a favor del cliente"
 CREDIT_CATEGORIES = (CATEGORY, "Saldo a favor de la empresa")
@@ -266,7 +267,7 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
     if str(item.modified) != str(modified):
         frappe.throw(_("La partida cambió. Recárguela antes de registrar la gestión."))
     amount = money(amount_usd)
-    pending = money(item.amount_usd) - money(item.get("credit_resolved_usd"))
+    pending = money(credit_usage.totals(item)['credit_pending_usd'])
     if amount <= 0 or amount > pending:
         frappe.throw(_("El importe de la gestión debe ser positivo y no superar el saldo pendiente."))
     if treatment not in {"Devolución", "Aplicación futura"} or not clean_text(reference) or not event_date:
@@ -284,10 +285,8 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
     history.append({"operation_id": uuid4().hex, "tratamiento": treatment, "importe_usd": money_float(amount), "fecha": str(getdate(event_date)),
                     "referencia": clean_text(reference), "soporte": support_file, "observaciones": clean_text(notes),
                     "usuario": frappe.session.user, "registrado_el": str(now_datetime())})
-    from credinomina_reconciliation.credit_application import validate_dated_history
-    validate_dated_history(item.amount_usd, history)
-    resolved = money(item.get("credit_resolved_usd")) + amount
-    status = "Resuelto" if resolved == money(item.amount_usd) else "Parcialmente resuelto"
+    values = credit_usage.totals(item, history=history)
+    resolved, status = money(values['credit_resolved_usd']), values['credit_management_status']
     frappe.db.set_value(item.doctype, item.name, {
         "credit_resolved_usd": money_float(resolved), "credit_pending_usd": money_float(money(item.amount_usd) - resolved),
         "credit_management_status": status, "credit_history": json.dumps(history, ensure_ascii=False),
@@ -348,7 +347,7 @@ def reverse_management(item_name, modified, entry_id, event_date, reason):
     if date < earliest or date > getdate():
         frappe.throw(_("La reversión no puede ser futura ni anterior a las gestiones registradas."))
     amount = money(original["importe_usd"])
-    resolved = money(item.get("credit_resolved_usd")) - amount
+    resolved = credit_usage.resolved_amount(item) - amount
     if resolved < 0 or resolved > money(item.amount_usd):
         frappe.throw(_("El saldo gestionado no coincide con el historial. Revise la partida antes de revertir."))
     history = json.loads(item.credit_history or "[]")
@@ -356,8 +355,8 @@ def reverse_management(item_name, modified, entry_id, event_date, reason):
                     "importe_usd": -money_float(amount), "fecha": str(date), "referencia": original.get("referencia") or "",
                     "soporte": original.get("soporte") or "", "observaciones": reason,
                     "usuario": frappe.session.user, "registrado_el": str(now_datetime())})
-    pending = money(item.amount_usd) - resolved
-    status = "Pendiente" if not resolved else "Parcialmente resuelto"
+    values = credit_usage.totals(item, history=history)
+    pending, status = money(values['credit_pending_usd']), values['credit_management_status']
     frappe.db.set_value(item.doctype, item.name, {
         "credit_resolved_usd": money_float(resolved), "credit_pending_usd": money_float(pending),
         "credit_management_status": status, "credit_history": json.dumps(history, ensure_ascii=False)})

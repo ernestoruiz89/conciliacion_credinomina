@@ -14,7 +14,8 @@ from frappe.utils import getdate, now_datetime
 
 from credinomina_reconciliation.client_credit import CATEGORY, CREDIT_CATEGORIES, RESULT
 from credinomina_reconciliation.parsers import clean_text, canonical_credit_number
-from credinomina_reconciliation.rounding import money, money_float, sum_money
+from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation import credit_usage
 
 
 def journal_allocations(items, application_ids=None, cutoff=None):
@@ -118,7 +119,7 @@ def candidates(item_name):
                 event_date=str(row.event_date), client_name=row.client_name, loan_number=row.loan_number,
                 reference=row.voucher or row.accounting_entry or row.reference,
                 pending_usd=money_float(row.historical_balance_usd)))
-    return dict(modified=str(item.modified), pending_usd=money_float(item.credit_pending_usd), rows=rows)
+    return dict(modified=str(item.modified), pending_usd=credit_usage.totals(item)['credit_pending_usd'], rows=rows)
 
 
 def _locked_context(item_name, modified, application_id):
@@ -158,32 +159,18 @@ def _locked_context(item_name, modified, application_id):
 
 def _save_journal(item, entry):
     history = json.loads(item.credit_history or '[]')
-    if sum_money(row.get('importe_usd') for row in history) != money(item.credit_resolved_usd):
+    if credit_usage.resolved_amount(item, history) != money(item.credit_resolved_usd):
         frappe.throw(_('El saldo gestionado no coincide con su historial. Revise la partida.'))
     history.append(entry)
-    validate_dated_history(item.amount_usd, history)
-    resolved = sum_money(row.get('importe_usd') for row in history)
-    pending = money(item.amount_usd) - resolved
-    if resolved < 0 or pending < 0:
-        frappe.throw(_('El importe supera el saldo a favor disponible.'))
-    status = 'Resuelto' if not pending else 'Parcialmente resuelto' if resolved else 'Pendiente'
-    frappe.db.set_value(item.doctype, item.name, dict(credit_history=json.dumps(history, ensure_ascii=False),
-        credit_resolved_usd=money_float(resolved), credit_pending_usd=money_float(pending), credit_management_status=status))
+    values = credit_usage.totals(item, history=history)
+    pending, status = values['credit_pending_usd'], values['credit_management_status']
+    frappe.db.set_value(item.doctype, item.name, dict(credit_history=json.dumps(history, ensure_ascii=False), **values))
     item.clear_cache()
     return dict(name=item.name, pending_usd=money_float(pending), status=status)
 
 
-def validate_dated_history(original, history):
-    by_day = defaultdict(lambda: money(0))
-    for entry in history:
-        # Legacy undated management remains reserved before dated operations.
-        day = str(getdate(entry['fecha'])) if entry.get('fecha') else ''
-        by_day[day] += money(entry.get('importe_usd'))
-    resolved = money(0)
-    for day in sorted(by_day):
-        resolved += by_day[day]
-        if resolved < 0 or resolved > money(original):
-            frappe.throw(_('La fecha dejaría un saldo a favor inválido al {0}. Revise las aplicaciones y reversiones previas.').format(day))
+def validate_dated_history(original, history, offsets=()):
+    credit_usage.validate_history(original, history, offsets)
 
 
 def rebuild_destination(period):
@@ -252,7 +239,7 @@ def apply(item_name, modified, application_id, amount_usd, event_date, notes='')
     from credinomina_reconciliation.application_adjustments import cash_coverage
     item, row, period = _locked_context(item_name, modified, application_id)
     amount = money(amount_usd)
-    if amount <= 0 or amount > money(item.credit_pending_usd):
+    if amount <= 0 or amount > money(credit_usage.totals(item)['credit_pending_usd']):
         frappe.throw(_('Indique un importe positivo que no supere el saldo a favor disponible.'))
     if (not event_date or getdate(event_date) < max(getdate(item.posting_date), getdate(row.event_date))
             or getdate(event_date) > getdate()):
