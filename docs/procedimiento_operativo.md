@@ -526,6 +526,10 @@ Si cambia la decisión a **Partida de depósito**, guarde y revise que se retire
 
 Ejemplo: débito de US$75 en abril y crédito correctivo de US$75 en agosto pueden quedar totalmente compensados. Con crédito US$50 quedan US$25 de la primera partida pendientes. Si se equivocó, use **Revertir compensación** con fecha y motivo; no borre el historial ni registre otra compensación del mismo importe sin revisar disponibilidad.
 
+Si el error es la **fecha**, use **Corregir fecha de compensación** en cualquiera de las dos partidas. Seleccione la compensación original, la fecha efectiva correcta y el motivo. Puede corregir una operación activa o una que ya revirtió por error de fecha: en este último caso, la corrección vuelve a compensar el mismo importe. El sistema conserva el historial, añade movimientos que neutralizan las fechas anteriores y registra la compensación corregida en ambas partidas. Valida que ningún corte exceda el importe disponible y que la nueva fecha no sea anterior al origen de ninguna partida ni futura. No modifica depósitos, aplicaciones ni gestión de saldos a favor. Para cobros de CxC, revise la fecha desde su gestión de recuperación.
+
+Después de corregir una fecha, pulse **Reconstruir** en los reportes preparados. Por ejemplo, una compensación registrada el 07/10/2026 y revertida el 15/10/2026 puede corregirse al 01/06/2025; los movimientos de neutralización evitan duplicar su importe durante octubre y el corte de agosto de 2026 ya reconoce el vínculo contable.
+
 ## Estado de cuenta al cliente
 
 **Estado de Cuenta Operativo** presenta la posición actual por tipo de fila:

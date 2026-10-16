@@ -415,6 +415,7 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.add_custom_button(__("Consultar saldo a fecha"), () => cn_compensation_balance_dialog(frm));
             if (compensated && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
                 frm.add_custom_button(__("Revertir compensación"), () => cn_reverse_compensation(frm));
+                if (!frm.doc.receivable_origin) frm.add_custom_button(__("Corregir fecha de compensación"), () => cn_correct_compensation_date(frm));
             }
         }
         if ((documentedCredit || ((frm.doc.docstatus === 0 || betweenItems)
@@ -783,6 +784,40 @@ async function cn_compensate_items_dialog(frm) {
     });
     dialog.show();
     dialog.get_primary_btn().prop("disabled", true);
+}
+
+async function cn_correct_compensation_date(frm) {
+    if (frm._cn_correcting_compensation_date) return;
+    const method = "credinomina_reconciliation.complementary_compensation.";
+    const itemName = frm.doc.name;
+    const response = await frappe.call({method: method + "get_date_correction_candidates", args: {item_name: itemName}});
+    const data = response.message || {};
+    if (!(data.rows || []).length) return frappe.msgprint(__("No hay compensaciones cuya fecha pueda corregirse."));
+    const choices = new Map(data.rows.map((row, index) => [
+        `${index + 1}. ${row.counterpart} · ${format_currency(row.amount_usd, "USD")} · ${frappe.datetime.str_to_user(row.compensation_date)}${row.reversed ? " · " + __("Revertida") : ""}`, row.operation_id]));
+    const dialog = new frappe.ui.Dialog({title: __("Corregir fecha de compensación"), fields: [
+        {fieldtype: "HTML", options: `<p>${__("Se conservará el historial y se registrará la compensación con la fecha correcta en ambas partidas. Si estaba revertida por error de fecha, volverá a quedar compensada por el mismo importe. No registra una devolución ni modifica el depósito.")}</p>`},
+        {fieldname: "operation", fieldtype: "Select", label: __("Compensación original"), options: [...choices.keys()], reqd: 1},
+        {fieldname: "compensation_date", fieldtype: "Date", label: __("Fecha correcta"), reqd: 1},
+        {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo de corrección"), reqd: 1},
+    ], primary_action_label: __("Corregir fecha en ambas partidas"), async primary_action(values) {
+        if (frm._cn_correcting_compensation_date || !choices.has(values.operation)) return;
+        frm._cn_correcting_compensation_date = true;
+        dialog.get_primary_btn().prop("disabled", true);
+        try {
+            await frappe.call({method: method + "correct_compensation_date", args: {item_name: itemName,
+                operation_id: choices.get(values.operation), compensation_date: values.compensation_date,
+                reason: values.reason, request_key: data.request_key}, freeze: true,
+                freeze_message: __("Corrigiendo la fecha en ambas partidas…")});
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.msgprint(__("Fecha corregida. Reconstruya los reportes preparados para consultar el corte actualizado."));
+        } finally {
+            frm._cn_correcting_compensation_date = false;
+            dialog.get_primary_btn().prop("disabled", false);
+        }
+    }});
+    dialog.show();
 }
 
 async function cn_reverse_compensation(frm) {

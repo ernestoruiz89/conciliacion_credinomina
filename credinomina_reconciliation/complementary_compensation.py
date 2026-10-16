@@ -1,6 +1,6 @@
 """Dated, paired offsets of accounting evidence; never cash or loan payments."""
 import re
-from uuid import uuid4
+from uuid import uuid4, uuid5, NAMESPACE_URL
 
 import frappe
 from frappe import _
@@ -14,7 +14,7 @@ from credinomina_reconciliation.parsers import canonical_credit_number, canonica
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
 _WRITE_TOKEN = object()
-_ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key", "reverses_operation_id")
+_ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key", "reverses_operation_id", "corrects_operation_id")
 _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period",
                   "related_application", "related_import", "registered_deposit", "client_number", "loan_number", "description", "reference",
                   "credit_client", "credit_detail_row")
@@ -241,7 +241,7 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
         if amount > money(balance(doc)["pending_usd"]):
             frappe.throw(_("El importe supera el saldo pendiente de {0}.").format(doc.name))
         if any(getdate(row.compensation_date) > date for row in doc.get("compensations", [])):
-            frappe.throw(_("La fecha no puede preceder a una compensación ya registrada en esta partida."))
+            frappe.throw(_("La fecha no puede preceder a una compensación ya registrada en esta partida. Para corregir una fecha, use Corregir fecha de compensación, incluso si ya revirtió la operación."))
     from credinomina_reconciliation.receivable_recovery import validate_compensation_recovery
     validate_compensation_recovery((left, right), amount)
     # No explicit commit: both halves and their Version records share one transaction.
@@ -280,8 +280,119 @@ def get_reversible_compensations(item_name):
     reversed_ids = {row.reverses_operation_id for row in doc.compensations if row.get("reverses_operation_id")}
     return {"request_key": uuid4().hex, "rows": [
         {field: row.get(field) for field in ("operation_id", "counterpart", "compensation_date", "amount_usd", "reason")}
-        for row in doc.compensations if money(row.amount_usd) > 0 and row.operation_id not in reversed_ids
+        for row in doc.compensations if money(row.amount_usd) > 0 and not row.get("reverses_operation_id")
+        and row.operation_id not in reversed_ids
     ]}
+
+
+@frappe.whitelist()
+def get_date_correction_candidates(item_name):
+    doc = frappe.get_doc(DOCTYPE, item_name)
+    doc.check_permission("read")
+    doc.check_permission("write")
+    corrected = {row.get("corrects_operation_id") for row in doc.compensations}
+    reversed_ids = {row.get("reverses_operation_id") for row in doc.compensations}
+    return {"request_key": uuid4().hex, "rows": [
+        {**{field: row.get(field) for field in ("operation_id", "counterpart", "compensation_date", "amount_usd")},
+         "reversed": row.operation_id in reversed_ids}
+        for row in doc.compensations if money(row.amount_usd) > 0
+        and not row.get("reverses_operation_id") and row.operation_id not in corrected
+    ]}
+
+
+def _validate_correction_timeline(doc, additions):
+    """Check daily balances, including old dates neutralized by this correction."""
+    from collections import defaultdict
+    changes = defaultdict(lambda: money(0))
+    for row in [*doc.compensations, *additions]:
+        changes[getdate(row.get("compensation_date"))] += money(row.get("amount_usd"))
+    used = money(0)
+    for day, change in sorted(changes.items()):
+        used += change
+        capacity = abs(money(doc.amount_usd)) if day >= getdate(doc.posting_date) else money(0)
+        if used < 0 or used > capacity:
+            frappe.throw(_("La corrección deja un saldo compensado inválido en {0} al {1}. Revise las demás compensaciones.").format(doc.name, day))
+
+
+@frappe.whitelist(methods=["POST"])
+def correct_compensation_date(item_name, operation_id, compensation_date, reason, request_key):
+    """Replace an effective date with paired append-only neutralizing entries.
+
+    An already reversed entry needs both its original and reversal neutralized,
+    otherwise rebooking it earlier would double its amount between those dates.
+    """
+    if not re.fullmatch(r"[a-f0-9]{32}", request_key or "") or request_key == operation_id:
+        frappe.throw(_("Abra de nuevo el selector para corregir la fecha."))
+    source = frappe.get_doc(DOCTYPE, item_name)
+    source.check_permission("read")
+    selected = next((row for row in source.compensations if row.operation_id == operation_id), None)
+    if not selected or money(selected.amount_usd) <= 0 or selected.get("reverses_operation_id"):
+        frappe.throw(_("Seleccione una compensación original válida."))
+    left, right = _load_pair(item_name, selected.counterpart, "submit")
+    for doc in (left, right):
+        doc.check_permission("write")
+        if doc.get("receivable_origin"):
+            frappe.throw(_("La fecha de un cobro de CxC debe revisarse desde su gestión de recuperación."))
+    _validate_pair(left, right)
+    reason = (reason or "").strip()
+    if not reason or not compensation_date:
+        frappe.throw(_("Indique la fecha correcta y el motivo de la corrección."))
+    date = getdate(compensation_date)
+    if date > getdate(nowdate()) or date < max(getdate(left.posting_date), getdate(right.posting_date)):
+        frappe.throw(_("La fecha no puede ser futura ni anterior a ninguno de los movimientos."))
+    originals = [[row for row in doc.compensations if row.operation_id == operation_id] for doc in (left, right)]
+    if not all(len(rows) == 1 for rows in originals):
+        frappe.throw(_("No se encuentran ambas partes de la compensación. Revise el historial."))
+    original = originals[0][0]
+    amount = money(original.amount_usd)
+    if any(money(rows[0].amount_usd) != amount or rows[0].counterpart != other.name
+           or getdate(rows[0].compensation_date) != getdate(original.compensation_date)
+           or rows[0].get("reverses_operation_id") for rows, other in zip(originals, (right, left))):
+        frappe.throw(_("Las dos partes de la compensación no coinciden."))
+    existing = [[row for row in doc.compensations if row.operation_id == request_key] for doc in (left, right)]
+    if any(existing):
+        if all(len(rows) == 1 for rows in existing) and all(
+            row[0].get("corrects_operation_id") == operation_id and not row[0].get("reverses_operation_id")
+            and money(row[0].amount_usd) == amount and getdate(row[0].compensation_date) == date
+            and row[0].reason == reason and row[0].counterpart == other.name
+            for row, other in zip(existing, (right, left))
+        ):
+            return {"left": _summary(left), "right": _summary(right)}
+        frappe.throw(_("Esta confirmación ya se utilizó con otros datos."))
+    if any(row.get("corrects_operation_id") == operation_id for doc in (left, right) for row in doc.compensations):
+        frappe.throw(_("La fecha de esta operación ya fue corregida. Seleccione la compensación corregida vigente."))
+    if date == getdate(original.compensation_date):
+        frappe.throw(_("La fecha indicada es igual a la original."))
+    reversals = [[row for row in doc.compensations if row.get("reverses_operation_id") == operation_id] for doc in (left, right)]
+    if any(reversals) and (not all(len(rows) == 1 for rows in reversals) or any(
+        money(rows[0].amount_usd) != -amount or rows[0].counterpart != other.name
+        or rows[0].operation_id != reversals[0][0].operation_id
+        or getdate(rows[0].compensation_date) != getdate(reversals[0][0].compensation_date)
+        for rows, other in zip(reversals, (right, left))
+    )):
+        frappe.throw(_("Las dos partes de la reversión no coinciden."))
+    additions = [dict(operation_id=uuid5(NAMESPACE_URL, request_key + ':original').hex,
+                      compensation_date=original.compensation_date, amount_usd=-money_float(amount),
+                      reverses_operation_id=operation_id, reason=_("Neutraliza la fecha original: ") + reason)]
+    if any(reversals):
+        reversal = reversals[0][0]
+        additions.append(dict(operation_id=uuid5(NAMESPACE_URL, request_key + ':reversal').hex,
+            compensation_date=reversal.compensation_date, amount_usd=money_float(amount),
+            reverses_operation_id=reversal.operation_id, reason=_("Neutraliza la reversión por corrección de fecha: ") + reason))
+    additions.append(dict(operation_id=request_key, compensation_date=date, amount_usd=money_float(amount), reason=reason))
+    for doc in (left, right):
+        _validate_correction_timeline(doc, additions)
+    for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
+        other = right if doc.name == left.name else left
+        for entry in additions:
+            doc.append("compensations", dict(entry, counterpart=other.name, corrects_operation_id=operation_id,
+                entry_key=f"{entry['operation_id']}-{index}", confirmed_by=frappe.session.user, confirmed_on=now_datetime()))
+        doc.flags.compensation_write_token = _WRITE_TOKEN
+        try:
+            doc.save()
+        finally:
+            doc.flags.pop("compensation_write_token", None)
+    return {"left": _summary(left), "right": _summary(right)}
 
 
 @frappe.whitelist(methods=["POST"])
