@@ -91,7 +91,8 @@ def test_classification_options_come_from_real_data_without_mutation():
     detail = company_statement.build_detail([], [], [], [], adjustment_receivables=[
         dict(name='C', employer='A', receivable_usd=20, receivable_status='Parcialmente cobrada'),
         dict(name='D', employer='A', receivable_usd=30, receivable_status='Pendiente de cobro')])
-    rows = statement._presentation(detail, {'status':'Parcialmente cobrada'})
+    from credinomina_reconciliation.company_accounting_statement import management_detail
+    rows = statement._presentation(management_detail(detail), {'status':'Parcialmente cobrada'})
     assert rows[0]['company_receivable_usd'] == 20
     assert rows[0]['_available_statuses'] == ['Parcialmente cobrada', 'Pendiente de cobro']
     assert not any('_available_statuses' in row for row in detail)

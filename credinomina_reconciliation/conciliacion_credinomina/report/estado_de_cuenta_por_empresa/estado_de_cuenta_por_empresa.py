@@ -1,46 +1,61 @@
 from frappe import _
 
-from credinomina_reconciliation.company_statement import METRICS, load_detail, summarize
+from credinomina_reconciliation.company_statement import load_detail
+from credinomina_reconciliation.company_accounting_statement import (
+    CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS,
+    load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
+)
 
 
 def execute(filters=None):
     filters = filters or {}
+    validate_dates(filters)
     scope = {key: value for key, value in filters.items() if key != 'status'}
-    if filters.get('cutoff_date'):
+    section = selected_scope(filters)
+    detail, cutoff = [], None
+    if section != MANAGEMENT:
+        detail.extend(load_core_detail(scope))
+    if filters.get('cutoff_date') and section != CORE:
         from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
-        result = load_cutoff(scope)
-        data = _presentation(result['detail'], filters)
-        # Keep the date and qualifications in native spreadsheet exports too.
-        data = [dict(row, cutoff_date=result['cutoff_date'], cutoff_warning='; '.join(result['warnings'])) for row in data]
-        return get_columns(filters), data, cutoff_message(result)
-    detail = load_detail(scope)
+        cutoff = load_cutoff(scope)
+        detail.extend(management_detail(cutoff['detail']))
+    elif section != CORE:
+        detail.extend(management_detail(load_detail(scope)))
     data = _presentation(detail, filters)
-    message = _('Saldos actuales en US$. Saldo neto informativo suma las columnas; los importes sin vincular conservan su gestión pendiente. '
-        'La columna Sin registro cuenta partidas complementarias manuales pendientes de registro, incluso si ya no tienen saldo financiero. '
-        'Desde/Hasta filtran la fecha de origen. ') + '<details><summary>' + _('Cómo se calcula') + '</summary>' + _(''
-        'Saldo suma las columnas con su signo; no ejecuta compensaciones. '
-        'Las partidas pendientes del core incluyen Por clasificar: débito positivo y crédito negativo. '
-        'Solo se resta el remanente, sin duplicar ajustes ya utilizados. '
-        'Saldo por cobrar a la empresa: ajustes manuales negativos clasificados como CxC a la empresa y efectivamente distribuidos en depósitos; '
-        'trasladan el faltante de las aplicaciones a la empresa. La CxC al Empleado identifica al cliente deudor y se muestra en su propia columna. '
-        'Su registro contable no equivale a cobro. '
-        'Saldos a favor: documentados y aún por gestionar. Depósitos: importe sin asignar ni documentar como saldo a favor; '
-        'incluye los importados del core sin confirmar, no los borradores manuales. '
-        'Desde/Hasta filtran la fecha de origen, no la fecha de conciliación. '
-        'El detalle también muestra partidas complementarias sin otra fila financiera que siguen Pendiente de registro o Asiento informado; '
-        'estas filas son de control contable y no modifican el saldo neto. Consulte la partida para conocer su saldo individual. '
-        'Solo se muestran registros visibles para su usuario. '
-        'Importe observado identifica evidencia inconsistente pendiente de revisión; no se suma al saldo neto.') + '</details>'
-    missing = sum(row['balance_usd'] is None for row in detail)
+    message = _('Saldo contable core = débitos originales − créditos originales. '
+        'Los saldos a favor y las CxC por gestionar se muestran por separado y no se suman ni se restan a ese saldo. ')
+    message += '<details><summary>' + _('Cómo comparar con el Excel') + '</summary>' + _(
+        'Seleccione Contabilidad del core y use la misma empresa, cuenta, moneda y fechas del Excel. '
+        'Se incluyen los movimientos originales importados, aunque estén conciliados, ignorados o cancelados dentro de la app; '
+        'una cancelación interna no revierte un asiento del core. Los vínculos duplicados entre importación, partida y origen del depósito '
+        'se representan una sola vez; líneas físicas distintas se conservan. '
+        'Se usa el crédito contable original del depósito, que puede diferir del importe bancario bruto. '
+        'US$ suma débitos y créditos convertidos y redondeados por línea con la tasa de origen/importación; '
+        'C$ conserva los importes originales NIO. Sin conversión, el total afectado queda sin determinar. '
+        'Desde/Hasta limitan movimientos: con Desde no se incorpora un saldo anterior a esa fecha. '
+        'Los filtros de cuenta y moneda original aplican solo a Contabilidad del core; Gestión conserva el alcance por empresa. '
+        'Conciliar, documentar un saldo a favor, compensar o registrar una CxC manual no cambia el saldo contable. '
+        'Gestión muestra los remanentes por atender, incluyendo devoluciones, aplicaciones, compensaciones y reversiones. '
+        'Los saldos a favor, CxC y depósitos sin asignar se muestran positivos; Core por conciliar conserva el signo débito/crédito. '
+        'No existe un total que sume contabilidad y gestión. Una partida puede tener evidencia contable y gestión en secciones distintas. '
+        'Sin registro cuenta complementarias manuales pendientes de asiento, incluso si su gestión ya terminó. '
+        'El reporte incluye evidencia importada visible para su usuario; las líneas ausentes del sistema deben identificarse al cotejar el Excel.') + '</details>'
+    if cutoff:
+        message += '<br>' + cutoff_message(cutoff)
+    if filters.get('cutoff_date'):
+        data = [dict(row, cutoff_date=str(filters['cutoff_date']),
+                     cutoff_warning='; '.join(cutoff['warnings']) if cutoff else '') for row in data]
+    missing = sum(any(row.get(field) is None for field in CORE_FIELDS) if row['statement_scope'] == CORE
+                  else row.get('management_amount_usd') is None for row in detail)
     if missing:
-        message += _(' Hay {0} movimientos con importe o signo sin determinar: su saldo no se presenta como cero.').format(missing)
+        message += _(' Hay {0} filas con importes sin determinar; no se presentan como cero.').format(missing)
     return get_columns(filters), data, message
 
 
 def _presentation(detail, filters):
     """Offer actual states without another ledger query or losing other options."""
     states = sorted({row['status'] for row in detail if row.get('status')})
-    selected = [row for row in detail if not filters.get('status') or row.get('status') == filters['status']]
+    selected = [row for row in detail if matches(row, filters)]
     data = [dict(row) for row in selected] if filters.get('view_mode') == 'Detalle' else summarize(selected)
     if data:
         data[0]['_available_statuses'] = states
@@ -48,13 +63,20 @@ def _presentation(detail, filters):
 
 
 def get_columns(filters=None):
+    section = selected_scope(filters or {})
     columns = [{'fieldname': 'employer', 'label': _('Empresa'), 'fieldtype': 'Link',
                 'options': 'CN Employer', 'width': 200}]
     columns += [{'fieldname': field, 'label': _(label), 'fieldtype': 'Currency',
-                 'options': 'usd_currency', 'precision': 2, 'width': 180}
-                for field, label in (*METRICS, ('balance_usd', 'Saldo neto informativo US$'))]
+                 'options': 'nio_currency' if field.endswith('_nio') else 'usd_currency', 'precision': 2, 'width': 180}
+                for field, label in (*CORE_METRICS, *MANAGEMENT_METRICS)]
     if (filters or {}).get('view_mode') == 'Detalle':
+        for column in columns:
+            if column['fieldname'] in {'core_balance_usd', 'core_balance_nio'}:
+                column['label'] = _('Neto de la línea core US$' if column['fieldname'].endswith('_usd') else 'Neto de la línea core C$')
         columns += [
+            {'fieldname': 'statement_scope', 'label': _('Sección'), 'fieldtype': 'Data', 'width': 170},
+            {'fieldname': 'management_amount_usd', 'label': _('Importe por gestionar US$'), 'fieldtype': 'Currency',
+             'options': 'usd_currency', 'precision': 2, 'width': 155},
             {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},
             {'fieldname': 'position_type', 'label': _('Tipo'), 'fieldtype': 'Data', 'width': 195},
             {'fieldname': 'origin_type', 'label': _('Origen'), 'fieldtype': 'Data', 'width': 155},
@@ -71,6 +93,11 @@ def get_columns(filters=None):
                   ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                   ('reference', 'Referencia / asiento', 155), ('source_rows', 'Filas de origen', 120),
                   ('observation', 'Observaciones', 350)]],
+            *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
+              for field, label, width in [('source_account', 'Cuenta contable', 145), ('source_currency', 'Moneda original', 110),
+                  ('source_file', 'Archivo original', 230), ('source_hash', 'Huella del archivo', 200),
+                  ('source_row_id', 'ID de fila contable', 160), ('evidence_key', 'Identidad de línea contable', 200)]],
+            {'fieldname': 'fx_rate', 'label': _('Tasa C$/US$ original'), 'fieldtype': 'Float', 'precision': 8, 'width': 140},
         ]
         # Identify the person and source before the monetary matrix.
         leading = ('employer', 'event_date', 'client_name', 'client_number', 'loan_number',
@@ -78,6 +105,7 @@ def get_columns(filters=None):
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
+        columns.insert(1, {'fieldname': 'core_movement_count', 'label': _('Movimientos del core'), 'fieldtype': 'Int', 'width': 140})
         columns.insert(1, {'fieldname': 'pending_count', 'label': _('Partidas pendientes'), 'fieldtype': 'Int', 'width': 130})
         columns.insert(2, {'fieldname': 'accounting_pending_count', 'label': _('Complementarias sin registro'),
                            'fieldtype': 'Int', 'width': 180})
@@ -88,8 +116,9 @@ def get_columns(filters=None):
         ]
     if str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
         if (filters or {}).get('view_mode') == 'Detalle':
-            visible = ('employer', 'client_name', 'position_type', 'balance_usd', 'status',
-                       'origin_type', 'accounting_status', 'source_document')
+            visible = ('employer', 'event_date', 'client_name', 'statement_scope', 'position_type',
+                       'core_debit_usd', 'core_credit_usd', 'core_balance_usd', 'management_amount_usd',
+                       'status', 'origin_type', 'accounting_status', 'source_document')
             by_field = {column['fieldname']: column for column in columns}
             columns = [by_field[field] for field in visible] + [column for column in columns if column['fieldname'] not in visible]
             for column in columns:
@@ -108,22 +137,38 @@ def get_columns(filters=None):
             labels = dict(application_pending_usd='Aplicaciones US$', core_pending_usd='Core US$',
                 company_credit_usd='A favor empresa US$', client_credit_usd='A favor clientes US$',
                 deposit_pending_usd='Depósitos US$', company_receivable_usd='CxC empresa US$', employee_receivable_usd='CxC empleados US$',
-                balance_usd='Saldo neto US$', pending_count='Pendientes',
+                core_balance_usd='Saldo contable core US$', pending_count='Pendientes de gestión',
                 accounting_pending_count='Sin registro')
             for column in columns:
                 if column['fieldname'] in labels:
                     column['label'] = _(labels[column['fieldname']])
                     column['width'] = 110 if column['fieldtype'] == 'Currency' else 90
             by_field = {column['fieldname']: column for column in columns}
-            leading = ('employer', 'balance_usd', 'pending_count', 'accounting_pending_count')
+            leading = ('employer', 'core_debit_usd', 'core_credit_usd', 'core_balance_usd',
+                       'company_credit_usd', 'client_credit_usd', 'company_receivable_usd', 'employee_receivable_usd',
+                       'core_movement_count', 'pending_count', 'accounting_pending_count')
+            if section == MANAGEMENT:
+                leading += ('application_pending_usd', 'core_pending_usd', 'deposit_pending_usd')
             columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
+            for column in columns:
+                if column['fieldname'] not in leading:
+                    column['hidden'] = 1
         if (filters or {}).get('view_mode') == 'Detalle':
             widths = dict(employer=150, client_name=200, position_type=105,
-                          balance_usd=110, status=145, origin_type=120,
+                          core_balance_usd=145, status=145, origin_type=120,
                           accounting_status=155, source_document=180)
             for column in columns:
                 if column['fieldname'] in widths:
                     column['width'] = widths[column['fieldname']]
-                if column['fieldname'] == 'balance_usd':
-                    column['label'] = _('Saldo US$')
+    if str((filters or {}).get('component') or '').endswith('_nio'):
+        for column in columns:
+            if column['fieldname'].endswith('_nio'):
+                column.pop('hidden', None)
+    if section == CORE:
+        excluded = {*MANAGEMENT_FIELDS, 'management_amount_usd', 'pending_count', 'accounting_pending_count'}
+    elif section == MANAGEMENT:
+        excluded = {*CORE_FIELDS, 'core_movement_count'}
+    else:
+        excluded = set()
+    columns = [column for column in columns if column['fieldname'] not in excluded]
     return columns

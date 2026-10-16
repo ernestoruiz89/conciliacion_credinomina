@@ -1,16 +1,33 @@
 frappe.query_reports["Estado de Cuenta por Empresa"] = {
     filters: [
         {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1},
+        {fieldname: "statement_scope", label: __("Sección"), fieldtype: "Select", options: "Todos\nContabilidad del core\nGestión", default: "Todos",
+            description: __("El saldo contable conserva débitos menos créditos originales. Gestión muestra importes pendientes sin sumarlos al saldo contable."),
+            on_change(report) {
+                const section = report.get_filter_value("statement_scope");
+                const component = report.get_filter_value("component") || "";
+                const componentSection = component.startsWith("core_") && component !== "core_pending_usd" ? "Contabilidad del core" : "Gestión";
+                if ((component && section !== componentSection) || (report.get_filter_value("accounting_queue") && section !== "Gestión")) {
+                    return report.set_filter_value({component: "", accounting_queue: 0});
+                }
+                return report.refresh();
+            }},
         {fieldname: "compact_view", label: __("Vista compacta"), fieldtype: "Check", default: 1,
-            description: __("En Detalle muestra cliente, saldo, origen y registro contable. Desmarque para ver la matriz y toda la trazabilidad.")},
+            description: __("Desmarque para ver importes originales C$, cuenta, tasa, archivo y fila contable.")},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
             description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
         {fieldname: "from_date", label: __("Origen desde"), fieldtype: "Date"},
         {fieldname: "to_date", label: __("Origen hasta"), fieldtype: "Date"},
+        {fieldname: "source_account", label: __("Cuenta contable del core"), fieldtype: "Data",
+            description: __("Filtra la sección contable. Gestión conserva el alcance por empresa.")},
+        {fieldname: "source_currency", label: __("Moneda original del core"), fieldtype: "Select", options: "\nNIO\nUSD"},
         {fieldname: "component", label: __("Componente del saldo"), fieldtype: "Select", options: [
             {label: __("Todos"), value: ""},
-            ...[["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
+            ...[["core_balance_usd", "Saldo contable del core"], ["core_debit_usd", "Débitos originales del core"],
+                ["core_credit_usd", "Créditos originales del core"], ["core_balance_nio", "Saldo contable original C$"],
+                ["core_debit_nio", "Débitos originales C$"], ["core_credit_nio", "Créditos originales C$"],
+                ["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
                 .map(([value, label]) => ({value, label: __(label)}))]},
@@ -33,7 +50,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         .cn-company-statement .dt-row-header .dt-cell__content {
             white-space:normal;line-height:1.2;overflow:visible;padding:4px 8px;
         }`, "cn-company-statement-style");
-        const advanced = ["cutoff_date", "origin_type", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
+        const advanced = ["cutoff_date", "source_account", "source_currency", "origin_type", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
         let expanded = false;
         const display = () => advanced.forEach(name => {
             const control = report.get_filter(name);
@@ -55,7 +72,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                         [filter.fieldname, report.get_filter_value(filter.fieldname) ?? ""]));
             }
             report.set_filter_value({view_mode: "Detalle", employer: detail.employer || "", component: detail.component || "",
-                ...(detail.accounting_queue ? {accounting_queue: 1} : {})});
+                statement_scope: detail.statement_scope || "Gestión", accounting_queue: detail.accounting_queue ? 1 : 0});
         });
         report.page.add_inner_button(__("Volver al resumen"), () => {
             const filters = report.cn_summary_filters || {view_mode: "Resumen", component: ""};
@@ -75,12 +92,14 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         }
         const html = default_formatter(value, row, column, data);
         if (data && !data.source_document && data.employer &&
-                ((column.fieldtype === "Currency" && Number(value)) || column.fieldname === "pending_count" ||
+                ((column.fieldtype === "Currency" && Number(value)) || ["pending_count", "core_movement_count"].includes(column.fieldname) ||
                  (column.fieldname === "accounting_pending_count" && Number(value)))) {
+            const accounting = ["core_debit_usd", "core_credit_usd", "core_balance_usd", "core_debit_nio", "core_credit_nio", "core_balance_nio", "core_movement_count"].includes(column.fieldname);
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
-                component: column.fieldtype === "Currency" && column.fieldname !== "balance_usd" ? column.fieldname : "",
+                component: column.fieldtype === "Currency" ? column.fieldname : "",
+                statement_scope: accounting ? "Contabilidad del core" : "Gestión",
                 accounting_queue: column.fieldname === "accounting_pending_count" ? 1 : 0}));
-            return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__("Ver partidas pendientes")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
+            return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__(accounting ? "Ver movimientos originales del core" : "Ver partidas por gestionar")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
         }
         return html;
     },
