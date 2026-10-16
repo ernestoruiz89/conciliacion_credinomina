@@ -43,7 +43,7 @@ def _dated_total(entries, field, amount, cutoff):
     return sum_money(row.get(amount) for row in entries if _day(row.get(field)) <= cutoff)
 
 
-def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
+def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False):
     """Pure projection. Inputs are copied, and no reconciliation/write is executed."""
     from credinomina_reconciliation.company_statement import build_detail, summarize
 
@@ -296,12 +296,23 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
         settlements=list(projected_items.values()), settlement_balances=balances)
     detail = build_detail(applications, core, projected_items.values(), projected_deposits, filters,
                           adjustment_receivables=receivables, accounting_items=projected_items.values())
-    return dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
+    result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
                 applications=applications, receivables=receivables, periods=periods,
                 warnings=sorted(set(warnings)))
+    if include_bridge:
+        # Reuse the exact effective-date projection. Do not read today's totals
+        # or the unfiltered allocation journal to explain a historical balance.
+        result['bridge_context'] = dict(items=list(projected_items.values()),
+            deposits=projected_deposits, distributions=dict(distributions),
+            offsets=[row for row in offsets if _day(row.get('compensation_date')) <= cutoff],
+            sources=[dict(row, bridge_applied_usd=converted_amount(row, 'USD'),
+                employer=(periods.get(row.get('historical_period') or imports.get(row.get('parent'), {}).get('historical_period')) or {}).get('employer')
+                    or imports.get(row.get('parent'), {}).get('employer') or row.get('portfolio_employer'))
+                for row in eligible_sources.values()])
+    return result
 
 
-def load_cutoff(filters):
+def load_cutoff(filters, *, include_bridge=False):
     """Permission-scoped, batched reads; cross-company payments are not date-scoped early."""
     from frappe.utils import getdate, nowdate
     required = ('CN Accounting Import', 'CN Reconciliation Period', 'CN Remittance Allocation', 'CN Complementary Item')
@@ -328,14 +339,16 @@ def load_cutoff(filters):
             item['_registration_origin'] = origins.get(item.get('registration_exception'))
         offsets = list(child_records('CN Complementary Offset', [item['name'] for item in items],
             'CN Complementary Item', 'compensations', fields=['parent', 'compensation_date', 'amount_usd',
-                'credit_effect', 'credit_management_item', 'credit_management_entry']))
+                'credit_effect', 'credit_management_item', 'credit_management_entry',
+                *(['counterpart'] if include_bridge else [])]))
         deposits = list(records('CN Remittance Allocation', filters={'docstatus': ['!=', 2]}, fields=[
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
-            'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit']))
+            'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit',
+            *(['deposit_currency', 'deposit_amount', 'fx_rate', 'deposit_voucher'] if include_bridge else [])]))
         context = load_application_context()
         from credinomina_reconciliation.cutoff_evidence import require_cutoff_evidence
         require_cutoff_evidence(context, deposits, items, cutoff)
-        return reconstruct(context, deposits, items, offsets, cutoff, filters)
+        return reconstruct(context, deposits, items, offsets, cutoff, filters, include_bridge=include_bridge)
     except ValueError as error:
         frappe.throw(str(error))
 

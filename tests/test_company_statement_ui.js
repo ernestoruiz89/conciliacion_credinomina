@@ -6,7 +6,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 const report = context.frappe.query_reports['Estado de Cuenta por Empresa'];
 context.frappe.utils = {escape_html: text => text};
 assert.equal(report.filters[0].default, 'Resumen');
-assert.equal(report.filters[0].options, 'Resumen\nDetalle');
+assert.equal(report.filters[0].options, 'Resumen\nDetalle\nConciliación');
 assert.ok(report.filters.some(f => f.fieldname === 'employer' && f.options === 'CN Employer'));
 assert.ok(report.filters.some(f => f.fieldname === 'cutoff_date' && f.fieldtype === 'Date' && !f.reqd));
 assert.ok(report.filters.some(f => f.fieldname === 'accounting_queue' && f.fieldtype === 'Check'));
@@ -25,11 +25,13 @@ assert.equal(report.formatter(null, null, amount, {_is_statement_total:true}, ba
 assert.equal(report.formatter(null, null, {fieldname:'statement_amount_nio',fieldtype:'Currency'},
     {statement_scope:'Gestión',statement_amount_nio:null}, base), '');
 let drill, back;
+const visible = {};
 const filterValues = Object.fromEntries(report.filters.map(filter => [filter.fieldname, filter.default ?? '']));
 Object.assign(filterValues, {from_date:'2025-04-01', cutoff_date:'2025-06-30', search:'Ana'});
 const original = {...filterValues};
 const live = {get_filter_value: key => filterValues[key], set_filter_value: values => Object.assign(filterValues, values),
-    get_filter: () => ({get_value: () => '', $wrapper:{toggle(){}}}),
+    get_filter: name => ({get_value: () => filterValues[name], $wrapper:{toggle(value){visible[name]=value;}}}),
+    refresh(){},
     page: {wrapper:{off(){}, on(event, selector, handler){drill = handler;}},
         add_inner_button(label, handler){if(label === 'Volver al resumen') back = handler; return {text(){}};}}};
 report.onload(live);
@@ -64,4 +66,30 @@ assert.deepEqual(filterValues, scoped);
 Object.assign(filterValues, {statement_scope:'Gestión', component:'core_balance_usd'});
 report.filters.find(filter => filter.fieldname === 'statement_scope').on_change(live);
 assert.equal(filterValues.component, '', 'Changing sections clears an incompatible drill-down component');
+Object.assign(filterValues, scoped);
+const bridgeLink = report.formatter(-100.09, null, {fieldname:'reconciliation_difference_usd',fieldtype:'Currency'},
+    {employer:'ACEREAL',reconciliation_difference_usd:-100.09}, base);
+assert.match(bridgeLink, /Conciliación/);
+drill.call({'data-detail':JSON.stringify({employer:'ACEREAL',view_mode:'Conciliación'})}, {preventDefault(){}});
+assert.equal(filterValues.view_mode, 'Conciliación');
+assert.equal(filterValues.employer, 'ACEREAL');
+assert.equal(filterValues.cutoff_date, scoped.cutoff_date, 'The explanation uses the same cut');
+assert.equal(filterValues.from_date, '', 'Partial populations cannot be compared against full management');
+assert.equal(filterValues.component, '');
+assert.equal(filterValues.search, '');
+assert.equal(filterValues.statement_scope, 'Todos');
+live.cn_display_filters();
+assert.equal(visible.cutoff_date, true);
+assert.equal(visible.source_account, false);
+assert.equal(visible.accounting_queue, false);
+back();
+assert.deepEqual(filterValues, scoped);
+assert.equal(report.formatter(12, null, amount, {bridge_row_type:'difference',statement_amount_usd:12}, base), 'formatted:12');
+assert.equal(report.formatter(null, null, {fieldname:'core_amount_usd',fieldtype:'Currency'},
+    {bridge_row_type:'difference',statement_amount_usd:12}, base), '');
+Object.assign(filterValues, {view_mode:'Conciliación', source_account:'160209', component:'client_credit_usd'});
+report.filters[0].on_change(live);
+assert.equal(filterValues.source_account, '');
+assert.equal(filterValues.component, '');
+assert.equal(filterValues.cutoff_date, scoped.cutoff_date);
 console.log('OK: company statement summary/detail, monetary formatting and original filter restoration.');

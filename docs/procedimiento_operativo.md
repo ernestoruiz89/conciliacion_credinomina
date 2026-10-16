@@ -912,6 +912,21 @@ Al recuperar una **CxC por ajuste**, el selector propone depósitos o compensaci
 
 En el **Detalle** de **Estado de Cuenta por Empresa**, **Vista compacta** presenta una columna **Importe US$**, junto con sección, cliente, tipo y documento. Los débitos del core son positivos y los créditos negativos. Al pie aparecen los totales independientes de cada concepto de gestión y, al final, el **Saldo contable del core**, calculado únicamente con los movimientos contables seleccionados por los filtros del reporte. No sume las filas de Gestión al saldo contable. Desmarque Vista compacta para consultar débitos, créditos, cuenta, moneda, tasa, archivo y fila original. Al consultar un componente original C$, la columna compacta muestra **Importe original C$**. Un saldo contable cero puede coexistir con saldos a favor o CxC pendientes; no se compensan automáticamente.
 
+### Conciliar el saldo contable con el saldo de gestión
+
+En **Estado de Cuenta por Empresa**, seleccione **Vista: Conciliación**, empresa y fecha de corte. También puede abrirla desde **Diferencia gestión − core US$** en el resumen sin filtros de detalle. El resumen presenta ambos saldos por separado. El **saldo neto de gestión** suma aplicaciones pendientes, core por conciliar con su signo y CxC, y resta saldos a favor pendientes y depósitos sin asignar. No suma esos importes al saldo contable.
+
+La vista Conciliación mantiene una sola columna **Importe US$**: comienza con el saldo contable, detalla las diferencias con su signo y termina con el saldo de gestión. Cada diferencia identifica documento, fecha, depósitos relacionados, explicación y **Acción / registro**. Desmarque **Vista compacta** para consultar saldo después de cada movimiento, crédito contable original del depósito, importe bancario, documentos vinculados y referencia. Los mismos datos se conservan al exportar el reporte.
+
+- **Pendiente de registro:** una partida manual utilizada explica parte de la diferencia y su estado en la app sigue pendiente. Contabilidad debe comprobar el mayor y la contrapartida antes de registrar.
+- **Verificar contrapartida:** el importe bancario difiere del crédito contable importado; puede incluir otras cuentas o clientes. No significa automáticamente que falte un asiento.
+- **No requiere asiento:** diferencia de conversión por redondear líneas frente al total, con importe original en córdobas y tasa coincidentes.
+- **Diferencia sin explicar / no determinable:** faltan vínculos suficientes o un importe no puede determinarse. No es una partida creada para cuadrar ni un asiento propuesto.
+
+Los saldos a favor documentados ya incluidos en el depósito no se descuentan dos veces. Las CxC que sustituyen una aplicación pendiente no agregan otra diferencia. Las aplicaciones de saldos a favor, compensaciones, vínculos de gestión y reversiones se consideran por su fecha efectiva y se agrupan solo mediante vínculos explícitos. Una partida manual no utilizada no explica la diferencia; puede seguir apareciendo en **Solo complementarias sin registro** del detalle de Gestión para su revisión.
+
+Conciliación compara el alcance completo por empresa al corte. Al entrar se restablecen los filtros de detalle, fechas de origen, cuenta, moneda y sección; se conservan empresa y corte. Si no indica corte, usa la fecha actual y la muestra en el resultado. **Volver al resumen**, tras abrir una diferencia del resumen, restaura sus filtros. El estado de registro es el actual, aunque los importes se reconstruyen al corte. La consulta no modifica movimientos, saldos ni períodos.
+
 En el calendario, **Ir al mes** permite saltar directamente al mes deseado. La vista inicial prioriza el mes corriente o el primer mes con actividad del año consultado; al alternar con Trabajo de conciliación conserva el desplazamiento.
 
 ## Consultar saldos a una fecha de corte

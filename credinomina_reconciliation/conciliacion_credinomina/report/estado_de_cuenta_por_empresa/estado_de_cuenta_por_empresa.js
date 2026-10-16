@@ -1,6 +1,22 @@
 frappe.query_reports["Estado de Cuenta por Empresa"] = {
+    bridge_reset() {
+        return {statement_scope:"Todos", from_date:"", to_date:"", source_account:"", source_currency:"",
+            component:"", accounting_queue:0, status:"", origin_type:"", category:"", reason_type:"", subcategory:"",
+            accounting_status:"", management_status:"", treatment_status:"", search:""};
+    },
     filters: [
-        {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1},
+        {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle\nConciliación", default: "Resumen", reqd: 1,
+            description: __("Conciliación compara saldos completos por empresa y corte; restablece los filtros de detalle."),
+            on_change(report) {
+                report.cn_display_filters?.();
+                if (report.get_filter_value("view_mode") === "Conciliación") {
+                    const reset = frappe.query_reports["Estado de Cuenta por Empresa"].bridge_reset();
+                    if (Object.entries(reset).some(([key, value]) => (report.get_filter_value(key) || "") !== (value || ""))) {
+                        return report.set_filter_value(reset);
+                    }
+                }
+                return report.refresh();
+            }},
         {fieldname: "statement_scope", label: __("Sección"), fieldtype: "Select", options: "Todos\nContabilidad del core\nGestión", default: "Todos",
             description: __("El saldo contable conserva débitos menos créditos originales. Gestión muestra importes pendientes sin sumarlos al saldo contable."),
             on_change(report) {
@@ -52,10 +68,15 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         }`, "cn-company-statement-style");
         const advanced = ["cutoff_date", "source_account", "source_currency", "origin_type", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
         let expanded = false;
-        const display = () => advanced.forEach(name => {
-            const control = report.get_filter(name);
-            control.$wrapper.toggle(expanded || Boolean(control.get_value()));
-        });
+        const display = () => {
+            const bridge = report.get_filter_value("view_mode") === "Conciliación";
+            frappe.query_reports["Estado de Cuenta por Empresa"].filters.forEach(({fieldname:name}) => {
+                const control = report.get_filter(name);
+                control.$wrapper.toggle(bridge ? ["view_mode", "compact_view", "employer", "cutoff_date"].includes(name)
+                    : !advanced.includes(name) || expanded || Boolean(control.get_value()));
+            });
+        };
+        report.cn_display_filters = display;
         const button = report.page.add_inner_button(__("Más filtros"), () => {
             expanded = !expanded;
             button.text(__(expanded ? "Menos filtros" : "Más filtros"));
@@ -71,6 +92,10 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                     frappe.query_reports["Estado de Cuenta por Empresa"].filters.map(filter =>
                         [filter.fieldname, report.get_filter_value(filter.fieldname) ?? ""]));
             }
+            if (detail.view_mode === "Conciliación") {
+                return report.set_filter_value({...frappe.query_reports["Estado de Cuenta por Empresa"].bridge_reset(),
+                    view_mode:"Conciliación", employer:detail.employer || ""});
+            }
             report.set_filter_value({view_mode: "Detalle", employer: detail.employer || "", component: detail.component || "",
                 statement_scope: detail.statement_scope || "Gestión", accounting_queue: detail.accounting_queue ? 1 : 0});
         });
@@ -83,6 +108,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
     get_datatable_options(options) { return {...options, cellHeight: 42}; },
     after_datatable_render() {
         const report = frappe.query_report;
+        report.cn_display_filters?.();
         const states = report.data?.find(row => Array.isArray(row._available_statuses))?._available_statuses;
         if (states) report.get_filter("status").set_data([...new Set([...states, report.get_filter_value("status")].filter(Boolean))]);
     },
@@ -95,16 +121,22 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             return `<strong>${total}</strong>`;
         }
         if (column.fieldname === "statement_amount_nio" && data?.statement_scope === "Gestión") return "";
+        if (data?.bridge_row_type && data[column.fieldname] === undefined) return "";
         if (data && column.fieldtype === "Currency" && data[column.fieldname] == null) {
             return `<span class="text-muted" title="${__("Importe o signo sin determinar; revise el detalle.")}">—</span>`;
         }
         const html = default_formatter(value, row, column, data);
+        if (data?.bridge_row_type) return html;
+        if (data?.employer && column.fieldname === "reconciliation_difference_usd") {
+            const args = frappe.utils.escape_html(JSON.stringify({employer:data.employer, view_mode:"Conciliación"}));
+            return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__("Explicar diferencia y registro pendiente")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
+        }
         if (data && !data.source_document && data.employer &&
                 ((column.fieldtype === "Currency" && Number(value)) || ["pending_count", "core_movement_count"].includes(column.fieldname) ||
                  (column.fieldname === "accounting_pending_count" && Number(value)))) {
             const accounting = ["core_debit_usd", "core_credit_usd", "core_balance_usd", "core_debit_nio", "core_credit_nio", "core_balance_nio", "core_movement_count"].includes(column.fieldname);
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
-                component: column.fieldtype === "Currency" ? column.fieldname : "",
+                component: column.fieldtype === "Currency" && column.fieldname !== "management_net_usd" ? column.fieldname : "",
                 statement_scope: accounting ? "Contabilidad del core" : "Gestión",
                 accounting_queue: column.fieldname === "accounting_pending_count" ? 1 : 0}));
             return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__(accounting ? "Ver movimientos originales del core" : "Ver partidas por gestionar")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;

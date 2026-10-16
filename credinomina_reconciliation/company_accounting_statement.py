@@ -184,5 +184,10 @@ def summarize(detail):
         for field in FIELDS:
             if group[field] is not None:
                 group[field] = money_float(group[field])
+        negative = {'company_credit_usd', 'client_credit_usd', 'deposit_pending_usd'}
+        group['management_net_usd'] = (None if any(group[field] is None for field in MANAGEMENT_FIELDS) else money_float(
+            sum((money(group[field]) * (-1 if field in negative else 1) for field in MANAGEMENT_FIELDS), money(0))))
+        group['reconciliation_difference_usd'] = (None if group['management_net_usd'] is None or group['core_balance_usd'] is None
+            else money_float(money(group['management_net_usd']) - money(group['core_balance_usd'])))
         result.append(group)
     return result
