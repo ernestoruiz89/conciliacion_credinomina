@@ -128,9 +128,11 @@ def build_bridge(core, snapshot, employer=None):
     # Explicit links make adjustment/reversal pairs neutral, not separate uses.
     for item in items.values():
         key = node(item.get('employer'), 'item', item['name'], item)
-        application = sources.get(item.get('related_application'))
-        if application:
-            join(key, node(application.get('employer'), 'application', application['name'], application))
+        from credinomina_reconciliation.application_adjustment_links import links
+        for link in links(item):
+            application = sources.get(link.related_application)
+            if application:
+                join(key, node(application.get('employer'), 'application', application['name'], application))
         for field in ('_registration_origin', 'receivable_origin'):
             other = items.get(item.get(field))
             if other:

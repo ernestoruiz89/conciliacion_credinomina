@@ -51,6 +51,8 @@ class CNComplementaryItem(Document):
 
     def validate(self):
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        from credinomina_reconciliation.application_adjustment_links import guard
+        guard(self, previous)
         from credinomina_reconciliation.manual_origin_link import guard_item
         if guard_item(self, previous):
             return  # The linking service validated this immutable ledger evidence.
@@ -99,6 +101,8 @@ class CNComplementaryItem(Document):
         guard_receipt(self, previous)
         if self.category == APPLICATION_ADJUSTMENT:
             validate_adjustment(self)
+            from credinomina_reconciliation.application_adjustment_links import validate_additional
+            validate_additional(self)
         if self.category == CATEGORY:
             validate_company_credit(self)
         elif self.category == client_credit.CATEGORY:
@@ -172,14 +176,16 @@ class CNComplementaryItem(Document):
             # is allowed: its confirmed deposit is recalculated in on_cancel.
             self.ignore_linked_doctypes = ["CN Remittance Target"]
         if self.category == APPLICATION_ADJUSTMENT:
-            frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", self.related_application)
-            row = frappe.get_doc("CN Source Row", self.related_application)
-            assert_adjustable(row, self.name,
-                              frappe.parse_json(self.get("adjustment_periods") or "[]"),
-                              frappe.parse_json(self.get("adjustment_collection_rows") or "[]"))
+            from credinomina_reconciliation.application_adjustment_links import links
             from credinomina_reconciliation.application_adjustments import cash_coverage
-            self.flags.adjustment_cash_snapshot = cash_coverage(row,
-                frappe.parse_json(self.get("adjustment_collection_rows") or "[]"), lock=True)["snapshots"]
+            snapshots = {}
+            for link in sorted(links(self), key=lambda entry: entry.related_application):
+                frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", link.related_application)
+                row = frappe.get_doc("CN Source Row", link.related_application)
+                assert_adjustable(row, self.name, frappe.parse_json(link.get("adjustment_periods") or "[]"),
+                                  frappe.parse_json(link.get("adjustment_collection_rows") or "[]"))
+                snapshots.update(cash_coverage(row, frappe.parse_json(link.get("adjustment_collection_rows") or "[]"), lock=True)["snapshots"])
+            self.flags.adjustment_cash_snapshot = snapshots
         if self.category in {CATEGORY, client_credit.CATEGORY}:
             ensure_related_periods_open(self)
 

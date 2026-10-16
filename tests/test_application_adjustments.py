@@ -9,6 +9,32 @@ from credinomina_reconciliation.application_aging import application_balances
 
 
 class ApplicationAdjustmentTests(unittest.TestCase):
+    def test_linked_adjustment_can_be_saved_and_confirmed_without_review_notes(self):
+        for status in (0, 1):
+            for notes in (None, "", "   "):
+                with self.subTest(status=status, notes=notes):
+                    doc = frappe._dict(name="ADJ", docstatus=status, related_application="APP", employer="EMP", period="P",
+                        amount_usd=25, application_adjustment_usd=25, review_notes=notes, flags=frappe._dict(),
+                        get_doc_before_save=lambda: None)
+                    row = frappe._dict(name="APP", parent="IMPORT", parenttype="CN Accounting Import", event_type="Aplicacion",
+                        effective=1, currency="USD", amount=100, historical_period="P", application_allocation_detail="[]")
+                    parent = frappe._dict(name="IMPORT", employer="EMP", status="Importado", docstatus=0, check_permission=Mock())
+                    with patch.object(frappe, "db", Mock(sql=Mock(return_value=[]))), \
+                         patch.object(frappe, "get_doc", side_effect=lambda doctype, _: row if doctype == "CN Source Row" else parent), \
+                         patch.object(adjustments, "assert_adjustable") as adjustable, \
+                         patch.object(adjustments, "cash_coverage", return_value={"protected_usd": 10, "snapshots": {"D": "cash"}}) as coverage:
+                        adjustments.validate_adjustment(doc)
+                    self.assertEqual(doc.related_import, "IMPORT")
+                    self.assertEqual(doc.application_adjustment_usd, 25)
+                    self.assertEqual(doc.review_notes, notes)
+                    self.assertEqual(doc.review_status, "Ajuste confirmado" if status else "Ajuste pendiente de confirmar")
+                    if status:
+                        adjustable.assert_called_once()
+                        coverage.assert_called_once_with(row, lock=True)
+                        self.assertEqual(doc.flags.adjustment_cash_snapshot, {"D": "cash"})
+                    else:
+                        coverage.assert_not_called()
+
     def test_partial_full_cent_precision_and_original_unchanged(self):
         for original, adjusted, net in [(100, 30, 70), (100, 100, 0), (46.53, 46.52, 0.01), (100, 0, 100)]:
             row = dict(event_type="Aplicacion", currency="USD", amount=original, application_adjustment_usd=adjusted)
@@ -134,7 +160,7 @@ class ApplicationAdjustmentTests(unittest.TestCase):
         previous = frappe._dict(employer="E", rows=[old])
         for rows in [[], [frappe._dict(old, amount=90)]]:
             doc = frappe._dict(employer="E", rows=rows, get_doc_before_save=lambda: previous)
-            with patch.object(frappe, "get_all", return_value=["A"]), \
+            with patch.object(frappe, "get_all", side_effect=lambda _, **kw: ["A"] if kw.get("pluck") else []), \
                  patch.object(frappe, "throw", side_effect=ValueError), patch.object(adjustments, "_", side_effect=lambda text: text):
                 with self.assertRaises(ValueError):
                     adjustments.guard_source_changes(doc)

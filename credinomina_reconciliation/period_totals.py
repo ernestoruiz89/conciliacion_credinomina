@@ -118,9 +118,10 @@ class PeriodTotalsContext:
         employers = sorted({period.get("employer") for period in self.periods.values() if period.get("employer")})
         adjustments = frappe.get_all("CN Complementary Item", filters={
             "docstatus": 1, "category": "Ajuste de aplicación", "employer": ["in", employers],
-        }, fields=["period", "related_application", "application_adjustment_usd", "adjustment_periods"],
+        }, fields=["period", "related_application", "application_adjustment_usd", "adjustment_periods", "application_adjustment_history"],
             limit_page_length=0) if employers else []
-        for item in adjustments:
+        from credinomina_reconciliation.application_adjustment_links import links
+        for item in [portion for adjustment in adjustments for portion in links(adjustment)]:
             # Use the item's explicit period; never repeat a reduction in every
             # period of an application shared across two payroll halves.
             source = by_name.get(item.related_application)

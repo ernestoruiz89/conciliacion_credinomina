@@ -11,6 +11,7 @@ CREDIT_CATEGORIES = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Cobro de CxC"}
 FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
+          "application_adjustment_history",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
           "credit_pending_usd", "credit_management_status", "credit_usage_issue", "credit_assigned_to", "credit_commitment_date",
           "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
@@ -71,7 +72,8 @@ def financial_balance(item, distributions=()):
             state = 'Conciliada' if used == abs(original) else 'Parcialmente revertida' if used else 'Revertida'
     elif category == "Ajuste de aplicación":
         kind = "Ajuste aplicado"
-        used = money(item.get("application_adjustment_usd")) if confirmed and item.get("related_application") else money(0)
+        from credinomina_reconciliation.application_adjustment_links import total
+        used = total(item) if confirmed else money(0)
         pending = abs(original) - used
         state = "Conciliada" if not pending else "Parcial" if used else "Pendiente de confirmar"
     elif category == "Diferencia por tolerancia":

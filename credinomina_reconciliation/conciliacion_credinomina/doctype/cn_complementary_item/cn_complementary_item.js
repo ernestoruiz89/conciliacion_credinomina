@@ -431,6 +431,12 @@ frappe.ui.form.on("CN Complementary Item", {
                 && (!compensated || frm.doc.compensation_pending_usd > 0))) : (!compensated || frm.doc.compensation_pending_usd > 0))) {
             frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
+        if (!frm.is_new() && frm.get_perm(0, "write") && !betweenItems && !compensated
+                && ((frm.doc.docstatus === 0 && !["Saldo a favor del cliente", "Saldo a favor de la empresa", "Diferencia por tolerancia"].includes(frm.doc.category))
+                    || (frm.doc.docstatus === 1 && frm.doc.category === "Ajuste de aplicación" && frm.get_perm(0, "submit")))) {
+            frm.add_custom_button(__("Distribuir entre aplicaciones"), () => cn_distribute_applications(frm));
+        }
+        cn_render_application_links(frm);
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
             if (!betweenItems && !compensated && frm.doc.category !== "Saldo a favor del cliente") frm.add_custom_button(__("Vincular a aplicación"), () => cn_select_original_application(frm));
             if (frm.doc.review_action === "Ajuste de aplicación" && frm.get_perm(0, "submit")) {
@@ -999,11 +1005,106 @@ function cn_compensation_balance_dialog(frm) {
     dialog.show();
 }
 
+function cn_application_links(doc) {
+    const extra = JSON.parse(doc.application_adjustment_history || "[]");
+    if (!Array.isArray(extra)) throw new Error("Historial inválido");
+    return (doc.related_application ? [{related_application: doc.related_application, related_import: doc.related_import,
+        application_adjustment_usd: doc.application_adjustment_usd, client_name: doc.client_name, loan_number: doc.loan_number}] : []).concat(extra);
+}
+
+async function cn_render_application_links(frm) {
+    const wrapper = frm.fields_dict?.application_links_preview?.$wrapper;
+    if (!wrapper) return;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const name = frm.doc.name, sequence = (frm.cn_application_links_sequence || 0) + 1;
+    frm.cn_application_links_sequence = sequence;
+    try {
+        let links = cn_application_links(frm.doc);
+        if (name && !frm.doc.__islocal && frm.doc.category === "Ajuste de aplicación") {
+            const response = await frappe.call({method: "credinomina_reconciliation.application_adjustment_links.get_detail", args: {item_name: name}});
+            if (frm.doc.name !== name || frm.cn_application_links_sequence !== sequence) return;
+            links = response.message || [];
+        }
+        const used = links.reduce((sum, row) => sum + Number(row.application_adjustment_usd || 0), 0);
+        wrapper.html(`<p><strong>${__("Distribuido US$")}: ${esc(format_currency(used, "USD"))} · ${__("Remanente US$")}: ${esc(format_currency(Math.abs(frm.doc.amount_usd || 0) - used, "USD"))}</strong></p>
+            <div style="overflow-x:auto"><table class="table table-bordered"><thead><tr><th>${__("Aplicación")}</th><th>${__("Importación")}</th><th>${__("Fecha de aplicación")}</th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Ajuste US$")}</th></tr></thead><tbody>${links.map(row => `<tr><td>${esc(row.related_application)}</td><td>${row.related_import ? `<a href="/app/cn-accounting-import/${encodeURIComponent(row.related_import)}">${esc(row.related_import)}</a>` : ""}</td><td>${esc(row.event_date)}</td><td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td><td>${esc(format_currency(row.application_adjustment_usd, "USD"))}</td></tr>`).join("")}</tbody></table></div>
+            <p class="text-muted">${__(frm.doc.docstatus === 2 ? "Partida cancelada. Se conserva la distribución como evidencia; sus ajustes fueron revertidos." : frm.doc.docstatus === 1 ? "Los vínculos confirmados se conservan. Puede distribuir el remanente entre otras aplicaciones." : "La distribución del borrador no reduce aplicaciones hasta usar Confirmar ajuste.")}</p>`);
+    } catch (_) {if (frm.doc.name === name && frm.cn_application_links_sequence === sequence) wrapper.html(`<p class="text-danger">${__("No se pudo leer la distribución. Recargue y revise la partida.")}</p>`);}
+}
+
+async function cn_distribute_applications(frm) {
+    if (!frm.doc.employer) {frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return;}
+    if (frm.is_dirty()) await frm.save();
+    const used = cn_application_links(frm.doc).reduce((sum, row) => sum + Number(row.application_adjustment_usd || 0), 0);
+    const remaining = Math.round((Math.abs(frm.doc.amount_usd || 0) - (frm.doc.docstatus === 1 ? used : 0)) * 100) / 100;
+    if (!(remaining > 0)) {frappe.msgprint(__("La partida no tiene remanente disponible.")); return;}
+    let request = 0, busy = false;
+    const selected = new Map();
+    if (frm.doc.docstatus === 0) for (const link of cn_application_links(frm.doc)) {
+        const previous = selected.get(link.related_application)?.amount_usd || 0;
+        selected.set(link.related_application, {application: link.related_application, amount_usd: previous + Number(link.application_adjustment_usd || 0)});
+    }
+    function remember() {
+        const rows = dialog.fields_dict.applications.df.data || [];
+        for (const row of rows) {
+            if (Number(row.amount_usd) < 0) throw new Error(__("Los importes deben ser positivos o cero para omitir la fila."));
+            if (Number(row.amount_usd) > 0) selected.set(row.application, {application: row.application, amount_usd: Number(row.amount_usd)});
+            else selected.delete(row.application);
+        }
+    }
+    const dialog = new frappe.ui.Dialog({title: __("Distribuir entre aplicaciones"), size: "extra-large", fields: [
+        {fieldtype: "HTML", options: `<p><strong>${__("Remanente disponible")}: ${format_currency(remaining, "USD")}</strong><br>${__("Indique el importe para cada aplicación. Deje cero para omitirla. Puede seleccionar aplicaciones de varias importaciones antes de guardar.")}</p>`},
+        {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"), options: "CN Accounting Import",
+            get_query: () => ({query: "credinomina_reconciliation.accounting_review.application_import_query", filters: {employer: frm.doc.employer}}),
+            async onchange() {
+                try {remember();} catch (error) {frappe.msgprint(error.message); return;}
+                const current = ++request, name = dialog.get_value("accounting_import");
+                dialog.fields_dict.applications.df.data = [];
+                dialog.fields_dict.applications.grid.refresh();
+                if (!name) return;
+                const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
+                    args: {item_name: frm.doc.name, accounting_import: name}});
+                if (current !== request) return;
+                dialog.fields_dict.applications.df.data = (response.message || []).map(row => ({application: row.name,
+                    client_name: row.client_name, loan_number: row.loan_number, event_date: row.event_date,
+                    adjustable_usd: row.adjustable_usd, amount_usd: selected.get(row.name)?.amount_usd || 0}));
+                dialog.fields_dict.applications.grid.refresh();
+            }},
+        {fieldtype: "Table", fieldname: "applications", label: __("Importe a distribuir por aplicación"),
+            cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true, data: [], fields: [
+                {fieldtype: "Data", fieldname: "application", hidden: 1, read_only: 1},
+                {fieldtype: "Data", fieldname: "client_name", label: __("Cliente"), read_only: 1, in_list_view: 1, columns: 3},
+                {fieldtype: "Data", fieldname: "loan_number", label: __("Crédito"), read_only: 1, in_list_view: 1, columns: 2},
+                {fieldtype: "Date", fieldname: "event_date", label: __("Fecha"), read_only: 1, in_list_view: 1, columns: 2},
+                {fieldtype: "Currency", fieldname: "adjustable_usd", label: __("Disponible US$"), read_only: 1, in_list_view: 1, columns: 1, precision: 2},
+                {fieldtype: "Currency", fieldname: "amount_usd", label: __("Ajuste US$"), in_list_view: 1, columns: 2, precision: 2},
+            ]},
+    ], primary_action_label: __(frm.doc.docstatus === 1 ? "Confirmar distribución adicional" : "Guardar distribución"), async primary_action() {
+        if (busy) return;
+        try {remember();} catch (error) {frappe.msgprint(error.message); return;}
+        const rows = [...selected.values()];
+        if (!rows.length || rows.reduce((sum, row) => sum + row.amount_usd, 0) > remaining + .000001) {
+            frappe.msgprint(__("Seleccione aplicaciones con importes positivos sin superar el remanente.")); return;
+        }
+        busy = true;
+        dialog.disable_primary_action();
+        try {
+            await frappe.call({method: "credinomina_reconciliation.application_adjustment_links.distribute", args: {
+                item_name: frm.doc.name, modified: frm.doc.modified, rows: JSON.stringify(rows)}, freeze: true});
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.show_alert({message: __(frm.doc.docstatus === 1 ? "Distribución confirmada y saldos actualizados." : "Distribución guardada. Use Confirmar ajuste para aplicarla."), indicator: "green"});
+        } finally {busy = false; dialog.enable_primary_action();}
+    }});
+    dialog.show();
+}
+
 async function cn_select_original_application(frm) {
     if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
     if (frm.is_dirty()) await frm.save();
     let rows = [];
     let request = 0;
+    let requestedImport = null;
     const dialog = new frappe.ui.Dialog({
         title: __("Vincular a aplicación"), size: "extra-large",
         fields: [
@@ -1012,14 +1113,24 @@ async function cn_select_original_application(frm) {
                     query: "credinomina_reconciliation.accounting_review.application_import_query",
                     filters: {employer: frm.doc.employer}}),
                 async onchange() {
+                    const selected = dialog.get_value("accounting_import") || "";
+                    // Link validation can fire again on blur when selecting a row.
+                    // Keep the displayed rows and radio selection for the same import.
+                    if (selected === requestedImport) return;
+                    requestedImport = selected;
                     const currentRequest = ++request;
-                    const selected = dialog.get_value("accounting_import");
                     rows = [];
                     dialog.get_primary_btn().prop("disabled", true);
                     dialog.fields_dict.applications.$wrapper.empty();
                     if (!selected) return;
-                    const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
-                        args: {item_name: frm.doc.name, accounting_import: selected}});
+                    let response;
+                    try {
+                        response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
+                            args: {item_name: frm.doc.name, accounting_import: selected}});
+                    } catch (error) {
+                        if (currentRequest === request) requestedImport = null;
+                        throw error;
+                    }
                     if (currentRequest !== request || selected !== dialog.get_value("accounting_import")) return;
                     rows = (response.message || []).filter(row => Number(row.adjustable_usd) > 0);
                     const esc = value => frappe.utils.escape_html(String(value ?? ""));

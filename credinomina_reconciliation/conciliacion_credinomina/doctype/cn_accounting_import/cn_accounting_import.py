@@ -100,6 +100,11 @@ PROVISIONAL_APPLICATION = "Enlace provisional"
 from credinomina_reconciliation.application_adjustments import net_amount, refresh_rows, guard_source_changes, CATEGORY as APPLICATION_ADJUSTMENT
 
 SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
+
+
+def _has_application_adjustment_link(name):
+    from credinomina_reconciliation.application_adjustment_links import linked_names
+    return bool(linked_names([name]))
 LINKED_APPLICATION_STATUSES = {"Conciliado", PROVISIONAL_APPLICATION}
 _source_reconcile_verified = ContextVar("cn_source_reconcile_verified", default=False)
 _source_import_refresh = ContextVar("cn_source_import_refresh", default=False)
@@ -178,7 +183,8 @@ class CNAccountingImport(Document):
         guard_cash_changes(self, deleting=True)
         from credinomina_reconciliation.complementary_exceptions import guard_verified_import
         guard_verified_import(frappe._dict(rows=[]), self, _SOURCE_EVIDENCE_FIELDS)
-        if self.rows and frappe.db.exists("CN Complementary Item", {"related_application": ["in", [row.name for row in self.rows]]}):
+        from credinomina_reconciliation.application_adjustment_links import linked_names
+        if self.rows and linked_names([row.name for row in self.rows]):
             frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
 
     def before_cancel(self):
@@ -524,7 +530,7 @@ def import_source_file(import_name: str):
         if row.event_type == "Aplicacion" and row.source_key not in new_application_keys:
             if (_source_linked_periods(row) or flt(row.historical_remitted_usd)
                     or row.application_allocation_detail not in (None, "", "[]")
-                    or frappe.db.exists("CN Complementary Item", {"related_application": row.name})):
+                    or _has_application_adjustment_link(row.name)):
                 frappe.throw(_("La fila {0} ya tiene vínculos de conciliación. Revise y retire esos vínculos antes de reclasificarla o eliminarla al recargar.").format(row.idx))
     adjustments = [row for row in parsed if row["event_type"] == "Ajuste"]
     if adjustments:
@@ -3118,8 +3124,10 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
             row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in related
         ) + len(unclassified_deposits_by_period[period.name])
         if period.status != "Cerrado":
+            # A native amount may round to zero USD without needing an
+            # adjustment. It must not unsettle the other, fully compensated rows.
             period.status = (
-                "Conciliado" if related and applied == 0 and all(row.get("application_adjustment_usd") for row in related)
+                "Conciliado" if related and applied == 0 and any(money(row.get("application_adjustment_usd")) > 0 for row in related)
                 else historical_status(applied + adjustment, remitted)
             )
         with totals_context.use():

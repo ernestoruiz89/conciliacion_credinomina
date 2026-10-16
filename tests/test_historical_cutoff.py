@@ -56,6 +56,18 @@ class HistoricalCutoffTests(unittest.TestCase):
         self.assertEqual(cut['applications'][0]['amount_usd'], 80)
         self.assertEqual(cut['summary'][0]['core_pending_usd'], 0)
 
+    def test_one_adjustment_distributed_between_applications_is_counted_once_at_cutoff(self):
+        self.source.update(amount=.17, application_adjustment_usd=.17)
+        self.context[0].append(dict(self.source, name='B', amount=.47, application_adjustment_usd=.47))
+        item = self.item(category='Ajuste de aplicación', posting_date='2025-05-01', amount_usd=.64,
+            related_application='A', application_adjustment_usd=.17, source_credit=.64, source_debit=0,
+            application_adjustment_history='[{"related_application":"B","application_adjustment_usd":0.47}]')
+        before = self.cut(items=[item], deposits=[])
+        self.assertEqual(sum(row['amount_usd'] for row in before['applications']), .64)
+        after = self.cut('2025-05-01', items=[item], deposits=[])
+        self.assertEqual(sum(row['amount_usd'] for row in after['applications']), 0)
+        self.assertEqual(sum(row.get('balance_usd') or 0 for row in after['summary']), 0)
+
     def test_settled_manual_item_pending_registration_appears_only_after_its_origin_date(self):
         item = self.item(name='MANUAL', posting_date='2025-05-01', category='Compensación entre partidas',
                          accounting_source_key='', accounting_status='Pendiente de registro',

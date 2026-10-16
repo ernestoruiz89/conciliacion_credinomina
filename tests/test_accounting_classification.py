@@ -91,9 +91,32 @@ class ReviewGuardTests(unittest.TestCase):
         doc = self.doc(**values)
         review.validate_review_item(doc)
         self.assertEqual(doc.review_status, "Lista para conciliar")
-        for field in ["employer", "reference", "amount_reviewed", "review_notes"]:
+        for field in ["employer", "reference", "amount_reviewed"]:
             with self.subTest(field=field), self.assertRaises(ValueError):
                 review.validate_review_item(self.doc(**{**values, field: ""}))
+
+    def test_deposit_complement_does_not_require_review_notes(self):
+        for notes in (None, "", "   "):
+            with self.subTest(notes=notes):
+                doc = self.doc(docstatus=1, review_action="Partida de depósito", review_notes=notes,
+                               category="Cobranza administrativa", employer="A", reference="DEP", amount_reviewed=1)
+                review.validate_review_item(doc)
+                self.assertEqual(doc.review_status, "Lista para conciliar")
+
+    def test_identified_reversal_link_does_not_require_review_notes(self):
+        row = frappe._dict(parent="IMPORT", parenttype="CN Accounting Import", event_type="Aplicacion", effective=1)
+        parent = frappe._dict(name="IMPORT", employer="A", check_permission=Mock())
+        with patch.object(frappe, "db", Mock(get_value=Mock(return_value=row))), \
+             patch.object(frappe, "get_doc", return_value=parent):
+            doc = self.doc(employer="A", related_application="APP", review_action="Reversión identificada")
+            review.validate_review_item(doc)
+        self.assertEqual(doc.review_status, "Reversión identificada")
+        self.assertEqual(doc.related_import, "IMPORT")
+        parent.check_permission.assert_called_once_with("read")
+
+    def test_non_reconcilable_classification_still_requires_its_explanation(self):
+        with self.assertRaises(ValueError):
+            review.validate_review_item(self.doc(review_action="No conciliatoria", review_notes=""))
 
     def test_reversals_cannot_be_deposit_complements(self):
         for kind in [APPLICATION, DEBIT_NOTE]:

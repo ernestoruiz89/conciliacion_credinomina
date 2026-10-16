@@ -531,12 +531,27 @@ En **Partidas complementarias → Movimientos por revisar**:
    seleccione la importación y su fila, y revise **Importe del ajuste US$**.
    El tratamiento será **Ajuste de aplicación**. Es un importe positivo que reduce
    la aplicación, sin superar el equivalente US$ de la partida ni el aplicado neto.
-   Guarde las observaciones y use **Confirmar ajuste** (requiere permiso de confirmar).
+   Las observaciones de revisión son opcionales. Use **Confirmar ajuste** (requiere permiso de confirmar).
    Vincular o guardar el borrador no afecta saldos; confirmar recalcula la empresa.
+   **Distribuir entre aplicaciones** permite repartir el remanente entre varias
+   aplicaciones de la misma empresa, indicando un importe por fila. Puede cambiar
+   de importación dentro del diálogo y conservar las selecciones. Si la partida
+   tiene período, los destinos deben corresponder a ese período. En borradores,
+   use después **Confirmar ajuste**; en ajustes confirmados, **Confirmar distribución
+   adicional** agrega los vínculos y recalcula únicamente las aplicaciones y períodos
+   afectados, conservando el primer vínculo, los importes originales y los depósitos.
+   La suma no puede superar el importe de la partida ni el saldo ajustable de cada
+   aplicación. El detalle aparece en **Distribución entre aplicaciones**; cancelar
+   la partida revierte todos sus ajustes juntos y conserva el historial.
+   Por ejemplo, de US$0.64 con US$0.17 confirmados, pueden distribuirse los US$0.47
+   restantes en US$0.08, US$0.10, US$0.13 y US$0.16. No se crean copias del movimiento
+   contable. Para habilitar el historial nuevo al actualizar la app, ejecute
+   `bench --site <sitio> migrate`.
 4. Si realmente corresponde a un depósito, seleccione **Partida de depósito**,
    complete empresa, referencia y concepto, ajuste el importe/signo provisional y
    marque **Importe y signo revisados**. Un supervisor podrá confirmarla para usarla
    en la distribución habitual. Positivo: exceso de depósito; negativo: faltante.
+   Las observaciones de revisión también son opcionales para este tratamiento.
 
 Al cambiar un **borrador** a **Partida de depósito**, se retiran automáticamente
 `related_import`, `related_application` y los datos del ajuste provisional.

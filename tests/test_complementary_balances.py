@@ -5,6 +5,13 @@ from credinomina_reconciliation.complementary_balances import financial_balance,
 
 
 class ComplementaryBalanceTests(unittest.TestCase):
+    def setUp(self):
+        # These cash fixtures contain all evidence; don't query a live database
+        # for hidden records when running the mocked suite on Frappe 16.
+        evidence = patch.object(frappe, "get_all", return_value=[])
+        evidence.start()
+        self.addCleanup(evidence.stop)
+
     def test_nested_read_operation_caches_requested_items_without_sharing_mutations(self):
         deposits = [frappe._dict(name='D', deposit_date='2025-05-01', allocation_detail='['
             '{"tipo":"Partida complementaria","partida":"A","importe_usd":3},'

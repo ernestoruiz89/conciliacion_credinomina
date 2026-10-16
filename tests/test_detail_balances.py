@@ -49,7 +49,8 @@ class DetailBalancesTests(unittest.TestCase):
         account = frappe._dict(unclassified_usd=118.99, reference="D", voucher="V", event_date="2025-05-27")
         allocation = {"allocations": [{"claim_id":"H:A", "deposit_id":"D", "amount_usd":1482.64, "origin":"Manual"}],
                       "deposit_meta":{"D":{"account":account}}, "rounding_movements":[]}
-        with patch.object(engine, "_save_reconciled_document"):
+        with patch.object(engine, "_save_reconciled_document"), \
+             patch("credinomina_reconciliation.credit_application.load_allocations", return_value=[]):
             engine._rebuild_historical_balances([period], [row], allocation)
         self.assertEqual(period.status, "Parcial")
         self.assertEqual(period.unassigned_deposit_usd, 118.99)
