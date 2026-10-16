@@ -199,7 +199,8 @@ def columns():
 
 
 @frappe.whitelist()
-def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0):
+def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0,
+                     only_differences=0):
     """Read-only detail of one cell, with the same inclusion rules as the report."""
     from credinomina_reconciliation.rounding import money, money_float
 
@@ -230,6 +231,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     fields = ("name", "parent", "client_name", "client_number", "loan_number", "reference", "voucher", "receipt",
               "deposit_reference", "deposit_voucher", "bank_account", "category", "source_voucher", "source_description", "description")
     selected = [row for row in sources if (not state or states[row.name] == state)
+                and (not cint(only_differences) or states[row.name] in {"Parcial", "Pendiente", "Revisar distribución"})
                 and (not query or query in " ".join(str(row.get(field) or "") for field in fields).casefold())]
     selected.sort(key=lambda row: (str(row.get("event_date") or row.get("deposit_date") or ""),
                                   row.get("parent") or "", cint(row.get("idx")), row.name))

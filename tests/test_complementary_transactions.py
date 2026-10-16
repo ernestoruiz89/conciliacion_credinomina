@@ -133,3 +133,19 @@ class ComplementaryTransactionsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     report.get_month_detail(2025, 4, "A", transaction_type=kind)
             query.assert_not_called()
+
+    def test_only_differences_includes_partial_pending_and_invalid_items(self):
+        for kind in transactions.KINDS:
+            items = [self.item(name=name) for name in ('SETTLED', 'PARTIAL', 'PENDING', 'INVALID')]
+            balances = {item.name: financial_balance(item, [{'amount_usd': allocated}])
+                        for item, allocated in zip(items, (100, 25, 0, 110))}
+            with patch.object(frappe, 'has_permission', return_value=True), \
+                 patch.object(frappe, 'get_list', return_value=items), \
+                 patch.object(transactions, 'load_balances', return_value=balances):
+                result = report.get_month_detail(2025, 4 if transactions.KINDS[kind] else 5, 'A',
+                                                  transaction_type=kind, only_differences=1)
+            self.assertEqual({row['name'] for row in result['rows']}, {'PARTIAL', 'PENDING', 'INVALID'})
+            self.assertEqual({row['state'] for row in result['rows']}, {'Parcial', 'Pendiente', 'Revisar distribución'})
+            self.assertEqual(result['filtered_count'], 3)
+            self.assertEqual(result['totals']['original_usd'], 300)
+            self.assertIsNone(result['totals']['resolved_usd'])

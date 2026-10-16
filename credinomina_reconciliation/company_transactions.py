@@ -49,12 +49,14 @@ def application_progress(row, parent, collections=None, *, collection_usage=None
     result.update(net_usd=amounts["applied_usd"], assigned_usd=amounts["assigned_usd"],
                   rounding_usd=amounts["rounding_usd"], pending_usd=amounts["balance_usd"],
                   observations=list(amounts["observations"]))
-    invalid = (original is None or money(original) <= 0 or adjustment > money(original)
+    # Zero-valued source rows have no debt to cover. They are valid when the
+    # distribution itself is consistent; keep checking cash, links and FX.
+    invalid = (original is None or money(original) < 0 or adjustment > money(original)
                or any(amounts[field] is None for field in ("applied_usd", "assigned_usd", "rounding_usd", "balance_usd"))
                or money(amounts["assigned_usd"]) < 0 or bool(amounts["observations"]))
     if invalid:
         result.update(state="Revisar distribución", covered_usd=None)
-        if adjustment > money(original) or (original is not None and money(original) <= 0) or (
+        if adjustment > money(original) or (original is not None and money(original) < 0) or (
                 amounts["assigned_usd"] is not None and money(amounts["assigned_usd"]) < 0):
             result["observations"].append("Importes de aplicación o cobertura inconsistentes; revise la conciliación.")
         return result
@@ -184,7 +186,7 @@ def application_month_amounts(sources, imports, collections, progress=None):
         for source in rows:
             parent = imports[source["parent"]]
             original = converted_amount({**source, "application_adjustment_usd": 0}, "USD")
-            if original is None or money(original) <= 0:
+            if original is None or money(original) < 0:
                 known = False
                 continue
             eligible = parent.get("status") in IMPORTED and source.get("effective") and source.get("match_status") != "Ignorado"
@@ -208,7 +210,7 @@ def application_month_amounts(sources, imports, collections, progress=None):
             except (ValueError, TypeError):
                 known = False
                 summaries = []
-            invalid_amount = any(item.get("distribution_inconsistent") or item["original_usd"] is None or money(item["original_usd"]) <= 0
+            invalid_amount = any(item.get("distribution_inconsistent") or item["original_usd"] is None or money(item["original_usd"]) < 0
                 or money(item["adjustment_usd"]) > money(item["original_usd"])
                 or (item["assigned_usd"] is not None and money(item["assigned_usd"]) < 0) for item in row_progress)
             if invalid_amount or any(item["balance_usd"] is None or item["observations"] for item in summaries):
@@ -261,11 +263,11 @@ def monthly_counts(records, year, amounts=None):
                 else "Parcial" if any(value != "Pendiente" for value in states) else "Pendiente")
             values = (amounts or {}).get((employer, f"{year}-{month:02}"), {})
             total, covered = values.get("total_usd"), values.get("covered_usd")
-            known = total is not None and covered is not None and total > 0
+            known = total is not None and covered is not None and total >= 0
             row[key + "_total_usd"] = money_float(total) if known else None
             row[key + "_covered_usd"] = money_float(covered) if known else None
-            row[key + "_percentage"] = float(covered * 100 / total) if known else None
+            row[key + "_percentage"] = float(covered * 100 / total) if known and total > 0 else None
             # Compare exact cents: displaying 50.00% must not round 49.999% up into yellow.
-            row[key + "_half_covered"] = bool(known and covered * 2 >= total)
+            row[key + "_half_covered"] = bool(known and total > 0 and covered * 2 >= total)
         output.append(row)
     return output
