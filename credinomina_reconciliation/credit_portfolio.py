@@ -17,6 +17,11 @@ from credinomina_reconciliation.employer_naming import (
 )
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 
+PORTFOLIO_FIELDS = (
+    "portfolio_snapshot_used", "portfolio_client_name", "portfolio_client", "portfolio_employer",
+    "portfolio_credit_status", "portfolio_credit_lifecycle", "portfolio_validation_status",
+)
+
 
 def has_portfolio_employer(row):
     """EMPRESA_DE_CONVENIO determines whether to provision company/client masters."""
@@ -377,6 +382,34 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
     row_indexes = {
         name: _load_snapshot_rows(name, employer) for name in used_snapshots
     }
+    return _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes, register_clients=register_clients)
+
+
+def index_portfolio_rows(rows):
+    index = {"credit": defaultdict(list), "client_number_siaf": defaultdict(list)}
+    for row in rows:
+        credit = canonical_credit_number(row.get("credit_number"))
+        number = canonical_identifier(row.get("client_number_core"))
+        if credit:
+            index["credit"][credit].append(row)
+        if number:
+            index["client_number_siaf"][number].append(row)
+    return index
+
+
+def refresh_accounting_portfolio(records, snapshot, *, index=None):
+    """Refresh only portfolio evidence for records already related to this cut.
+
+    Existing references may point to a disabled cut. They retain that explicit
+    evidence; availability rules apply when selecting a cut for new imports.
+    """
+    if index is None:
+        index = index_portfolio_rows(snapshot.rows)
+    return _enrich_from_portfolio_indexes(records, {id(row): snapshot for row in records},
+                                          {snapshot.name: index}, register_clients=False)
+
+
+def _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes, *, register_clients):
     client_index = None
     employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
@@ -388,6 +421,8 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
     for record in records:
         if record.get("event_type") != "Aplicacion":
             continue
+        # Removed or ambiguous credits must not retain a previous successful match.
+        record.update({field: "" for field in PORTFOLIO_FIELDS if field in record})
         snapshot = snapshot_by_record.get(id(record))
         if not snapshot:
             record["portfolio_validation_status"] = "Sin corte de cartera aplicable"

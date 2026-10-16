@@ -53,6 +53,13 @@ function form() {
     rpc = async () => ({message: {unchanged: true}});
     await context.importPortfolioSnapshot(frm);
     assert.equal(messages[0].title, "Corte sin cambios");
+    messages = []; order = []; frm = form();
+    rpc = async () => ({message: {unchanged: true, snapshot_name: "P1", updated_source_rows: 4,
+        updated_accounting_imports: 2, updated_deposit_rows: 7, updated_deposits: 3}});
+    await context.importPortfolioSnapshot(frm);
+    assert.equal(messages[0].title, "Corte actualizado");
+    assert.ok(messages[0].message.includes("4 movimientos en 2 importaciones y 7 filas en 3 depósitos"));
+    assert.deepEqual(order, ["save", "import", "reload"]);
     messages = []; frm = form(); frm.reload_doc = async () => {throw new Error("reload");};
     await context.importPortfolioSnapshot(frm);
     assert.ok(messages[0].message.includes("terminó la importación"));
