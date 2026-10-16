@@ -18,7 +18,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 return report.refresh();
             }},
         {fieldname: "statement_scope", label: __("Sección"), fieldtype: "Select", options: "Todos\nContabilidad del core\nGestión", default: "Todos",
-            description: __("El saldo contable conserva débitos menos créditos originales. Gestión muestra importes pendientes sin sumarlos al saldo contable."),
+            description: __("Todos muestra pendientes menos créditos y compara con el core. Contabilidad del core muestra los movimientos completos. Gestión muestra solo pendientes menos créditos."),
             on_change(report) {
                 const section = report.get_filter_value("statement_scope");
                 const component = report.get_filter_value("component") || "";
@@ -29,7 +29,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 return report.refresh();
             }},
         {fieldname: "compact_view", label: __("Vista compacta"), fieldtype: "Check", default: 1,
-            description: __("En detalle muestra una columna de importes con totales al pie. Desmarque para ver débitos, créditos, importes originales C$ y evidencia contable.")},
+            description: __("En detalle muestra importes con signo y un único saldo al pie. Desmarque para ver el desglose y la trazabilidad de las partidas.")},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
             description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
@@ -43,6 +43,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             ...[["core_balance_usd", "Saldo contable del core"], ["core_debit_usd", "Débitos originales del core"],
                 ["core_credit_usd", "Créditos originales del core"], ["core_balance_nio", "Saldo contable original C$"],
                 ["core_debit_nio", "Débitos originales C$"], ["core_credit_nio", "Créditos originales C$"],
+                ["management_pending_usd", "Pendientes positivos"], ["other_credit_usd", "Otros créditos pendientes"],
                 ["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
@@ -137,7 +138,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             const accounting = ["core_debit_usd", "core_credit_usd", "core_balance_usd", "core_debit_nio", "core_credit_nio", "core_balance_nio", "core_movement_count"].includes(column.fieldname);
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
                 component: column.fieldtype === "Currency" && column.fieldname !== "management_net_usd" ? column.fieldname : "",
-                statement_scope: accounting ? "Contabilidad del core" : "Gestión",
+                statement_scope: accounting ? "Contabilidad del core" : column.fieldname === "management_net_usd" ? "Todos" : "Gestión",
                 accounting_queue: column.fieldname === "accounting_pending_count" ? 1 : 0}));
             return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__(accounting ? "Ver movimientos originales del core" : "Ver partidas por gestionar")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
         }

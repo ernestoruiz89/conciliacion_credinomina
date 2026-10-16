@@ -50,10 +50,10 @@ class CompanyStatementTests(unittest.TestCase):
             self.assertEqual(len([field for field in statement.FIELDS if row[field]]), 1)
             self.assertIn('source_document', row)
         compact = [c for c in report.get_columns() if c['fieldtype'] == 'Currency'
-                   and c['fieldname'] not in {'management_net_usd', 'reconciliation_difference_usd'}]
+                   and c['fieldname'] in statement.FIELDS]
         expanded = [c for c in report.get_columns({'view_mode': 'Detalle'}) if c['fieldtype'] == 'Currency'
                     and c['fieldname'] not in {'management_amount_usd', 'statement_amount_usd', 'statement_amount_nio'}]
-        self.assertEqual([c['fieldname'] for c in compact], [c['fieldname'] for c in expanded])
+        self.assertEqual({c['fieldname'] for c in compact}, {c['fieldname'] for c in expanded})
 
     def test_summary_default_detail_uses_identical_source_and_filters(self):
         data = self.example()
@@ -63,7 +63,7 @@ class CompanyStatementTests(unittest.TestCase):
             load.assert_called_once_with({'employer': 'REPSA'})
             self.assertEqual(len(result[1]), 1)
             self.assertEqual(result[1][0]['core_balance_usd'], 0)
-            self.assertEqual(result[1][0]['client_credit_usd'], 154.28)
+            self.assertEqual(result[1][0]['client_credit_usd'], -154.28)
             displayed = report.execute({'view_mode': 'Detalle'})[1]
             from credinomina_reconciliation.company_accounting_statement import management_detail
             self.assertEqual([{key: value for key, value in row.items()

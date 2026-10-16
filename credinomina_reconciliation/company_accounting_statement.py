@@ -25,14 +25,21 @@ CORE_METRICS = (
     ('core_balance_nio', 'Saldo contable core C$'),
 )
 MANAGEMENT_METRICS = (
-    ('company_credit_usd', 'A favor empresa por gestionar US$'),
-    ('client_credit_usd', 'A favor clientes por gestionar US$'),
+    ('company_credit_usd', 'Saldo a favor empresa (−) US$'),
+    ('client_credit_usd', 'Saldo a favor clientes (−) US$'),
     ('company_receivable_usd', 'CxC empresa por gestionar US$'),
     ('employee_receivable_usd', 'CxC empleados por gestionar US$'),
     ('application_pending_usd', 'Aplicaciones sin depósito US$'),
     ('core_pending_usd', 'Core por conciliar (+débito / −crédito) US$'),
-    ('deposit_pending_usd', 'Depósitos sin asignar US$'),
+    ('deposit_pending_usd', 'Depósitos sin asignar (−) US$'),
 )
+POSITION_METRICS = (
+    ('management_pending_usd', 'Pendientes US$'),
+    ('other_credit_usd', 'Otros créditos pendientes (−) US$'),
+    ('management_net_usd', 'Saldo US$'),
+)
+POSITION_FIELDS = tuple(field for field, _ in POSITION_METRICS)
+DOCUMENTED_CREDITS = {'company_credit_usd', 'client_credit_usd'}
 CORE_FIELDS = tuple(field for field, _ in CORE_METRICS)
 FIELDS = (*CORE_FIELDS, *MANAGEMENT_FIELDS)
 
@@ -41,7 +48,7 @@ def selected_scope(filters):
     component = filters.get('component')
     if component in CORE_FIELDS:
         return CORE
-    if component in MANAGEMENT_FIELDS or str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
+    if component in (*MANAGEMENT_FIELDS, *POSITION_FIELDS) or str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
         return MANAGEMENT
     return filters.get('statement_scope') or 'Todos'
 
@@ -135,22 +142,31 @@ def core_detail(ledger, filters=None):
 
 
 def management_detail(rows):
-    """Display credits as positive amounts to manage, without a combined net."""
+    """Preserve the signed pending position: credits are already in the cash origin."""
     result = []
     for source in rows:
         row = dict(source, statement_scope=MANAGEMENT, nio_currency='NIO',
                    **{field: 0.0 for field in CORE_FIELDS})
-        for field in ('company_credit_usd', 'client_credit_usd', 'deposit_pending_usd'):
-            if row.get(field) is not None:
-                row[field] = money_float(-money(row[field]))
         amount = row.pop('balance_usd', None)
-        row['management_amount_usd'] = (row.get(row['_component']) if row.get('_component')
-                                        else None if amount is None else money_float(abs(money(amount))))
+        row['management_amount_usd'] = None if amount is None else money_float(amount)
         result.append(row)
     return result
 
 
 def matches(row, filters):
+    component = filters.get('component')
+    amount = row.get('management_amount_usd')
+    if component in POSITION_FIELDS:
+        if row.get('statement_scope') != MANAGEMENT:
+            return False
+        # An unknown amount must remain available for review, not silently vanish.
+        if component == 'management_pending_usd' and (row.get('_component') in DOCUMENTED_CREDITS | {'deposit_pending_usd'}
+                or (amount is not None and money(amount) <= 0)):
+            return False
+        if component == 'other_credit_usd' and (row.get('_component') in DOCUMENTED_CREDITS
+                or (amount is None and row.get('_component') not in {'core_pending_usd', 'deposit_pending_usd'})
+                or (amount is not None and money(amount) >= 0)):
+            return False
     for field in ('status', 'origin_type', 'category', 'subcategory', 'reason_type',
                   'accounting_status', 'management_status', 'treatment_status'):
         if filters.get(field) and row.get(field) != filters[field]:
@@ -167,6 +183,7 @@ def summarize(detail):
         key = row.get('employer') or ''
         group = groups.setdefault(key, dict(employer=key or None, usd_currency='USD', nio_currency='NIO',
             core_movement_count=0, pending_count=0, _accounting_documents=set(),
+            management_pending_usd=money(0), other_credit_usd=money(0),
             **{field: money(0) for field in FIELDS}))
         if row['statement_scope'] == CORE:
             group['core_movement_count'] += 1
@@ -174,6 +191,19 @@ def summarize(detail):
             group['pending_count'] += int(bool(row.get('_component', True)))
             if row.get('accounting_pending'):
                 group['_accounting_documents'].add(row['source_document'])
+            # Split individual positions before summing: a core debit and credit
+            # must not hide each other inside the headline pending amount.
+            for field in MANAGEMENT_FIELDS:
+                value = row.get(field, 0)
+                if value is None:
+                    if field not in DOCUMENTED_CREDITS | {'deposit_pending_usd'}:
+                        group['management_pending_usd'] = None
+                    if field in {'core_pending_usd', 'deposit_pending_usd'}:
+                        group['other_credit_usd'] = None
+                elif money(value) > 0 and group['management_pending_usd'] is not None:
+                    group['management_pending_usd'] += money(value)
+                elif field not in DOCUMENTED_CREDITS and money(value) < 0 and group['other_credit_usd'] is not None:
+                    group['other_credit_usd'] += money(value)
         for field in FIELDS:
             value = row.get(field, 0)
             group[field] = None if group[field] is None or value is None else group[field] + money(value)
@@ -181,12 +211,11 @@ def summarize(detail):
     for key in sorted(groups):
         group = groups[key]
         group['accounting_pending_count'] = len(group.pop('_accounting_documents'))
-        for field in FIELDS:
+        for field in (*FIELDS, 'management_pending_usd', 'other_credit_usd'):
             if group[field] is not None:
                 group[field] = money_float(group[field])
-        negative = {'company_credit_usd', 'client_credit_usd', 'deposit_pending_usd'}
         group['management_net_usd'] = (None if any(group[field] is None for field in MANAGEMENT_FIELDS) else money_float(
-            sum((money(group[field]) * (-1 if field in negative else 1) for field in MANAGEMENT_FIELDS), money(0))))
+            sum((money(group[field]) for field in MANAGEMENT_FIELDS), money(0))))
         group['reconciliation_difference_usd'] = (None if group['management_net_usd'] is None or group['core_balance_usd'] is None
             else money_float(money(group['management_net_usd']) - money(group['core_balance_usd'])))
         result.append(group)

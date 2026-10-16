@@ -92,4 +92,17 @@ report.filters[0].on_change(live);
 assert.equal(filterValues.source_account, '');
 assert.equal(filterValues.component, '');
 assert.equal(filterValues.cutoff_date, scoped.cutoff_date);
+const pendingLink = report.formatter(90, null, {fieldname:'management_pending_usd',fieldtype:'Currency'},
+    {employer:'ACEREAL',management_pending_usd:90}, base);
+assert.match(pendingLink, /management_pending_usd/);
+const signedCredit = report.formatter(-15, null, {fieldname:'client_credit_usd',fieldtype:'Currency'},
+    {employer:'ACEREAL',client_credit_usd:-15}, base);
+assert.match(signedCredit, /formatted:-15/);
+assert.match(signedCredit, /client_credit_usd/);
+const netLink = report.formatter(75, null, {fieldname:'management_net_usd',fieldtype:'Currency'},
+    {employer:'ACEREAL',management_net_usd:75}, base);
+assert.match(netLink, /Todos/, 'The net balance drill retains the comparison with accounting');
+assert.doesNotMatch(netLink, /component":"management_net_usd/);
+assert.equal(report.formatter(75, null, amount,
+    {_is_statement_total:true,statement_amount_usd:75,_total_component:'management_net_usd'}, base), '<strong>formatted:75</strong>');
 console.log('OK: company statement summary/detail, monetary formatting and original filter restoration.');
