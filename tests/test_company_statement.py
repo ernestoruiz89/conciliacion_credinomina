@@ -49,7 +49,8 @@ class CompanyStatementTests(unittest.TestCase):
         for row in detail:
             self.assertEqual(len([field for field in statement.FIELDS if row[field]]), 1)
             self.assertIn('source_document', row)
-        compact = [c for c in report.get_columns() if c['fieldtype'] == 'Currency']
+        compact = [c for c in report.get_columns() if c['fieldtype'] == 'Currency'
+                   and c['fieldname'] not in {'management_net_usd', 'reconciliation_difference_usd'}]
         expanded = [c for c in report.get_columns({'view_mode': 'Detalle'}) if c['fieldtype'] == 'Currency'
                     and c['fieldname'] not in {'management_amount_usd', 'statement_amount_usd', 'statement_amount_nio'}]
         self.assertEqual([c['fieldname'] for c in compact], [c['fieldname'] for c in expanded])

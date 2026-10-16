@@ -10,6 +10,9 @@ from credinomina_reconciliation.company_accounting_statement import (
 
 def execute(filters=None):
     filters = filters or {}
+    if filters.get('view_mode') == 'Conciliación':
+        from credinomina_reconciliation.company_statement_bridge import execute as bridge
+        return bridge(filters)
     validate_dates(filters)
     scope = {key: value for key, value in filters.items() if key != 'status'}
     section = selected_scope(filters)
@@ -25,6 +28,7 @@ def execute(filters=None):
     data = _presentation(detail, filters)
     message = _('Saldo contable core = débitos originales − créditos originales. '
         'Los saldos a favor y las CxC por gestionar se muestran por separado y no se suman ni se restan a ese saldo. ')
+    message += _('La vista Conciliación explica el paso del saldo contable al saldo neto de gestión e identifica el registro pendiente. ')
     if filters.get('view_mode') == 'Detalle':
         message += _('La columna Importe muestra cada movimiento: en el core, débito positivo y crédito negativo. '
             'Al pie se totaliza cada concepto de gestión por separado y el saldo contable suma solo las líneas del core. '
@@ -99,6 +103,9 @@ def _detail_presentation(selected):
 
 
 def get_columns(filters=None):
+    if (filters or {}).get('view_mode') == 'Conciliación':
+        from credinomina_reconciliation.company_statement_bridge import get_columns as bridge_columns
+        return bridge_columns(filters)
     section = selected_scope(filters or {})
     columns = [{'fieldname': 'employer', 'label': _('Empresa'), 'fieldtype': 'Link',
                 'options': 'CN Employer', 'width': 200}]
@@ -145,6 +152,9 @@ def get_columns(filters=None):
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
+        columns += [dict(fieldname=field, label=_(label), fieldtype='Currency', options='usd_currency', precision=2, width=180)
+            for field, label in [('management_net_usd', 'Saldo neto de gestión US$'),
+                                ('reconciliation_difference_usd', 'Diferencia gestión − core US$')]]
         columns.insert(1, {'fieldname': 'core_movement_count', 'label': _('Movimientos del core'), 'fieldtype': 'Int', 'width': 140})
         columns.insert(1, {'fieldname': 'pending_count', 'label': _('Partidas pendientes'), 'fieldtype': 'Int', 'width': 130})
         columns.insert(2, {'fieldname': 'accounting_pending_count', 'label': _('Complementarias sin registro'),
@@ -185,6 +195,7 @@ def get_columns(filters=None):
                     column['width'] = 110 if column['fieldtype'] == 'Currency' else 90
             by_field = {column['fieldname']: column for column in columns}
             leading = ('employer', 'core_debit_usd', 'core_credit_usd', 'core_balance_usd',
+                       'management_net_usd', 'reconciliation_difference_usd',
                        'company_credit_usd', 'client_credit_usd', 'company_receivable_usd', 'employee_receivable_usd',
                        'core_movement_count', 'pending_count', 'accounting_pending_count')
             if section == MANAGEMENT:
@@ -208,10 +219,15 @@ def get_columns(filters=None):
             if column['fieldname'] == 'statement_amount_usd' and str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
                 column['hidden'] = 1
     if section == CORE:
-        excluded = {*MANAGEMENT_FIELDS, 'management_amount_usd', 'pending_count', 'accounting_pending_count'}
+        excluded = {*MANAGEMENT_FIELDS, 'management_amount_usd', 'pending_count', 'accounting_pending_count',
+                    'management_net_usd', 'reconciliation_difference_usd'}
     elif section == MANAGEMENT:
-        excluded = {*CORE_FIELDS, 'core_movement_count', 'statement_amount_nio'}
+        excluded = {*CORE_FIELDS, 'core_movement_count', 'statement_amount_nio', 'reconciliation_difference_usd'}
     else:
         excluded = set()
+    # A partial ledger cannot be compared with the full management population.
+    from credinomina_reconciliation.company_statement_bridge import SCOPED_FILTERS
+    if any((filters or {}).get(field) for field in SCOPED_FILTERS):
+        excluded.add('reconciliation_difference_usd')
     columns = [column for column in columns if column['fieldname'] not in excluded]
     return columns

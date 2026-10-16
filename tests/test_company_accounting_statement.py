@@ -108,6 +108,8 @@ def test_cutoff_management_and_accounting_are_independent_and_summary_matches_de
         assert round(sum(row.get(field, 0) for row in detail if not row.get('_is_statement_total')), 2) == summary[field]
     assert summary['core_balance_usd'] == -14.17
     assert summary['client_credit_usd'] == 18.46
+    assert summary['management_net_usd'] == -18.46
+    assert summary['reconciliation_difference_usd'] == -4.29
     assert all(row['cutoff_date'] == '2026-08-31' for row in detail)
     totals = {row['_total_component']: row['statement_amount_usd'] for row in detail if row.get('_is_statement_total')}
     assert totals == {'core_balance_usd': -14.17, 'client_credit_usd': 18.46}
