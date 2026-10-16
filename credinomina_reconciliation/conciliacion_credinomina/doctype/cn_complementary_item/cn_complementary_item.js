@@ -828,6 +828,7 @@ async function cn_compensate_items_dialog(frm) {
     if (frm.is_dirty()) await frm.save();
     let preview = null;
     let selectedName = null;
+    let dateCounterpart = null;
     let managementCounterpart = null;
     let managementChoices = new Map();
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
@@ -855,7 +856,11 @@ async function cn_compensate_items_dialog(frm) {
                     selectedName = null;
                     dialog.fields_dict.summary.$wrapper.empty();
                     dialog.get_primary_btn().prop("disabled", true);
-                    if (!selected) return;
+                    if (!selected) {
+                        dateCounterpart = null;
+                        await dialog.set_value("compensation_date", frm.doc.posting_date || "");
+                        return;
+                    }
                     if (managementCounterpart !== selected) {
                         const data = (await frappe.call({method: "credinomina_reconciliation.compensation_effect.options", args: {item_name: frm.doc.name, counterpart: selected}})).message || {};
                         if (selected !== dialog.get_value("counterpart")) return;
@@ -875,6 +880,11 @@ async function cn_compensate_items_dialog(frm) {
                         || (effect === "Vínculo de gestión" && entry !== managementChoices.get(dialog.get_value("credit_management_entry")))) return;
                     preview = response.message;
                     selectedName = selected;
+                    if (dateCounterpart !== selected) {
+                        const latestDate = [preview.left.posting_date, preview.right.posting_date].filter(Boolean).sort().pop();
+                        await dialog.set_value("compensation_date", latestDate || "");
+                        dateCounterpart = selected;
+                    }
                     const cards = [preview.left, preview.right].map(item => `<div class="col-sm-6"><div class="well">
                         <strong>${esc(item.name)}</strong><p>${esc(frappe.datetime.str_to_user(item.posting_date))}<br>
                         ${esc(item.employer || __("Empresa sin identificar"))}<br>${__("Asiento")}: ${esc(item.voucher || __("Pendiente"))}</p>
@@ -894,7 +904,7 @@ async function cn_compensate_items_dialog(frm) {
                 onchange() { return dialog.fields_dict.counterpart.df.onchange(); }},
             {fieldtype: "HTML", fieldname: "summary"},
             {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe a compensar US$"), options: "USD", precision: 2, reqd: 1},
-            {fieldtype: "Date", fieldname: "compensation_date", label: __("Fecha de compensación"), default: frappe.datetime.get_today(), reqd: 1},
+            {fieldtype: "Date", fieldname: "compensation_date", label: __("Fecha de compensación"), default: frm.doc.posting_date, reqd: 1},
             {fieldtype: "Small Text", fieldname: "reason", label: __("Motivo y referencia de la compensación"), reqd: 1},
             {fieldtype: "Check", fieldname: "reviewed", label: __("Verifiqué la contrapartida, empresa, cliente e importe; esta operación no registra una devolución"), reqd: 1},
         ],
