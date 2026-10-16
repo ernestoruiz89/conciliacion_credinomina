@@ -50,7 +50,8 @@ class CompanyStatementTests(unittest.TestCase):
             self.assertEqual(len([field for field in statement.FIELDS if row[field]]), 1)
             self.assertIn('source_document', row)
         compact = [c for c in report.get_columns() if c['fieldtype'] == 'Currency']
-        expanded = [c for c in report.get_columns({'view_mode': 'Detalle'}) if c['fieldtype'] == 'Currency' and c['fieldname'] != 'management_amount_usd']
+        expanded = [c for c in report.get_columns({'view_mode': 'Detalle'}) if c['fieldtype'] == 'Currency'
+                    and c['fieldname'] not in {'management_amount_usd', 'statement_amount_usd', 'statement_amount_nio'}]
         self.assertEqual([c['fieldname'] for c in compact], [c['fieldname'] for c in expanded])
 
     def test_summary_default_detail_uses_identical_source_and_filters(self):
@@ -64,7 +65,9 @@ class CompanyStatementTests(unittest.TestCase):
             self.assertEqual(result[1][0]['client_credit_usd'], 154.28)
             displayed = report.execute({'view_mode': 'Detalle'})[1]
             from credinomina_reconciliation.company_accounting_statement import management_detail
-            self.assertEqual([{key: value for key, value in row.items() if key != '_available_statuses'} for row in displayed], management_detail(data))
+            self.assertEqual([{key: value for key, value in row.items()
+                               if key not in {'_available_statuses', 'statement_amount_usd', 'statement_amount_nio'}}
+                              for row in displayed if not row.get('_is_statement_total')], management_detail(data))
             self.assertTrue(displayed[0]['_available_statuses'])
 
     def test_no_duplicate_credits_or_offsets_and_no_canceled_items(self):

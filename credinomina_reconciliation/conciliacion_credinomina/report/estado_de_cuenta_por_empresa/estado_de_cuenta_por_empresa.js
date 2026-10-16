@@ -13,7 +13,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 return report.refresh();
             }},
         {fieldname: "compact_view", label: __("Vista compacta"), fieldtype: "Check", default: 1,
-            description: __("Desmarque para ver importes originales C$, cuenta, tasa, archivo y fila contable.")},
+            description: __("En detalle muestra una columna de importes con totales al pie. Desmarque para ver débitos, créditos, importes originales C$ y evidencia contable.")},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
         {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
             description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
@@ -87,6 +87,14 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         if (states) report.get_filter("status").set_data([...new Set([...states, report.get_filter_value("status")].filter(Boolean))]);
     },
     formatter(value, row, column, data, default_formatter) {
+        if (data?._is_statement_total) {
+            if (data[column.fieldname] === undefined) return "";
+            const total = column.fieldtype === "Currency" && data[column.fieldname] === null
+                ? `<span class="text-muted" title="${__("Total sin determinar; hay movimientos sin conversión.")}">—</span>`
+                : default_formatter(value, row, column, data);
+            return `<strong>${total}</strong>`;
+        }
+        if (column.fieldname === "statement_amount_nio" && data?.statement_scope === "Gestión") return "";
         if (data && column.fieldtype === "Currency" && data[column.fieldname] == null) {
             return `<span class="text-muted" title="${__("Importe o signo sin determinar; revise el detalle.")}">—</span>`;
         }

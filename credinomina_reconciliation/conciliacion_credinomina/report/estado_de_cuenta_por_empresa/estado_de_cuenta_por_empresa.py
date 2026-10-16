@@ -1,4 +1,5 @@
 from frappe import _
+from credinomina_reconciliation.rounding import money, money_float
 
 from credinomina_reconciliation.company_statement import load_detail
 from credinomina_reconciliation.company_accounting_statement import (
@@ -24,6 +25,10 @@ def execute(filters=None):
     data = _presentation(detail, filters)
     message = _('Saldo contable core = débitos originales − créditos originales. '
         'Los saldos a favor y las CxC por gestionar se muestran por separado y no se suman ni se restan a ese saldo. ')
+    if filters.get('view_mode') == 'Detalle':
+        message += _('La columna Importe muestra cada movimiento: en el core, débito positivo y crédito negativo. '
+            'Al pie se totaliza cada concepto de gestión por separado y el saldo contable suma solo las líneas del core. '
+            'Los totales corresponden a los filtros del reporte. ')
     message += '<details><summary>' + _('Cómo comparar con el Excel') + '</summary>' + _(
         'Seleccione Contabilidad del core y use la misma empresa, cuenta, moneda y fechas del Excel. '
         'Se incluyen los movimientos originales importados, aunque estén conciliados, ignorados o cancelados dentro de la app; '
@@ -56,9 +61,40 @@ def _presentation(detail, filters):
     """Offer actual states without another ledger query or losing other options."""
     states = sorted({row['status'] for row in detail if row.get('status')})
     selected = [row for row in detail if matches(row, filters)]
-    data = [dict(row) for row in selected] if filters.get('view_mode') == 'Detalle' else summarize(selected)
+    data = _detail_presentation(selected) if filters.get('view_mode') == 'Detalle' else summarize(selected)
     if data:
         data[0]['_available_statuses'] = states
+    return data
+
+
+def _detail_presentation(selected):
+    """One amount column and independent footer totals; never net management against core."""
+    data = [dict(row,
+        statement_amount_usd=row.get('core_balance_usd') if row['statement_scope'] == CORE else row.get('management_amount_usd'),
+        statement_amount_nio=row.get('core_balance_nio') if row['statement_scope'] == CORE else None,
+    ) for row in selected]
+
+    def total(rows, field):
+        values = [row.get(field) for row in rows]
+        return None if any(value is None for value in values) else money_float(sum((money(value) for value in values), money(0)))
+
+    # Management has several different meanings; a grand total would double count
+    # items already represented in the ledger. Keep each component independent.
+    for field, label in MANAGEMENT_METRICS:
+        rows = [row for row in selected if row['statement_scope'] == MANAGEMENT and row.get('_component') == field]
+        if rows:
+            amount = total(rows, field)
+            data.append(dict(_is_statement_total=True, _total_component=field, statement_scope=MANAGEMENT,
+                client_name=_('Total: {0}').format(_(label)), position_type=_('Total de gestión'),
+                usd_currency='USD', nio_currency='NIO', statement_amount_usd=amount,
+                management_amount_usd=amount, **{field: amount}))
+    rows = [row for row in selected if row['statement_scope'] == CORE]
+    if rows:
+        amounts = {field: total(rows, field) for field in CORE_FIELDS}
+        data.append(dict(_is_statement_total=True, _total_component='core_balance_usd', statement_scope=CORE,
+            client_name=_('Saldo contable del core'), position_type=_('Débitos − créditos'),
+            usd_currency='USD', nio_currency='NIO', statement_amount_usd=amounts['core_balance_usd'],
+            statement_amount_nio=amounts['core_balance_nio'], **amounts))
     return data
 
 
@@ -74,6 +110,10 @@ def get_columns(filters=None):
             if column['fieldname'] in {'core_balance_usd', 'core_balance_nio'}:
                 column['label'] = _('Neto de la línea core US$' if column['fieldname'].endswith('_usd') else 'Neto de la línea core C$')
         columns += [
+            {'fieldname': 'statement_amount_usd', 'label': _('Importe US$'), 'fieldtype': 'Currency',
+             'options': 'usd_currency', 'precision': 2, 'width': 145},
+            {'fieldname': 'statement_amount_nio', 'label': _('Importe original C$'), 'fieldtype': 'Currency',
+             'options': 'nio_currency', 'precision': 2, 'width': 155},
             {'fieldname': 'statement_scope', 'label': _('Sección'), 'fieldtype': 'Data', 'width': 170},
             {'fieldname': 'management_amount_usd', 'label': _('Importe por gestionar US$'), 'fieldtype': 'Currency',
              'options': 'usd_currency', 'precision': 2, 'width': 155},
@@ -99,9 +139,9 @@ def get_columns(filters=None):
                   ('source_row_id', 'ID de fila contable', 160), ('evidence_key', 'Identidad de línea contable', 200)]],
             {'fieldname': 'fx_rate', 'label': _('Tasa C$/US$ original'), 'fieldtype': 'Float', 'precision': 8, 'width': 140},
         ]
-        # Identify the person and source before the monetary matrix.
+        # The compact view keeps a single amount; expanded columns retain the audit detail.
         leading = ('employer', 'event_date', 'client_name', 'client_number', 'loan_number',
-                   'origin_type', 'accounting_status', 'source_document')
+                   'statement_scope', 'position_type', 'statement_amount_usd', 'origin_type', 'accounting_status', 'source_document')
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
@@ -117,7 +157,7 @@ def get_columns(filters=None):
     if str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
         if (filters or {}).get('view_mode') == 'Detalle':
             visible = ('employer', 'event_date', 'client_name', 'statement_scope', 'position_type',
-                       'core_debit_usd', 'core_credit_usd', 'core_balance_usd', 'management_amount_usd',
+                       'statement_amount_usd',
                        'status', 'origin_type', 'accounting_status', 'source_document')
             by_field = {column['fieldname']: column for column in columns}
             columns = [by_field[field] for field in visible] + [column for column in columns if column['fieldname'] not in visible]
@@ -155,19 +195,22 @@ def get_columns(filters=None):
                     column['hidden'] = 1
         if (filters or {}).get('view_mode') == 'Detalle':
             widths = dict(employer=150, client_name=200, position_type=105,
-                          core_balance_usd=145, status=145, origin_type=120,
+                          statement_amount_usd=145, status=145, origin_type=120,
                           accounting_status=155, source_document=180)
             for column in columns:
                 if column['fieldname'] in widths:
                     column['width'] = widths[column['fieldname']]
     if str((filters or {}).get('component') or '').endswith('_nio'):
         for column in columns:
-            if column['fieldname'].endswith('_nio'):
+            if column['fieldname'] == 'statement_amount_nio' or (
+                    (filters or {}).get('view_mode') != 'Detalle' and column['fieldname'].endswith('_nio')):
                 column.pop('hidden', None)
+            if column['fieldname'] == 'statement_amount_usd' and str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
+                column['hidden'] = 1
     if section == CORE:
         excluded = {*MANAGEMENT_FIELDS, 'management_amount_usd', 'pending_count', 'accounting_pending_count'}
     elif section == MANAGEMENT:
-        excluded = {*CORE_FIELDS, 'core_movement_count'}
+        excluded = {*CORE_FIELDS, 'core_movement_count', 'statement_amount_nio'}
     else:
         excluded = set()
     columns = [column for column in columns if column['fieldname'] not in excluded]

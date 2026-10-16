@@ -17,6 +17,13 @@ const col = {fieldname: 'balance_usd', fieldtype: 'Currency'}, base = v => `form
 assert.match(report.formatter(null, null, col, {balance_usd: null}, base), /—/);
 assert.equal(report.formatter(0, null, col, {balance_usd: 0}, base), 'formatted:0');
 assert.equal(report.formatter(-7.35, null, col, {balance_usd: -7.35}, base), 'formatted:-7.35');
+const amount = {fieldname: 'statement_amount_usd', fieldtype: 'Currency'};
+assert.equal(report.formatter(-3.61, null, amount,
+    {_is_statement_total:true, statement_amount_usd:-3.61, employer:'ACEREAL'}, base), '<strong>formatted:-3.61</strong>');
+assert.match(report.formatter(null, null, amount, {_is_statement_total:true, statement_amount_usd:null}, base), /—/);
+assert.equal(report.formatter(null, null, amount, {_is_statement_total:true}, base), '');
+assert.equal(report.formatter(null, null, {fieldname:'statement_amount_nio',fieldtype:'Currency'},
+    {statement_scope:'Gestión',statement_amount_nio:null}, base), '');
 let drill, back;
 const filterValues = Object.fromEntries(report.filters.map(filter => [filter.fieldname, filter.default ?? '']));
 Object.assign(filterValues, {from_date:'2025-04-01', cutoff_date:'2025-06-30', search:'Ana'});
