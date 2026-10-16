@@ -13,7 +13,7 @@ frappe.listview_settings["CN Reconciliation Period"] = {
     },
     onload(listview) {
         if (frappe.model.can_write("CN Reconciliation Period") && frappe.model.can_write("CN Accounting Import")) {
-            listview.page.add_inner_button(__("Conciliación 1 por mes"), () => cn_monthly_first_dialog(listview));
+            listview.page.add_inner_button(__("Conciliación Cobranza-Aplicacion"), () => cn_monthly_first_dialog(listview));
         }
         const settings = listview.list_view_settings;
         const hiddenColumns = new Set([
@@ -55,18 +55,34 @@ function cn_monthly_first_dialog(listview) {
     const api = "credinomina_reconciliation.monthly_first_reconciliation.";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     let busy = false, results = [], completed = 0, month = "";
-    function render() {
+    function updateProgress() {
         const counts = results.reduce((all, row) => {all[row.state] = (all[row.state] || 0) + 1; return all;}, {});
-        const summary = Object.entries(counts).map(([state, count]) => `${esc(__(state))}: ${count}`).join(" · ");
-        dialog.fields_dict.results.$wrapper.html(`<p><strong>${esc(__("Mes"))}: ${esc(month.slice(0, 7))}</strong> · ${completed}/${results.length} ${esc(__("procesados"))}</p>
-            <p>${summary}</p><div style="max-height:55vh;overflow:auto"><table class="table table-bordered">
-            <thead><tr><th>${__("Convenio / período")}</th><th>${__("Resultado de conciliación 1")}</th><th>${__("Aplicaciones asignadas")}</th><th>${__("Detalle")}</th><th>${__("Acción")}</th></tr></thead>
-            <tbody>${results.map((row, index) => `<tr><td>${esc(row.employer)}<br><a href="/app/cn-reconciliation-period/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">${esc(row.name)}</a></td>
-            <td>${esc(__(row.state))}</td><td>${esc(row.assigned ?? "—")}</td>
-            <td>${esc(row.error || (row.reviewed != null ? __("{0} de {1} filas conformes; {2} con diferencias; {3} sin base.", [row.conforming, row.reviewed, row.differences, row.missing_basis]) : ""))}</td>
-            <td>${!busy && row.can_assign ? `<a href="#" data-assign="${index}">${__("Asignar y reprocesar")}</a>` : ""}</td></tr>`).join("")}</tbody></table></div>`);
+        const wrapper = dialog.fields_dict.results.$wrapper;
+        wrapper.find("[data-progress]").text(`${__("Mes")}: ${month.slice(0, 7)} · ${completed}/${results.length} ${__("procesados")}`);
+        wrapper.find("[data-summary]").text(Object.entries(counts).map(([state, count]) => `${__(state)}: ${count}`).join(" · "));
     }
-    const dialog = new frappe.ui.Dialog({title: __("Conciliación 1 por mes"), size: "extra-large", fields: [
+    function updateActions() {
+        results.forEach((row, index) => dialog.fields_dict.results.$wrapper.find(`[data-assign="${index}"]`).toggle(!busy && !!row.can_assign));
+    }
+    function updateRow(index) {
+        const row = results[index];
+        const element = dialog.fields_dict.results.$wrapper.find(`[data-result-row="${index}"]`);
+        element.find("[data-state]").text(__(row.state));
+        element.find("[data-assigned]").text(row.assigned ?? "—");
+        element.find("[data-detail]").text(row.error || (row.reviewed != null ? __("{0} de {1} filas conformes; {2} con diferencias; {3} sin base.",
+            [row.conforming, row.reviewed, row.differences, row.missing_basis]) : ""));
+        updateProgress();
+    }
+    function loadRows() {
+        // Build rows only when starting a new month. Progress and retries keep
+        // the table, scroll container and existing row nodes in place.
+        dialog.fields_dict.results.$wrapper.find("[data-results-body]").html(results.map((row, index) => `<tr data-result-row="${index}">
+            <td>${esc(row.employer)}<br><a href="/app/cn-reconciliation-period/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">${esc(row.name)}</a></td>
+            <td data-state>${esc(__(row.state))}</td><td data-assigned>—</td><td data-detail></td>
+            <td><a href="#" data-assign="${index}" style="display:none">${__("Asignar y reprocesar")}</a></td></tr>`).join(""));
+        updateProgress();
+    }
+    const dialog = new frappe.ui.Dialog({title: __("Conciliación Cobranza-Aplicacion"), size: "extra-large", fields: [
         {fieldname: "payroll_month", fieldtype: "Date", label: __("Mes de cobranza"), reqd: 1,
             default: frappe.datetime.now_date().slice(0, 7) + "-01",
             description: __("Seleccione una fecha del mes. Se procesarán todos sus períodos accesibles, sin limitarse a la página o filtros de la lista.")},
@@ -79,16 +95,16 @@ function cn_monthly_first_dialog(listview) {
         dialog.set_df_property("payroll_month", "read_only", 1);
         results = [];
         completed = 0;
-        render();
+        loadRows();
         try {
             const response = await frappe.call({method: api + "list_periods", args: {payroll_month: month}});
             results = (response.message || []).map(row => ({...row, state: "Pendiente"}));
             completed = 0;
-            render();
+            loadRows();
             for (let index = 0; index < results.length; index++) {
                 const row = results[index];
                 row.state = "Procesando";
-                render();
+                updateRow(index);
                 try {
                     const response = await frappe.call({method: api + "reconcile_period", type: "POST",
                         args: {period_name: row.name, payroll_month: month}});
@@ -97,7 +113,7 @@ function cn_monthly_first_dialog(listview) {
                     results[index] = {...row, state: "Error", error: cn_monthly_error(error)};
                 }
                 completed++;
-                render();
+                updateRow(index);
             }
             if (!results.length) frappe.msgprint(__("No hay períodos accesibles para el mes seleccionado."));
             else frappe.show_alert({message: __("Conciliación mensual finalizada. Revise el resultado de cada convenio."), indicator: "blue"});
@@ -106,9 +122,16 @@ function cn_monthly_first_dialog(listview) {
             busy = false;
             dialog.enable_primary_action();
             dialog.set_df_property("payroll_month", "read_only", 0);
-            render();
+            updateActions();
         }
     }});
+    dialog.$wrapper.find(".modal-dialog").css({width: "96vw", maxWidth: "1600px"});
+    dialog.fields_dict.results.$wrapper.html(`<p data-progress></p><p data-summary></p>
+        <div data-results-scroll style="max-height:65vh;overflow:auto"><table class="table table-bordered" style="table-layout:fixed">
+        <thead style="position:sticky;top:0;background:var(--modal-bg, var(--card-bg, white));z-index:1"><tr>
+        <th style="width:28%">${__("Convenio / período")}</th><th style="width:20%">${__("Resultado")}</th>
+        <th style="width:10%">${__("Aplicaciones asignadas")}</th><th style="width:27%">${__("Detalle")}</th><th style="width:15%">${__("Acción")}</th>
+        </tr></thead><tbody data-results-body style="overflow-wrap:anywhere"></tbody></table></div>`);
     dialog.fields_dict.results.$wrapper.on("click", "[data-assign]", async event => {
         event.preventDefault();
         if (busy) return;
@@ -116,18 +139,20 @@ function cn_monthly_first_dialog(listview) {
         const row = results[index];
         if (!row?.can_assign) return;
         busy = true;
+        updateActions();
         dialog.disable_primary_action();
         dialog.set_df_property("payroll_month", "read_only", 1);
         try {
             await cn_monthly_assign_dialog(row.name, updated => {
                 results[index] = {...row, ...updated};
+                updateRow(index);
                 listview.refresh();
             });
         } finally {
             busy = false;
             dialog.enable_primary_action();
             dialog.set_df_property("payroll_month", "read_only", 0);
-            render();
+            updateActions();
         }
     });
     listview.cn_monthly_first_dialog = dialog;
@@ -171,6 +196,7 @@ async function cn_monthly_assign_dialog(period, onUpdated) {
                 dialog.hide();
             } finally {saving = false; dialog.enable_primary_action();}
         }, onhide: () => resolve()});
+        dialog.$wrapper.find(".modal-dialog").css({width: "96vw", maxWidth: "1600px"});
         dialog.show();
     });
 }
