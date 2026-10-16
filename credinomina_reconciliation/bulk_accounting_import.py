@@ -104,7 +104,7 @@ def _plan(options):
     if not frappe.has_permission("CN Credit Portfolio Snapshot", "read"):
         frappe.throw(_("Se requiere acceso de lectura a los cortes de cartera."), frappe.PermissionError)
     records = apply_accounting_currency_override(
-        parse_accounting_movements(file_doc.file_name, content),
+        parse_accounting_movements(file_doc.file_name, content, allow_empty=bool(cint(options.get("cumulative_import")))),
         options["currency"], options.get("manual_fx_rate", 0),
     )
     if len(records) > MAX_MOVEMENTS:
@@ -120,6 +120,20 @@ def _plan(options):
             repeated_evidence.append({"row": row["source_row"], "reason": "Movimiento similar a otra línea del archivo; se conservará como registro independiente en borrador"})
         seen_evidence.add(key)
     identify_lines(records, file_hash)
+    comparison = None
+    if cint(options.get("cumulative_import")):
+        if not options.get("previous_source_file"):
+            raise SourceFileError("Seleccione el archivo acumulado anterior para delimitar la comparación y detectar movimientos ausentes.")
+        previous_file, previous_content = _file(options["previous_source_file"])
+        previous_records = apply_accounting_currency_override(
+            parse_accounting_movements(previous_file.file_name, previous_content, allow_empty=True),
+            options["currency"], options.get("manual_fx_rate", 0))
+        if len(previous_records) > MAX_MOVEMENTS:
+            raise SourceFileError("El archivo anterior supera el límite de 100,000 movimientos. Divida ambos reportes con el mismo alcance.")
+        from credinomina_reconciliation.accounting_cumulative import compare, live_origins
+        comparison = compare(records, previous_records, live_origins(records + previous_records), file_hash)
+        records = comparison["records"]
+        comparison["previous_file_hash"] = file_sha256(previous_content)
     # Preview must never create clients or modify portfolio/master documents.
     records = enrich_accounting_records(records, snapshot, register_clients=False)
     parents = frappe.get_all(
@@ -178,6 +192,11 @@ def _plan(options):
             existing_review.add(row["accounting_source_key"])
             plan["complementary"].append(row)
     plan.update(file_hash=file_sha256(content), file_name=file_doc.file_name)
+    if comparison is not None:
+        plan["already_imported"].extend(comparison["already_imported"])
+        plan["issues"].extend(comparison["issues"])
+        plan["missing_origins"] = comparison["missing_origins"]
+        plan["previous_file_hash"] = comparison["previous_file_hash"]
     return plan
 
 
@@ -187,6 +206,9 @@ def _summary(plan):
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
         "file_hash": plan.get("file_hash"),
+        "cumulative_import": bool(plan.get("previous_file_hash")),
+        "missing_origins": plan.get("missing_origins", [])[:100],
+        "missing_origins_count": len(plan.get("missing_origins", [])),
         "sections": {key: _identification_summary(plan, unidentified)
                      for key, unidentified in (("identified", False), ("unidentified", True))},
         "groups": groups[:100], "group_count": len(groups), "rows": sum(group["count"] for group in groups),
@@ -243,15 +265,20 @@ def _identification_summary(plan, unidentified):
 
 def _signature(plan):
     # Confirmation cannot silently import a different grouping or amount.
-    return source_key(plan["file_hash"], json.dumps([plan["groups"], plan.get("complementary", []), plan.get("deposits", [])], sort_keys=True, default=str))
+    return source_key(plan["file_hash"], json.dumps([plan["groups"], plan.get("complementary", []), plan.get("deposits", []),
+        plan.get("previous_file_hash"), plan.get("missing_origins", []), plan.get("already_imported", [])], sort_keys=True, default=str))
 
 
 @frappe.whitelist(methods=["POST"])
 def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", portfolio_snapshot="", historical_backfill=0,
-                        employer_assignments=None, assignments_file_hash=""):
+                        employer_assignments=None, assignments_file_hash="", cumulative_import=0, previous_source_file=""):
     _permissions()
     portfolio_snapshot = _required_portfolio_snapshot(portfolio_snapshot)
     _file(source_file)
+    if cint(cumulative_import):
+        if not previous_source_file:
+            frappe.throw(_("Seleccione el archivo acumulado anterior. Para la primera carga desmarque Archivo acumulado."))
+        _file(previous_source_file)
     from credinomina_reconciliation.accounting_batch_store import ensure_mutex
     ensure_mutex()
     assignments = frappe.parse_json(employer_assignments) if isinstance(employer_assignments, str) else employer_assignments or {}
@@ -262,6 +289,7 @@ def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", po
         "source_file": source_file, "currency": clean_text(currency), "manual_fx_rate": manual_fx_rate,
         "employer": clean_text(employer), "portfolio_snapshot": clean_text(portfolio_snapshot),
         "historical_backfill": cint(historical_backfill),
+        "cumulative_import": cint(cumulative_import), "previous_source_file": previous_source_file if cint(cumulative_import) else "",
         "employer_assignments": assignments, "assignments_file_hash": clean_text(assignments_file_hash),
     }}
     _store(token, state)
@@ -506,8 +534,10 @@ def run_bulk_job(token, user, attempt=None):
             plan = _plan(state["options"])
             from credinomina_reconciliation.accounting_preview import save_preview
             preview_chunks = save_preview(token, plan)
+            from credinomina_reconciliation.accounting_cumulative_review import save_missing
+            missing_chunks = save_missing(token, plan.get("missing_origins", []))
             state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan), error="",
-                         preview_chunks=preview_chunks)
+                         preview_chunks=preview_chunks, missing_chunks=missing_chunks)
             state['summary']['paginated_review'] = True
             _store(token, state)
             frappe.db.commit()
@@ -537,6 +567,8 @@ def run_bulk_job(token, user, attempt=None):
                 source = readable_file(state["options"]["source_file"])
                 if source.content_hash != state.get("original_content_hash"):
                     frappe.throw(_("El archivo original fue modificado. Los bloques guardados se conservan; revise antes de continuar."))
+                from credinomina_reconciliation.accounting_cumulative import guard_block
+                guard_block(plan)
                 _exclude_completed_applications(plan)
                 created = _create_imports(plan, state["options"])
                 checkpoint.finish_block(token, index, created)

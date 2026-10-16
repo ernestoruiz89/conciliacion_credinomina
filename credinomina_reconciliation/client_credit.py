@@ -104,7 +104,10 @@ def lock_credit_deposit(deposit_name):
     employer = frappe.db.get_value("CN Remittance Allocation", deposit_name, "employer")
     if employer:
         lock_cash_pool(reconciliation_companies(employer))
-    return frappe.get_doc("CN Remittance Allocation", deposit_name, for_update=True)
+    document = frappe.get_doc("CN Remittance Allocation", deposit_name, for_update=True)
+    from credinomina_reconciliation.deposit_accounting_sources import assert_usable_cash
+    assert_usable_cash(document)
+    return document
 
 
 def other_reservations(deposit_name, item_name):

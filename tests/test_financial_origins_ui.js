@@ -18,6 +18,16 @@ vm.runInContext(fs.readFileSync(path.join(root, "cn_remittance_allocation/cn_rem
 const frm = {doc: {name: "D", employer: "EMPRESA ANTERIOR", docstatus: 0, accounting_source_key: "ORIGEN", modified: "M", detail_rows: [], targets: []},
     is_dirty: () => false, reload_doc: async () => reloads++};
 context.frm = frm;
+for (const status of [{cash_identity_status: "Origen vinculado"}, {consolidated_deposit: "MAIN"}]) {
+    const hidden = [], buttons = [];
+    let disabled = false;
+    handlers["CN Remittance Allocation"].refresh({doc: status,
+        dashboard: {set_headline_alert() {}}, add_custom_button: label => buttons.push(label),
+        disable_save: () => {disabled = true;}, toggle_display: (name, visible) => {if (!visible) hidden.push(name);}});
+    assert.ok(disabled);
+    assert.ok(hidden.includes("select_pending_targets") && hidden.includes("create_complementary"));
+    assert.ok(!buttons.includes("Conciliar"));
+}
 vm.runInContext("reviewDepositOrigin(frm)", context);
 assert.equal(dialog.options.fields.find(row => row.fieldname === "action").default, "Vincular origen a otro depósito");
 assert.equal(dialog.options.fields.find(row => row.fieldname === "reason").reqd, 1);
