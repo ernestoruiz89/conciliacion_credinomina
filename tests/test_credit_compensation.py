@@ -9,7 +9,7 @@ import frappe
 
 from credinomina_reconciliation import complementary_compensation as api
 from credinomina_reconciliation import complementary_exceptions
-from credinomina_reconciliation.client_credit import FINANCIAL_FIELDS, MANAGED_FIELDS
+from credinomina_reconciliation.client_credit import FINANCIAL_FIELDS
 from credinomina_reconciliation.complementary_balances import financial_balance
 from credinomina_reconciliation.accounting_control import build_rows
 
@@ -62,8 +62,8 @@ class CreditCompensationTests(unittest.TestCase):
     def confirm(self, amount=19.25, key="a" * 32):
         return api.confirm_compensation("CREDIT", "LEDGER", amount, "2025-11-21", "Traslado a 3001", key)
 
-    def test_given_case_links_both_sides_without_changing_credit_or_refund(self):
-        preserved = {field: self.credit.get(field) for field in (*FINANCIAL_FIELDS, *MANAGED_FIELDS, "result")}
+    def test_given_case_consumes_credit_without_changing_deposit_or_inventing_refund(self):
+        preserved = {field: self.credit.get(field) for field in (*FINANCIAL_FIELDS, "credit_history", "result")}
         evidence = {key: value for key, value in self.ledger.items() if key.startswith("source_")}
         preview = api.preview_compensation("LEDGER", "CREDIT")
         self.assertEqual(preview["suggested_usd"], 19.25)
@@ -85,20 +85,25 @@ class CreditCompensationTests(unittest.TestCase):
         self.ledger.submit.assert_called_once()
         self.credit.save.assert_called_once()
         self.assertEqual(financial_balance(self.ledger)["pending_usd"], 0)
-        self.assertEqual(financial_balance(self.credit)["management_pending_usd"], 19.25)
+        self.assertEqual(financial_balance(self.credit)["management_pending_usd"], 0)
+        self.assertEqual(self.credit.credit_resolved_usd, 19.25)
+        self.assertEqual(self.credit.credit_management_status, "Resuelto")
         rows, duplicates = build_rows([], {}, [self.credit, self.ledger])
         self.assertEqual((len(rows), duplicates), (1, 0))
         self.assertEqual((rows[0]["debit_nio"], rows[0]["credit_nio"], rows[0]["debit_usd"]), (704.89, 0, 19.25))
         self.assertEqual(rows[0]["state"], "Conciliado")
-        self.db.set_value.assert_not_called()  # No deposit or management writes.
+        self.db.set_value.assert_not_called()  # Only the locked pair is saved.
 
-    def test_already_refunded_credit_can_link_evidence_without_refunding_twice(self):
+    def test_already_refunded_credit_cannot_be_consumed_again(self):
         self.credit.credit_resolved_usd = 19.25
         self.credit.credit_pending_usd = 0
         self.credit.credit_management_status = "Resuelto"
         self.credit.credit_history = '[{"tratamiento":"Devolución","importe_usd":19.25}]'
         history = self.credit.credit_history
-        self.confirm()
+        self.assertEqual(api.preview_compensation('CREDIT', 'LEDGER')['suggested_usd'], 0)
+        with self.assertRaises(ValueError):
+            self.confirm()
+        self.credit.save.assert_not_called()
         self.assertEqual(self.credit.credit_history, history)
         self.assertEqual(self.credit.credit_pending_usd, 0)
         self.assertEqual(self.credit.credit_resolved_usd, 19.25)
@@ -116,7 +121,7 @@ class CreditCompensationTests(unittest.TestCase):
             self.assertEqual(api.balance(doc, "2025-11-21")["pending_usd"], 0)
             self.assertEqual(api.balance(doc)["pending_usd"], 10)
             self.assertEqual(len(doc.compensations), 3)
-        self.assertEqual(self.credit.credit_pending_usd, 19.25)
+        self.assertEqual(self.credit.credit_pending_usd, 10)
         self.assertEqual(self.credit.category, "Saldo a favor del cliente")
         with self.assertRaises(ValueError):
             api.guard_delete(self.credit)

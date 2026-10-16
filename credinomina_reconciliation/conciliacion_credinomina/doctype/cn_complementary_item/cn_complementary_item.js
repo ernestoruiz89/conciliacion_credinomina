@@ -422,7 +422,7 @@ frappe.ui.form.on("CN Complementary Item", {
             && !["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)
             && !frm.doc.registered_deposit)) && !frm.is_new() && frm.get_perm(0, "submit") && frm.get_perm(0, "write")
             && !frm.doc.related_application && !frm.doc.registration_exception
-            && (!compensated || frm.doc.compensation_pending_usd > 0)) {
+            && (documentedCredit ? frm.doc.credit_pending_usd > 0 : (!compensated || frm.doc.compensation_pending_usd > 0))) {
             frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
@@ -721,7 +721,7 @@ async function cn_compensate_items_dialog(frm) {
     const dialog = new frappe.ui.Dialog({
         title: __("Compensar con otra partida"), size: "large",
         fields: [
-            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales.")}</p><p>${__("Para un saldo a favor, seleccione su contrapartida importada del core. Solo se vincula la evidencia contable: no cambia la distribución del depósito ni el pendiente de devolución. Registre la devolución por separado y una excepción si requiere seguimiento adicional.")}</p>`},
+            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales.")}</p><p>${__("Para un saldo a favor, seleccione su contrapartida importada del core. La compensación reduce el saldo disponible desde su fecha efectiva y evita reutilizar ese importe. La distribución del depósito se conserva. Una reclasificación no acredita una devolución al cliente.")}</p>`},
             {fieldtype: "Link", fieldname: "counterpart", label: __("Partida a compensar"), options: "CN Complementary Item", reqd: 1,
                 get_query: () => {
                     const credit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category);
@@ -753,7 +753,7 @@ async function cn_compensate_items_dialog(frm) {
                         <p>${esc(item.description)}</p><div>${__("Original US$")}: ${esc(format_currency(item.original_usd, "USD"))}</div>
                         <div>${__("Compensado US$")}: ${esc(format_currency(item.compensated_usd, "USD"))}</div>
                         <strong>${__(item.is_credit ? "Sin vínculo contable US$" : "Pendiente US$")}: ${esc(format_currency(item.pending_usd, "USD"))}</strong>
-                        ${item.is_credit ? `<p class="mt-2">${__("Pendiente de gestión US$ (no cambia)")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");
+                        ${item.is_credit ? `<p class="mt-2">${__("Saldo disponible US$ (se reduce al compensar)")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");
                     dialog.fields_dict.summary.$wrapper.html(`<div class="row">${cards}</div>`);
                     await dialog.set_value("amount_usd", preview.suggested_usd);
                     dialog.get_primary_btn().prop("disabled", preview.suggested_usd <= 0);
@@ -775,7 +775,7 @@ async function cn_compensate_items_dialog(frm) {
                 dialog.hide();
                 await frm.reload_doc();
                 frappe.show_alert({message: __(preview.left.is_credit || preview.right.is_credit
-                    ? "Vínculo contable registrado. La distribución del depósito y la gestión del saldo a favor no cambiaron."
+                    ? "Compensación registrada. El saldo disponible se redujo; la distribución del depósito se conserva."
                     : "Compensación registrada en ambas partidas."), indicator: "green"});
             } finally {
                 dialog.get_primary_btn().prop("disabled", false);

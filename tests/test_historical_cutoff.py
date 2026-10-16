@@ -80,6 +80,24 @@ class HistoricalCutoffTests(unittest.TestCase):
         result = self.cut(deposits=[deposit], items=[item])['summary'][0]
         self.assertEqual((result['deposit_pending_usd'], result['company_credit_usd']), (-20, 0))
 
+    def test_credit_application_plus_corrected_compensation_exhausts_balance_at_cutoff(self):
+        deposit = self.deposit(amount_usd=32.63, deposit_date='2025-04-30', allocation_detail=[])
+        item = self.item(category='Saldo a favor del cliente', result='Saldo a favor documentado',
+            amount_usd=32.63, accounting_source_key='', registered_deposit='D', compensated_usd=18.46,
+            credit_resolved_usd=32.63, credit_history=[dict(fecha='2025-05-15', importe_usd=14.17)])
+        offsets = [dict(parent='C', compensation_date=day, amount_usd=amount) for day, amount in [
+            ('2026-10-07', 18.46), ('2026-10-15', -18.46), ('2026-10-07', -18.46),
+            ('2026-10-15', 18.46), ('2025-06-01', 18.46)]]
+        for day, pending in [('2025-05-14', -32.63), ('2025-05-15', -18.46),
+                             ('2025-06-01', 0), ('2026-08-31', 0), ('2026-10-07', 0), ('2026-10-15', 0)]:
+            with self.subTest(day=day):
+                result = self.cut(day, [deposit], [item], offsets)
+                self.assertEqual(result['summary'][0]['client_credit_usd'], pending)
+        offsets.append(dict(parent='C', compensation_date='2026-10-16', amount_usd=-18.46))
+        item.update(compensated_usd=0, credit_resolved_usd=14.17)
+        for day, pending in [('2026-08-31', 0), ('2026-10-16', -18.46)]:
+            self.assertEqual(self.cut(day, [deposit], [item], offsets)['summary'][0]['client_credit_usd'], pending)
+
     def test_credit_application_and_reversal_cover_only_after_their_dates(self):
         deposit = self.deposit(amount_usd=20, deposit_date='2025-04-30', allocation_detail=[])
         item = self.item(category='Saldo a favor del cliente', result='Saldo a favor documentado',

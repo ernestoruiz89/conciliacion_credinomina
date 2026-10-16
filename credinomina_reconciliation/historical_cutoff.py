@@ -104,9 +104,11 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
             if _day(deposit.get('deposit_date')) > cutoff:
                 continue
             history = _journal(item.get('credit_history'), name)
-            if money(item.get('credit_resolved_usd')) != sum_money(row.get('importe_usd') for row in history):
+            if money(item.get('credit_resolved_usd')) != (sum_money(row.get('importe_usd') for row in history)
+                    + sum_money(row.get('amount_usd') for row in ledger)):
                 raise ValueError(f'{name}: el saldo gestionado no coincide con su historial fechado.')
-            resolved = _dated_total(history, 'fecha', 'importe_usd', cutoff)
+            resolved = (_dated_total(history, 'fecha', 'importe_usd', cutoff)
+                        + _dated_total(ledger, 'compensation_date', 'amount_usd', cutoff))
             pending = money(item.get('amount_usd')) - resolved
             if pending < 0 or resolved < 0:
                 raise ValueError(f'{name}: el historial de gestión produce un saldo inválido al corte.')

@@ -97,13 +97,15 @@ class CNComplementaryItem(Document):
         from credinomina_reconciliation.receivable_terms import validate_terms
         validate_terms(self, previous)
         guard_receipt(self, previous)
-        compensation.update_totals(self)
         if self.category == APPLICATION_ADJUSTMENT:
             validate_adjustment(self)
         if self.category == CATEGORY:
             validate_company_credit(self)
         elif self.category == client_credit.CATEGORY:
             client_credit.validate_client_credit(self, previous)
+        # Credit identity validation restores protected fields first; derive
+        # available credit from both authoritative journals afterwards.
+        compensation.update_totals(self)
         _complete_client_name(self, previous)
         duplicate = frappe.db.get_value(
             self.doctype,

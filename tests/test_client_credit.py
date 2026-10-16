@@ -250,6 +250,17 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             credit.guard_cancel(self.item)
 
+    def test_compensated_capacity_is_reserved_for_management_and_its_reversal(self):
+        self.item.compensations = [Row(compensation_date='2025-05-15', amount_usd=6)]
+        self.item.credit_resolved_usd = 10
+        with self.assertRaises(ValueError):
+            credit.record_management(**self.args)
+        self.db.set_value.assert_not_called()
+        entry = credit.management_history(self.item)[0]
+        result = credit.reverse_management('C', 'stamp', entry['entry_id'], '2025-05-20', 'Corregir gestión')
+        self.assertEqual(result['pending_usd'], 4)
+        self.assertEqual(self.db.set_value.call_args.args[2]['credit_resolved_usd'], 6)
+
     def test_reversal_checks_version_dates_identity_reason_and_permissions(self):
         entry = credit.management_history(self.item)[0]
         args = dict(item_name="C", modified="stamp", entry_id=entry["entry_id"], event_date="2025-05-20", reason="Corrección")

@@ -88,6 +88,37 @@ class CreditApplicationTests(unittest.TestCase):
         history[-1]['fecha'] = '2026-06-02'
         service.validate_dated_history(20.77, history)
 
+    def test_compensated_amount_cannot_be_applied_even_with_stale_cached_pending(self):
+        self.item.compensations = [dict(compensation_date='2026-05-01', amount_usd=20.77)]
+        with patch.object(service, '_locked_context', return_value=(self.item, self.row, frappe._dict(name='MAY'))), \
+                patch.object(service.frappe, 'throw', side_effect=ValueError), \
+                patch.object(service, '_save_journal') as save:
+            with self.assertRaises(ValueError):
+                unwrap(service.apply)('CREDIT', 'stamp', 'APP', .01, '2026-05-30')
+        save.assert_not_called()
+
+    def test_combined_usage_and_reversal_preserve_compensated_capacity(self):
+        self.item.amount_usd = 32.63
+        self.item.compensations = [dict(compensation_date='2025-06-01', amount_usd=18.46)]
+        self.item.credit_resolved_usd = 18.46
+        entry = dict(self.entry, importe_usd=14.17)
+        with patch.object(service.frappe.db, 'set_value') as save:
+            self.assertEqual(service._save_journal(self.item, entry)['pending_usd'], 0)
+            self.item.update(save.call_args.args[2])
+            result = service._save_journal(self.item, dict(entry, importe_usd=-14.17, fecha='2026-06-01', reverses='OP'))
+            self.assertEqual(result['pending_usd'], 14.17)
+            self.assertEqual(save.call_args.args[2]['credit_resolved_usd'], 18.46)
+
+    def test_offset_reversal_releases_capacity_only_on_its_effective_date(self):
+        self.item.compensations = [dict(compensation_date='2026-05-01', amount_usd=20.77),
+                                  dict(compensation_date='2026-06-01', amount_usd=-20.77)]
+        with patch.object(service.frappe, 'throw', side_effect=ValueError), \
+                patch.object(service.frappe.db, 'set_value') as save:
+            with self.assertRaises(ValueError):
+                service._save_journal(self.item, self.entry)
+            save.assert_not_called()
+            self.assertEqual(service._save_journal(self.item, dict(self.entry, fecha='2026-06-01'))['pending_usd'], .01)
+
 
 if __name__ == '__main__':
     unittest.main()
