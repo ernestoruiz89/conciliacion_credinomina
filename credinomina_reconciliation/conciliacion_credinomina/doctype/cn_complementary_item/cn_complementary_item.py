@@ -105,7 +105,7 @@ class CNComplementaryItem(Document):
             client_credit.validate_client_credit(self, previous)
         # Credit identity validation restores protected fields first; derive
         # available credit from both authoritative journals afterwards.
-        compensation.update_totals(self)
+        compensation.update_totals(self, previous)
         _complete_client_name(self, previous)
         duplicate = frappe.db.get_value(
             self.doctype,

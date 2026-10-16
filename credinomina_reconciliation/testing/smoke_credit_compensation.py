@@ -104,8 +104,45 @@ def run():
             credit.reload(); deposit.reload()
             assert credit.credit_pending_usd == 0 and credit.credit_resolved_usd == 32.63
             assert json.dumps(deposit.as_dict(), sort_keys=True, default=str) == stored_deposit
+            from credinomina_reconciliation import complementary_history as history
+            from credinomina_reconciliation.testing.smoke_client_credit import must_fail
+            operation = history.deletion_options(credit.name, 'compensation')['rows'][0]['entry_id']
+            plan = history.preview_deletion(credit.name, 'compensation', operation)
+            assert [row['removed_count'] for row in plan['changes']] == [5, 5]
+            history.delete_history(credit.name, 'compensation', operation, plan['token'], 'Compensación incorrecta')
+            credit.reload(); ledger.reload(); deposit.reload()
+            assert not credit.compensations and not ledger.compensations
+            assert credit.credit_pending_usd == 18.46 and ledger.compensation_pending_usd == 18.46
+            assert ledger.compensation_status == 'Sin compensar'
+            ledger.save()  # A submitted core item remains editable after its last offset is removed.
+            must_fail(lambda: history.delete_history(credit.name, 'compensation', operation, plan['token'], 'Reintento'))
+            assert json.dumps(deposit.as_dict(), sort_keys=True, default=str) == stored_deposit
+            report_rows = execute({'employer': employer.name, 'cutoff_date': '2026-08-31', 'view_mode': 'Detalle'})[1]
+            assert any(row['source_document'] == credit.name and row['balance_usd'] == -18.46 for row in report_rows), report_rows
+            assert any(row['source_document'] == ledger.name and row['balance_usd'] == 18.46 for row in report_rows), report_rows
+            operation = history.deletion_options(credit.name, 'management')['rows'][0]['entry_id']
+            plan = history.preview_deletion(credit.name, 'management', operation)
+            history.delete_history(credit.name, 'management', operation, plan['token'], 'Aplicación seleccionada por error')
+            credit.reload(); period.reload(); imported.reload(); deposit.reload()
+            assert credit.credit_pending_usd == 32.63 and json.loads(credit.credit_history) == []
+            assert period.pending_usd == 14.17 and imported.rows[0].historical_remitted_usd == 0
+            assert json.dumps(deposit.as_dict(), sort_keys=True, default=str) == stored_deposit
+            # An inconsistent legacy history can be repaired without first saving
+            # the invalid item or running the blocked migration.
+            options = offsets.preview_compensation(ledger.name, credit.name)
+            offsets.confirm_compensation(ledger.name, credit.name, 18.46, '2025-06-01', 'Compensación válida', options['request_key'])
+            frappe.db.set_value(credit.doctype, credit.name, dict(credit_history=json.dumps([
+                dict(operation_id='LEGACY', tratamiento='Devolución', importe_usd=32.63, fecha='2025-06-01')]),
+                credit_resolved_usd=32.63, credit_pending_usd=0))
+            plan = history.preview_deletion(credit.name, 'management', 'LEGACY')
+            history.delete_history(credit.name, 'management', 'LEGACY', plan['token'], 'Gestión duplicada anterior a la migración')
+            credit.reload()
+            assert credit.credit_resolved_usd == 18.46 and credit.credit_pending_usd == 14.17
+            migrate()
             return {"paired_offset_and_retry": "OK", "preserved_deposit_and_management_history": "OK",
                     "available_credit_and_migration": "OK",
+                    "delete_compensation_family_and_both_sides": "OK", "delete_application_rebuilds_period": "OK",
+                    "repair_invalid_legacy_history_before_migration": "OK",
                     "core_pending_zero": "OK", "paired_reversal": "OK", "date_correction_and_cutoff": "OK", "rolled_back": True}
     finally:
         frappe.db.rollback()
