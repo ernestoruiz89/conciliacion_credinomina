@@ -89,6 +89,8 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
             continue
         amount = (item.get('credit_pending_usd') if item.get('credit_management_status')
                   else item.get('amount_usd'))
+        if item.get('credit_usage_issue'):
+            amount = None
         balance = financial_balance(item)
         reviewing = balance['financial_status'] == 'Revisar distribución'
         if amount is not None and not money(amount) and not reviewing:
@@ -225,7 +227,7 @@ def load_detail(filters):
     credits = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,
         'category': ['in', sorted(CREDIT_CATEGORIES)], 'result': 'Saldo a favor documentado'},
         fields=list(dict.fromkeys([*COMPLEMENTARY_FIELDS, 'name', 'employer', 'docstatus', 'result', 'category', 'posting_date', 'amount_usd',
-                'credit_pending_usd', 'credit_management_status', 'client_name', 'client_number',
+                'credit_pending_usd', 'credit_management_status', 'credit_usage_issue', 'client_name', 'client_number',
                 'loan_number', 'period', 'reference', 'description', 'reason_type', 'subcategory', 'accounting_status'])))) if (
                     wanted('company_credit_usd') or wanted('client_credit_usd')) else []
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},

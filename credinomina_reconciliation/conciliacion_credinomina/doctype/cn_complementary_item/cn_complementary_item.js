@@ -407,6 +407,9 @@ frappe.ui.form.on("CN Complementary Item", {
         const betweenItems = frm.doc.category === "Compensación entre partidas";
         const documentedCredit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category)
             && frm.doc.docstatus === 1 && frm.doc.result === "Saldo a favor documentado" && !!frm.doc.registered_deposit;
+        if (documentedCredit && compensated && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
+            frm.add_custom_button(__("Revisar tratamiento de compensación"), () => cn_review_compensation_effect(frm));
+        }
         for (const field of ["category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period", "client_number", "loan_number", "description"]) {
             frm.set_df_property(field, "read_only", compensated || frm.doc.receivable_origin ? 1 : 0);
         }
@@ -423,7 +426,9 @@ frappe.ui.form.on("CN Complementary Item", {
             && !["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)
             && !frm.doc.registered_deposit)) && !frm.is_new() && frm.get_perm(0, "submit") && frm.get_perm(0, "write")
             && !frm.doc.related_application && !frm.doc.registration_exception
-            && (documentedCredit ? frm.doc.credit_pending_usd > 0 : (!compensated || frm.doc.compensation_pending_usd > 0))) {
+            && !frm.doc.credit_usage_issue
+            && (documentedCredit ? (frm.doc.credit_pending_usd > 0 || (frm.doc.credit_history && frm.doc.credit_history !== "[]"
+                && (!compensated || frm.doc.compensation_pending_usd > 0))) : (!compensated || frm.doc.compensation_pending_usd > 0))) {
             frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
@@ -454,9 +459,10 @@ frappe.ui.form.on("CN Complementary Item", {
                 frm.add_custom_button(__("Eliminar gestión del historial"), () => cn_delete_complementary_history(frm, "management"), __("Más acciones"));
                 frm.add_custom_button(__("Revertir gestión"), () => cn_reverse_credit_management(frm), __("Más acciones"));
             }
-            frm.dashboard.set_headline_alert(confirmed
+            frm.dashboard.set_headline_alert(frm.doc.credit_usage_issue
+                ? __("Saldo bloqueado para nuevos usos. Revise el tratamiento de las compensaciones y seleccione la gestión que respalda cada vínculo contable.") : confirmed
                 ? __("Saldo a favor documentado. Gestión: {0}. Use Aplicar a aplicación contable para cubrir una aplicación importada y conservar el remanente. Documentar devolución o aplicación solo registra una gestión externa. El depósito original conserva su distribución.", [frm.doc.credit_management_status || "Pendiente"])
-                : __("Identifique el beneficiario y depósito del excedente. Indique importe positivo, motivo, responsable y fecha compromiso. Si esta partida ya fue importada, reclasifíquela aquí; no cree otra copia."), "blue");
+                : __("Identifique el beneficiario y depósito del excedente. Indique importe positivo, motivo, responsable y fecha compromiso. Si esta partida ya fue importada, reclasifíquela aquí; no cree otra copia."), frm.doc.credit_usage_issue ? "orange" : "blue");
             return;
         }
         if (betweenItems) {
@@ -595,6 +601,57 @@ async function cn_delete_complementary_history(frm, kind) {
         } finally {busy = false; selector.get_primary_btn().prop("disabled", false);}
     }});
     selector.show();
+}
+
+function cn_management_choices(rows) {
+    return new Map(rows.map((row, index) => [
+        `${index + 1}. ${row.treatment} · ${row.date || __("Sin fecha")} · ${row.reference || ""} · ${format_currency(row.amount_usd, "USD")}`, row.entry_id]));
+}
+
+async function cn_review_compensation_effect(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Recargue el formulario antes de revisar el tratamiento."));
+    const name = frm.doc.name, method = "credinomina_reconciliation.compensation_effect.";
+    const data = (await frappe.call({method: method + "options", args: {item_name: name}})).message;
+    if (frm.doc.name !== name) return;
+    const operations = new Map((data.operations || []).map((row, index) => [
+        `${index + 1}. ${row.counterpart} · ${format_currency(row.amount_usd, "USD")} · ${row.credit_effect}`, row.operation_id]));
+    if (!operations.size) return frappe.msgprint(__("No hay compensaciones para revisar."));
+    const management = cn_management_choices(data.management || []);
+    let busy = false;
+    const dialog = new frappe.ui.Dialog({title: __("Tratamiento de la compensación"), fields: [
+        {fieldtype: "HTML", options: `<p>${__("Consume saldo reduce la disponibilidad. Vínculo de gestión respalda una devolución o aplicación ya registrada y no vuelve a descontarla. Se conservan ambos historiales y sus fechas.")}</p>`},
+        {fieldname: "operation", fieldtype: "Select", label: __("Compensación"), options: [...operations.keys()], reqd: 1},
+        {fieldname: "effect", fieldtype: "Select", label: __("Tratamiento"), options: ["Consume saldo", "Vínculo de gestión"], default: "Vínculo de gestión", reqd: 1},
+        {fieldname: "management", fieldtype: "Select", label: __("Gestión ya registrada"), options: ["", ...management.keys()], depends_on: "eval:doc.effect == 'Vínculo de gestión'", mandatory_depends_on: "eval:doc.effect == 'Vínculo de gestión'"},
+    ], primary_action_label: __("Revisar saldo resultante"), async primary_action(values) {
+        if (busy || !operations.has(values.operation)) return;
+        busy = true;
+        dialog.get_primary_btn().prop("disabled", true);
+        try {
+            const args = {item_name: name, operation_id: operations.get(values.operation), credit_effect: values.effect,
+                credit_management_entry: values.effect === "Vínculo de gestión" ? management.get(values.management) : ""};
+            const result = (await frappe.call({method: method + "preview", args})).message;
+            if (frm.doc.name !== name) return;
+            dialog.hide();
+            let saving = false;
+            const review = new frappe.ui.Dialog({title: __("Confirmar tratamiento"), fields: [
+                {fieldtype: "HTML", options: `<p>${__("Saldo disponible resultante")}: <strong>${frappe.utils.escape_html(format_currency(result.credit_pending_usd, "USD"))}</strong></p><p>${__("Se actualizará el tratamiento en ambas partidas. No se eliminarán gestiones ni compensaciones.")}</p>`},
+                {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo y evidencia del vínculo"), reqd: 1},
+            ], primary_action_label: __("Guardar tratamiento"), async primary_action(values) {
+                if (saving) return;
+                saving = true;
+                review.get_primary_btn().prop("disabled", true);
+                try {
+                    await frappe.call({method: method + "classify", args: {...args, token: result.token, reason: values.reason}, freeze: true});
+                    review.hide();
+                    if (frm.doc.name === name) await frm.reload_doc();
+                    frappe.show_alert({message: __("Tratamiento actualizado. Reconstruya los reportes preparados."), indicator: "green"});
+                } finally {saving = false; review.get_primary_btn().prop("disabled", false);}
+            }});
+            review.show();
+        } finally {busy = false; dialog.get_primary_btn().prop("disabled", false);}
+    }});
+    dialog.show();
 }
 
 async function cn_reverse_credit_management(frm) {
@@ -765,12 +822,14 @@ async function cn_compensate_items_dialog(frm) {
     if (frm.is_dirty()) await frm.save();
     let preview = null;
     let selectedName = null;
+    let managementCounterpart = null;
+    let managementChoices = new Map();
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const method = "credinomina_reconciliation.complementary_compensation.";
     const dialog = new frappe.ui.Dialog({
         title: __("Compensar con otra partida"), size: "large",
         fields: [
-            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales.")}</p><p>${__("Para un saldo a favor, seleccione su contrapartida importada del core. La compensación reduce el saldo disponible desde su fecha efectiva y evita reutilizar ese importe. La distribución del depósito se conserva. Una reclasificación no acredita una devolución al cliente.")}</p>`},
+            {fieldtype: "HTML", fieldname: "instructions", options: `<p>${__("Seleccione el movimiento que compensa esta partida. Puede ser de otro mes. Se conservarán los importes originales.")}</p><p>${__("Consume saldo reduce la disponibilidad desde la fecha efectiva. Vínculo de gestión respalda una gestión ya registrada sin descontarla otra vez. Una reclasificación no acredita una devolución al cliente.")}</p>`},
             {fieldtype: "Link", fieldname: "counterpart", label: __("Partida a compensar"), options: "CN Complementary Item", reqd: 1,
                 get_query: () => {
                     const credit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category);
@@ -791,8 +850,23 @@ async function cn_compensate_items_dialog(frm) {
                     dialog.fields_dict.summary.$wrapper.empty();
                     dialog.get_primary_btn().prop("disabled", true);
                     if (!selected) return;
-                    const response = await frappe.call({method: method + "preview_compensation", args: {item_name: frm.doc.name, counterpart: selected}});
-                    if (selected !== dialog.get_value("counterpart")) return;
+                    if (managementCounterpart !== selected) {
+                        const data = (await frappe.call({method: "credinomina_reconciliation.compensation_effect.options", args: {item_name: frm.doc.name, counterpart: selected}})).message || {};
+                        if (selected !== dialog.get_value("counterpart")) return;
+                        managementChoices = cn_management_choices(data.management || []);
+                        managementCounterpart = selected;
+                        dialog.set_df_property("credit_effect", "hidden", !data.credit_item);
+                        if (!data.credit_item) await dialog.set_value("credit_effect", "Consume saldo");
+                        dialog.set_df_property("credit_management_entry", "options", ["", ...managementChoices.keys()]);
+                        await dialog.set_value("credit_management_entry", "");
+                    }
+                    const effect = dialog.get_value("credit_effect") || "Consume saldo";
+                    const entry = effect === "Vínculo de gestión" ? managementChoices.get(dialog.get_value("credit_management_entry")) : "";
+                    if (effect === "Vínculo de gestión" && !entry) return;
+                    const response = await frappe.call({method: method + "preview_compensation", args: {item_name: frm.doc.name, counterpart: selected,
+                        credit_effect: effect, credit_management_entry: entry}});
+                    if (selected !== dialog.get_value("counterpart") || effect !== (dialog.get_value("credit_effect") || "Consume saldo")
+                        || (effect === "Vínculo de gestión" && entry !== managementChoices.get(dialog.get_value("credit_management_entry")))) return;
                     preview = response.message;
                     selectedName = selected;
                     const cards = [preview.left, preview.right].map(item => `<div class="col-sm-6"><div class="well">
@@ -802,11 +876,16 @@ async function cn_compensate_items_dialog(frm) {
                         <p>${esc(item.description)}</p><div>${__("Original US$")}: ${esc(format_currency(item.original_usd, "USD"))}</div>
                         <div>${__("Compensado US$")}: ${esc(format_currency(item.compensated_usd, "USD"))}</div>
                         <strong>${__(item.is_credit ? "Sin vínculo contable US$" : "Pendiente US$")}: ${esc(format_currency(item.pending_usd, "USD"))}</strong>
-                        ${item.is_credit ? `<p class="mt-2">${__("Saldo disponible US$ (se reduce al compensar)")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");
+                        ${item.is_credit ? `<p class="mt-2">${__("Saldo disponible US$")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");
                     dialog.fields_dict.summary.$wrapper.html(`<div class="row">${cards}</div>`);
                     await dialog.set_value("amount_usd", preview.suggested_usd);
                     dialog.get_primary_btn().prop("disabled", preview.suggested_usd <= 0);
                 }},
+            {fieldtype: "Select", fieldname: "credit_effect", label: __("Tratamiento del saldo"), options: ["Consume saldo", "Vínculo de gestión"], default: "Consume saldo", reqd: 1,
+                onchange() { return dialog.fields_dict.counterpart.df.onchange(); }},
+            {fieldtype: "Select", fieldname: "credit_management_entry", label: __("Gestión ya registrada"), options: [""],
+                depends_on: "eval:doc.credit_effect == 'Vínculo de gestión'", mandatory_depends_on: "eval:doc.credit_effect == 'Vínculo de gestión'",
+                onchange() { return dialog.fields_dict.counterpart.df.onchange(); }},
             {fieldtype: "HTML", fieldname: "summary"},
             {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe a compensar US$"), options: "USD", precision: 2, reqd: 1},
             {fieldtype: "Date", fieldname: "compensation_date", label: __("Fecha de compensación"), default: frappe.datetime.get_today(), reqd: 1},
@@ -819,12 +898,14 @@ async function cn_compensate_items_dialog(frm) {
             dialog.get_primary_btn().prop("disabled", true);
             try {
                 await frappe.call({method: method + "confirm_compensation", args: {item_name: frm.doc.name, counterpart: values.counterpart,
-                    amount_usd: values.amount_usd, compensation_date: values.compensation_date, reason: values.reason, request_key: preview.request_key},
+                    amount_usd: values.amount_usd, compensation_date: values.compensation_date, reason: values.reason, request_key: preview.request_key,
+                    credit_effect: values.credit_effect || "Consume saldo",
+                    credit_management_entry: values.credit_effect === "Vínculo de gestión" ? managementChoices.get(values.credit_management_entry) : ""},
                     freeze: true, freeze_message: __("Registrando compensación en ambas partidas…")});
                 dialog.hide();
                 await frm.reload_doc();
                 frappe.show_alert({message: __(preview.left.is_credit || preview.right.is_credit
-                    ? "Compensación registrada. El saldo disponible se redujo; la distribución del depósito se conserva."
+                    ? (values.credit_effect === "Vínculo de gestión" ? "Vínculo contable registrado sin volver a consumir la gestión." : "Compensación registrada. El saldo disponible se redujo; la distribución del depósito se conserva.")
                     : "Compensación registrada en ambas partidas."), indicator: "green"});
             } finally {
                 dialog.get_primary_btn().prop("disabled", false);

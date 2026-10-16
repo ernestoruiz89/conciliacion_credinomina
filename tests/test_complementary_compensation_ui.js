@@ -10,6 +10,7 @@ class Dialog {
         dialog = this;
     }
     get_value(field) { return this.values[field]; }
+    set_df_property(field, prop, value) { this.fields.find(row => row.fieldname === field)[prop] = value; }
     async set_value(field, value) { this.values[field] = value; }
     get_primary_btn() { return {prop: (key, value) => { this[key] = value; }}; }
     show() {}
@@ -87,12 +88,12 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar"},
     assert.equal(filters.source_credit, 0);
     assert.equal(filters.accounting_source_key[1], "set");
     assert.ok(filters.category[1].includes("Saldo a favor del cliente"));
-    assert.ok(dialog.fields.find(field => field.fieldname === "instructions").options.includes("La compensación reduce el saldo disponible desde su fecha efectiva"));
+    assert.ok(dialog.fields.find(field => field.fieldname === "instructions").options.includes("Vínculo de gestión respalda una gestión ya registrada sin descontarla otra vez"));
     creditPreview = true;
     await dialog.set_value("counterpart", "B");
     await dialog.fields.find(field => field.fieldname === "counterpart").onchange();
     assert.ok(calls.some(value => typeof value === "string" && value.includes("Sin vínculo contable US$")
-        && value.includes("Saldo disponible US$ (se reduce al compensar)") && value.includes("Nro. Cliente: 123")));
+        && value.includes("Saldo disponible US$") && value.includes("Nro. Cliente: 123")));
     delete actions["Compensar con otra partida"];
     frm.doc.compensations = [{}]; frm.doc.compensation_pending_usd = 14.17; frm.doc.credit_pending_usd = 0;
     events.refresh(frm);

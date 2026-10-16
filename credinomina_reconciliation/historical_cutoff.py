@@ -104,11 +104,17 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None):
             if _day(deposit.get('deposit_date')) > cutoff:
                 continue
             history = _journal(item.get('credit_history'), name)
+            if item.get('credit_usage_issue'):
+                # Preserve the row as an unknown balance, never a fictitious zero.
+                projected_items[name] = item
+                continue
+            from credinomina_reconciliation.credit_usage import consuming_offsets
+            consuming = consuming_offsets(ledger)
             if money(item.get('credit_resolved_usd')) != (sum_money(row.get('importe_usd') for row in history)
-                    + sum_money(row.get('amount_usd') for row in ledger)):
+                    + sum_money(row.get('amount_usd') for row in consuming)):
                 raise ValueError(f'{name}: el saldo gestionado no coincide con su historial fechado.')
             resolved = (_dated_total(history, 'fecha', 'importe_usd', cutoff)
-                        + _dated_total(ledger, 'compensation_date', 'amount_usd', cutoff))
+                        + _dated_total(consuming, 'compensation_date', 'amount_usd', cutoff))
             pending = money(item.get('amount_usd')) - resolved
             if pending < 0 or resolved < 0:
                 raise ValueError(f'{name}: el historial de gestión produce un saldo inválido al corte.')
@@ -321,7 +327,8 @@ def load_cutoff(filters):
         for item in items:
             item['_registration_origin'] = origins.get(item.get('registration_exception'))
         offsets = list(child_records('CN Complementary Offset', [item['name'] for item in items],
-            'CN Complementary Item', 'compensations', fields=['parent', 'compensation_date', 'amount_usd']))
+            'CN Complementary Item', 'compensations', fields=['parent', 'compensation_date', 'amount_usd',
+                'credit_effect', 'credit_management_item', 'credit_management_entry']))
         deposits = list(records('CN Remittance Allocation', filters={'docstatus': ['!=', 2]}, fields=[
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
             'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit']))
