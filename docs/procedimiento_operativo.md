@@ -18,7 +18,9 @@ Los ejemplos numéricos son didácticos y están expresados en US$, salvo indica
 
 ## Reporte Resumen de Conciliación
 
-La vista **Resumen**, predeterminada, conserva una fila por período. La vista **Detalle** agrupa por período, empresa, cliente y crédito, acumulando las cuotas del mismo crédito. Incluye **Comentario de primera conciliación** (`first_exception_comment`) con los comentarios distintos de sus filas de cobranza. Los filtros de empresa, período, mes, modalidad y ciclo se conservan al cambiar de vista.
+La vista **Resumen**, predeterminada, conserva una fila por período. La vista **Detalle** agrupa por período, empresa, cliente y crédito, acumulando las cuotas del mismo crédito. Incluye **Comentarios** (`comments`), **Comentario de Aplicación** (`application_comment`) y **Comentario de primera conciliación** (`first_exception_comment`) con los textos distintos de sus filas de cobranza, sin repeticiones. Los filtros de empresa, período, mes, modalidad y ciclo se conservan al cambiar de vista.
+
+**Estado del crédito según cartera** muestra el estado original del crédito en el corte importado, activo y accesible más reciente del mes de la fecha de corte del período o de un mes anterior. En períodos históricos se usa el mes del período. La coincidencia respeta el ciclo del crédito y la empresa. La columna indica si no existe un corte aplicable, falta el crédito, está duplicado, pertenece a otra empresa o no tiene estado registrado. La consulta se realiza al ejecutar la vista Detalle; no modifica la conciliación ni sus importes.
 
 Ambas vistas muestran cobranza enviada, aplicación neta y depósito asignado en US$. **Cobranza − aplicación** positivo significa que falta aplicar; negativo, que la aplicación supera la cobranza. **Aplicación − depósito** es la diferencia directa, antes de saldos a favor y ajustes. El depósito es solamente lo asignado a estas aplicaciones, no el monto completo de los depósitos bancarios. Las partidas complementarias con otro destino quedan fuera de esa cifra.
 

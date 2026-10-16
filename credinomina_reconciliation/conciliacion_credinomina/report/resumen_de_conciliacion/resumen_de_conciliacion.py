@@ -3,7 +3,7 @@ from frappe import _
 from frappe.utils import cint
 
 from credinomina_reconciliation.report_records import records, child_records
-from credinomina_reconciliation.reconciliation_report import build_views, load_direct_applications
+from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
 
 
 def execute(filters=None):
@@ -26,7 +26,7 @@ def execute(filters=None):
         filters=conditions,
         fields=[
             "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle",
-            "historical_scope", "status", "applied_usd", "no_collection",
+            "historical_scope", "status", "applied_usd", "no_collection", "cutoff_date",
         ],
         order_by="payroll_month desc, employer asc",
     ))
@@ -52,10 +52,12 @@ def execute(filters=None):
         "CN Reconciliation Period", "collection_rows", fields=[
             "name", "parent", "client", "client_name", "national_id", "loan_number",
             "expected_usd", "expected_nio", "applied_usd", "remitted_usd",
-            "rounding_adjustment_usd", "remittance_detail", "first_exception_comment",
+            "rounding_adjustment_usd", "remittance_detail", "first_exception_comment", "comments", "application_comment",
         ],
     ))
     summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
+    if filters.get("view") == "Detalle":
+        add_portfolio_status(data, detail)
     rows = detail if filters.get("view") == "Detalle" else summary
     if cint(filters.get("only_differences")):
         rows = [row for row in rows if row["has_difference"]]
@@ -83,6 +85,7 @@ def get_columns(detail=False):
             {"fieldname": "client_number", "label": _("N.º cliente"), "fieldtype": "Data", "width": 100},
             {"fieldname": "client_name", "label": _("Cliente"), "fieldtype": "Data", "width": 220},
             {"fieldname": "loan_number", "label": _("Crédito"), "fieldtype": "Data", "width": 125},
+            {"fieldname": "portfolio_credit_status", "label": _("Estado del crédito según cartera"), "fieldtype": "Data", "width": 220},
         ])
     columns.extend({"fieldname": field, "label": _(label), "fieldtype": "Currency",
                     "options": "usd_currency", "width": width} for field, label, width in (
@@ -105,6 +108,10 @@ def get_columns(detail=False):
             {"fieldname": "difference_count", "label": _("Con diferencias"), "fieldtype": "Int", "width": 125},
         ])
     else:
+        columns.extend([
+            {"fieldname": "comments", "label": _("Comentarios"), "fieldtype": "Data", "width": 320},
+            {"fieldname": "application_comment", "label": _("Comentario de Aplicación"), "fieldtype": "Data", "width": 320},
+        ])
         columns.append({"fieldname": "first_exception_comment", "label": _("Comentario de primera conciliación"),
                         "fieldtype": "Data", "width": 320})
     columns.extend([

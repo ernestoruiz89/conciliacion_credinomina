@@ -2,9 +2,11 @@
 from collections import defaultdict
 
 import frappe
+from frappe.utils import get_last_day, getdate
 
 from credinomina_reconciliation.accounting_client_summary import entries
 from credinomina_reconciliation.application_quality import collection_quality
+from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
 from credinomina_reconciliation.period_totals import direct_amounts_by_collection
 from credinomina_reconciliation.reconciliation import converted_amount
@@ -14,6 +16,51 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
            'cash_adjustment_usd', 'open_usd')
+COMMENTS = ('comments', 'application_comment', 'first_exception_comment')
+
+
+def add_portfolio_status(periods, details):
+    """Read each credit's original status from the latest accessible monthly cut."""
+    if not details:
+        return
+    for row in details:
+        row['portfolio_credit_status'] = 'Sin corte de cartera aplicable'
+    if not frappe.has_permission('CN Credit Portfolio Snapshot', 'read'):
+        return
+    months = {period['name']: get_last_day(period.get('cutoff_date') or period['payroll_month'])
+              for period in periods}
+    cuts = list(records('CN Credit Portfolio Snapshot', filters={
+        'disabled': 0, 'docstatus': ['!=', 2],
+        'status': ['in', ['Importado', 'Importado con alertas']],
+        'report_date': ['<=', max(months.values())],
+    }, fields=['name', 'report_date'], order_by='report_date desc, name desc'))
+    by_period = {name: next((cut['name'] for cut in cuts
+                            if getdate(cut['report_date']) <= month), None)
+                 for name, month in months.items()}
+    loans_by_cut = defaultdict(set)
+    for row in details:
+        if by_period[row['name']]:
+            loans_by_cut[by_period[row['name']]].add(row['loan_number'])
+    by_credit = defaultdict(list)
+    for cut, loans in loans_by_cut.items():
+        for credit in get_credit_rows('CN Credit Portfolio Row', filters={
+            'parent': cut, 'parenttype': 'CN Credit Portfolio Snapshot', 'parentfield': 'rows',
+        }, fields=['credit_number', 'credit_status', 'employer'], loan_field='credit_number', loans=loans):
+            by_credit[(cut, canonical_credit_number(credit['credit_number']))].append(credit)
+    for row in details:
+        cut = by_period[row['name']]
+        if not cut:
+            continue
+        matches = by_credit[(cut, row['loan_number'])]
+        if not matches:
+            status = 'Crédito no encontrado en corte'
+        elif len(matches) != 1:
+            status = 'Crédito duplicado en corte'
+        elif matches[0].get('employer') != row['employer']:
+            status = 'Empresa distinta en corte'
+        else:
+            status = matches[0].get('credit_status') or 'Sin estado en corte'
+        row['portfolio_credit_status'] = status
 
 
 def load_direct_applications(period_names):
@@ -112,7 +159,8 @@ def build_views(periods, collections, applications):
             groups[key] = dict(name=period_name, employer=period.get('employer'), payroll_month=period.get('payroll_month'),
                 closure_state=period.get('closure_state'), client_number=client,
                 client_name=source.get('client_name') or 'Sin identificar', loan_number=loan,
-                usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(), _comments=[],
+                usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(),
+                _comments={field: [] for field in COMMENTS},
                 **{field: money(0) for field in AMOUNTS})
             if no_collection:
                 groups[key]['collection_usd'] = None
@@ -123,9 +171,10 @@ def build_views(periods, collections, applications):
             continue
         row = group(source['parent'], source)
         row['_has_collection'] = True
-        comment = str(source.get('first_exception_comment') or '').strip()
-        if comment and comment not in row['_comments']:
-            row['_comments'].append(comment)
+        for field in COMMENTS:
+            comment = str(source.get(field) or '').strip()
+            if comment and comment not in row['_comments'][field]:
+                row['_comments'][field].append(comment)
         _add(row, 'collection_usd', collection_quality(source)['quality_expected_usd'])
         applied = money(source.get('applied_usd')) - direct[source.get('name')]
         if applied < 0:
@@ -157,7 +206,7 @@ def build_views(periods, collections, applications):
     details = [_finish(row) for row in groups.values()]
     by_period = defaultdict(list)
     for row in details:
-        row['first_exception_comment'] = '\n'.join(row.pop('_comments'))
+        row.update({field: '\n'.join(comments) for field, comments in row.pop('_comments').items()})
         by_period[row['name']].append(row)
     summary = []
     for period in periods:

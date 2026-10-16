@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import frappe
 
-from credinomina_reconciliation.reconciliation_report import build_views, load_direct_applications, AMOUNTS
+from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications, AMOUNTS
 from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion import resumen_de_conciliacion as report
 
 
@@ -154,7 +154,8 @@ class ReconciliationReportTests(unittest.TestCase):
             fields = {c['fieldname'] for c in report.get_columns(detail)}
             self.assertTrue(required <= fields)
             if detail:
-                self.assertTrue({'client_number', 'client_name', 'loan_number', 'first_exception_comment'} <= fields)
+                self.assertTrue({'client_number', 'client_name', 'loan_number', 'first_exception_comment',
+                                 'comments', 'application_comment', 'portfolio_credit_status'} <= fields)
             else:
                 self.assertNotIn('first_exception_comment', fields)
 
@@ -166,16 +167,78 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(len(detail), 1)
         self.assertEqual(detail[0]['first_exception_comment'], 'No enviado a cobrar\nRevisar cuota')
 
+    def test_collection_comments_preserved_per_credit_and_period(self):
+        claims = [collection('C1', comments=' Nota ', application_comment='Aplicado'),
+                  collection('C2', comments='Nota', application_comment='Revisar'),
+                  dict(collection('C3', comments='Otro crédito'), loan_number='11125-2'),
+                  dict(collection('C4', comments='Otro período'), parent='P2')]
+        _, detail = build_views([period(), period('P2')], claims, [])
+        rows = {(r['name'], r['loan_number']): r for r in detail}
+        self.assertEqual(rows['P', '11125-1']['comments'], 'Nota')
+        self.assertEqual(rows['P', '11125-1']['application_comment'], 'Aplicado\nRevisar')
+        self.assertEqual(rows['P', '11125-2']['comments'], 'Otro crédito')
+        self.assertEqual(rows['P2', '11125-1']['comments'], 'Otro período')
+        _, direct_only = build_views([period()], [], [application(amount=10)])
+        self.assertEqual(direct_only[0]['comments'], '')
+        self.assertEqual(direct_only[0]['application_comment'], '')
+
+    def test_portfolio_status_uses_period_cutoff_month_and_previous_available_cut(self):
+        periods = [period(cutoff_date='2026-06-15'), period('P2')]
+        _, detail = build_views(periods, [collection(), dict(collection('C2'), parent='P2')], [])
+        cuts = [dict(name='JUN', report_date='2026-06-30'), dict(name='APR', report_date='2026-04-30')]
+        def credits(doctype, **kwargs):
+            status = 'Vencido' if kwargs['filters']['parent'] == 'JUN' else 'Corriente'
+            return [dict(credit_number='0011125-1', credit_status=status, employer='E')]
+        with patch('credinomina_reconciliation.reconciliation_report.frappe.has_permission', return_value=True), \
+             patch('credinomina_reconciliation.reconciliation_report.records', return_value=cuts) as query, \
+             patch('credinomina_reconciliation.reconciliation_report.get_credit_rows', side_effect=credits) as lookup:
+            add_portfolio_status(periods, detail)
+        self.assertEqual([r['portfolio_credit_status'] for r in detail], ['Vencido', 'Corriente'])
+        self.assertEqual(str(query.call_args.kwargs['filters']['report_date'][1]), '2026-06-30')
+        self.assertEqual(query.call_args.kwargs['filters']['disabled'], 0)
+        self.assertEqual(query.call_args.kwargs['filters']['status'], ['in', ['Importado', 'Importado con alertas']])
+        self.assertEqual(lookup.call_count, 2)
+
+    def test_portfolio_status_does_not_guess_missing_duplicate_or_wrong_company(self):
+        for credits, expected in (
+            ([], 'Crédito no encontrado en corte'),
+            ([dict(credit_number='11125-2', credit_status='Cancelado', employer='E')], 'Crédito no encontrado en corte'),
+            ([dict(credit_number='11125-1', credit_status='Cancelado', employer='OTHER')], 'Empresa distinta en corte'),
+            ([dict(credit_number='11125-1', credit_status='Corriente', employer='E')] * 2, 'Crédito duplicado en corte'),
+        ):
+            with self.subTest(expected=expected):
+                _, detail = build_views([period()], [collection()], [])
+                with patch('credinomina_reconciliation.reconciliation_report.frappe.has_permission', return_value=True), \
+                     patch('credinomina_reconciliation.reconciliation_report.records', return_value=[dict(name='CUT', report_date='2026-05-31')]), \
+                     patch('credinomina_reconciliation.reconciliation_report.get_credit_rows', return_value=credits):
+                    add_portfolio_status([period()], detail)
+                self.assertEqual(detail[0]['portfolio_credit_status'], expected)
+
+    def test_portfolio_status_respects_permissions_and_absent_cuts(self):
+        for permission in (False, True):
+            _, detail = build_views([period()], [collection()], [])
+            with patch('credinomina_reconciliation.reconciliation_report.frappe.has_permission', return_value=permission), \
+                 patch('credinomina_reconciliation.reconciliation_report.records', return_value=[]) as query, \
+                 patch('credinomina_reconciliation.reconciliation_report.get_credit_rows') as lookup:
+                add_portfolio_status([period()], detail)
+            self.assertEqual(detail[0]['portfolio_credit_status'], 'Sin corte de cartera aplicable')
+            if not permission:
+                query.assert_not_called()
+            lookup.assert_not_called()
+
     def test_execute_switches_granularity_and_filters_differences(self):
         p = frappe._dict(period(applied_usd=20))
         claims = [frappe._dict(collection(expected_usd=20, applied_usd=20, remitted_usd=20,
                                         remittance_detail='[{"importe_usd":20}]'))]
         with patch.object(report, 'records', side_effect=lambda doctype, **kw: [p] if doctype == 'CN Reconciliation Period' else []), \
-             patch.object(report, 'child_records', return_value=claims), \
-             patch.object(report, 'load_direct_applications', return_value=[]):
+             patch.object(report, 'child_records', return_value=claims) as child_query, \
+             patch.object(report, 'load_direct_applications', return_value=[]), \
+             patch.object(report, 'add_portfolio_status') as enrich:
             _, summary = report.execute()[:2]
             _, detail = report.execute({'view': 'Detalle'})[:2]
             _, filtered = report.execute({'view': 'Detalle', 'only_differences': 1})[:2]
+        self.assertEqual(enrich.call_count, 2)
+        self.assertTrue({'comments', 'application_comment'} <= set(child_query.call_args.kwargs['fields']))
         self.assertNotIn('client_number', summary[0])
         self.assertEqual(detail[0]['client_number'], '2885')
         self.assertEqual(filtered, [])
