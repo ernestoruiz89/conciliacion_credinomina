@@ -162,6 +162,11 @@ async function loadPayingCompanies(frm) {
 
 frappe.ui.form.on("CN Remittance Allocation", {
     link_accounting_origins(frm) { linkAccountingOrigins(frm); },
+    onload(frm) {
+        if (frm.is_new() && Number(frm.doc.apply_fifo) !== 1) {
+            frm.set_value("apply_fifo", 1);
+        }
+    },
     setup(frm) {
         // Imported rows remain intact; company and credit can disambiguate identity.
         frm.fields_dict.detail_rows.grid.df.cannot_add_rows = true;
