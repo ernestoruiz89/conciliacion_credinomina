@@ -319,6 +319,7 @@ function filterImportExceptions(frm, filters = {}) {
     })).filter(entry => {
         const {row, reasons, amounts, status} = entry;
         const text = normalize([row.idx, row.client_name, row.client_number, row.loan_number,
+            row.portfolio_credit_status, row.portfolio_snapshot_used,
             row.accounting_entry, row.receipt, row.reference, ...reasons.map(reason => reason.reason)].join(" "));
         if (!terms.every(term => text.includes(term))) return false;
         if (filters.state && status !== filters.state) return false;
@@ -348,7 +349,9 @@ function importExceptionsHtml(frm, filters = {}, offset = 0) {
                 </tr></thead>
                 <tbody>${exceptions.slice(offset, offset + 50).map(({row, reasons, amounts, status}) => `<tr>
                     <td>${esc(row.idx)}</td>
-                    <td>${esc(row.client_name)}<br>${__("Nro. Cliente")}: ${esc(row.client_number)}<br>${__("Crédito")}: ${esc(row.loan_number)}</td>
+                    <td>${esc(row.client_name)}<br>${esc(__("Nro. Cliente"))}: ${esc(row.client_number)}<br>${esc(__("Crédito"))}: ${esc(row.loan_number)}
+                        ${row.event_type === "Aplicacion" ? `<br>${esc(__("Estado del crédito en corte"))}: ${esc(row.portfolio_credit_status || "—")}
+                            <br>${esc(__("Corte utilizado"))}: ${esc(row.portfolio_snapshot_used || "—")}` : ""}</td>
                     ${[amounts.amount, amounts.adjustment, amounts.net, amounts.paid, amounts.pending].map(numeric).join("")}
                     <td style="white-space:normal;min-width:200px">${esc(status)}<details><summary>${esc(__("Ver motivos"))}</summary>
                         ${reasons.map(({stage, reason}) => `<p><strong>${esc(stage)}</strong><br>${esc(reason)}</p>`).join("")}</details></td>
@@ -373,7 +376,7 @@ function showImportExceptions(frm) {
     dialog = new frappe.ui.Dialog({
         title: __("Pendientes detectados de {0}", [frm.doc.name]), size: "extra-large",
         fields: [
-            {fieldtype: "Data", fieldname: "search", label: __("Buscar"), description: __("Cliente, crédito, asiento, recibo, fila o motivo"), onchange: changed},
+            {fieldtype: "Data", fieldname: "search", label: __("Buscar"), description: __("Cliente, crédito, estado en corte, corte, asiento, recibo, fila o motivo"), onchange: changed},
             {fieldtype: "Column Break"},
             {fieldtype: "Select", fieldname: "state", label: __("Estado"), options: ["", ...new Set(exceptions.map(({row}) => row.deposit_match_status || row.match_status || __("Pendiente")))], onchange: changed},
             {fieldtype: "Column Break"},
