@@ -45,7 +45,9 @@
     "deducted_nio",
     "financial_totals_section",
     "applied_total_usd",
+    "deposit_coverage_usd",
     "financial_totals_column",
+    "complementary_coverage_usd",
     "remitted_total_usd",
     "financial_pending_column",
     "pending_usd",
@@ -256,12 +258,32 @@
     {
       "fieldname": "applied_total_usd",
       "fieldtype": "Currency",
-      "label": "Total aplicado US$",
+      "label": "Importe US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,
       "no_copy": 1,
       "description": "Aplicaciones del período expresadas en US$, antes de las compensaciones confirmadas. El equivalente en C$ ya está incluido en la conversión; no se suma otra vez."
+    },
+    {
+      "fieldname": "deposit_coverage_usd",
+      "fieldtype": "Currency",
+      "label": "Depósitos US$",
+      "options": "usd_currency",
+      "precision": "2",
+      "read_only": 1,
+      "no_copy": 1,
+      "description": "Importe de depósitos aplicado a las aplicaciones de este período. No incluye efectivo asignado a otros períodos, ingresos ni saldos a favor."
+    },
+    {
+      "fieldname": "complementary_coverage_usd",
+      "fieldtype": "Currency",
+      "label": "Partidas complementarias US$",
+      "options": "usd_currency",
+      "precision": "2",
+      "read_only": 1,
+      "no_copy": 1,
+      "description": "Compensaciones confirmadas de aplicaciones y diferencias menores firmadas. Puede ser negativo; no incluye diferencias cambiarias en revisión."
     },
     {
       "fieldname": "remitted_total_usd",
@@ -276,7 +298,7 @@
     {
       "fieldname": "pending_usd",
       "fieldtype": "Currency",
-      "label": "Pendiente US$",
+      "label": "Saldo US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,

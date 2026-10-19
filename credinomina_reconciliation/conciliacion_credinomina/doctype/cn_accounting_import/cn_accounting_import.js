@@ -107,27 +107,48 @@ function accountingClientSummaryTable(rows, page = 0) {
     </table></div>`;
 }
 
+function accountingBalanceSummary(totals) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const amount = value => value == null ? "—" : format_currency(value, "USD", 2);
+    const fields = [
+        [__("Importe US$"), totals?.amount_usd],
+        [__("Depósitos US$"), totals?.deposits_usd],
+        [__("Partidas complementarias US$"), totals?.complementary_usd],
+        [__("Saldo US$"), totals?.balance_usd],
+    ];
+    return `<div class="row">${fields.map(([label, value]) => `<div class="col-sm-3">
+        <div class="form-group"><label class="control-label">${esc(label)}</label>
+            <div class="control-value" style="font-size:1.2em;font-weight:600">${esc(amount(value))}</div></div></div>`).join("")}</div>
+        <p class="text-muted">${esc(__("Solo aplicaciones efectivas. Depósitos y partidas reflejan la cobertura atribuible a esta importación; el saldo suma pendientes sin compensar sobrantes entre créditos. «—» indica que una distribución compartida no permite determinar el importe sin duplicarlo."))}</p>`;
+}
+
 async function loadAccountingClientSummary(frm) {
     const wrapper = frm.fields_dict?.client_summary_html?.$wrapper;
     if (!wrapper) return;
+    const balanceWrapper = frm.fields_dict?.balance_summary_html?.$wrapper;
+    const showBalance = html => { if (balanceWrapper) balanceWrapper.html(html); };
     const request = frm._client_summary_request = (frm._client_summary_request || 0) + 1;
     const name = frm.doc.name;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     wrapper.off(".cnClientSummary");
     if (frm.is_new() || frm.is_dirty()) {
         wrapper.html(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos por cliente."))}</p>`);
+        showBalance(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos."))}</p>`);
         return;
     }
     wrapper.html(`<p class="text-muted">${esc(__("Consultando saldos por cliente..."))}</p>`);
+    showBalance(`<p class="text-muted">${esc(__("Consultando saldos..."))}</p>`);
     const current = () => frm._client_summary_request === request && frm.doc.name === name;
     try {
         const response = await frappe.call({method: "credinomina_reconciliation.accounting_client_summary.get_client_summary", args: {import_name: name}});
         if (!current()) return;
         if (frm.is_dirty()) {
             wrapper.html(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
+            showBalance(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
             return;
         }
         const rows = response.message.rows || [];
+        showBalance(accountingBalanceSummary(response.message.totals));
         const filters = frm._client_summary_filters?.name === name
             ? frm._client_summary_filters : {name, query: "", onlyPending: false};
         frm._client_summary_filters = filters;
@@ -160,6 +181,7 @@ async function loadAccountingClientSummary(frm) {
     } catch (error) {
         if (!current()) return;
         wrapper.html(`<p class="text-danger">${esc(__("No se pudo consultar el resumen. Revise sus permisos o vuelva a intentar."))}</p><button type="button" class="btn btn-default btn-sm cn-client-retry">${esc(__("Reintentar"))}</button>`);
+        showBalance(`<p class="text-danger">${esc(__("No se pudieron consultar los saldos. Revise sus permisos o vuelva a intentar."))}</p>`);
         wrapper.on("click.cnClientSummary", ".cn-client-retry", () => loadAccountingClientSummary(frm));
     }
 }
