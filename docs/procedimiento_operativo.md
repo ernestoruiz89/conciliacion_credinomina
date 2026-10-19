@@ -109,7 +109,7 @@ Ruta: **Conciliación Credinómina → Aplicaciones del core → Importación co
 
 En **Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
 
-El resumen **Saldos de aplicaciones en US$** muestra **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas de la importación. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
+Al inicio de la pestaña **Importación**, cuatro tarjetas muestran **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
 
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.
 
@@ -625,7 +625,7 @@ Ante una consulta, no se presenta la diferencia de cobranza como saldo contractu
 
 **Registrar corte de control** sirve para conservar Excel y JSON privados con las cifras de ese momento, fecha y motivo o próxima gestión. **Más opciones → Ver cortes registrados** permite recuperarlos. No equivale a cerrar, no paga deuda y no impide recibir evidencia tardía.
 
-En el período, **Importe US$** expresa las aplicaciones antes de compensaciones; **Depósitos US$** muestra el efectivo aplicado a esas aplicaciones; **Partidas complementarias US$** separa las compensaciones confirmadas y diferencias menores firmadas; **Saldo US$** suma lo aún pendiente por aplicación o cuota. Por ejemplo, importe US$100.00, depósito US$80.00 y compensación US$20.00 muestran saldo US$0.00. No sume otra vez los equivalentes en C$ ni reste dos veces la complementaria. Un exceso en otra cuota no reduce ese saldo, y una CxC trasladada a una partida conserva su gestión fuera del saldo de la aplicación.
+Al inicio de la pestaña **Período y conciliación**, cuatro tarjetas muestran los saldos financieros guardados. **Importe US$** expresa las aplicaciones antes de compensaciones; **Depósitos US$** muestra el efectivo aplicado a esas aplicaciones; **Partidas complementarias US$** separa las compensaciones confirmadas y diferencias menores firmadas; **Saldo US$** suma lo aún pendiente por aplicación o cuota. Por ejemplo, importe US$100.00, depósito US$80.00 y compensación US$20.00 muestran saldo US$0.00. No sume otra vez los equivalentes en C$ ni reste dos veces la complementaria. Un exceso en otra cuota no reduce ese saldo, y una CxC trasladada a una partida conserva su gestión fuera del saldo de la aplicación.
 
 ## Saldos a favor y rendición
 
