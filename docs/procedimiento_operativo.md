@@ -289,7 +289,7 @@ Ruta: **Conciliación Credinómina → Depósitos → Distribución de Depósito
 2. Revise la moneda que completó la cuenta. Si el depósito está en NIO, ingrese tasa positiva C$/US$. **Equivalente US$** es calculado y de solo lectura. Por ejemplo, C$3,662.43 a 36.6243 equivalen a US$100.00. Los importes se redondean a dos decimales mediante Decimal; conserve la precisión de la tasa.
 3. Guarde. El supervisor usa **Confirmar depósito** cuando el dinero y la evidencia son correctos. Esta confirmación no ejecuta la conciliación ni crea pagos en el core.
 4. En **2. Detalle**, agregue en **Períodos del detalle** los períodos que espera cubrir. Puede seleccionar varios meses o cortes de la misma empresa o de sus beneficiarias autorizadas. Esta tabla restringe la búsqueda automática; no asigna dinero.
-5. Descargue la plantilla y cargue **Detalle de pago por cliente**. Pulse **Cargar detalle del depósito**. Adjuntar el Excel sin pulsar el botón no importa sus filas.
+5. Descargue la plantilla y cargue **Detalle de pago por cliente**. Pulse **Cargar detalle del depósito**. Adjuntar el Excel sin pulsar el botón no importa sus filas. Si falta el número de crédito, la carga lo toma del corte de cartera aplicable solo cuando hay un único crédito verificado para ese cliente y empresa.
 6. Revise cada fila: identidad, crédito, Estado del crédito, Fecha de corte de cartera, Deducido C$ o Deducido US$, Importe US$, Vinculado, saldos a favor y Pendiente. El importe convertido se calcula desde la carga; no espere a Conciliar para detectar una tasa o moneda errónea.
 7. Use **Seleccionar crédito del cliente** si debe vincular un crédito concreto. La selección se limita a la cartera del cliente identificado. No seleccione otro préstamo para completar artificialmente la suma.
 8. En **Conciliación → Conciliar**, ejecute el cruce y revise el mensaje final y los motivos por fila. Compruebe en **3. Destinos** la distribución completa y el dinero sin asignar ni justificar.
@@ -304,7 +304,7 @@ Al cargar el archivo de detalle devuelto por la empresa ya no se agregan ceros i
 
 Al cargar o generar el detalle se completan **Estado del crédito** y **Fecha de corte de cartera**, de solo lectura. La búsqueda parte del período seleccionado con la fecha de aplicación o cierre más reciente y del corte utilizado por sus importaciones contables; si estas usaron varios cortes, toma el más reciente. Cuando la selección de cartera fue automática, considera el corte registrado en las aplicaciones.
 
-El crédito se busca por número y empresa en ese corte habilitado. Si no aparece, se consulta únicamente el corte importado habilitado inmediatamente anterior, aunque no esté seleccionado. No se continúa buscando en todos los cortes antiguos. Sin coincidencia muestra **No Identificado** y deja la fecha vacía; una identidad ambigua requiere revisión. Sin períodos seleccionados no se presupone un corte global.
+El crédito se busca por número y empresa en ese corte habilitado. Si el archivo de detalle no trae número, la carga busca al cliente identificado en el corte: completa el número solo si hay una única fila de crédito verificada para ese cliente y empresa. Si hay varias filas, incluso repetidas, deja el número vacío para selección manual. Si no aparece, se consulta únicamente el corte importado habilitado inmediatamente anterior, aunque no esté seleccionado. No se continúa buscando en todos los cortes antiguos. Sin coincidencia muestra **No Identificado** y deja la fecha vacía; una identidad ambigua requiere revisión. Sin períodos seleccionados no se presupone un corte global.
 
 La fila conserva el vínculo al corte realmente utilizado. El dato se actualiza al cargar el detalle o cambiar crédito o períodos; guardar una fila sin esos cambios no garantiza una nueva consulta. Un estado **Cancelado** describe la cartera consultada: no cancela la fila, no asigna efectivo y no demuestra por sí solo que deba crearse un saldo a favor.
 
@@ -1191,7 +1191,7 @@ Verifique la pestaña **Origen contable** y sus datos. Crear una copia manual co
 
 ### El estado del crédito muestra No Identificado
 
-Revise el número normalizado, la empresa, los períodos seleccionados y el corte vinculado a sus importaciones. Confirme que el corte esté habilitado y que el crédito aparezca en él o en el corte habilitado inmediatamente anterior. Un crédito presente en cualquier otro corte no satisface esa búsqueda. Cambiar notas y guardar no vuelve a consultar una fila sin cambios; revise el detalle mediante el flujo de carga o los vínculos de crédito y períodos, respetando sus reservas existentes.
+Revise el número normalizado, la empresa, los períodos seleccionados y el corte vinculado a sus importaciones. Confirme que el corte esté habilitado y que el crédito aparezca en él o en el corte habilitado inmediatamente anterior. Un crédito presente en cualquier otro corte no satisface esa búsqueda. Cuando el archivo no trae crédito, la nueva carga completa solo los casos con una única fila verificada por cliente y empresa; si hay varias, use **Seleccionar crédito del cliente**. Cambiar notas y guardar no vuelve a consultar una fila sin cambios; revise el detalle mediante el flujo de carga o los vínculos de crédito y períodos, respetando sus reservas existentes.
 
 ### Los totales no coinciden con la balanza
 

@@ -4,9 +4,10 @@ from collections import defaultdict
 import frappe
 
 from credinomina_reconciliation.deposit_identity import credit_key
-from credinomina_reconciliation.parsers import clean_text
+from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.paying_employers import allowed_employers
+from credinomina_reconciliation.remittance_credit_selection import portfolio_row_matches_client
 from credinomina_reconciliation.remittance_periods import selected_periods
 from credinomina_reconciliation.report_records import INCOMPLETE_EVIDENCE
 
@@ -73,6 +74,63 @@ def load_cuts(document, allowed, *, complete=False):
         "disabled": 0, "status": ["in", IMPORTED], "report_date": ["<", cuts[0].report_date]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
     return cuts + previous
+
+
+def fill_unique_detail_credits(document, clients):
+    """Fill missing imported credits only when one row in the applicable cut fits."""
+    details = [row for row in document.get("detail_rows") or []
+               if not clean_text(row.get("loan_number")) and row.get("client") and row.get("employer")]
+    if not details:
+        return
+    allowed = allowed_employers(document.employer)
+    cuts = load_cuts(document, allowed)
+    if not cuts:
+        return
+    detail_employers = sorted({row.employer for row in details if row.employer in allowed})
+    if not detail_employers:
+        return
+    detail_clients = {row.client for row in details}
+    clients_by_name = {client["name"]: client for client in clients
+                       if client["name"] in detail_clients}
+    by_core = defaultdict(set)
+    for client in clients:
+        core = canonical_identifier(client.get("client_number"))
+        if core:
+            by_core[(client.get("employer"), core)].add(client["name"])
+    rows = frappe.get_all("CN Credit Portfolio Row", filters={
+        "parent": ["in", [cut.name for cut in cuts]],
+        "parenttype": "CN Credit Portfolio Snapshot", "parentfield": "rows",
+        "employer": ["in", detail_employers],
+    }, fields=["name", "parent", "credit_number", "employer", "matched_client",
+               "client_number_core", "national_id"], limit_page_length=0)
+    candidates = defaultdict(list)
+    for row in rows:
+        if not clean_text(row.get("credit_number")):
+            continue
+        linked = row.get("matched_client")
+        if linked:
+            names = [linked] if linked in clients_by_name else []
+        else:
+            core = canonical_identifier(row.get("client_number_core"))
+            names = by_core.get((row.get("employer"), core), set()) if core else set()
+            if len(names) != 1:
+                continue
+            names = names & detail_clients
+        for name in names:
+            client = clients_by_name[name]
+            if portfolio_row_matches_client(row, client, client.get("employer")):
+                candidates[(row.parent, name, row.employer)].append(row)
+    for detail in details:
+        if detail.client not in clients_by_name:
+            continue
+        for cut in cuts:
+            matches = candidates.get((cut.name, detail.client, detail.employer), [])
+            if not matches:
+                continue
+            # Multiple rows, even repeated credit numbers, require a manual choice.
+            if len(matches) == 1:
+                detail.loan_number = clean_text(matches[0].credit_number)
+            break
 
 
 def apply_credit_states(details, cuts, portfolio_rows, allowed):
