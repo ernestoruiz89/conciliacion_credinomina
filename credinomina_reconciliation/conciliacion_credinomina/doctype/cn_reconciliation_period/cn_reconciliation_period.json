@@ -8,6 +8,7 @@
     "usd_currency",
     "nio_currency",
     "main_tab",
+    "financial_overview_html",
     "period_section",
     "employer",
     "payroll_month",
@@ -166,6 +167,12 @@
       "fieldname": "main_tab",
       "fieldtype": "Tab Break",
       "label": "Período y conciliación"
+    },
+    {
+      "fieldname": "financial_overview_html",
+      "fieldtype": "HTML",
+      "label": "Resumen financiero",
+      "read_only": 1
     },
     {
       "fieldname": "exceptions_tab",

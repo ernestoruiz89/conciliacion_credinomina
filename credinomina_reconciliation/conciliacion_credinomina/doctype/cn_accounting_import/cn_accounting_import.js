@@ -116,10 +116,11 @@ function accountingBalanceSummary(totals) {
         [__("Partidas complementarias US$"), totals?.complementary_usd],
         [__("Saldo US$"), totals?.balance_usd],
     ];
-    return `<div class="row">${fields.map(([label, value]) => `<div class="col-sm-3">
-        <div class="form-group"><label class="control-label">${esc(label)}</label>
-            <div class="control-value" style="font-size:1.2em;font-weight:600">${esc(amount(value))}</div></div></div>`).join("")}</div>
-        <p class="text-muted">${esc(__("Solo aplicaciones efectivas. Depósitos y partidas reflejan la cobertura atribuible a esta importación; el saldo suma pendientes sin compensar sobrantes entre créditos. «—» indica que una distribución compartida no permite determinar el importe sin duplicarlo."))}</p>`;
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">
+        ${fields.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
+            <div class="small text-muted">${esc(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${esc(amount(value))}</div>
+        </div>`).join("")}
+    </div><p class="text-muted" style="margin:12px 0 0">${esc(__("Solo aplicaciones efectivas. Depósitos y partidas reflejan la cobertura atribuible a esta importación; el saldo suma pendientes sin compensar sobrantes entre créditos. «—» indica que una distribución compartida no permite determinar el importe sin duplicarlo."))}</p>`;
 }
 
 async function loadAccountingClientSummary(frm) {

@@ -9,6 +9,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
     refresh(frm) {
+        renderPeriodFinancialOverview(frm);
         setPeriodEditing(frm);
         refreshLegacyEmployerDetail(frm);
         setRemittanceDateEditing(frm);
@@ -94,6 +95,24 @@ frappe.ui.form.on("CN Reconciliation Period", {
         });
     },
 });
+
+function renderPeriodFinancialOverview(frm) {
+    const wrapper = frm.fields_dict?.financial_overview_html?.$wrapper;
+    if (!wrapper) return;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const amount = value => frm.is_new() || value == null ? "—" : format_currency(value, "USD", 2);
+    const cards = [
+        [__("Importe US$"), frm.doc.applied_total_usd],
+        [__("Depósitos US$"), frm.doc.deposit_coverage_usd],
+        [__("Partidas complementarias US$"), frm.doc.complementary_coverage_usd],
+        [__("Saldo US$"), frm.doc.pending_usd],
+    ];
+    wrapper.html(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">
+        ${cards.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
+            <div class="small text-muted">${esc(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${esc(amount(value))}</div>
+        </div>`).join("")}
+    </div>`);
+}
 
 async function reconcileCollection(frm) {
     if (frm._cn_reconciling_collection) return;
