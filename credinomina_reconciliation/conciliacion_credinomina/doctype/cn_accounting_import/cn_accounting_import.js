@@ -22,6 +22,7 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
         updateImportExceptionNotice(frm);
         loadAccountingClientSummary(frm);
+        showAccountingRecovery(frm);
         if (frm.is_new()) return;
 
         if (frappe.model.can_create("CN Reconciliation Period")) {
@@ -65,6 +66,23 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+function showAccountingRecovery(frm) {
+    const wrapper = frm.fields_dict?.recovery_html?.$wrapper;
+    if (!wrapper) return;
+    wrapper.off(".cnRecovery");
+    if (frm.is_new() || !frm.doc.file_hash || !(frm.doc.rows || []).length) {
+        wrapper.empty();
+        return;
+    }
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    wrapper.html(`<div class="mt-3"><button type="button" class="btn btn-default btn-sm cn-download-recovery">${esc(__("Generar CSV de recuperación"))}</button>
+        <p class="text-muted mt-2">${esc(__("Se reconstruye con las filas contables guardadas. No es una copia exacta del archivo original; revise el CSV antes de volver a cargarlo."))}</p></div>`);
+    wrapper.on("click.cnRecovery", ".cn-download-recovery", () => {
+        const method = "credinomina_reconciliation.accounting_recovery.download_recovery_csv";
+        window.open(`/api/method/${method}?import_name=${encodeURIComponent(frm.doc.name)}`, "_blank");
+    });
+}
 
 function accountingClientSummaryTable(rows, page = 0) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
