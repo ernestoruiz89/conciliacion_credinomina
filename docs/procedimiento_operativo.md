@@ -2,7 +2,7 @@
 
 Esta guía permite cargar evidencia del core, relacionarla con los depósitos y dar seguimiento a diferencias, ajustes y saldos a favor. Está dirigida a los operadores y supervisores de conciliación de MIDESA. La app funciona sobre Frappe Framework, sin depender de ERPNext ni de Loan Manager, y no sustituye el core de crédito ni registra asientos en él.
 
-Versión del manual: 1.5. Fecha de revisión: 13 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
+Versión del manual: 1.7. Fecha de revisión: 19 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
 
 ## Cómo usar el manual
 
@@ -16,6 +16,8 @@ Un período operativo sin cobranza puede coexistir con el período regular de la
 
 Los ejemplos numéricos son didácticos y están expresados en US$, salvo indicación de C$. Las autorizaciones institucionales para reembolsos, reclasificaciones y correcciones deben obtenerse fuera de la app cuando corresponda. El manual no concede esas autorizaciones.
 
+Las capturas de referencia se tomaron el 23 de septiembre de 2026 en un sitio de ensayo con datos simulados. Sirven para ubicar formularios y reportes; algunos nombres de menú y etiquetas pueden variar respecto de la versión instalada.
+
 ## Reporte Resumen de Conciliación
 
 La vista **Resumen**, predeterminada, conserva una fila por período. La vista **Detalle** agrupa por período, empresa, cliente y crédito, acumulando las cuotas del mismo crédito. Incluye **Comentarios** (`comments`), **Comentario de Aplicación** (`application_comment`) y **Comentario de primera conciliación** (`first_exception_comment`) con los textos distintos de sus filas de cobranza, sin repeticiones. Los filtros de empresa, período, mes, modalidad y ciclo se conservan al cambiar de vista.
@@ -27,6 +29,8 @@ Ambas vistas muestran cobranza enviada, aplicación neta y depósito asignado en
 El **Saldo a favor utilizado** se muestra separado del depósito. El **Pendiente por cubrir** suma los faltantes de cada aplicación o fila de cobranza: aplicación neta + ajustes de conciliación − depósito − saldo a favor utilizado, con mínimo cero por obligación. No compensa faltantes con excedentes de otras obligaciones. Por eso una aplicación cubierta con saldo a favor puede tener diferencia contra depósito y pendiente cero. La aplicación neta ya incorpora los ajustes de aplicación confirmados.
 
 **Solo con diferencias** incluye diferencias monetarias, ausencia de cobranza exigible y evidencia que requiere revisión, aunque una diferencia esté explicada por saldo a favor o ajuste. En Resumen muestra el período completo si cualquiera de sus clientes/créditos presenta diferencias; en Detalle muestra únicamente los clientes/créditos afectados. El contador **Con diferencias** evita que faltantes y excesos queden ocultos por un total neto cero. Los períodos históricos y **No tiene cobranza** indican **No aplica** en la primera comparación. Los importes sin conversión o evidencia suficiente se muestran como **No determinable** y no generan un total que los trate como cero.
+
+![Vista del reporte Resumen de Conciliación](capturas/resumen_conciliacion.png)
 
 ## Responsabilidades y acceso
 
@@ -107,6 +111,8 @@ Control posterior: compare número de líneas, débitos y créditos originales c
 
 El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-consecutivo. El mes y año se obtienen de las fechas de las filas, no de la fecha de creación del documento. Duplicar una importación no copia el archivo adjunto.
 
+En la pestaña **Historial**, **Generar CSV de recuperación** descarga un archivo construido con las filas contables guardadas cuando el archivo adjunto se haya perdido. El CSV conserva la fila original y la identidad de cada movimiento; la app comprueba esa identidad antes de permitir la descarga. No es una copia exacta del archivo original ni recupera columnas ajenas a los movimientos importados. Revíselo antes de adjuntarlo y ejecutar de nuevo **3. Cargar movimientos contables**. La eliminación de archivos vinculados a importaciones exige el rol **Eliminar Mov. del Core**.
+
 ### Carga masiva de varios meses
 
 La acción **Carga masiva** está en la vista de lista, no en el formulario. Prepare primero el corte de cartera y los convenios para reducir los casos sin identificar.
@@ -166,6 +172,12 @@ La primera conciliación es un control de calidad: compara la cobranza solicitad
 3. Use **Exportar archivo empresa** para enviar la cobranza. Conserve la Fila ID cuando la empresa responda.
 4. Importe los movimientos contables y vincule las aplicaciones al período. Pulse **Conciliación 1: validar aplicaciones** y revise por cliente y crédito: **Cobranza US$, Aplicado US$, Diferencia US$ y Resultado del control**.
 5. Investigue aplicaciones mayores o menores que lo solicitado, aplicaciones sin cobranza y filas de cobranza sin aplicación. Registre una excepción cuando se necesite gestión formal. No ajuste dinero solamente para eliminar una diferencia informativa.
+
+Desde la lista **CN Reconciliation Period**, puede usar **Conciliación 1 por mes** y elegir el mes de cobranza. La acción recorre todos los períodos accesibles de ese mes, incluidas las quincenas, aunque no aparezcan en la página actual o los filtros de la lista. Revisa cada período por separado y muestra **Conforme**, **Con diferencias**, **Sin aplicaciones asignadas**, **Cerrado**, **Sin cobranza** o **No aplica conciliación 1**. **Conforme** describe únicamente la comparación de cobranza contra aplicación; no equivale al cierre financiero.
+
+Si el resultado es **Sin aplicaciones asignadas**, use **Asignar y reprocesar** para revisar importaciones editables de la misma empresa con aplicaciones operativas aún sin período. Confirme fechas, cantidad e importe y seleccione solo las importaciones que corresponden; las de otro mes se señalan para revisión. La acción asigna las aplicaciones pendientes y vuelve a conciliar el período en una operación. Si falla, la asignación se revierte; los vínculos ya asignados a otros períodos se conservan.
+
+![Campos y acciones de un período operativo](capturas/periodo_operativo.png)
 
 La cobranza conserva los encabezados de su plantilla: identificadores, crédito, cuota, importes solicitados, comentarios y referencias. El nombre, número de cliente y cédula pueden completarse por crédito desde la cartera activa del mismo mes del corte, o la última anterior. No se usa una cartera futura ni se aceptan identidades contradictorias. La fila guarda el vínculo **Cliente**, desde el cual se obtiene su número.
 
@@ -268,6 +280,8 @@ La asignación automática de un depósito registrado requiere su detalle por cl
 Cuando la tasa de la planilla difiere de la tasa del depósito, la diferencia en US$ se muestra por separado y requiere revisión de cada caso antes del cierre.
 
 ### Registrar y distribuir un depósito paso a paso
+
+![Formulario de distribución y registro de un depósito](capturas/deposito.png)
 
 Ruta: **Conciliación Credinómina → Depósitos → Distribución de Depósito** o `/app/cn-remittance-allocation`. El nombre automático es DEP-mes-año-consecutivo, según la fecha del depósito.
 
@@ -539,6 +553,8 @@ Si el error es la **fecha**, use **Corregir fecha de compensación** en cualquie
 Después de corregir una fecha, pulse **Reconstruir** en los reportes preparados. Por ejemplo, una compensación registrada el 07/10/2026 y revertida el 15/10/2026 puede corregirse al 01/06/2025; los movimientos de neutralización evitan duplicar su importe durante octubre y el corte de agosto de 2026 ya reconoce el vínculo contable.
 
 ## Estado de cuenta al cliente
+
+![Consulta operativa de estado de cuenta](capturas/estado_cuenta.png)
 
 **Estado de Cuenta Operativo** presenta la posición actual por tipo de fila:
 
@@ -904,6 +920,8 @@ En el modal, marque **Solo con diferencias** y pulse **Buscar / actualizar** par
 
 Cuando falta una conversión o hay una distribución por revisar, **Antigüedad de Saldos** muestra **Total pendiente de determinar** y **Subtotal conocido US$**. El reporte por empresa conserva ambos conceptos y las observaciones. El subtotal excluye los importes no determinables y no debe usarse como CxC completa. Los estados de cuenta y el resumen de control Excel conservan N/D en los saldos afectados.
 
+![Reporte de Antigüedad de Saldos](capturas/antiguedad_saldos.png)
+
 En **Estado de Cuenta por Empresa**, entrar a una cifra del resumen abre las partidas que la componen. **Volver al resumen** restaura los filtros, incluida la selección de todas las empresas. La vista compacta presenta Empresa, Pendientes, saldos a favor negativos, otros créditos negativos y Saldo, seguidos de la comparación con el core. Desmárquela para consultar el desglose y la trazabilidad completos.
 
 El detalle mensual de aplicaciones presenta **Partidas complementarias US$**: compensaciones confirmadas y ajustes de conciliación con su signo de cobertura. El **Pendiente** se calcula como aplicado menos complementarias menos depositado. El importe de las complementarias no representa efectivo adicional. Los datos separados se conservan como evidencia de cálculo.
@@ -1215,4 +1233,4 @@ Los métodos anteriores de carga y reconocimiento devuelven un mensaje para usar
 
 Revise este manual cuando cambien campos, botones, reglas de asignación, permisos o reportes. Verifique los pasos en un sitio de ensayo antes de capacitar sobre una nueva versión. La guía de instalación y uso contiene los comandos de actualización; este manual se concentra en la operación financiera y no autoriza reparaciones directas en la base de datos.
 
-El Word se genera desde este procedimiento mediante `tools/build_reconciliation_manual.py`. Mantenga ambos archivos en la misma versión y revise visualmente el Word después de regenerarlo. La revisión 1.5 incorpora los cambios de operación y control disponibles al 13 de octubre de 2026, incluido el cierre financiero con seguimiento informativo, el detalle editable desde cobranza, la gestión de saldos a favor y las mejoras de consulta y exportación.
+El Word se genera desde este procedimiento mediante `tools/build_reconciliation_manual.py`. Mantenga ambos archivos en la misma versión y revise visualmente el Word después de regenerarlo. La revisión 1.7 incorpora la conciliación 1 mensual, la recuperación de asignaciones pendientes, el CSV de recuperación de importaciones y el filtro **Solo con diferencias** en Transacciones del mes. Añade capturas orientativas del entorno de ensayo con datos simulados.

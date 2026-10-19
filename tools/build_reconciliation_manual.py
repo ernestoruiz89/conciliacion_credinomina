@@ -50,6 +50,28 @@ def inline(paragraph, text, *, size=11, color=BLACK):
         font(paragraph.add_run(value), size=size, bold=bold, color=color)
 
 
+def screenshot(doc, relative_path, caption):
+    path = SOURCE.parent / relative_path
+    if not path.is_file():
+        raise FileNotFoundError(f"No se encontró la captura: {path}")
+    paragraph = doc.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    paragraph.paragraph_format.space_before = Pt(6)
+    paragraph.paragraph_format.space_after = Pt(2)
+    paragraph.paragraph_format.keep_with_next = True
+    shape = paragraph.add_run().add_picture(str(path), width=Inches(6.7))
+    maximum_height = Inches(4.7)
+    if shape.height > maximum_height:
+        scale = maximum_height / shape.height
+        shape.width = int(shape.width * scale)
+        shape.height = maximum_height
+    label = doc.add_paragraph()
+    label.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    label.paragraph_format.keep_together = True
+    label.paragraph_format.space_after = Pt(9)
+    font(label.add_run(caption), size=9, color="595959")
+
+
 def numbering(doc):
     root = doc.part.numbering_part.element
     abstract_id = max([int(e.get(qn("w:abstractNumId"))) for e in root.findall(qn("w:abstractNum"))] + [-1]) + 1
@@ -269,6 +291,10 @@ def build():
                 start = node("bookmarkStart", id=chapter, name=f"chapter_{chapter}")
                 p._p.insert(0, start)
                 p._p.append(node("bookmarkEnd", id=chapter))
+            ordered_id = None
+            index += 1
+        elif image_match := re.fullmatch(r"!\[([^\]]+)\]\(([^)]+)\)", line):
+            screenshot(doc, image_match.group(2), image_match.group(1))
             ordered_id = None
             index += 1
         elif line.startswith("|"):

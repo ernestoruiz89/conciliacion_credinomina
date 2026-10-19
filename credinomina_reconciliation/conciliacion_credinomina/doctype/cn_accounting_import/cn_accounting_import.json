@@ -10,7 +10,7 @@
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
     "total_application_adjustment_usd", "total_net_applied_usd", "client_summary_section", "client_summary_html", "rows_section", "rows", "notes",
-    "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "file_hash", "bulk_event_date", "bulk_source_file", "bulk_source_hash"
+    "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "file_hash", "bulk_event_date", "bulk_source_file", "bulk_source_hash", "recovery_html"
   ],
   "fields": [
     {"fieldname": "total_application_adjustment_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Ajustes de aplicaciones US$", "read_only": 1},
@@ -29,6 +29,7 @@
     {"fieldname": "rows_section", "fieldtype": "Section Break", "label": "Aplicaciones de pago por cliente"},
     {"fieldname": "audit_tab", "fieldtype": "Tab Break", "label": "Historial"},
     {"fieldname": "audit_section", "fieldtype": "Section Break", "label": "Estado de importación"},
+    {"fieldname": "recovery_html", "fieldtype": "HTML", "label": "Recuperación del archivo"},
     {"fieldname": "audit_column", "fieldtype": "Column Break"},
     {"description": "Empresa a la que corresponde esta importación. Los cortes de cartera y períodos históricos se limitarán a esta empresa.", "fieldname": "employer", "fieldtype": "Link", "in_list_view": 1, "in_standard_filter": 1, "label": "Empresa", "options": "CN Employer", "mandatory_depends_on": "eval:doc.status == 'Borrador'"},
     {"description": "Archivo de aplicaciones del core. El detalle bancario mensual no se importa en el flujo nuevo; adjunte el soporte a cada depósito registrado.", "fieldname": "source_file", "fieldtype": "Attach", "label": "Archivo", "no_copy": 1, "reqd": 1},
