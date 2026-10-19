@@ -169,11 +169,15 @@ def validate_review_item(doc, previous=None):
 def application_candidates(item_name, accounting_import):
     from collections import defaultdict
     from credinomina_reconciliation.application_adjustments import (
-        CATEGORY, adjustment_block_reason, application_link_error, cash_coverage, net_amount,
+        CATEGORY, adjustment_block_reason, adjustment_direction_error,
+        application_link_error, cash_coverage, net_amount,
     )
     from credinomina_reconciliation.rounding import money, money_float
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("write")
+    direction_error = adjustment_direction_error(item)
+    if direction_error:
+        frappe.throw(direction_error)
     parent = frappe.get_doc("CN Accounting Import", accounting_import)
     parent.check_permission("read")
     if not item.employer or (parent.employer and parent.employer != item.employer):

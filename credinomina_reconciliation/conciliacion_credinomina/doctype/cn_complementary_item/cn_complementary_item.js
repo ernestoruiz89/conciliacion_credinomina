@@ -238,7 +238,7 @@ function cn_complementary_amount_help(frm) {
     if (["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(category)) {
         help = "Importe positivo del saldo a favor documentado. Su devolución o aplicación se registra en Gestión; no vuelve a distribuir el depósito.";
     } else if (category === "Ajuste de aplicación") {
-        help = "Conserve el importe de la partida. Importe del ajuste US$ indica cuánto reduce la aplicación seleccionada y debe ser positivo; el vínculo confirmado determina el efecto.";
+        help = "Conserve el importe de la partida. Importe del ajuste US$ indica cuánto reduce la aplicación seleccionada y debe ser positivo; el vínculo confirmado determina el efecto. Si proviene del core, debe registrar crédito positivo y débito cero.";
     } else if (category === "Compensación entre partidas") {
         help = "Conserve el importe de origen. Compensar con otra partida permite seleccionar la contrapartida y el importe a cancelar; cambiar el signo no ejecuta la compensación.";
     } else if (category === "Diferencia por tolerancia") {
@@ -1042,8 +1042,17 @@ async function cn_render_application_links(frm) {
     } catch (_) {if (frm.doc.name === name && frm.cn_application_links_sequence === sequence) wrapper.html(`<p class="text-danger">${__("No se pudo leer la distribución. Recargue y revise la partida.")}</p>`);}
 }
 
+function cn_application_direction_invalid(doc) {
+    return Boolean(doc.accounting_source_key) &&
+        (Number(doc.source_debit || 0) !== 0 || Number(doc.source_credit || 0) <= 0);
+}
+
 async function cn_distribute_applications(frm) {
     if (!frm.doc.employer) {frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return;}
+    if (cn_application_direction_invalid(frm.doc)) {
+        frappe.msgprint(__("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito."));
+        return;
+    }
     if (frm.is_dirty()) await frm.save();
     const used = cn_application_links(frm.doc).reduce((sum, row) => sum + Number(row.application_adjustment_usd || 0), 0);
     const remaining = Math.round((Math.abs(frm.doc.amount_usd || 0) - (frm.doc.docstatus === 1 ? used : 0)) * 100) / 100;
@@ -1111,6 +1120,10 @@ async function cn_distribute_applications(frm) {
 
 async function cn_select_original_application(frm) {
     if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
+    if (cn_application_direction_invalid(frm.doc)) {
+        frappe.msgprint(__("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito."));
+        return;
+    }
     if (frm.is_dirty()) await frm.save();
     let rows = [];
     let request = 0;

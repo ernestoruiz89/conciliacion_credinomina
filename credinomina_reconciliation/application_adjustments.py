@@ -180,14 +180,30 @@ def assert_adjustable(row, item_name=None, saved_periods=(), saved_collections=(
         frappe.throw(reason)
 
 
+def adjustment_direction_error(doc):
+    """Imported reductions must credit the account debited by an application."""
+    if not doc.get("accounting_source_key"):
+        return None  # Manual adjustments have no original debit/credit evidence.
+    if money(doc.get("source_debit")) != 0 or money(doc.get("source_credit")) <= 0:
+        return _("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito.")
+    return None
+
+
 def application_link_error(doc, row, parent, resolved_employer=None):
     """Shared eligibility for the picker and the actual adjustment validation."""
     from credinomina_reconciliation.application_context import linked_application_employer
+    direction_error = adjustment_direction_error(doc)
+    if direction_error:
+        return direction_error
     if (row.parenttype != "CN Accounting Import" or row.event_type != "Aplicacion"
             or not row.effective or row.currency != "USD" or not doc.employer
             or (linked_application_employer(row, parent) if resolved_employer is None else resolved_employer) != doc.employer
             or parent.docstatus == 2 or parent.status not in {"Importado", "Importado con excepciones"}):
         return _("Seleccione una aplicación vigente en US$ de la misma empresa.")
+    if row.get("accounting_source_key") and (
+        money(row.get("source_debit")) <= 0 or money(row.get("source_credit")) != 0
+    ):
+        return _("La aplicación contable debe registrar débito positivo y crédito cero para vincular un ajuste de crédito.")
     known_periods = {row.historical_period, row.collection_period} | set(frappe.parse_json(doc.get("adjustment_periods") or "[]"))
     if doc.period and doc.period not in known_periods:
         return _("El período de la partida no corresponde a la aplicación seleccionada.")
@@ -195,6 +211,10 @@ def application_link_error(doc, row, parent, resolved_employer=None):
 
 
 def validate_adjustment(doc):
+    if doc.related_application:
+        direction_error = adjustment_direction_error(doc)
+        if direction_error:
+            frappe.throw(direction_error)
     if doc.docstatus == 0 and (not doc.related_application or not doc.employer or not doc.application_adjustment_usd):
         doc.related_import = "" if not doc.related_application else doc.related_import
         doc.review_status = "Ajuste pendiente de completar"
