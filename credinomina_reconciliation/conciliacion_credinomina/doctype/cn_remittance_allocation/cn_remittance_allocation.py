@@ -603,6 +603,18 @@ def create_client_credit_items_bulk(remittance_name: str, modified: str, rows,
 @frappe.whitelist(methods=["POST"])
 def reconcile_remittance(remittance_name: str, progress_id: str = "", reason: str = ""):
     """Run reconciliation only when the user explicitly requests it."""
+    for attempt in range(3):
+        try:
+            return _reconcile_remittance(remittance_name, progress_id, reason)
+        except frappe.QueryDeadlockError:
+            if attempt == 2:
+                raise
+            # A retry must read a new snapshot and replay the whole
+            # reconciliation, including any rows written before the conflict.
+            frappe.db.rollback()
+
+
+def _reconcile_remittance(remittance_name: str, progress_id: str = "", reason: str = ""):
     document = frappe.get_doc("CN Remittance Allocation", remittance_name)
     document.check_permission("write")
     if document.docstatus != 1:

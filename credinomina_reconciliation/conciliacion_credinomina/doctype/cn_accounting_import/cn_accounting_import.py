@@ -204,7 +204,7 @@ class CNAccountingImport(Document):
                            unpaid_refresh=_source_import_refresh.get())
         from credinomina_reconciliation.complementary_exceptions import guard_verified_import
         guard_verified_import(self, self.get_doc_before_save(), _SOURCE_EVIDENCE_FIELDS)
-        refresh_rows(self.rows or [])
+        refresh_rows(self.rows or [], employer=self.employer or None)
         from credinomina_reconciliation.application_deadlines import freeze_deadlines
         freeze_deadlines(self)
         self._validate_closed_source_edits()
@@ -862,7 +862,11 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
             all_rows.append(row)
 
     _deduplicate_applications(all_rows)
-    refresh_rows(all_rows)
+    rows_by_employer = defaultdict(list)
+    for row in all_rows:
+        rows_by_employer[row._source_employer or ""].append(row)
+    for source_employer, company_rows in sorted(rows_by_employer.items()):
+        refresh_rows(company_rows, employer=source_employer or None)
     changed_rows = list(all_rows)
     all_rows.extend(fixed_rows)
     scope_filter = ["in", companies] if len(companies) > 1 else employer
