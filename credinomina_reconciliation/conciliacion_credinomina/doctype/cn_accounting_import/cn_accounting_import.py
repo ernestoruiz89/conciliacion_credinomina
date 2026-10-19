@@ -485,6 +485,20 @@ def _attached_file(document):
 
 @frappe.whitelist(methods=["POST"])
 def import_source_file(import_name: str):
+    # A concurrent change to a complementary item can invalidate MariaDB's
+    # snapshot while refresh_rows() takes its locking read. Retry the complete
+    # request in a fresh transaction, never just the failed SELECT: earlier
+    # steps may already have created linked rows.
+    for attempt in range(3):
+        try:
+            return _import_source_file(import_name)
+        except frappe.QueryDeadlockError:
+            if attempt == 2:
+                raise
+            frappe.db.rollback()
+
+
+def _import_source_file(import_name: str):
     document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
     from credinomina_reconciliation.accounting_import_scope import linked_periods
