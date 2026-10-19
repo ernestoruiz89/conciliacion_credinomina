@@ -115,6 +115,27 @@ def build_summary(document, collections, *, collection_usage=None):
     return rows
 
 
+def balance_totals(document, rows):
+    """Import-level coverage from the same attributable client balances."""
+    adjustments = sum_money(row.get('application_adjustment_usd') for row in document.get('rows') or []
+                            if row.get('event_type') == 'Aplicacion' and row.get('effective'))
+
+    def total(field):
+        values = [row.get(field) for row in rows]
+        return None if any(value is None for value in values) else sum_money(values)
+
+    net = total('applied_usd')
+    deposits = total('assigned_usd')
+    rounding = total('rounding_usd')
+    balance = total('balance_usd')
+    return {
+        'amount_usd': money_float(net + adjustments) if net is not None else None,
+        'deposits_usd': money_float(deposits) if deposits is not None else None,
+        'complementary_usd': money_float(adjustments - rounding) if rounding is not None else None,
+        'balance_usd': money_float(balance) if balance is not None else None,
+    }
+
+
 @frappe.whitelist()
 def get_client_summary(import_name):
     document = frappe.get_doc('CN Accounting Import', import_name)
@@ -132,4 +153,5 @@ def get_client_summary(import_name):
                 readable[row.parent] = frappe.has_permission('CN Reconciliation Period', 'read', doc=row.parent)
             if readable[row.parent]:
                 collections[row.name] = row
-    return {'rows': build_summary(document, collections)}
+    rows = build_summary(document, collections)
+    return {'rows': rows, 'totals': balance_totals(document, rows)}

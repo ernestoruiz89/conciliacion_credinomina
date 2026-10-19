@@ -12,7 +12,8 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 _context = ContextVar("cn_period_totals", default=None)
-TOTAL_FIELDS = ("applied_total_usd", "remitted_total_usd", "pending_usd")
+TOTAL_FIELDS = ("applied_total_usd", "deposit_coverage_usd", "complementary_coverage_usd",
+                "remitted_total_usd", "pending_usd")
 
 
 def entries(value):
@@ -37,10 +38,14 @@ def calculate_totals(period, historical_rows=(), application_adjustment_usd=0):
     Applied balances already contain the USD conversion and confirmed reductions.
     Restore those reductions on both sides to display original applied vs covered.
     Signed tolerance is removed from cash once; FX under review is not coverage.
+    Show actual cash under deposits and the signed difference under complementary
+    coverage so their sum remains the existing covered total.
     """
     reduction = money(application_adjustment_usd)
     applied = money(period.get("applied_usd")) + reduction
     covered = reduction
+    deposits = money(0)
+    rounding_total = money(0)
     pending = money(0)
     if period.get("reconciliation_mode") == "Historica":
         claims = [
@@ -66,10 +71,13 @@ def calculate_totals(period, historical_rows=(), application_adjustment_usd=0):
     for net, cash, rounding in claims:
         if net is None:
             frappe.throw(_("No se puede calcular el resumen del período: falta la conversión de una aplicación a US$."))
+        deposits += money(cash)
+        rounding_total += money(rounding)
         settled = money(cash) - money(rounding)
         covered += settled
         pending += max(money(net) - settled, money(0))
-    return dict(zip(TOTAL_FIELDS, map(money_float, (applied, covered, pending))))
+    complementary = reduction - rounding_total
+    return dict(zip(TOTAL_FIELDS, map(money_float, (applied, deposits, complementary, covered, pending))))
 
 
 class PeriodTotalsContext:
