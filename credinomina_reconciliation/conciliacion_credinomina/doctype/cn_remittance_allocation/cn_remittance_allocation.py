@@ -721,6 +721,8 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),
             "matched_targets": "[]",
         })
+    from credinomina_reconciliation.remittance_portfolio import fill_unique_detail_credits
+    fill_unique_detail_credits(document, clients)
     document.detail_hash = file_sha256(content)
     document.detail_source_file = source_url
     document.detail_origin = origin

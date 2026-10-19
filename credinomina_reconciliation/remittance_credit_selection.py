@@ -21,23 +21,30 @@ def complete_detail_clients(rows, clients, employer, allowed=None, loan_clients=
             row.client_name = client.get("client_name") or ""
 
 
+def portfolio_row_matches_client(row, client, employer):
+    """Require a verified client and employer link, never a name-only match."""
+    if clean_text(row.get("employer")) != clean_text(employer):
+        return False
+    linked = row.get("matched_client")
+    if linked:
+        if linked != client["name"]:
+            return False
+    elif not (canonical_identifier(row.get("client_number_core")) and
+              canonical_identifier(row.get("client_number_core")) == canonical_identifier(client.get("client_number"))):
+        return False
+    if (row.get("national_id") and client.get("national_id") and
+            canonical_identifier(row["national_id"]) != canonical_identifier(client["national_id"])):
+        return False
+    return True
+
+
 def portfolio_credit_choices(rows, snapshots, client, employer):
     """One choice per credit/cut; preserve historical states, never match by name."""
     choices = []
     seen = set()
     for row in rows:
         snapshot = snapshots.get(row.get("parent"))
-        if not snapshot or clean_text(row.get("employer")) != clean_text(employer):
-            continue
-        linked = row.get("matched_client")
-        if linked:
-            if linked != client["name"]:
-                continue
-        elif not (canonical_identifier(row.get("client_number_core")) and
-                  canonical_identifier(row.get("client_number_core")) == canonical_identifier(client.get("client_number"))):
-            continue
-        if (row.get("national_id") and client.get("national_id") and
-                canonical_identifier(row["national_id"]) != canonical_identifier(client["national_id"])):
+        if not snapshot or not portfolio_row_matches_client(row, client, employer):
             continue
         credit = clean_text(row.get("credit_number"))
         if not credit:
