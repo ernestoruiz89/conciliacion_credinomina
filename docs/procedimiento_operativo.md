@@ -107,6 +107,8 @@ Ruta: **Conciliación Credinómina → Aplicaciones del core → Importación co
 7. Use **Crear período** si necesita preparar un período desde esta carga. Revise mes de cobranza y corte; el botón crea un borrador, no cierra ni liquida aplicaciones.
 8. Seleccione el período predeterminado y presione **Conciliar período predeterminado** después de guardar cambios. Revise la respuesta con filas procesadas, conciliadas y pendientes. Si la carga abarca varios períodos, trabaje cada uno desde su formulario. Para distribuir un depósito use **Conciliar** en ese depósito.
 
+En **Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
+
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.
 
 El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-consecutivo. El mes y año se obtienen de las fechas de las filas, no de la fecha de creación del documento. Duplicar una importación no copia el archivo adjunto.

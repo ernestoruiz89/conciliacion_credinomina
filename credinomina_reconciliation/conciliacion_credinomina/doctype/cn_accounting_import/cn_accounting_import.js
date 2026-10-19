@@ -128,17 +128,22 @@ async function loadAccountingClientSummary(frm) {
             return;
         }
         const rows = response.message.rows || [];
+        const filters = frm._client_summary_filters?.name === name
+            ? frm._client_summary_filters : {name, query: "", onlyPending: false};
+        frm._client_summary_filters = filters;
         wrapper.html(`<p class="text-muted">${esc(__("Solo aplicaciones efectivas de esta importación. El aplicado neto ya descuenta los ajustes confirmados; no incluye cobranza ni saldos a favor sin vincular. Datos guardados, según la última conciliación."))}</p>
             <div class="flex mb-3" style="gap:12px;align-items:center;flex-wrap:wrap">
-                <input class="form-control input-sm cn-client-search" style="max-width:360px" aria-label="${esc(__("Buscar cliente, número o crédito"))}" placeholder="${esc(__("Buscar cliente, número o crédito"))}">
+                <input class="form-control input-sm cn-client-search" style="max-width:360px" aria-label="${esc(__("Buscar cliente, número o crédito"))}" placeholder="${esc(__("Buscar cliente, número o crédito"))}" value="${esc(filters.query)}">
+                <label class="checkbox-inline" style="white-space:nowrap"><input type="checkbox" class="cn-client-pending" ${filters.onlyPending ? "checked" : ""}> ${esc(__("Solo pendientes"))}</label>
                 <button type="button" class="btn btn-default btn-sm cn-client-refresh">${esc(__("Actualizar resumen"))}</button>
             </div><div class="cn-client-table"></div>
             <div class="flex" style="gap:12px;align-items:center"><button type="button" class="btn btn-default btn-sm cn-client-prev">${esc(__("Anterior"))}</button>
                 <span class="cn-client-page"></span><button type="button" class="btn btn-default btn-sm cn-client-next">${esc(__("Siguiente"))}</button></div>
             <p class="text-muted mt-2">${esc(__("Saldo = aplicado neto + ajuste de centavos − asignado. No se compensan saldos entre créditos. «—» indica que falta determinar un importe; el total tampoco se presenta como completo."))}</p>`);
-        let page = 0, query = "";
+        let page = 0;
         const render = () => {
-            const filtered = rows.filter(row => [row.client_name, row.client_number, ...(row.loans || [])].join(" ").toLocaleLowerCase().includes(query));
+            const filtered = rows.filter(row => (!filters.onlyPending || row.status !== "Conciliado")
+                && [row.client_name, row.client_number, ...(row.loans || [])].join(" ").toLocaleLowerCase().includes(filters.query));
             const pages = Math.max(1, Math.ceil(filtered.length / 50));
             page = Math.max(0, Math.min(page, pages - 1));
             wrapper.find(".cn-client-table").html(accountingClientSummaryTable(filtered, page));
@@ -146,7 +151,8 @@ async function loadAccountingClientSummary(frm) {
             wrapper.find(".cn-client-prev").prop("disabled", page === 0);
             wrapper.find(".cn-client-next").prop("disabled", page === pages - 1);
         };
-        wrapper.on("input.cnClientSummary", ".cn-client-search", event => { query = event.target.value.trim().toLocaleLowerCase(); page = 0; render(); });
+        wrapper.on("input.cnClientSummary", ".cn-client-search", event => { filters.query = event.target.value.trim().toLocaleLowerCase(); page = 0; render(); });
+        wrapper.on("change.cnClientSummary", ".cn-client-pending", event => { filters.onlyPending = event.target.checked; page = 0; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-prev", () => { page--; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-next", () => { page++; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-refresh", () => loadAccountingClientSummary(frm));
