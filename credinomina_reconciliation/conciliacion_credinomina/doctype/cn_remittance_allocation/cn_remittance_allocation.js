@@ -387,10 +387,10 @@ async function reconcileRemittance(frm) {
             reason = await new Promise(resolve => {
                 let accepted = false;
                 const dialog = new frappe.ui.Dialog({title: __("Verificar distribución existente"),
-                    fields: [{fieldname: "reason", fieldtype: "Small Text", label: __("Motivo"), reqd: 1,
-                        description: __("Explique qué está verificando o corrigiendo. Si cambia la distribución, se conservarán el antes y el después.")}],
+                    fields: [{fieldname: "reason", fieldtype: "Small Text", label: __("Motivo (opcional)"),
+                        description: __("Puede indicar qué está verificando o corrigiendo. Si cambia la distribución, se conservarán el antes y el después.")}],
                     primary_action_label: __("Conciliar"),
-                    primary_action(values) { accepted = true; resolve(values.reason); dialog.hide(); },
+                    primary_action(values) { accepted = true; resolve(values.reason || ""); dialog.hide(); },
                     onhide() { if (!accepted) resolve(null); }});
                 dialog.show();
             });
