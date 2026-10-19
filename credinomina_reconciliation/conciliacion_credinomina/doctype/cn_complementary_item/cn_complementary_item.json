@@ -153,7 +153,7 @@
     {"description": "C$ por US$. Obligatorio cuando el asiento esta en cordobas.", "fieldname": "fx_rate", "fieldtype": "Float", "label": "Tipo de cambio", "precision": "8"},
     {"fieldname": "amount_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Equivalente US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "allocation_section", "fieldtype": "Section Break", "label": "Vínculo con cobranza y cliente"},
-    {"description": "Opcional para conciliar el deposito; necesaria si la partida cubre una cuota concreta.", "fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "in_list_view": 1, "in_standard_filter": 1},
+    {"description": "Opcional para conciliar el deposito; necesaria si la partida cubre una cuota concreta.", "fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
     {"fieldname": "period", "fieldtype": "Link", "label": "Periodo de planilla", "options": "CN Reconciliation Period"},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente"},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito"},

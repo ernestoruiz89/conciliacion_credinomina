@@ -1,5 +1,6 @@
 """Cancel a complement without redistributing unrelated cash or company pools."""
 import json
+from collections import defaultdict
 
 import frappe
 from frappe import _
@@ -283,7 +284,11 @@ def reconcile_scoped(item, scope, *, action="cancelar la partida"):
             if stored.deposit_currency == "NIO" and stored.amount_usd else 0}
     if scope["applications"]:
         changed = [row for row in rows if row.name in scope["applications"]]
-        refresh_rows(changed)
+        by_employer = defaultdict(list)
+        for row in changed:
+            by_employer[row._source_employer or ""].append(row)
+        for source_employer, company_rows in sorted(by_employer.items()):
+            refresh_rows(company_rows, employer=source_employer or None)
         for row in changed:
             row.match_status, row.match_reason = "Pendiente", ""
             row.collection_period, row.collection_row_id, row.application_allocation_detail = "", "", "[]"

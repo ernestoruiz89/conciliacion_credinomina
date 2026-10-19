@@ -40,12 +40,13 @@ def mark_mixed_settlements(rows, collections):
                 money_float(row.get("amount")), money_float(row.get("application_adjustment_usd")), net_amount(row))
 
 
-def refresh_rows(rows):
+def refresh_rows(rows, employer=None):
+    """Refresh linked totals within a known source employer's cash pool."""
     names = [row.name for row in rows if row.event_type == "Aplicacion" and row.name]
     totals = defaultdict(lambda: money(0))
     if names:
         from credinomina_reconciliation.application_adjustment_links import confirmed
-        for item in confirmed(names, lock=True):
+        for item in confirmed(names, lock=True, employer=employer):
             totals[item.related_application] += money(item.application_adjustment_usd)
     for row in rows:
         row.application_adjustment_usd = money_float(totals[row.name]) if row.event_type == "Aplicacion" else 0
