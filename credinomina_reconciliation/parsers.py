@@ -289,12 +289,11 @@ def _value(row: list[Any], mapping: dict[str, int], fieldname: str) -> Any:
     return row[index] if index is not None and index < len(row) else None
 
 
-def parse_collection_file(
-    file_name: str, content: bytes, *, require_deduction: bool = False,
+def _parse_collection_rows(
+    rows: list[list[Any]], *, require_deduction: bool = False,
     keep_zero_rows: bool = False, require_name: bool = False,
     require_identity: bool = False,
 ) -> list[dict[str, Any]]:
-    rows = read_table(file_name, content)
     mapping: dict[str, int] | None = None
     parsed: list[dict[str, Any]] = []
     for row_number, row in enumerate(rows, start=1):
@@ -370,9 +369,75 @@ def parse_collection_file(
                 "deducted_nio": deducted_nio,
             }
         )
-    if not parsed:
-        raise SourceFileError("No se encontraron filas de cobranza reconocibles.")
     return parsed
+
+
+def parse_collection_file(
+    file_name: str, content: bytes, *, require_deduction: bool = False,
+    keep_zero_rows: bool = False, require_name: bool = False,
+    require_identity: bool = False,
+) -> list[dict[str, Any]]:
+    """Read the active sheet, then find one unambiguous data sheet if it is empty."""
+    options = {
+        "require_deduction": require_deduction,
+        "keep_zero_rows": keep_zero_rows,
+        "require_name": require_name,
+        "require_identity": require_identity,
+    }
+    parsed = _parse_collection_rows(read_table(file_name, content), **options)
+    if parsed:
+        return parsed
+
+    candidates: list[tuple[str, list[dict[str, Any]]]] = []
+    invalid: list[SourceFileError] = []
+    suffix = Path(file_name).suffix.lower()
+    if suffix == ".xlsx":
+        from openpyxl import load_workbook
+
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        try:
+            for sheet in workbook.worksheets:
+                if sheet == workbook.active:
+                    continue
+                try:
+                    found = _parse_collection_rows(
+                        [list(row) for row in sheet.iter_rows(values_only=True)], **options
+                    )
+                except SourceFileError as exc:
+                    invalid.append(exc)
+                    continue
+                if found:
+                    candidates.append((sheet.title, found))
+        finally:
+            workbook.close()
+    elif suffix == ".xls":
+        import xlrd
+
+        workbook = xlrd.open_workbook(file_contents=content)
+        for index in range(1, workbook.nsheets):
+            sheet = workbook.sheet_by_index(index)
+            try:
+                found = _parse_collection_rows(
+                    [[sheet.cell_value(row, column) for column in range(sheet.ncols)]
+                     for row in range(sheet.nrows)], **options
+                )
+            except SourceFileError as exc:
+                invalid.append(exc)
+                continue
+            if found:
+                candidates.append((sheet.name, found))
+
+    if len(candidates) == 1:
+        return candidates[0][1]
+    if len(candidates) > 1:
+        sheet_names = ", ".join(name for name, _ in candidates)
+        raise SourceFileError(
+            f"Hay varias pestañas con filas de cobranza ({sheet_names}). "
+            "Deje activa la pestaña que desea importar y guarde el archivo."
+        )
+    if invalid:
+        raise invalid[0]
+    raise SourceFileError("No se encontraron filas de cobranza reconocibles.")
 
 
 def _records_from_header(rows: list[list[Any]], required_header: str) -> list[tuple[int, dict[str, Any]]]:
