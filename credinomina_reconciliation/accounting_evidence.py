@@ -93,6 +93,14 @@ def guard_imported_removal(document, action):
     import frappe
     from frappe import _
 
+    # Desconfirmar reverses financial effects but preserves the imported
+    # document and its original ledger evidence under the same identity.
+    if (action == "cancelar" and document.get("doctype") == "CN Complementary Item"
+            and document.flags.get("cn_unconfirming")):
+        from credinomina_reconciliation.manual_origin_link import guard_removal
+        guard_removal(document)
+        return
+
     if not _is_core_import(document) or has_core_removal_role():
         from credinomina_reconciliation.manual_origin_link import guard_removal
         guard_removal(document)

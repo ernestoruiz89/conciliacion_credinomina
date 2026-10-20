@@ -147,6 +147,39 @@ async function cn_render_complementary_balance(frm) {
     }
 }
 
+function cn_unconfirm_item(frm) {
+    const name = frm.doc.name;
+    const modified = frm.doc.modified;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Desconfirmar partida"),
+        fields: [
+            {fieldtype: "HTML", options: `<p>${__("Se revertirá la conciliación de esta partida y volverá a borrador con el mismo número. Los depósitos y períodos afectados pueden quedar pendientes de revisión.")}</p>`},
+            {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo"), reqd: 1},
+        ],
+        primary_action_label: __("Desconfirmar"),
+        async primary_action(values) {
+            if (frm.doc.name !== name || frm.is_dirty()) {
+                frappe.msgprint(__("Guarde o recargue la partida antes de desconfirmarla."));
+                return;
+            }
+            dialog.disable_primary_action();
+            try {
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item.unconfirm_item",
+                    args: {item_name: name, modified, reason: values.reason},
+                    freeze: true, freeze_message: __("Revirtiendo la confirmación y actualizando saldos…"),
+                });
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({message: __("Partida desconfirmada. Revise sus vínculos antes de confirmarla nuevamente."), indicator: "orange"});
+            } finally {
+                dialog.enable_primary_action();
+            }
+        },
+    });
+    dialog.show();
+}
+
 function cn_classify_pending(frm) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const choices = [];
@@ -400,6 +433,10 @@ frappe.ui.form.on("CN Complementary Item", {
         if (frm.doc.registered_deposit) frm.add_custom_button(__("Abrir depósito"),
             () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.registered_deposit));
         if (frm.doc.docstatus === 2) return;
+        if (frm.doc.docstatus === 1 && frm.get_perm(0, "cancel") && frm.get_perm(0, "write")
+                && !frm.doc.receivable_origin && !["Diferencia por tolerancia", "Compensación entre partidas", "Vinculado a depósito", "Cobro de CxC"].includes(frm.doc.category)) {
+            frm.page.add_menu_item(__("Desconfirmar"), () => cn_unconfirm_item(frm));
+        }
         if (!frm.is_new() && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Clasificar pendiente"), () => cn_classify_pending(frm));
         }

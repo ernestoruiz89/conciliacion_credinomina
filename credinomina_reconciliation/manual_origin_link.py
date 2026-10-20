@@ -19,7 +19,7 @@ ITEM = 'CN Complementary Item'
 LINKED_CATEGORY = 'Vinculado a depósito'
 MAX_SELECTION = 2000
 _submitting_origin = ContextVar('cn_submitting_accounting_origin', default=None)
-ITEM_FIELDS = list(dict.fromkeys(['name', 'modified', 'docstatus', 'employer', 'category',
+ITEM_FIELDS = list(dict.fromkeys(['name', 'modified', 'docstatus', 'employer', 'category', 'reference',
     'review_action', 'origin_deposit', 'related_application', 'related_import', 'registered_deposit',
     'registration_exception', 'receivable_origin', 'period', 'loan_number', 'application_adjustment_usd',
     'compensated_usd', *[field for field in EVIDENCE_FIELDS if field != 'source_loan_number']]))
@@ -59,11 +59,17 @@ def candidates(deposit_name, kind='internal', reference='', voucher=''):
     else:
         filters.update(name=['!=', deposit.name], consolidated_deposit=['is', 'not set'])
         ref_field, voucher_field, fields, doctype = 'deposit_reference', 'deposit_voucher', DEPOSIT_FIELDS, DEPOSIT
-    if clean_text(reference):
-        filters[ref_field] = clean_text(reference)
+    searched_reference = clean_text(reference)
+    or_filters = None
+    if searched_reference:
+        if kind == 'internal':
+            or_filters = [['accounting_reference', '=', searched_reference],
+                          ['reference', '=', searched_reference]]
+        else:
+            filters[ref_field] = searched_reference
     if clean_text(voucher):
         filters[voucher_field] = clean_text(voucher)
-    rows = frappe.get_list(doctype, filters=filters, fields=fields,
+    rows = frappe.get_list(doctype, filters=filters, or_filters=or_filters, fields=fields,
                            order_by='name asc', limit_page_length=MAX_SELECTION + 1)
     if len(rows) > MAX_SELECTION:
         frappe.throw(_('Hay más de {0} resultados. Filtre por referencia o asiento antes de seleccionar.').format(MAX_SELECTION))
