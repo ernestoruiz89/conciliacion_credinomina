@@ -580,14 +580,15 @@ def _import_source_file(import_name: str):
                     row.name, row.manual_fx_rate,
                     row.historical_period,
                     row.processing_route,
+                    row.difference_reason,
                 )
             )
     document.file_hash = file_sha256(content)
     document.set("rows", [])
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, prior_period, prior_route = (
-            previous.pop(0) if previous else (None, 0, "", "")
+        preserved_name, manual_rate, prior_period, prior_route, difference_reason = (
+            previous.pop(0) if previous else (None, 0, "", "", "")
         )
         document.append(
             "rows",
@@ -596,6 +597,7 @@ def _import_source_file(import_name: str):
                 **({"name": preserved_name} if preserved_name else {}),
                 "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
                 "processing_route": prior_route,
+                "difference_reason": difference_reason,
                 "historical_period": (
                     prior_period or document.historical_period
                     if record["event_type"] == "Aplicacion" and document.historical_period else ""

@@ -164,7 +164,7 @@ def get_columns(filters=None):
              'options': 'source_doctype', 'width': 200},
             {'fieldname': 'period', 'label': _('Período'), 'fieldtype': 'Link', 'options': 'CN Reconciliation Period', 'width': 170},
             *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
-              for field, label, width in [('status', 'Estado de conciliación', 190), ('category', 'Concepto', 170), ('subcategory', 'Subcategoría', 170), ('reason_type', 'Motivo', 165),
+              for field, label, width in [('status', 'Estado de conciliación', 190), ('category', 'Concepto', 170), ('subcategory', 'Subcategoría', 170), ('reason_type', 'Motivo', 165), ('difference_reason', 'Razón de la diferencia', 190),
                   ('related_deposits', 'Depósitos relacionados', 195), ('treatment_status', 'Tratamiento', 200),
                   ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                   ('reference', 'Referencia / asiento', 155), ('source_rows', 'Filas de origen', 120),

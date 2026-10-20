@@ -53,7 +53,7 @@
     {"fieldname": "ignored_count", "fieldtype": "Int", "label": "Ignoradas", "read_only": 1},
     {"fieldname": "total_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "2", "read_only": 1},
-    {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row"},
+    {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row", "allow_on_submit": 1},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
   ],
   "index_web_pages_for_search": 1,

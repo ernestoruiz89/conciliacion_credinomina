@@ -63,6 +63,9 @@ class CNRemittanceAllocation(Document):
 
     def validate(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.difference_reasons import only_detail_reasons_changed
+        if only_detail_reasons_changed(self, previous):
+            return
         from credinomina_reconciliation.accounting_deposits import validate_evidence
         validate_evidence(self, previous)
         if previous and self.get("reconciliation_identity") != previous.get("reconciliation_identity"):
@@ -352,6 +355,9 @@ class CNRemittanceAllocation(Document):
 
     def before_update_after_submit(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.difference_reasons import only_detail_reasons_changed
+        if only_detail_reasons_changed(self, previous):
+            return
         from credinomina_reconciliation.accounting_deposits import validate_evidence
         validate_evidence(self, previous)
         from credinomina_reconciliation.client_credit import guard_deposit_changes
@@ -702,6 +708,11 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     from credinomina_reconciliation.remittance_detail import detail_amount_usd
     from credinomina_reconciliation.rounding import sum_money
     guard_detail_replacement(document)
+    detail_hash = file_sha256(content)
+    previous_reasons = {}
+    if document.detail_hash == detail_hash:
+        for row in document.detail_rows or []:
+            previous_reasons.setdefault((row.source_row, row.row_key), []).append(row.difference_reason)
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
     for target in document.targets or []:
@@ -713,6 +724,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     rate = flt(document.get("fx_rate")) if remittance_fx_basis(document) else 0
     amounts = []
     for record in records:
+        saved_reasons = previous_reasons.get((record.get("source_row"), record.get("row_key"))) or []
         client, identity_reason = choose_detail_client(record, clients, document.employer, allowed, loans)
         amount, explanation = detail_amount_usd(record, rate)
         amounts.append(amount)
@@ -737,11 +749,12 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "pending_usd": amount,
             "match_status": "Revisar" if not client else "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
             "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),
+            "difference_reason": saved_reasons.pop(0) if saved_reasons else None,
             "matched_targets": "[]",
         })
     from credinomina_reconciliation.remittance_portfolio import fill_unique_detail_credits
     fill_unique_detail_credits(document, clients)
-    document.detail_hash = file_sha256(content)
+    document.detail_hash = detail_hash
     document.detail_source_file = source_url
     document.detail_origin = origin
     document.detail_imported_on = now_datetime()

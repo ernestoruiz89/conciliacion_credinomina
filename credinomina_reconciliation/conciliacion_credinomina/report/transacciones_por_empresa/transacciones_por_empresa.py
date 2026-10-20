@@ -124,7 +124,7 @@ def load_transactions(kind, drafts, scoped, dates, detail=False):
                         "equivalent_amount", "equivalent_currency", "fx_basis", "manual_fx_rate",
                         "historical_period", "historical_detail", "processing_route", "collection_row_id", "application_allocation_detail",
                         "client", "client_number", "national_id", "client_name", "loan_number", "portfolio_employer"]
-                        + (["idx", "reference", "voucher", "receipt", "deposit_match_reason", "match_reason"] if detail else []),
+                        + (["idx", "reference", "voucher", "receipt", "deposit_match_reason", "match_reason", "difference_reason"] if detail else []),
                 limit_page_length=0)
             for row in rows:
                 parent = by_name[row.parent]
@@ -146,6 +146,18 @@ def load_transactions(kind, drafts, scoped, dates, detail=False):
                 + (["bank_account", "deposit_reference", "deposit_voucher", "deposit_currency", "deposit_amount"] if detail else []),
             limit_page_length=0)
         rows = [row for row in rows if row.get('cash_identity_status') != 'Origen vinculado']
+        if detail and rows:
+            reasons = {}
+            names = [row.name for row in rows]
+            for offset in range(0, len(names), 500):
+                for classified in frappe.get_all("CN Remittance Detail", filters={
+                    "parent": ["in", names[offset:offset + 500]],
+                    "parenttype": "CN Remittance Allocation", "parentfield": "detail_rows",
+                    "difference_reason": ["is", "set"],
+                }, fields=["parent", "difference_reason"], limit_page_length=0):
+                    reasons.setdefault(classified.parent, set()).add(classified.difference_reason)
+            for row in rows:
+                row["difference_reason"] = " · ".join(sorted(reasons.get(row.name, ())))
         records = [{"name": row.name, "employer": row.employer, "date": row.deposit_date, "state": deposit_state(row)} for row in rows]
         return records, rows, {}
 
@@ -229,7 +241,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     states = {row["name"]: row["state"] for row in records}
     query = str(search or "").strip().casefold()
     fields = ("name", "parent", "client_name", "client_number", "loan_number", "reference", "voucher", "receipt",
-              "deposit_reference", "deposit_voucher", "bank_account", "category", "source_voucher", "source_description", "description")
+              "deposit_reference", "deposit_voucher", "bank_account", "category", "source_voucher", "source_description", "description", "difference_reason")
     selected = [row for row in sources if (not state or states[row.name] == state)
                 and (not cint(only_differences) or states[row.name] in {"Parcial", "Pendiente", "Revisar distribución"})
                 and (not query or query in " ".join(str(row.get(field) or "") for field in fields).casefold())]
@@ -252,6 +264,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                         **{field: amounts[field] for field in ("original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "pending_usd")},
                         observations=" · ".join(amounts["observations"]),
                         status_detail=_("Resultado registrado: {0}").format(row.get("deposit_match_status") or "Pendiente"),
+                        difference_reason=row.get("difference_reason") or "",
                         reason=row.get("deposit_match_reason") or row.get("match_reason") or "")
             item['complementary_usd'] = (None if amounts['adjustment_usd'] is None or amounts['rounding_usd'] is None
                 else money_float(money(amounts['adjustment_usd']) - money(amounts['rounding_usd'])))
@@ -273,6 +286,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                         original_currency=row.get("deposit_currency"), original_amount=row.get("deposit_amount"),
                         original_usd=row.get("amount_usd"), assigned_usd=money_float(assigned), surplus_usd=money_float(surplus),
                         pending_usd=money_float(max(money(row.get("amount_usd")) - assigned - surplus, 0)),
+                        difference_reason=row.get("difference_reason") or "",
                         status_detail=row.get("result") if confirmed else "Borrador")
         for field in amount_fields:
             # Unknown attribution/conversion must not produce a misleading partial total.

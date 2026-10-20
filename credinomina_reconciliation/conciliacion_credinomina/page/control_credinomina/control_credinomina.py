@@ -225,7 +225,12 @@ def get_deposit_detail(deposit_name: str):
     deposits = get_cash_deposits(None, deposit_name=deposit_name)
     if not deposits:
         frappe.throw(_("El depósito no está disponible o ya no está confirmado."))
-    return {**deposits[0], "detail_loaded": True}
+    difference_rows = frappe.get_all("CN Remittance Detail", filters={
+        "parent": deposit_name, "parenttype": "CN Remittance Allocation",
+        "parentfield": "detail_rows", "difference_reason": ["is", "set"],
+    }, fields=["source_row", "client_name", "client_number", "loan_number",
+               "amount_usd", "pending_usd", "difference_reason"], order_by="idx asc", limit_page_length=0)
+    return {**deposits[0], "detail_loaded": True, "difference_rows": difference_rows}
 
 
 @frappe.whitelist()
@@ -377,7 +382,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "reference", "voucher", "accounting_entry", "receipt", "client_number", "employee_number", "client_name", "national_id",
                 "loan_number", "installment_number", "amount", "currency", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status",
                 "historical_remitted_usd", "historical_balance_usd",
-                "historical_detail", "deposit_match_status", "deposit_match_reason",
+                "historical_detail", "deposit_match_status", "deposit_match_reason", "difference_reason",
                 "collection_row_id", "application_allocation_detail",
             ],
             order_by="event_date asc, idx asc",
@@ -600,7 +605,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     fields=[
                         "name", "parent", "source_row", "event_date", "reference", "client_name", "loan_number",
                         "client_number", "accounting_entry", "receipt",
-                        "amount", "amount_usd", "currency", "match_reason", "application_adjustment_usd", "net_applied_usd",
+                        "amount", "amount_usd", "currency", "match_reason", "difference_reason", "application_adjustment_usd", "net_applied_usd",
                         "processing_route",
                     ],
                     order_by="event_date asc, idx asc",

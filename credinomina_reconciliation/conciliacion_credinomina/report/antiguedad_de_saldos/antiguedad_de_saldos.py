@@ -293,6 +293,7 @@ def get_application_columns():
                                ("adjustment_usd", "Ajuste conciliación US$"), ("fx_variance_usd", "Diferencia cambiaria US$"))],
     ]
     columns.append({"fieldname": "observation", "label": _("Observación"), "fieldtype": "Data", "width": 360})
+    columns.append({"fieldname": "difference_reason", "label": _("Razón de la diferencia"), "fieldtype": "Data", "width": 220})
     columns.append({'fieldname': 'amount_status', 'label': _('Estado del saldo'), 'fieldtype': 'Data', 'width': 180})
     columns.append({"fieldname": "complementary_item", "label": _("Partida complementaria"), "fieldtype": "Link", "options": "CN Complementary Item", "width": 180})
     columns.append({"fieldname": "posting_date", "label": _("Fecha de ajuste"), "fieldtype": "Date", "width": 130})

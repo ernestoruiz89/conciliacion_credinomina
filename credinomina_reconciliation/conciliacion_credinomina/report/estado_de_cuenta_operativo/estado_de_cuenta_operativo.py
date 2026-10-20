@@ -195,7 +195,7 @@ def get_columns(filters=None):
                    for field, label in metrics)
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
                    for field, label, width in [('category', 'Categoría', 180), ('operational_status', 'Estado de conciliación', 210),
-                       ('subcategory', 'Subcategoría', 175), ('reason_type', 'Motivo', 175), ('treatment_status', 'Tratamiento', 200),
+                       ('subcategory', 'Subcategoría', 175), ('reason_type', 'Motivo', 175), ('difference_reason', 'Razón de la diferencia', 190), ('treatment_status', 'Tratamiento', 200),
                        ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                        ('observation', 'Observación', 350), ('source_rows', 'Filas de origen', 170)])
     if not (filters or {}).get('detailed_columns'):

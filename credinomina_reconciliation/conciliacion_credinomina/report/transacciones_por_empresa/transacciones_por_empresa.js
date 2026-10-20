@@ -84,7 +84,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     const [background, color] = colors[item.state] || colors.Pendiente;
                     const badge = `<span style="display:inline-block;padding:3px 8px;border-radius:12px;background:${background};color:${color}">${esc(item.state)}</span>`;
                     const management = item.management_pending_usd != null ? `${__("Gestión del saldo a favor")}: ${item.management_status} · ${__("Pendiente US$")}: ${item.management_pending_usd}` : "";
-                    const extra = [item.status_detail, item.used_label, management, item.reason, item.observations].filter(Boolean).join(" · ");
+                    const extra = [item.status_detail, item.difference_reason && `${__("Razón de la diferencia")}: ${item.difference_reason}`,
+                        item.used_label, management, item.reason, item.observations].filter(Boolean).join(" · ");
                     const status = `${badge}${extra ? `<details style="margin-top:6px"><summary>${__("Ver motivo")}</summary><div style="min-width:200px;white-space:normal">${esc(extra)}</div></details>` : ""}`;
                     const slug = isApplication ? "cn-accounting-import" : isComplementary ? "cn-complementary-item" : "cn-remittance-allocation";
                     const link = `<a href="/app/${slug}/${encodeURIComponent(item.document)}" target="_blank" rel="noopener noreferrer">${esc(item.document)}</a>`;

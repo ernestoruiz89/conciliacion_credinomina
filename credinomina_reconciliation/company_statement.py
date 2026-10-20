@@ -42,6 +42,7 @@ def _row(source, kind, doctype, document, event_date, field, amount, **extra):
         client_number=source.get('client_number'), loan_number=source.get('loan_number'),
         period=source.get('period'), source_rows=source.get('source_rows'),
         reason_type=source.get('reason_type') or '',
+        difference_reason=source.get('difference_reason') or '',
         origin_type=origin_type,
         accounting_pending=(doctype == 'CN Complementary Item' and origin_type == 'Complementaria manual'
                             and source.get('accounting_status') in PENDING_REGISTRATION),

@@ -81,7 +81,7 @@ def load_direct_applications(period_names):
                     'national_id', 'loan_number', 'currency', 'amount', 'equivalent_currency',
                     'equivalent_amount', 'manual_fx_rate', 'fx_basis', 'application_adjustment_usd',
                     'historical_remitted_usd', 'historical_detail', 'collection_row_id',
-                    'application_allocation_detail']))
+                    'application_allocation_detail', 'difference_reason']))
     return result
 
 
@@ -160,6 +160,7 @@ def build_views(periods, collections, applications):
                 closure_state=period.get('closure_state'), client_number=client,
                 client_name=source.get('client_name') or 'Sin identificar', loan_number=loan,
                 usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(),
+                _difference_reasons=set(),
                 _comments={field: [] for field in COMMENTS},
                 **{field: money(0) for field in AMOUNTS})
             if no_collection:
@@ -193,6 +194,8 @@ def build_views(periods, collections, applications):
         if source.get('historical_period') not in period_map:
             continue
         row = group(source['historical_period'], source)
+        if source.get('difference_reason'):
+            row['_difference_reasons'].add(source['difference_reason'])
         applied = converted_amount(source, 'USD')
         _add(row, 'application_usd', applied)
         if applied is None:
@@ -206,6 +209,7 @@ def build_views(periods, collections, applications):
     details = [_finish(row) for row in groups.values()]
     by_period = defaultdict(list)
     for row in details:
+        row['difference_reason'] = ' · '.join(sorted(row.pop('_difference_reasons')))
         row.update({field: '\n'.join(comments) for field, comments in row.pop('_comments').items()})
         by_period[row['name']].append(row)
     summary = []
