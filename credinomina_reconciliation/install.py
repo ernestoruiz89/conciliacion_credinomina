@@ -10,9 +10,11 @@ def ensure_core_removal_role():
 
 def after_install():
     from credinomina_reconciliation.complementary_subcategories import seed_subcategories
+    from credinomina_reconciliation.difference_reasons import seed_reasons
     from credinomina_reconciliation.patches.v1_0.index_period_closure_links import execute
     execute()
     seed_subcategories()
+    seed_reasons()
 
 
 def before_install():

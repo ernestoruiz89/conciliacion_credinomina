@@ -277,6 +277,18 @@
       "show_arrow": 0
     },
     {
+      "type": "Link",
+      "label": "Razones de diferencias",
+      "link_type": "DocType",
+      "link_to": "CN Difference Reason",
+      "icon": "list-checks",
+      "child": 1,
+      "collapsible": 1,
+      "keep_closed": 0,
+      "indent": 0,
+      "show_arrow": 0
+    },
+    {
       "type": "Section Break",
       "label": "Administración de cargas",
       "icon": "settings",

@@ -109,6 +109,7 @@ def get_columns(detail=False):
         ])
     else:
         columns.extend([
+            {"fieldname": "difference_reason", "label": _("Razón de la diferencia"), "fieldtype": "Data", "width": 220},
             {"fieldname": "comments", "label": _("Comentarios"), "fieldtype": "Data", "width": 320},
             {"fieldname": "application_comment", "label": _("Comentario de Aplicación"), "fieldtype": "Data", "width": 320},
         ])

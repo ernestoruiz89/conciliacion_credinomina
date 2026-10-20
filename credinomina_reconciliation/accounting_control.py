@@ -141,6 +141,7 @@ def build_rows(sources, imports, items, clients=(), deposits=(), *, collections=
             "accounting_status": (item or {}).get("accounting_status") or "",
             "management_status": (item or {}).get("credit_management_status") or "",
             "category": (item or {}).get("category") or "", "reason_type": (item or {}).get("reason_type") or "",
+            "difference_reason": row.get("difference_reason") or "",
             "subcategory": (item or {}).get("subcategory") or "",
             "treatment_status": ((item or {}).get("_financial_balance") or {}).get("financial_status") or (item or {}).get("review_status") or "",
             "description": row.get("source_description") or row.get("description") or "",

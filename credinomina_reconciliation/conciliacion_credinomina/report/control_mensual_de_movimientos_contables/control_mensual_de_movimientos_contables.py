@@ -39,7 +39,7 @@ def execute(filters=None):
             fields=["name", "parent", "idx", "event_date", "source_account", "source_currency", "source_debit", "source_credit",
                 "source_description", "description", "source_fx_rate", "manual_fx_rate", "fx_rate", "accounting_source_key", "source_key",
                 "complementary_item", "remittance_allocation", "source_row", "client_name", "client_number", "loan_number", "portfolio_client_name", "portfolio_employer",
-                "voucher", "tmov", "tdoc", "accounting_reference", "event_type", "accounting_classification", "match_status", "deposit_match_status", "application_adjustment_status"], limit_page_length=0))
+                "voucher", "tmov", "tdoc", "accounting_reference", "event_type", "accounting_classification", "match_status", "deposit_match_status", "difference_reason", "application_adjustment_status"], limit_page_length=0))
     items = frappe.get_list("CN Complementary Item", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
         fields=list(dict.fromkeys([*FIELDS, "name", "docstatus", "source_date", "posting_date", "source_account", "source_currency", "source_debit", "source_credit", "source_description",
             "description", "source_fx_rate", "accounting_source_key", "source_row", "source_client_name", "client_number", "loan_number", "employer", "source_voucher", "credit_management_status",
@@ -130,6 +130,7 @@ def columns(summary=False, audit=False, unknown_fields=()):
             *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Currency', 'options': 'usd_currency', 'precision': 2, 'width': 115}
               for field, label in [('debit_usd', 'Débitos US$'), ('credit_usd', 'Créditos US$'), ('pending_usd', 'Pendiente US$')]],
             {'fieldname': 'state', 'label': _('Conciliación'), 'fieldtype': 'Data', 'width': 180},
+            {'fieldname': 'difference_reason', 'label': _('Razón de la diferencia'), 'fieldtype': 'Data', 'width': 190},
             {'fieldname': 'audit_action', 'label': _('Origen / auditoría'), 'fieldtype': 'Data', 'width': 125},
         ]
         visible = {column['fieldname'] for column in compact}
@@ -147,6 +148,7 @@ def columns(summary=False, audit=False, unknown_fields=()):
             ("voucher", "Asiento", 120), ("client_name", "Nombre del cliente", 220), ("client_number", "Nro. Cliente", 110),
             ("loan_number", "Nro. Crédito", 120), ("employer", "Empresa", 170), ("movement_type", "Tipo de movimiento", 175), ("state", "Conciliación", 185),
             ("category", "Categoría", 180), ("subcategory", "Subcategoría", 170), ("reason_type", "Motivo", 170),
+            ("difference_reason", "Razón de la diferencia", 190),
             ("treatment_status", "Tratamiento", 200), ("accounting_status", "Registro contable", 170), ("management_status", "Gestión del saldo a favor", 170)]]
     for currency, label in (("nio", "C$"), ("usd", "US$")):
         for kind, title in (("debit", "Débitos"), ("credit", "Créditos"), ("net", "Neto")):

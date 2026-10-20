@@ -216,13 +216,14 @@ frappe.pages["control-credinomina"].on_page_load = function (wrapper) {
             <button type="button" class="btn btn-default btn-sm" data-more-section="${section}">${esc(__("Mostrar más"))}</button></div>` : "";
         const unassignedTable = unassigned.length ? `
             <div class="cn-list-scroll"><table class="cn-detail-table"><thead><tr>
-                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Nombre del cliente"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Motivo"))}</th>
+                <th>${esc(__("Fecha"))}</th><th>${esc(__("Referencia"))}</th><th>${esc(__("Nombre del cliente"))}</th><th>${esc(__("Crédito"))}</th><th>${esc(__("Aplicado neto US$"))}</th><th>${esc(__("Razón de la diferencia"))}</th><th>${esc(__("Motivo"))}</th>
             </tr></thead><tbody>${unassigned.map((row) => `<tr>
                 <td>${esc(displayDate(row.event_date))}</td>
                 <td><button class="cn-text-link" type="button" data-import="${esc(row.parent)}">${esc(row.reference)}</button></td>
                 <td>${esc(row.client_name || "—")}</td>
                 <td>${esc(row.loan_number)}</td>
                 <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
+                <td>${esc(row.difference_reason || "—")}</td>
                 <td>${esc(row.match_reason)}</td>
             </tr>`).join("")}</tbody></table></div>` : "";
         const depositTable = deposits.length ? `
@@ -995,6 +996,9 @@ function renderCashDistribution(deposit) {
         <div class="cn-list-scroll"><table class="cn-detail-table cn-cash-distribution-summary"><caption>${esc(__("Resumen de distribución"))}</caption><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Período / concepto"))}</th><th>${esc(__("Mes de cobranza"))}</th><th>${esc(__("US$"))}</th></tr></thead><tbody>
             ${lines.map(item => `<tr><td>${esc(item.type)}</td><td>${esc(item.label)}${renderCreditManagementBadge(item)}${renderCashCreditIdentity(item)}${item.employer ? `<div>${esc(__("Empresa"))}: ${esc(item.employer)}</div>` : ""}</td><td>${esc(item.month || "—")}</td><td class="cn-number">${signedMoney(item.amount_usd)}</td></tr>`).join("")}
         </tbody><tfoot><tr><th colspan="3">${esc(__("Total resumen"))}</th><th class="cn-number">${money(summaryTotal)}</th></tr></tfoot></table></div>
+        ${(deposit.difference_rows || []).length ? `<div class="cn-list-scroll"><table class="cn-detail-table"><caption>${esc(__("Razones clasificadas en el detalle por cliente"))}</caption><thead><tr><th>${esc(__("Fila"))}</th><th>${esc(__("Cliente / crédito"))}</th><th>${esc(__("Importe US$"))}</th><th>${esc(__("Pendiente US$"))}</th><th>${esc(__("Razón de la diferencia"))}</th></tr></thead><tbody>
+            ${deposit.difference_rows.map(row => `<tr><td>${esc(row.source_row || "—")}</td><td>${esc(row.client_name || row.client_number || "—")} / ${esc(row.loan_number || "—")}</td><td class="cn-number">${money(row.amount_usd)}</td><td class="cn-number">${money(row.pending_usd)}</td><td>${esc(row.difference_reason)}</td></tr>`).join("")}
+        </tbody></table></div>` : ""}
         ${lines.map(renderCreditPeople).join("")}
         ${Number(deposit.credit_balance_usd) > MONEY_EPSILON ? `<p class="cn-cell-credit">${esc(__("El saldo a favor requiere seguimiento. Su documentación no significa que ya fue reembolsado."))}</p>` : ""}
         ${Number(deposit.client_credit_usd) > MONEY_EPSILON ? `<p>${esc(__("Saldo de clientes pendiente de gestión"))}: ${money(deposit.client_credit_pending_usd)}</p>` : ""}
@@ -1104,7 +1108,7 @@ function renderPeriodApplicationTable(period, canCreateException) {
                 <br><button type="button" class="cn-text-link" data-application-import="${esc(row.parent)}">${esc(__("Referencia"))}: ${esc(row.reference || row.voucher || row.parent)}</button></td>
             <td class="cn-number">${money(row.net_applied_usd ?? row.amount)}</td>
             <td class="cn-number">${money(row.historical_remitted_usd)}</td>
-            <td class="cn-number">${money(row.historical_balance_usd)}${row.deposit_match_status ? `<div class="text-muted">${esc(__(row.deposit_match_status))}</div>` : ""}</td>
+            <td class="cn-number">${money(row.historical_balance_usd)}${row.deposit_match_status ? `<div class="text-muted">${esc(__(row.deposit_match_status))}</div>` : ""}${row.difference_reason ? `<div class="text-muted">${esc(__("Razón"))}: ${esc(row.difference_reason)}</div>` : ""}</td>
             <td>${allocationLines(row.historical_detail)}</td>
             <td>${historical ? applicationExceptionAction(period, row, canCreateException) : esc(__(unlinked.has(row.name) ? "Sin cobranza vinculada" : "Cobranza vinculada"))}</td>
         </tr>`).join("")}</tbody></table></div>

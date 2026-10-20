@@ -59,6 +59,7 @@ def load_application_context(employer=None, *, include_applications=True, includ
         filters={'event_type': 'Aplicacion', 'effective': 1}, fields=[
             'name', 'parent', 'event_type', 'event_date', 'effective', 'match_status',
             'payment_due_date', 'payment_term_origin', 'client', 'client_name', 'client_number',
+            'difference_reason',
             'national_id', 'loan_number', 'installment_number', 'currency', 'amount',
             'equivalent_currency', 'equivalent_amount', 'fx_basis', 'manual_fx_rate',
             'processing_route', 'historical_period', 'portfolio_employer', 'collection_row_id',

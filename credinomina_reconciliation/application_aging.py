@@ -82,6 +82,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             **{field: source.get(field) for field in IDENTITY_FIELDS},
             "source_import": source.get("parent"),
             "source_rows": source.get("name") or "",
+            "difference_reason": source.get("difference_reason") or "",
             "has_application_adjustment": money(source.get("application_adjustment_usd")) > 0,
             "application_date": source.get("event_date"),
             "period": period.get("name"), "employer": employer,
@@ -203,6 +204,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             item = dict(parts[0], due_date=None, application_date=None)
             item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in parts)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in parts if part["source_rows"]}))
+            item["difference_reason"] = " · ".join(sorted({part["difference_reason"] for part in parts if part["difference_reason"]}))
             if len({part["source_import"] for part in parts}) > 1:
                 item["source_import"] = None
             item["observation"] = "Varias fechas de vencimiento: falta distribuir el pago entre aplicaciones"
@@ -215,6 +217,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             item = dict(grouped[0])
             item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in grouped)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in grouped if part["source_rows"]}))
+            item["difference_reason"] = " · ".join(sorted({part["difference_reason"] for part in grouped if part["difference_reason"]}))
             application_dates = [part["application_date"] for part in grouped if part.get("application_date")]
             item["application_date"] = min(application_dates) if application_dates else None
             if len({part["source_import"] for part in grouped}) > 1:

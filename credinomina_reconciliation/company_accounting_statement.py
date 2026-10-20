@@ -84,7 +84,7 @@ def load_core_detail(filters):
         'source_credit', 'source_description', 'description', 'source_fx_rate', 'manual_fx_rate', 'fx_rate',
         'accounting_source_key', 'source_key', 'complementary_item', 'remittance_allocation', 'source_row',
         'client_name', 'client_number', 'loan_number', 'portfolio_client_name', 'portfolio_employer',
-        'voucher', 'tmov', 'tdoc', 'accounting_reference', 'event_type', 'accounting_classification']))
+        'voucher', 'tmov', 'tdoc', 'accounting_reference', 'event_type', 'accounting_classification', 'difference_reason']))
     # An imported application without original ledger evidence is operational
     # information, not a fabricated debit in the core.
     sources = [row for row in sources if row.get('accounting_source_key') or row.get('source_account')
