@@ -1,5 +1,11 @@
 frappe.listview_settings["CN Accounting Import"] = {
-    add_fields: ["employer", "total_usd", "usd_currency"],
+    add_fields: ["employer", "application_amount_usd", "deposit_coverage_usd", "complementary_coverage_usd", "balance_usd", "usd_currency"],
+    formatters: {
+        application_amount_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        deposit_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        complementary_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        balance_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+    },
     onload(listview) {
         if (frappe.model.can_create("CN Accounting Import")) {
             listview.page.add_inner_button(__("Carga masiva"), () => {
@@ -12,8 +18,9 @@ frappe.listview_settings["CN Accounting Import"] = {
         }
         const settings = listview.list_view_settings;
         if (settings.fields) {
-            const fields = JSON.parse(settings.fields);
-            for (const fieldname of ["employer", "total_usd"]) {
+            const fields = JSON.parse(settings.fields).filter(field =>
+                !["total_usd", "total_application_adjustment_usd", "total_net_applied_usd"].includes(field.fieldname));
+            for (const fieldname of ["employer", "application_amount_usd", "deposit_coverage_usd", "complementary_coverage_usd", "balance_usd"]) {
                 if (!fields.some(field => field.fieldname === fieldname)) {
                     fields.push({fieldname});
                 }

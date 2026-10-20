@@ -1,10 +1,31 @@
 """Read-only deposit financial labels; persisted results remain audit evidence."""
-from credinomina_reconciliation.rounding import money
+import json
+
+from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 SETTLED_RESULTS = {'Conciliado', 'Conciliado con saldo a favor', 'Conciliado con saldo a favor del cliente',
                    'Saldo a favor documentado', 'Parcial con saldo a favor'}
 REVIEW_RESULTS = {'Revisar detalle', 'Revisar destinos', 'Detalle pendiente'}
+
+
+def coverage_totals(deposit):
+    """Split assigned cash using the same journal shown in the deposit cards."""
+    try:
+        entries = json.loads(deposit.get('allocation_detail') or '[]')
+        if not isinstance(entries, list) or any(not isinstance(row, dict) for row in entries):
+            raise ValueError('Invalid allocation journal')
+        assigned = money(deposit.get('allocated_usd'))
+        if assigned and not entries:
+            raise ValueError('Missing allocation journal')
+        complementary = sum_money(row.get('importe_usd') for row in entries
+                                  if row.get('tipo') == 'Partida complementaria')
+        return {
+            'credit_coverage_usd': money_float(assigned - complementary),
+            'complementary_coverage_usd': money_float(complementary + money(deposit.get('justified_surplus_usd'))),
+        }
+    except (TypeError, ValueError, ArithmeticError):
+        return {'credit_coverage_usd': None, 'complementary_coverage_usd': None}
 
 
 def reconciliation_status(deposit):

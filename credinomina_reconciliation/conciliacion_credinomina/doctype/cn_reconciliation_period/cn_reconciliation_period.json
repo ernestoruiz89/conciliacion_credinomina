@@ -265,6 +265,7 @@
     {
       "fieldname": "applied_total_usd",
       "fieldtype": "Currency",
+      "in_list_view": 1,
       "label": "Importe US$",
       "options": "usd_currency",
       "precision": "2",
@@ -275,7 +276,8 @@
     {
       "fieldname": "deposit_coverage_usd",
       "fieldtype": "Currency",
-      "label": "Depósitos US$",
+      "in_list_view": 1,
+      "label": "Aplicado a depósitos US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,
@@ -285,7 +287,8 @@
     {
       "fieldname": "complementary_coverage_usd",
       "fieldtype": "Currency",
-      "label": "Partidas complementarias US$",
+      "in_list_view": 1,
+      "label": "Aplicado a partidas complementarias US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,
@@ -305,6 +308,7 @@
     {
       "fieldname": "pending_usd",
       "fieldtype": "Currency",
+      "in_list_view": 1,
       "label": "Saldo US$",
       "options": "usd_currency",
       "precision": "2",

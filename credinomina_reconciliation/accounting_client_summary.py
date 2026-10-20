@@ -143,10 +143,7 @@ def balance_totals(document, rows):
     }
 
 
-@frappe.whitelist()
-def get_client_summary(import_name):
-    document = frappe.get_doc('CN Accounting Import', import_name)
-    document.check_permission('read')
+def _collections_for_import(document, *, check_permissions=False):
     ids = set()
     for row in document.rows:
         if row.event_type == 'Aplicacion' and row.effective and not (row.historical_period or document.historical_period or document.historical_backfill or row.processing_route == 'Historica'):
@@ -156,9 +153,28 @@ def get_client_summary(import_name):
     for offset in range(0, len(names), 500):
         for row in frappe.get_all('CN Collection Row', filters={'name': ['in', names[offset:offset + 500]], 'parenttype': 'CN Reconciliation Period', 'parentfield': 'collection_rows'},
                                  fields=['name', 'parent', 'applied_usd', 'remittance_detail', 'rounding_adjustment_usd'], limit_page_length=0):
-            if row.parent not in readable:
+            if check_permissions and row.parent not in readable:
                 readable[row.parent] = frappe.has_permission('CN Reconciliation Period', 'read', doc=row.parent)
-            if readable[row.parent]:
+            if not check_permissions or readable[row.parent]:
                 collections[row.name] = row
+    return collections
+
+
+def stored_balance_totals(document):
+    """Calculate the list columns from the same evidence as the form summary."""
+    try:
+        return balance_totals(document, build_summary(document, _collections_for_import(document)))
+    except (TypeError, ValueError, ArithmeticError):
+        # Corrupt historical detail must not turn a display column into a
+        # blocker for saving or migrating the underlying evidence.
+        return {'amount_usd': None, 'deposits_usd': None,
+                'complementary_usd': None, 'balance_usd': None}
+
+
+@frappe.whitelist()
+def get_client_summary(import_name):
+    document = frappe.get_doc('CN Accounting Import', import_name)
+    document.check_permission('read')
+    collections = _collections_for_import(document, check_permissions=True)
     rows = build_summary(document, collections)
     return {'rows': rows, 'totals': balance_totals(document, rows)}

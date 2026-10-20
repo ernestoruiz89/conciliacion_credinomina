@@ -9,12 +9,16 @@
     "import_tab", "balance_summary_html", "source_section", "employer", "source_file", "source_column", "currency", "manual_fx_rate",
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
-    "total_application_adjustment_usd", "total_net_applied_usd", "client_summary_section", "client_summary_html", "rows_section", "rows", "notes",
+    "total_application_adjustment_usd", "total_net_applied_usd", "application_amount_usd", "deposit_coverage_usd", "complementary_coverage_usd", "balance_usd", "client_summary_section", "client_summary_html", "rows_section", "rows", "notes",
     "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "file_hash", "bulk_event_date", "bulk_source_file", "bulk_source_hash", "recovery_html"
   ],
   "fields": [
     {"fieldname": "total_application_adjustment_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Ajustes de aplicaciones US$", "read_only": 1},
     {"fieldname": "total_net_applied_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Aplicado neto US$", "read_only": 1},
+    {"fieldname": "application_amount_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Importe US$", "read_only": 1, "no_copy": 1, "in_list_view": 1, "description": "Solo aplicaciones efectivas; no incluye otros movimientos presentes en el archivo."},
+    {"fieldname": "deposit_coverage_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Aplicado a depósitos US$", "read_only": 1, "no_copy": 1, "in_list_view": 1, "description": "Depósitos atribuibles a las aplicaciones efectivas de esta importación."},
+    {"fieldname": "complementary_coverage_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Aplicado a partidas complementarias US$", "read_only": 1, "no_copy": 1, "in_list_view": 1, "description": "Ajustes confirmados menos diferencias menores que se muestran con su signo."},
+    {"fieldname": "balance_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Saldo US$", "read_only": 1, "no_copy": 1, "in_list_view": 1, "description": "Suma de pendientes por cliente sin compensar sobrantes entre créditos."},
     {"fieldname": "balance_summary_html", "fieldtype": "HTML", "label": "Saldos de aplicaciones", "read_only": 1},
     {"default": "USD", "fieldname": "usd_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda US$", "read_only": 1},
     {"default": "NIO", "fieldname": "nio_currency", "fieldtype": "Data", "hidden": 1, "label": "Moneda C$", "read_only": 1},
@@ -51,7 +55,7 @@
     {"fieldname": "matched_count", "fieldtype": "Int", "label": "Conciliadas", "read_only": 1},
     {"fieldname": "exception_count", "fieldtype": "Int", "label": "Excepciones", "read_only": 1},
     {"fieldname": "ignored_count", "fieldtype": "Int", "label": "Ignoradas", "read_only": 1},
-    {"fieldname": "total_usd", "fieldtype": "Currency", "in_list_view": 1, "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
+    {"fieldname": "total_usd", "fieldtype": "Currency", "label": "Total US$", "options": "usd_currency", "precision": "2", "read_only": 1},
     {"fieldname": "total_nio", "fieldtype": "Currency", "label": "Total C$", "options": "nio_currency", "precision": "2", "read_only": 1},
     {"fieldname": "rows", "fieldtype": "Table", "label": "Filas", "options": "CN Source Row", "allow_on_submit": 1},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Notas"}
