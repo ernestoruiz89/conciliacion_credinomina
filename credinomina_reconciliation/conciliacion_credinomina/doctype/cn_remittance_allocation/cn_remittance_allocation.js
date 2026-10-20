@@ -31,7 +31,8 @@ function linkAccountingOrigins(frm) {
             loadedKind = sourceKind;
             dialog.fields_dict.rows.df.data = (response.message || []).map(row => ({
                 record_name: row.name, date: sourceKind === "internal" ? row.source_date : row.deposit_date,
-                reference: sourceKind === "internal" ? row.accounting_reference : row.deposit_reference,
+                reference: sourceKind === "internal" ? (row.reference || row.accounting_reference) : row.deposit_reference,
+                accounting_reference: sourceKind === "internal" ? row.accounting_reference : "",
                 voucher: sourceKind === "internal" ? row.source_voucher : row.deposit_voucher,
                 currency: sourceKind === "internal" ? row.source_currency : row.deposit_currency,
                 amount: sourceKind === "internal" ? row.source_credit : row.deposit_amount,
@@ -80,7 +81,8 @@ function linkAccountingOrigins(frm) {
         {fieldtype: "HTML", options: `<p>${__("Seleccione el origen del mismo ingreso. La fecha de carga puede ser posterior; se comparan la empresa, referencia, fecha del depósito, moneda e importe. Esta acción conserva la distribución ya realizada.")}</p>`},
         {fieldname: "kind", fieldtype: "Select", label: __("Tipo de origen"), options: "Movimientos internos\nDepósito del core", default: "Movimientos internos", onchange: reset,
             description: __("Las partidas internas se enviarán como Vinculado a depósito, con su referencia y tratamiento Partida de depósito. Se requiere permiso para enviar. El depósito del core debe estar en borrador, sin detalle ni destinos.")},
-        {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset},
+        {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset,
+            description: __("Busca en la referencia del depósito y en la referencia contable original del movimiento.")},
         {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset,
             description: __("Filtro de búsqueda. Déjelo vacío para seleccionar movimientos internos de distintos asientos; cada uno conserva su asiento original.")},
         {fieldname: "search", fieldtype: "Button", label: __("Buscar movimientos"), click: search},
@@ -94,6 +96,7 @@ function linkAccountingOrigins(frm) {
             {fieldname: "record_name", fieldtype: "Data", label: __("Documento"), read_only: 1, in_list_view: 1, columns: 3},
             {fieldname: "date", fieldtype: "Date", label: __("Fecha"), read_only: 1, in_list_view: 1, columns: 2},
             {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), read_only: 1, in_list_view: 1, columns: 2},
+            {fieldname: "accounting_reference", fieldtype: "Data", label: __("Referencia contable original"), read_only: 1},
             {fieldname: "currency", fieldtype: "Data", label: __("Moneda"), read_only: 1, in_list_view: 1, columns: 1},
             {fieldname: "amount", fieldtype: "Currency", label: __("Importe"), options: "currency", read_only: 1, in_list_view: 1, columns: 2},
             {fieldname: "voucher", fieldtype: "Data", label: __("Asiento original"), read_only: 1},

@@ -248,3 +248,39 @@ class CNComplementaryItem(Document):
         from credinomina_reconciliation.application_adjustments import reconcile_adjustment
 
         reconcile_adjustment(self)
+
+
+@frappe.whitelist(methods=["POST"])
+def unconfirm_item(item_name: str, modified: str, reason: str):
+    """Reverse a submitted item's effects, then reopen that same record as a draft."""
+    reason = clean_text(reason)
+    if not reason:
+        frappe.throw(_("Indique el motivo de la desconfirmación."))
+    item = frappe.get_doc("CN Complementary Item", item_name, for_update=True)
+    item.check_permission("cancel")
+    item.check_permission("write")
+    if item.docstatus != 1 or str(item.modified) != str(modified):
+        frappe.throw(_("La partida cambió. Recargue el formulario antes de desconfirmar."))
+    if item.get("origin_deposit") or item.get("receivable_origin") or item.category in {
+            "Diferencia por tolerancia", "Compensación entre partidas", "Vinculado a depósito", "Cobro de CxC"}:
+        frappe.throw(_("Esta partida tiene un tratamiento que no permite volver a borrador. Revise sus vínculos."))
+
+    review_status = item.review_status
+    item.flags.cn_unconfirming = True
+    try:
+        # Run the normal cancellation hooks first: they validate linked work
+        # and recalculate affected deposits, applications, and periods.
+        item.cancel()
+    finally:
+        item.flags.pop("cn_unconfirming", None)
+    scope = item.flags.get("cancellation_result") or {}
+    frappe.db.set_value(item.doctype, item.name, {
+        "docstatus": 0, "review_status": review_status,
+    })
+    for field in item.meta.get_table_fields():
+        for child in item.get(field.fieldname) or []:
+            frappe.db.set_value(child.doctype, child.name, "docstatus", 0, update_modified=False)
+    item.add_comment("Edit", _("Partida desconfirmada por {0}. Motivo: {1}").format(
+        frappe.session.user, reason))
+    return {"name": item.name, "docstatus": 0,
+            "deposits": scope.get("deposits", []), "periods": scope.get("periods", [])}
