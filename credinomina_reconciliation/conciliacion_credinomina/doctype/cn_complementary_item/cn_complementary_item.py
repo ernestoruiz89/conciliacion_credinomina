@@ -154,6 +154,11 @@ class CNComplementaryItem(Document):
             return
         if is_tolerance_item(self):
             return
+        if self.review_action == "Partida de depósito" and not self.period:
+            # Confirmation only makes this unassigned item available as a
+            # deposit target. Reconcile when a confirmed deposit uses it;
+            # a company-wide run here can touch unrelated closed periods.
+            return
         if not self.flags.get("defer_reconciliation"):
             self._reconcile()
 
