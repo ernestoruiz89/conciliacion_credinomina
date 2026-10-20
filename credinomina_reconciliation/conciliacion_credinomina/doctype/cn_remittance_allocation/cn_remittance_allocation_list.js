@@ -1,7 +1,22 @@
 frappe.listview_settings["CN Remittance Allocation"] = {
     // Currency is required to format the original deposit, not its USD equivalent.
     add_fields: ["deposit_date", "deposit_amount", "deposit_currency", "bank_account", "result", "financial_status",
-        "docstatus", "amount_usd", "allocated_usd", "justified_surplus_usd", "unclassified_usd", "detail_status"],
+        "docstatus", "amount_usd", "allocated_usd", "credit_coverage_usd", "complementary_coverage_usd",
+        "justified_surplus_usd", "unclassified_usd", "detail_status", "usd_currency"],
+    formatters: {
+        credit_coverage_usd(value, df, doc) {
+            return doc.docstatus !== 1 || value == null ? "—" : frappe.format(value, df, null, doc);
+        },
+        complementary_coverage_usd(value, df, doc) {
+            return doc.docstatus !== 1 || value == null ? "—" : frappe.format(value, df, null, doc);
+        },
+        unclassified_usd(value, df, doc) {
+            if (doc.docstatus !== 1 || doc.amount_usd == null) return "—";
+            const cents = amount => Math.round(Number(amount || 0) * 100);
+            return frappe.format((cents(doc.amount_usd) - cents(doc.allocated_usd)
+                - cents(doc.justified_surplus_usd)) / 100, df, null, doc);
+        },
+    },
     has_indicator_for_draft: true,
     get_indicator(doc) {
         if (doc.financial_status) {
@@ -32,7 +47,8 @@ frappe.listview_settings["CN Remittance Allocation"] = {
         const settings = listview.list_view_settings;
         if (settings.fields) {
             const fields = JSON.parse(settings.fields).filter(field => field.fieldname !== "result");
-            for (const fieldname of ["deposit_date", "deposit_amount", "bank_account", "financial_status"]) {
+            for (const fieldname of ["deposit_date", "deposit_amount", "bank_account", "financial_status",
+                "amount_usd", "credit_coverage_usd", "complementary_coverage_usd", "unclassified_usd"]) {
                 if (!fields.some(field => field.fieldname === fieldname)) {
                     fields.push({fieldname});
                 }

@@ -1,8 +1,12 @@
 frappe.listview_settings["CN Reconciliation Period"] = {
     // Always fetch the indicator, including with personalized list columns.
     // Colors come from DocType states, shared by the list and form header.
-    add_fields: ["status", "status_before_close"],
+    add_fields: ["status", "status_before_close", "applied_total_usd", "deposit_coverage_usd",
+        "complementary_coverage_usd", "pending_usd", "usd_currency"],
     formatters: {
+        deposit_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        complementary_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        pending_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
         status_before_close(value, df, doc) {
             if (doc.status !== "Cerrado") return "—";
             const state = (frappe.get_meta("CN Reconciliation Period").states || [])
@@ -27,8 +31,9 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         }
         if (settings.fields) {
             const fields = JSON.parse(settings.fields).filter(field => !hiddenColumns.has(field.fieldname));
-            if (!fields.some(field => field.fieldname === "status_before_close")) {
-                fields.push({fieldname: "status_before_close"});
+            for (const fieldname of ["status_before_close", "applied_total_usd", "deposit_coverage_usd",
+                "complementary_coverage_usd", "pending_usd"]) {
+                if (!fields.some(field => field.fieldname === fieldname)) fields.push({fieldname});
             }
             settings.fields = JSON.stringify(fields);
         }

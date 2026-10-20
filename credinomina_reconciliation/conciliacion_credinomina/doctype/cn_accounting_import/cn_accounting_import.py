@@ -396,6 +396,12 @@ class CNAccountingImport(Document):
         self.total_nio = sum(flt(row.amount_nio) for row in rows if row.effective)
         self.total_application_adjustment_usd = money_float(sum_money(row.get("application_adjustment_usd") for row in rows if row.effective and row.event_type == "Aplicacion"))
         self.total_net_applied_usd = money_float(sum_money(net_amount(row) for row in rows if row.effective and row.event_type == "Aplicacion"))
+        from credinomina_reconciliation.accounting_client_summary import stored_balance_totals
+        totals = stored_balance_totals(self)
+        self.application_amount_usd = totals["amount_usd"]
+        self.deposit_coverage_usd = totals["deposits_usd"]
+        self.complementary_coverage_usd = totals["complementary_usd"]
+        self.balance_usd = totals["balance_usd"]
 
     def recalculate_reconciliation_summary(self):
         """Synchronize the header from stored row results without reconciling money."""
@@ -2373,7 +2379,7 @@ def _classify_surplus(allocation, surplus_items):
 
 
 def _sync_registered_deposit_detail(allocation):
-    from credinomina_reconciliation.deposit_presentation import reconciliation_status
+    from credinomina_reconciliation.deposit_presentation import coverage_totals, reconciliation_status
     for name, deposit_id in allocation["registered_ids"].items():
         meta = allocation["deposit_meta"].get(deposit_id)
         if not meta:
@@ -2439,6 +2445,7 @@ def _sync_registered_deposit_detail(allocation):
                 "inherited_exception_comment": getattr(source, "inherited_exception_comment", ""),
                 "justified_surplus_usd": flt(source.justified_surplus_usd),
                 "unclassified_usd": flt(source.unclassified_usd),
+                **coverage_totals(source),
             },
             update_modified=False,
         )

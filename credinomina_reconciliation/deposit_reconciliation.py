@@ -258,6 +258,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         before = snapshot(document)
         values = dict(allocated_usd=0, unallocated_usd=document.amount_usd,
                       unclassified_usd=document.amount_usd, justified_surplus_usd=0,
+                      credit_coverage_usd=0, complementary_coverage_usd=0,
                       allocation_detail="[]", result="Pendiente",
                       detail_status="Detalle pendiente", inherited_exception_comment="")
         frappe.db.set_value(document.doctype, document.name, values)

@@ -77,10 +77,15 @@ class CNRemittanceAllocation(Document):
         from credinomina_reconciliation.detail_balances import update_detail_balances
         update_detail_balances(self)
         self._update_financial_status()
+        self._update_coverage_totals()
 
     def _update_financial_status(self):
         from credinomina_reconciliation.deposit_presentation import reconciliation_status
         self.financial_status = reconciliation_status(self)
+
+    def _update_coverage_totals(self):
+        from credinomina_reconciliation.deposit_presentation import coverage_totals
+        self.update(coverage_totals(self))
 
     def _invalidate_changed_detail_credits(self):
         previous = self.get_doc_before_save()
@@ -382,6 +387,7 @@ class CNRemittanceAllocation(Document):
         update_detail_balances(self)
 
         self._update_financial_status()
+        self._update_coverage_totals()
 
     def _reconciliation_inputs_changed(self, previous):
         def input_value(document, fieldname):
