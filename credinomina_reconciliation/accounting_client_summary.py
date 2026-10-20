@@ -47,6 +47,12 @@ def collection_link_issue(links, net, collections, usage=None):
     return ''
 
 
+def _client_group_key(row, index):
+    return next(((field, str(row.get(field))) for field in
+                 ('client_number', 'client', 'national_id', 'loan_number') if row.get(field)),
+                ('row', row.get('name') or index))
+
+
 def build_summary(document, collections, *, collection_usage=None):
     customers, claims = {}, defaultdict(list)
 
@@ -63,9 +69,10 @@ def build_summary(document, collections, *, collection_usage=None):
     for index, row in enumerate(document.get('rows') or []):
         if row.get('event_type') != 'Aplicacion' or not row.get('effective') or row.get('match_status') == 'Ignorado':
             continue
-        identity = next(((field, str(row.get(field))) for field in ('client_number', 'client', 'national_id', 'loan_number') if row.get(field)), ('row', row.get('name') or index))
+        identity = _client_group_key(row, index)
         group = customers.setdefault(identity, dict(client_name=row.get('client_name') or 'Sin identificar',
-            client_number=row.get('client_number') or '', loans=set(), applications=0,
+            client_number=row.get('client_number') or '', source_row_name=row.get('name') or '',
+            loans=set(), applications=0,
             applied_usd=money(0), assigned_usd=money(0), rounding_usd=money(0), balance_usd=money(0), observations=set()))
         group['applications'] += 1
         if row.get('loan_number'):

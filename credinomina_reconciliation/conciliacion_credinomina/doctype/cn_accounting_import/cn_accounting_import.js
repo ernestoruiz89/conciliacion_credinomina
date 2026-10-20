@@ -97,14 +97,62 @@ function accountingClientSummaryTable(rows, page = 0) {
             ${(row.observations || []).map(note => `<div class="text-warning">${esc(note)}</div>`).join("")}</td>
             <td>${esc(row.client_number || "—")}</td>
             ${fields.map(field => `<td class="text-right" style="white-space:nowrap">${amount(row[field])}</td>`).join("")}
-            <td><span style="display:inline-block;padding:2px 8px;border:1px solid ${accent};border-radius:999px;color:var(--text-color);background-color:var(--bg-color)">${esc(__(row.status))}</span></td></tr>`;
+            <td><span style="display:inline-block;padding:2px 8px;border:1px solid ${accent};border-radius:999px;color:var(--text-color);background-color:var(--bg-color)">${esc(__(row.status))}</span></td>
+            <td>${row.status !== "Conciliado" && row.source_row_name
+                ? `<button type="button" class="btn btn-default btn-xs cn-client-related" data-source-row="${esc(row.source_row_name)}">${esc(__("Ver registros relacionados"))}</button>`
+                : ""}</td></tr>`;
     }).join("");
     return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px);color:var(--text-color);background-color:var(--bg-color);--bs-table-color:var(--text-color);--bs-table-bg:var(--bg-color);--bs-table-border-color:var(--border-color)">
-        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Aplicado neto US$", "Asignado a depósitos US$", "Ajuste de centavos US$", "Saldo US$", "Estado"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
-        <tbody>${body || `<tr><td colspan="7">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
+        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Aplicado neto US$", "Asignado a depósitos US$", "Ajuste de centavos US$", "Saldo US$", "Estado", "Registros relacionados"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
+        <tbody>${body || `<tr><td colspan="8">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
         <tfoot><tr><th colspan="2">${esc(__("Total de clientes filtrados"))} (${rows.length})</th>
-        ${fields.map(field => `<th class="text-right" style="white-space:nowrap">${amount(total(field))}</th>`).join("")}<th></th></tr></tfoot>
+        ${fields.map(field => `<th class="text-right" style="white-space:nowrap">${amount(total(field))}</th>`).join("")}<th></th><th></th></tr></tfoot>
     </table></div>`;
+}
+
+async function showAccountingRelatedRecords(frm, sourceRowName, button) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const amount = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
+    if (frm.is_dirty()) {
+        frappe.msgprint(__("Guarde la importación antes de consultar los registros relacionados."));
+        return;
+    }
+    button.prop("disabled", true);
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.accounting_related_records.get_related_pending",
+            args: {import_name: frm.doc.name, source_row_name: sourceRowName},
+        });
+        const result = response.message || {};
+        const rows = result.rows || [];
+        const body = rows.map(row => {
+            const slug = row.type === "Depósito" ? "cn-remittance-allocation" : "cn-complementary-item";
+            const href = `/app/${slug}/${encodeURIComponent(String(row.document || ""))}`;
+            return `<tr><td>${esc(__(row.type))}</td><td>${esc(row.date || "—")}</td>
+                <td><a href="${href}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>
+                    ${row.source_row ? `<div class="text-muted">${esc(__("Fila"))} ${esc(row.source_row)}</div>` : ""}</td>
+                <td>${esc(row.reference || "—")}</td><td>${esc(row.client_name || "—")}</td>
+                <td>${esc(row.loan_number || "—")}</td>
+                <td class="text-right">${amount(row.amount_usd)}</td>
+                <td class="text-right">${amount(row.pending_usd)}</td><td>${esc(__(row.status || "Pendiente"))}</td></tr>`;
+        }).join("");
+        const dialog = new frappe.ui.Dialog({
+            title: __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]),
+            size: "extra-large",
+            fields: [{fieldname: "related_html", fieldtype: "HTML"}],
+            primary_action_label: __("Cerrar"), primary_action() { dialog.hide(); },
+        });
+        dialog.fields_dict.related_html.$wrapper.html(`<p class="text-muted">${esc(__("Depósitos y partidas complementarias pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Las coincidencias por nombre deben verificarse antes de conciliar. Se muestran los documentos que tiene permiso de consultar."))}</p>
+            <div class="table-responsive" style="max-height:60vh;overflow:auto"><table class="table table-bordered table-hover">
+                <thead><tr>${["Tipo", "Fecha", "Documento", "Referencia", "Cliente", "Nro. Crédito", "Importe US$", "Pendiente US$", "Estado"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
+                <tbody>${body || `<tr><td colspan="9">${esc(__("No se encontraron depósitos ni partidas complementarias pendientes para este cliente."))}</td></tr>`}</tbody>
+            </table></div>`);
+        dialog.show();
+    } catch (error) {
+        frappe.msgprint(__("No se pudieron consultar los registros relacionados. Revise sus permisos o vuelva a intentar."));
+    } finally {
+        button.prop("disabled", false);
+    }
 }
 
 function accountingBalanceSummary(totals) {
@@ -178,6 +226,9 @@ async function loadAccountingClientSummary(frm) {
         wrapper.on("click.cnClientSummary", ".cn-client-prev", () => { page--; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-next", () => { page++; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-refresh", () => loadAccountingClientSummary(frm));
+        wrapper.on("click.cnClientSummary", ".cn-client-related", function () {
+            showAccountingRelatedRecords(frm, this.dataset.sourceRow, $(this));
+        });
         render();
     } catch (error) {
         if (!current()) return;
