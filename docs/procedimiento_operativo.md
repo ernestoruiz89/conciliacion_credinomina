@@ -395,7 +395,7 @@ Control posterior: la aplicación retirada debe volver a mostrar su pendiente, e
 
 ### Corregir datos de un depósito confirmado
 
-Use **Corregir datos** para rectificar empresa pagadora, fecha del depósito o referencia en un depósito confirmado, si cuenta con permiso de escritura. Indique el motivo obligatorio y pulse **Guardar corrección**. La acción conserva los cambios y su motivo, verifica que el documento no haya cambiado en otra sesión y mantiene las validaciones de vínculos y períodos cerrados. No permite alterar libremente importes protegidos ni evita las restricciones de saldos a favor.
+Use **Corregir datos** para rectificar empresa pagadora, fecha, referencia o importe en la moneda registrada de un depósito confirmado, si cuenta con permiso de escritura. Indique el motivo obligatorio y pulse **Guardar corrección**; después use **Conciliar**. El equivalente en US$ se recalcula sin modificar el débito o crédito contable original. El importe corregido debe reflejar el efectivo recibido según el soporte bancario: una línea de crédito del asiento puede representar solo una parte del depósito. La acción conserva los cambios y su motivo, verifica que el documento no haya cambiado en otra sesión y mantiene las validaciones de vínculos, saldos a favor y períodos cerrados. No permite reducir el importe por debajo del efectivo ya distribuido o reservado.
 
 Después de guardar, revise detalle, períodos y destinos y pulse **Conciliar**. La corrección de cabecera no demuestra que la nueva distribución sea válida. Si una validación bloquea el cambio, resuelva primero los vínculos o solicite la reapertura autorizada; no fuerce la edición en la base de datos.
 
