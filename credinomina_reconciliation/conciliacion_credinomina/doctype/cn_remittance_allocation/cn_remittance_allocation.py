@@ -431,8 +431,9 @@ class CNRemittanceAllocation(Document):
 
 @frappe.whitelist(methods=["POST"])
 def correct_deposit_data(remittance_name: str, modified: str, employer: str,
-                         deposit_date: str, deposit_reference: str, reason: str):
-    """Correct submitted identity through a validated, audited server action."""
+                         deposit_date: str, deposit_reference: str, reason: str,
+                         deposit_amount=None):
+    """Correct submitted deposit data through a validated, audited server action."""
     from credinomina_reconciliation.client_credit import lock_credit_deposit
     from frappe.utils import getdate
 
@@ -446,11 +447,28 @@ def correct_deposit_data(remittance_name: str, modified: str, employer: str,
     if not all((employer, deposit_date, deposit_reference, reason)):
         frappe.throw(_("Indique empresa, fecha, referencia y motivo de la corrección."))
     frappe.get_doc("CN Employer", employer).check_permission("read")
+    corrected_amount = money(document.deposit_amount if deposit_amount is None else deposit_amount)
+    if corrected_amount <= 0:
+        frappe.throw(_("El importe del depósito debe ser mayor que cero."))
+    corrected_usd = None
+    if document.deposit_currency == "USD":
+        corrected_usd = corrected_amount
+    elif document.deposit_currency == "NIO" and decimal_value(document.fx_rate) > 0:
+        corrected_usd = money(decimal_value(corrected_amount) / decimal_value(document.fx_rate))
+    if corrected_usd is not None and corrected_usd + MONEY_EPSILON < (
+        money(document.allocated_usd) + money(document.justified_surplus_usd)
+    ):
+        frappe.throw(_("El nuevo importe es menor que el efectivo ya distribuido o reservado. Desconcilie y revise primero sus destinos y saldos a favor."))
     values = {"employer": employer, "deposit_date": getdate(deposit_date),
-              "deposit_reference": deposit_reference}
+              "deposit_reference": deposit_reference, "deposit_amount": corrected_amount}
+    def changed(field, value):
+        if field == "deposit_amount":
+            return money(document.get(field)) != value
+        return str(document.get(field) or "") != str(value)
+
     changes = ["{0}: {1} → {2}".format(field, document.get(field), value)
                for field, value in values.items()
-               if str(document.get(field) or "") != str(value)]
+               if changed(field, value)]
     if not changes:
         return {"name": document.name}
     document.update(values)
