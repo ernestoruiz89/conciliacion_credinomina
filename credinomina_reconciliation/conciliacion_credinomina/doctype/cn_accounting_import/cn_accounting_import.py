@@ -25,6 +25,7 @@ from credinomina_reconciliation.tolerance_items import (
 )
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.client_registry import (
+    ClientIndex,
     enrich_source_import_clients,
     load_client_index,
     names_for_claim,
@@ -142,30 +143,52 @@ _IMPORT_EVIDENCE_FIELDS = (
 )
 
 
+def _source_linked_periods_batch(rows):
+    """Resolve persisted period links with bounded reads shared by all rows."""
+    rows = list(rows)
+    periods_by_row = []
+    collection_ids, item_ids = set(), set()
+    for row in rows:
+        periods = {row.get("collection_period"), row.get("historical_period")}
+        collections = {row.get("collection_row_id")}
+        items = set()
+        for entry in _detail_entries(row.get("application_allocation_detail")):
+            if isinstance(entry, dict):
+                periods.add(entry.get("period") or entry.get("periodo"))
+                collections.add(entry.get("collection_row_id"))
+        for entry in _detail_entries(row.get("allocation_detail")):
+            if isinstance(entry, dict):
+                periods.add(entry.get("periodo") or entry.get("period"))
+                items.add(entry.get("partida"))
+        collections.discard(None)
+        collections.discard("")
+        items.discard(None)
+        items.discard("")
+        collection_ids.update(collections)
+        item_ids.update(items)
+        periods_by_row.append((periods, collections, items))
+
+    def parents(doctype, names, field):
+        result = {}
+        ordered = sorted(names)
+        for offset in range(0, len(ordered), 500):
+            result.update({record.name: record.get(field) for record in frappe.get_all(
+                doctype, filters={"name": ["in", ordered[offset:offset + 500]]},
+                fields=["name", field], limit_page_length=0,
+            )})
+        return result
+
+    collection_periods = parents("CN Collection Row", collection_ids, "parent")
+    item_periods = parents("CN Complementary Item", item_ids, "period")
+    return [sorted(period for period in (
+        direct | {collection_periods.get(name) for name in collections}
+        | {item_periods.get(name) for name in items}
+    ) if period) for direct, collections, items in periods_by_row]
+
+
 def _source_linked_periods(row):
     """Resolve all persisted period links, not only the first payroll half."""
-    periods = {row.get("collection_period"), row.get("historical_period")}
-    for entry in _detail_entries(row.get("application_allocation_detail")):
-        if isinstance(entry, dict):
-            periods.add(entry.get("period") or entry.get("periodo"))
-            collection_row_id = entry.get("collection_row_id")
-            if collection_row_id:
-                periods.add(frappe.db.get_value(
-                    "CN Collection Row", collection_row_id, "parent"
-                ))
-    for entry in _detail_entries(row.get("allocation_detail")):
-        if not isinstance(entry, dict):
-            continue
-        periods.add(entry.get("periodo") or entry.get("period"))
-        if entry.get("partida"):
-            periods.add(frappe.db.get_value(
-                "CN Complementary Item", entry["partida"], "period"
-            ))
-    if row.get("collection_row_id"):
-        periods.add(frappe.db.get_value(
-            "CN Collection Row", row.collection_row_id, "parent"
-        ))
-    return sorted(period for period in periods if period)
+    return _source_linked_periods_batch([row])[0]
 
 
 class CNAccountingImport(Document):
@@ -263,16 +286,29 @@ class CNAccountingImport(Document):
         self._assert_no_closed_period_links(candidates)
 
     def _assert_no_closed_period_links(self, rows):
-        for row in rows:
-            linked_periods = set(_source_linked_periods(row))
+        rows = list(rows)
+        linked = _source_linked_periods_batch(rows)
+        period_names = set()
+        for row, periods in zip(rows, linked):
+            period_names.update(periods)
             # New application rows inherit the import's historical period at
             # reconciliation time, even before a row-level link is persisted.
             if row.get("event_type") == "Aplicacion" and self.historical_period:
+                period_names.add(self.historical_period)
+        closed = set()
+        ordered = sorted(period_names)
+        for offset in range(0, len(ordered), 500):
+            closed.update(frappe.get_all(
+                "CN Reconciliation Period",
+                filters={"name": ["in", ordered[offset:offset + 500]], "status": "Cerrado"},
+                pluck="name", limit_page_length=0,
+            ))
+        for row, periods in zip(rows, linked):
+            linked_periods = set(periods)
+            if row.get("event_type") == "Aplicacion" and self.historical_period:
                 linked_periods.add(self.historical_period)
             for period_name in sorted(linked_periods):
-                if frappe.db.get_value(
-                    "CN Reconciliation Period", period_name, "status"
-                ) == "Cerrado":
+                if period_name in closed:
                     frappe.throw(_(
                         "La importación {0} contiene la fila {1} vinculada al período "
                         "cerrado {2}. Use Reabrir período antes de cambiar sus datos "
@@ -533,11 +569,13 @@ def _import_source_file(import_name: str):
             frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
         if document.bulk_source_hash:
             _validate_bulk_reimport(document, parsed)
+        client_index = ClientIndex() if any(row.get("event_type") == "Aplicacion" for row in parsed) else None
         parsed = enrich_accounting_records(
             parsed, document.portfolio_snapshot,
             "" if document.employer == UNIDENTIFIED_EMPLOYER else document.employer,
+            client_index=client_index,
         )
-        parsed = enrich_source_import_clients(parsed)
+        parsed = enrich_source_import_clients(parsed, client_index=client_index)
     except SourceFileError as exc:
         document.status = "Fallido"
         document.notes = str(exc)
@@ -546,12 +584,13 @@ def _import_source_file(import_name: str):
 
     # Do not reclassify/remove a previously linked application behind the user's back.
     new_application_keys = {row["source_key"] for row in parsed if row["event_type"] == "Aplicacion"}
-    for row in document.rows or []:
-        if row.event_type == "Aplicacion" and row.source_key not in new_application_keys:
-            if (_source_linked_periods(row) or flt(row.historical_remitted_usd)
-                    or row.application_allocation_detail not in (None, "", "[]")
-                    or _has_application_adjustment_link(row.name)):
-                frappe.throw(_("La fila {0} ya tiene vínculos de conciliación. Revise y retire esos vínculos antes de reclasificarla o eliminarla al recargar.").format(row.idx))
+    removed_applications = [row for row in document.rows or []
+                            if row.event_type == "Aplicacion" and row.source_key not in new_application_keys]
+    for row, linked_periods in zip(removed_applications, _source_linked_periods_batch(removed_applications)):
+        if (linked_periods or flt(row.historical_remitted_usd)
+                or row.application_allocation_detail not in (None, "", "[]")
+                or _has_application_adjustment_link(row.name)):
+            frappe.throw(_("La fila {0} ya tiene vínculos de conciliación. Revise y retire esos vínculos antes de reclasificarla o eliminarla al recargar.").format(row.idx))
     adjustments = [row for row in parsed if row["event_type"] == "Ajuste"]
     if adjustments:
         from credinomina_reconciliation.accounting_review import create_review_items, plan_review_items

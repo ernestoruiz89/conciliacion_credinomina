@@ -308,7 +308,8 @@ def _register_portfolio_client(record, portfolio, client_index, allow_create=Tru
     return client_index
 
 
-def enrich_accounting_records(records, selected_snapshot="", employer="", *, register_clients=True):
+def enrich_accounting_records(records, selected_snapshot="", employer="", *, register_clients=True,
+                              client_index=None):
     """Enrich payment movements by loan or client number using the dated cut.
 
     A monthly cut applies to movements in that same month even when the report
@@ -382,7 +383,8 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
     row_indexes = {
         name: _load_snapshot_rows(name, employer) for name in used_snapshots
     }
-    return _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes, register_clients=register_clients)
+    return _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes,
+                                          register_clients=register_clients, client_index=client_index)
 
 
 def index_portfolio_rows(rows):
@@ -409,8 +411,8 @@ def refresh_accounting_portfolio(records, snapshot, *, index=None):
                                           {snapshot.name: index}, register_clients=False)
 
 
-def _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes, *, register_clients):
-    client_index = None
+def _enrich_from_portfolio_indexes(records, snapshot_by_record, row_indexes, *, register_clients,
+                                   client_index=None):
     employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,

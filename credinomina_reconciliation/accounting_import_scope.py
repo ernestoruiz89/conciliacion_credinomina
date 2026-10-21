@@ -6,8 +6,8 @@ from frappe import _
 def linked_periods(document):
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
     names = {document.historical_period}
-    for row in document.rows or []:
-        names.update(engine._source_linked_periods(row))
+    for periods in engine._source_linked_periods_batch(document.rows or []):
+        names.update(periods)
     return sorted(names - {None, ""})
 
 
