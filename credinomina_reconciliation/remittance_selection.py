@@ -227,6 +227,17 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
                  display_date(period.cutoff_date or period.payroll_month))
         return f"{dates} · {period.name}"
 
+    def period_date(period):
+        if not period:
+            return ""
+        if period.historical_scope == "Fecha exacta":
+            value = period.historical_application_date or period.payroll_month
+        elif period.historical_scope == "Rango de fechas":
+            value = period.historical_start_date or period.payroll_month
+        else:
+            value = period.cutoff_date or period.payroll_month
+        return str(value or "")
+
     def identity(row):
         return {
             **{key: row.get(key) or "" for key in (
@@ -248,7 +259,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
             if not row.row_key or not requested({"period": period.name, "row_key": row.row_key}):
                 continue
             candidates.append({**identity(row), "employer": period.employer, "kind": "Cobranza", "period": period.name,
-                "period_label": period_label(period), "filter_period": period.name,
+                "period_label": period_label(period), "period_date": period_date(period), "filter_period": period.name,
                 "row_key": row.row_key, "reference": row.application_reference or "",
                 "applied_usd": float(max(money(row.applied_usd) - direct_amounts[row.name], 0)),
                 "due_usd": float(max(money(row.applied_usd) - direct_amounts[row.name]
@@ -265,7 +276,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
                 continue
             candidates.append({**identity(row), "employer": period.employer, "kind": "Aplicación histórica" if period.reconciliation_mode == "Historica" else "Aplicación del core",
                 "historical_application": row.name, "filter_period": period.name,
-                "period_label": period_label(period),
+                "period_label": period_label(period), "period_date": period_date(period),
                 "applied_usd": net_application_amount(row),
                 "reference": " · ".join(str(v) for v in [row.reference, row.voucher, row.receipt] if v),
                 "due_usd": float(money(net_application_amount(row)) + min(money(row.rounding_adjustment_usd), money(0)))})
@@ -286,6 +297,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
             "complementary_item": item.name,
             "generic_distribution": bool(item.get("generic_distribution")),
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
+            "period_date": period_date(period),
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
             "due_usd": float(money(item.amount_usd))})
     if detail_row and detail_client:
@@ -337,6 +349,11 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         if candidate.get('historical_application'):
             candidate['due_usd'] = float(max(money(candidate['due_usd']) - credit_paid[candidate['historical_application']], money(0)))
     result = pending_selection(candidates, deposits, doc.name, money(doc.amount_usd) - reserved_credit, targets)
+    result["rows"].sort(key=lambda row: (
+        not bool(row.get("period_date")), row.get("period_date") or "",
+        row.get("filter_period") or "", row.get("client_name") or "",
+        row.get("loan_number") or "", row.get("kind") or "", row["id"],
+    ))
     result["reserved_cents"] += int(reserved_credit * 100)
     result["employer"] = doc.employer
     result["allowed_employers"] = allowed
