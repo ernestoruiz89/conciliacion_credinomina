@@ -1,4 +1,4 @@
-"""Pending deposits and complementary items for one client in an import."""
+"""Pending applications, deposits, and complementary items for an import client."""
 
 from collections import defaultdict
 
@@ -61,6 +61,57 @@ def _visible_named_rows(doctype, employer, fields, identity, matches, *, include
             for row in records(doctype, filters={'employer': employer, 'docstatus': ['!=', 2], field: value}, fields=fields):
                 found[row.name] = row
     return [row for row in found.values() if _matches(row, identity, *matches)]
+
+
+def _application_rows(employer, identity):
+    """Pending application rows from imports the caller may read."""
+    fields = ['name', 'parent', 'source_row', 'event_date', 'reference', 'client',
+              'client_name', 'client_number', 'national_id', 'loan_number',
+              'amount_usd', 'net_applied_usd', 'application_adjustment_usd',
+              'historical_period', 'historical_balance_usd', 'match_status',
+              'deposit_match_status']
+    conditions = [('client_number', identity['number_values']),
+                  ('client', identity['clients']),
+                  ('national_id', identity['national_values']),
+                  ('client_name', identity['name_values'])]
+    candidates = {}
+    for field, values in conditions:
+        for value in values:
+            for row in frappe.get_all('CN Source Row', filters={
+                    'parenttype': 'CN Accounting Import', 'parentfield': 'rows',
+                    'event_type': 'Aplicacion', 'effective': 1, field: value},
+                    fields=fields, limit_page_length=0):
+                candidates[row.name] = row
+    matched = [row for row in candidates.values() if row.match_status != 'Ignorado'
+               and _matches(row, identity, 'client_name')]
+    parent_names = sorted({row.parent for row in matched})
+    readable = set()
+    for offset in range(0, len(parent_names), PAGE_SIZE):
+        readable.update(row.name for row in records('CN Accounting Import', filters={
+            'name': ['in', parent_names[offset:offset + PAGE_SIZE]],
+            'employer': employer, 'docstatus': ['!=', 2]}, fields=['name']))
+
+    settled = {'Depósito conciliado', 'Aplicación compensada', 'Conciliada: depósito + ajuste'}
+    result = []
+    for row in matched:
+        if row.parent not in readable or row.deposit_match_status in settled:
+            continue
+        net = money(row.net_applied_usd if row.net_applied_usd is not None else
+                    money(row.amount_usd) - money(row.application_adjustment_usd))
+        historical = bool(row.historical_period)
+        pending = money(row.historical_balance_usd) if historical else None
+        if historical and pending <= 0:
+            continue
+        if net <= 0:
+            continue
+        result.append(dict(type='Aplicación', document=row.parent,
+            date=str(row.event_date or ''), reference=row.reference or '',
+            source_row=row.source_row, row_name=row.name,
+            client_name=row.client_name or '', loan_number=row.loan_number or '',
+            amount_usd=money_float(net),
+            pending_usd=money_float(pending) if pending is not None else None,
+            status=row.deposit_match_status or 'Pendiente'))
+    return result
 
 
 def _deposit_rows(employer, identity):
@@ -156,8 +207,10 @@ def get_related_pending(import_name, source_row_name):
     document = frappe.get_doc('CN Accounting Import', import_name)
     document.check_permission('read')
     identity = _identity(document, source_row_name)
+    applications = _application_rows(document.employer, identity)
     rows = [*_deposit_rows(document.employer, identity),
             *_complementary_rows(document.employer, identity)]
+    applications.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
     rows.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
     return {'client_name': identity['client_name'], 'client_number': identity['client_number'],
-            'rows': rows}
+            'applications': applications, 'rows': rows}
