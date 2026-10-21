@@ -13,7 +13,14 @@ from credinomina_reconciliation.rounding import decimal_value, money, money_floa
 
 
 def _scope(employer=None, client=None, context=None):
-    context = frappe.parse_json(context) if isinstance(context, str) else (context or {})
+    # Form-encoded requests can turn an optional null into an empty string.
+    if isinstance(context, str):
+        try:
+            context = frappe.parse_json(context) if context.strip() else None
+        except ValueError:
+            frappe.throw(_('El origen de la consulta no es válido.'))
+    if context is None:
+        context = {}
     if not isinstance(context, dict):
         frappe.throw(_('El origen de la consulta no es válido.'))
     if context.get('import_name'):
