@@ -42,6 +42,8 @@ def frozen_cash(deposits, periods, movements):
     """Actual cash and signed tolerance coverage; planned targets reserve no cash."""
     row_ids = {(period.name, row.row_key): row.name for period in periods for row in period.collection_rows}
     allocations, coverage = [], defaultdict(lambda: money(0))
+    # Validate every stored deposit from one pass over its allocations.
+    recorded_by_deposit = defaultdict(lambda: money(0))
     for deposit in deposits:
         for entry in entries(deposit.allocation_detail):
             kind = entry.get("tipo")
@@ -59,16 +61,15 @@ def frozen_cash(deposits, periods, movements):
             allocations.append({"deposit_id": deposit.name, "claim_id": claim,
                                 "amount_usd": money_float(amount), "origin": entry.get("origen") or UNRECORDED})
             coverage[claim] += amount
+            recorded_by_deposit[deposit.name] += amount
     for movement in movements:
         coverage[movement["claim_id"]] += money(movement["consumed_residual_usd"]) - money(movement["signed_amount_usd"])
+        recorded_by_deposit[movement["deposit_id"]] += money(movement["consumed_residual_usd"])
     for deposit in deposits:
         expected = deposit.get("allocated_usd")
         if expected is None:
             continue
-        recorded = sum((money(entry["amount_usd"]) for entry in allocations if entry["deposit_id"] == deposit.name), money(0))
-        recorded += sum((money(movement["consumed_residual_usd"]) for movement in movements
-                         if movement["deposit_id"] == deposit.name), money(0))
-        if recorded != money(expected):
+        if recorded_by_deposit[deposit.name] != money(expected):
             frappe.throw(_("La distribución guardada del depósito {0} no coincide con su importe asignado. Revise ese depósito antes de continuar.").format(deposit.name))
     return allocations, coverage
 
@@ -201,7 +202,8 @@ def reconcile_deposit(document, progress=None, undo=False):
     fixed_allocations, coverage = frozen_cash(others, periods, fixed_movements)
     closed_state = {period.name: engine._operative_period_state(period) for period in periods
                     if period.reconciliation_mode != "Historica" and period.status == "Cerrado"}
-    closed_links = engine._operative_links(periods, originals, [document, *others], complements, closed_state)
+    closed_links = (engine._operative_links(periods, originals, [document, *others], complements, closed_state)
+                    if closed_state else {})
     report(35, _("Conciliando el detalle y los destinos de este depósito…"))
     pairs, registered = engine._registered_deposit_pairs(source_rows, [document])
     allocation = engine._distribute_deposits(periods, source_rows, [] if undo else pairs, complements,
@@ -232,10 +234,13 @@ def reconcile_deposit(document, progress=None, undo=False):
     active_sources = [row for row in source_rows if row.event_type == "Aplicacion" and (
         row.historical_period in affected or any(link["collection_row_id"] in active_collection_ids
                                                 for link in engine._application_allocations(row)))]
+    movements_by_application = defaultdict(list)
+    for movement in allocation["rounding_movements"]:
+        if movement.get("application_id"):
+            movements_by_application[movement["application_id"]].append(movement)
     for row in active_sources:
         rounding = [{"movimiento": movement["name"], "diferencia_usd": movement["signed_amount_usd"],
-                     "periodo": movement["period"]} for movement in allocation["rounding_movements"]
-                    if movement.get("application_id") == row.name]
+                     "periodo": movement["period"]} for movement in movements_by_application.get(row.name, ())]
         row.rounding_adjustment_usd = money_float(sum((money(item["diferencia_usd"]) for item in rounding), money(0)))
         row.rounding_movement_detail = json.dumps(rounding, ensure_ascii=False)
     report(75, _("Actualizando los saldos de los períodos afectados…"))
