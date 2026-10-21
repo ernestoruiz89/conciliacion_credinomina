@@ -267,18 +267,21 @@ def guard_source_changes(doc):
     if not previous:
         return
     current = {row.name: row for row in doc.rows or []}
-    names = [row.name for row in previous.rows or []]
-    from credinomina_reconciliation.application_adjustment_links import linked_names
-    linked = linked_names(names)
+    fields = ("event_type", "currency", "source_key", "event_date", "client_number", "loan_number")
+    candidates = []
     for old in previous.rows or []:
-        if old.name not in linked:
-            continue
         row = current.get(old.name)
-        fields = ("event_type", "currency", "source_key", "event_date", "client_number", "loan_number")
         if (not row or previous.employer != doc.employer
                 or money(old.amount) != money(row.amount)
                 or any(str(old.get(field) or "") != str(row.get(field) or "") for field in fields)):
-            frappe.throw(_("La aplicación {0} tiene partidas vinculadas. No se puede borrar ni cambiar su identidad o importe original.").format(old.name))
+            candidates.append(old.name)
+    if not candidates:
+        return
+    from credinomina_reconciliation.application_adjustment_links import linked_names
+    linked = linked_names(candidates)
+    for name in candidates:
+        if name in linked:
+            frappe.throw(_("La aplicación {0} tiene partidas vinculadas. No se puede borrar ni cambiar su identidad o importe original.").format(name))
 
 
 @frappe.whitelist(methods=["POST"])
