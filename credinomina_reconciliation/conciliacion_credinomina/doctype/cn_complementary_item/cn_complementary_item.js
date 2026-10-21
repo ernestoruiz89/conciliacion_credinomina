@@ -387,6 +387,8 @@ frappe.ui.form.on("CN Complementary Item", {
             deposit_voucher: r.message.deposit_voucher, posting_date: frm.doc.posting_date || r.message.deposit_date});
     },
     refresh(frm) {
+        window.credinominaWorkbenchHandoff?.(frm, result => frm.doc.docstatus === 1
+            ? cn_distribute_applications(frm, result) : cn_select_original_application(frm, result));
         if (frm.doc.origin_deposit) {
             frm.toolbar?.set_indicator?.();
             frm.dashboard.set_headline_alert(__("Vinculado a depósito. Se conserva como evidencia, sin saldo disponible y sin contar como partida conciliada ni pendiente. No puede utilizarse en otro depósito ni compensar otras partidas."), "blue");
@@ -1084,7 +1086,7 @@ function cn_application_direction_invalid(doc) {
         (Number(doc.source_debit || 0) !== 0 || Number(doc.source_credit || 0) <= 0);
 }
 
-async function cn_distribute_applications(frm) {
+async function cn_distribute_applications(frm, initial = null) {
     if (!frm.doc.employer) {frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return;}
     if (cn_application_direction_invalid(frm.doc)) {
         frappe.msgprint(__("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito."));
@@ -1121,6 +1123,13 @@ async function cn_distribute_applications(frm) {
                 const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
                     args: {item_name: frm.doc.name, accounting_import: name}});
                 if (current !== request) return;
+                if (initial && name === initial.application.document) {
+                    const candidate = (response.message || []).find(row => row.name === initial.application.row_name);
+                    if (candidate && initial.proposed_usd > 0 && initial.proposed_usd <= candidate.adjustable_usd) {
+                        selected.set(candidate.name, {application: candidate.name, amount_usd: initial.proposed_usd});
+                    }
+                    initial = null;
+                }
                 dialog.fields_dict.applications.df.data = (response.message || []).map(row => ({application: row.name,
                     client_name: row.client_name, loan_number: row.loan_number, event_date: row.event_date,
                     adjustable_usd: row.adjustable_usd, amount_usd: selected.get(row.name)?.amount_usd || 0}));
@@ -1153,9 +1162,10 @@ async function cn_distribute_applications(frm) {
         } finally {busy = false; dialog.enable_primary_action();}
     }});
     dialog.show();
+    if (initial) await dialog.set_value("accounting_import", initial.application.document);
 }
 
-async function cn_select_original_application(frm) {
+async function cn_select_original_application(frm, initial = null) {
     if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
     if (cn_application_direction_invalid(frm.doc)) {
         frappe.msgprint(__("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito."));
@@ -1201,11 +1211,14 @@ async function cn_select_original_application(frm) {
                     dialog.get_primary_btn().prop("disabled", false);
                     dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
                         <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado original US$")}</th><th>${__("Ajustes US$")}</th><th>${__("Aplicado neto US$")}</th><th>${__("Depósitos / reservas US$")}</th><th>${__("Disponible para ajuste US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${rows.map((row, index) => `<tr>
-                        <td><input type="radio" name="original_application" value="${index}" aria-label="${esc(__("Seleccionar aplicación"))}"></td>
+                        <td><input type="radio" name="original_application" value="${index}" ${initial?.application.row_name === row.name ? "checked" : ""} aria-label="${esc(__("Seleccionar aplicación"))}"></td>
                         <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td><td>${esc(frappe.datetime.str_to_user(row.event_date))}</td>
                         <td>${esc(format_currency(row.amount_usd, "USD"))}</td><td>${esc(format_currency(row.application_adjustment_usd || 0, "USD"))}</td><td>${esc(format_currency(row.net_applied_usd, "USD"))}</td><td>${esc(format_currency(row.protected_usd || 0, "USD"))}</td><td>${esc(format_currency(row.adjustable_usd || 0, "USD"))}</td><td>${esc(row.voucher)}</td></tr>`).join("")}</tbody></table></div>`);
                 }},
             {fieldtype: "HTML", fieldname: "applications"},
+            {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe del ajuste US$"), options: "USD", precision: 2,
+                default: initial?.proposed_usd || null,
+                description: __("Deje vacío para usar el máximo disponible. Puede indicar un importe menor para un ajuste parcial.")},
         ],
         primary_action_label: __("Vincular"),
         async primary_action() {
@@ -1216,12 +1229,19 @@ async function cn_select_original_application(frm) {
                 frappe.msgprint(__("Esta aplicación no tiene saldo disponible para ajustar. Revise los depósitos asignados o reservados."));
                 return;
             }
+            const maximum = Math.min(Math.abs(frm.doc.amount_usd || 0), row.adjustable_usd || 0);
+            const requested = dialog.fields_dict.amount_usd.$input.val();
+            const amount = String(requested ?? "").trim() === "" ? maximum : Number(dialog.get_value("amount_usd"));
+            if (!Number.isFinite(amount) || amount <= 0 || amount > maximum) {
+                return frappe.msgprint(__("Indique un importe positivo que no supere el disponible de la aplicación ni de la partida."));
+            }
             await frm.set_value({related_application: row.name, review_action: "Ajuste de aplicación",
-                category: "Ajuste de aplicación", application_adjustment_usd: Math.min(Math.abs(frm.doc.amount_usd || 0), row.adjustable_usd || 0)});
+                category: "Ajuste de aplicación", application_adjustment_usd: amount});
             await frm.save();
             dialog.hide();
         },
     });
     dialog.show();
     dialog.get_primary_btn().prop("disabled", true);
+    if (initial) await dialog.set_value("accounting_import", initial.application.document);
 }

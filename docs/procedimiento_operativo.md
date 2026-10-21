@@ -351,6 +351,44 @@ Una misma fila puede vincular manualmente varias aplicaciones contables con refe
 
 Si necesita vincular explícitamente una fila a aplicaciones de otros períodos abiertos, active **Permitir vínculos manuales con períodos distintos a los seleccionados** en **Asignación manual (opcional)**. Guarde y concilie. El selector inicia entonces con **Usar períodos del detalle** desmarcado. Se conservan los controles de empresa, cliente, crédito, importe y disponibilidad; la búsqueda automática y FIFO siguen limitados a los períodos seleccionados. Ampliar solamente el filtro de búsqueda no sustituye esta autorización del vínculo.
 
+### Mesa de conciliación y comprobación previa
+
+Abra **Mesa de conciliación** en el menú de Credinómina o desde el botón
+**Abrir mesa de conciliación** del modal **Registros pendientes**. También está
+disponible en `/app/mesa-conciliacion`.
+
+1. Seleccione empresa y cliente y pulse **Consultar / actualizar**. Al abrir desde
+   un registro pendiente, la mesa conserva el cliente de esa fila.
+2. Compare las **Aplicaciones pendientes** de la izquierda con los **Depósitos y
+   partidas pendientes** de la derecha. Se muestran fechas, períodos, créditos,
+   referencias, importes, pendientes y razón de diferencia. Los movimientos se
+   ordenan del más antiguo al más reciente, aunque correspondan a créditos distintos.
+3. Seleccione una aplicación y un depósito o partida. Indique un importe parcial
+   si corresponde; al dejarlo vacío se propone el máximo disponible para ese vínculo.
+4. Pulse **Comprobar selección**. La mesa vuelve a leer los saldos y las reservas;
+   muestra el importe propuesto y cuánto quedaría disponible en ambos movimientos.
+   Informa restricciones de período, FIFO, identidad, crédito, débito/crédito,
+   permisos y asignaciones existentes. Un saldo que no puede determinarse aparece
+   como **—**; una comprobación bloqueada no muestra una proyección de conciliación.
+5. Revise los avisos de referencias o meses distintos y las distribuciones parciales.
+   La comprobación evalúa el vínculo seleccionado; otras filas del depósito pueden
+   seguir pendientes de revisión.
+6. Pulse **Continuar en el depósito** o **Continuar en la partida**. Dentro del
+   formulario, abra **Mesa de conciliación → Continuar selección de la mesa**.
+   Se comprueba nuevamente la propuesta y se abre el selector habitual con la
+   aplicación y el importe propuestos. Revise y acepte la selección.
+7. En un depósito, agregue el destino, guarde y pulse **Conciliar**. En una partida
+   en borrador, guarde el vínculo y confirme el ajuste; en un ajuste confirmado,
+   revise y confirme la distribución adicional. Actualice la mesa para consultar
+   los pendientes resultantes.
+
+La consulta y la comprobación previa no guardan asignaciones ni reservan dinero.
+Otra persona puede modificar la disponibilidad después de consultarla; los
+formularios conservan sus validaciones al guardar y conciliar. La propuesta se
+mantiene durante la navegación en la misma pestaña; si recarga el navegador,
+vuelva a seleccionarla desde la mesa. Las partidas en borrador que ya tienen una
+distribución se revisan directamente en su formulario.
+
 ### Conciliar varias aplicaciones de una persona
 
 Si una fila de Juan indica US$110.51 y existen dos aplicaciones pendientes del mismo cliente y crédito de US$50.25 y US$60.26, seleccione sus períodos y cargue el detalle. La suma exacta permite un cruce automático cuando el conjunto es único y pasa los controles de identidad. Revise que ambas aplicaciones aparezcan en la distribución.

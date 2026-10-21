@@ -180,6 +180,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.set_query("employer", "targets", () => ({ filters: { name: ["in", frm.paying_companies || [frm.doc.employer]] } }));
     },
     refresh(frm) {
+        window.credinominaWorkbenchHandoff?.(frm, result => openWorkbenchDepositSelection(frm, result));
         if (frm.doc.cash_identity_status === "Origen vinculado" || frm.doc.consolidated_deposit) {
             frm.dashboard.set_headline_alert(__("Este documento conserva un origen contable; no representa otro efectivo. Consulte el depósito vinculado."), "blue");
             frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.consolidated_deposit));
@@ -1598,6 +1599,23 @@ async function loadPendingRemittanceTargets(frm, detailRowName = "", selectedIds
         freeze_message: __("Consultando partidas pendientes…"),
     });
     return response.message;
+}
+
+async function openWorkbenchDepositSelection(frm, result) {
+    const detailName = result.source.row_name || "";
+    const detail = (frm.doc.detail_rows || []).find(row => row.name === detailName);
+    if (detailName && !detail) return frappe.msgprint(__("La fila cambió. Actualice la mesa de conciliación."));
+    const data = await loadPendingRemittanceTargets(frm, detailName, [JSON.stringify(["H", result.application.row_name])]);
+    const candidate = data.rows.find(row => row.historical_application === result.application.row_name);
+    if (!candidate) return frappe.msgprint(__("La aplicación ya no está disponible. Actualice la mesa de conciliación."));
+    const picker = new RemittanceTargetPicker(frm, data, detail);
+    const cents = Number(toScaledInteger(result.proposed_usd, 2));
+    if (cents > 0 && cents <= candidate.pending_cents && cents <= picker.available_cents) {
+        picker.selected.set(candidate.id, cents);
+        picker.render();
+    } else {
+        frappe.msgprint(__("El disponible cambió. Revise el importe en el selector antes de agregar el destino."));
+    }
 }
 
 class RemittanceTargetPicker {
