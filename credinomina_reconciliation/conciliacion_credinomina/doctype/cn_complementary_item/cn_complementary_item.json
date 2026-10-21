@@ -156,7 +156,7 @@
     {"description": "Opcional para conciliar el deposito; necesaria si la partida cubre una cuota concreta.", "fieldname": "employer", "fieldtype": "Link", "label": "Empresa", "options": "CN Employer", "in_list_view": 1, "in_standard_filter": 1, "search_index": 1},
     {"fieldname": "period", "fieldtype": "Link", "label": "Periodo de planilla", "options": "CN Reconciliation Period"},
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente"},
-    {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito"},
+    {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Credito", "allow_on_submit": 1, "description": "Puede corregirlo en una partida de depósito confirmada si sus vínculos son compatibles y los períodos están abiertos. Después guarde y concilie el depósito."},
     {"fieldname": "installment_number", "fieldtype": "Data", "label": "Nro. cuota"},
     {"fieldname": "generic_section", "fieldtype": "Section Break", "label": "Distribución genérica", "collapsible": 1},
     {"fieldname": "generic_distribution", "fieldtype": "Check", "label": "Partida genérica de distribución manual", "default": "0", "description": "Un solo importe compartido entre varios clientes o depósitos. No se reparte automáticamente ni reduce aplicaciones del core. Deje cliente y crédito vacíos; distribuya los importes en los destinos del depósito."},

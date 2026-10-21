@@ -211,6 +211,8 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def before_update_after_submit(self):
+        from credinomina_reconciliation.complementary_loan_correction import validate_submitted_loan
+        validate_submitted_loan(self, self.get_doc_before_save())
         self.validate()
 
     def on_cancel(self):

@@ -534,6 +534,15 @@ La referencia sola no prueba que una partida pertenezca a un cliente. Conserve l
 
 ### Elegir el tratamiento de una complementaria
 
+Puede completar o corregir **Nro. Crédito** en una partida de depósito ya confirmada,
+sin volverla a borrador. Abra la partida, indique el crédito que corresponde según
+su respaldo y guarde. Después vuelva al depósito y pulse **Conciliar**. El cambio
+queda en el historial del documento. La app valida los créditos de las filas
+vinculadas y los períodos cerrados; los saldos a favor, ajustes de aplicación,
+compensaciones, CxC al Empleado y movimientos usados como evidencia conservan
+sus controles de identidad. Una asignación automática a otro crédito requiere
+desconciliar primero el depósito.
+
 Ruta: **Conciliación Credinómina → Diferencias y seguimiento → Partida Complementaria** o `/app/cn-complementary-item`.
 
 | Situación | Tratamiento | Efecto que debe revisar |
@@ -1204,6 +1213,20 @@ Verifique que guardó y pulsó el botón de carga de ese documento. Consulte el 
 Revise crédito normalizado, corte elegido y Nro. Cliente del core. Luego revise nombre oficial y alias comprobados de empresa. NO IDENTIFICADA es una cola de revisión, no un convenio definitivo. Corregir una empresa exige evidencia y una revisión de vínculos antes de recalcular.
 
 ### Los destinos suman el depósito pero dice Revisar detalle
+
+Consulte **Qué falta para conciliar**, debajo del resumen del depósito y en el
+mensaje mostrado al terminar **Conciliar**. Incluye fila, cliente y crédito, el
+documento de destino que falla y el dato que debe revisarse. Por ejemplo:
+**Partida CN-COMP-2026-00502: Falta el número de crédito del destino; la fila
+requiere 0011685-1**. Si los importes vinculados no cuadran, muestra cuánto suman,
+cuánto requiere la fila y la diferencia. El botón **Revisar** lleva al detalle,
+destinos o períodos correspondientes.
+
+Los motivos corresponden a la última conciliación. Después de instalar esta
+actualización o corregir datos, guarde y pulse **Conciliar** para obtener el
+diagnóstico actualizado. Una fila puede seguir en revisión aunque el depósito
+esté distribuido por completo: la suma de instrucciones no prueba que cliente,
+crédito, período e identidad sean compatibles.
 
 Compruebe que cada fila esté vinculada a sus destinos y que identidad e importes coincidan. Si la fila incluye un ingreso o saldo a favor, explique esa porción en su vínculo; si el concepto es externo al detalle por cliente, no lo agregue artificialmente a una persona. El resultado financiero y la validación del detalle son controles distintos.
 

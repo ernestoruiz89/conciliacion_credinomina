@@ -452,6 +452,11 @@ frappe.ui.form.on("CN Complementary Item", {
         for (const field of ["category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period", "client_number", "loan_number", "description"]) {
             frm.set_df_property(field, "read_only", compensated || frm.doc.receivable_origin ? 1 : 0);
         }
+        const editableLoan = !frm.doc.generic_distribution && !frm.doc.registration_exception
+            && frm.doc.subcategory_effect !== "CxC al Empleado" && frm.doc.review_action === "Partida de depósito"
+            && ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"].includes(frm.doc.category);
+        frm.set_df_property("loan_number", "read_only", compensated || frm.doc.receivable_origin
+            || frm.doc.docstatus === 1 && !editableLoan ? 1 : 0);
         if (compensated) frm.set_df_property("reference", "read_only", 1);
         if (!frm.is_new() && (betweenItems || compensated)) {
             frm.add_custom_button(__("Consultar saldo a fecha"), () => cn_compensation_balance_dialog(frm));

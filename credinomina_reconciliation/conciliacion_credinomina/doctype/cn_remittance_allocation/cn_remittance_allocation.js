@@ -423,7 +423,8 @@ async function reconcileRemittance(frm) {
                 ${__("Conciliadas")}: ${escape(result.detail_matched || 0)} ·
                 ${__("Pendientes")}: ${escape(result.detail_pending || 0)}</p>
                 <p>${__("Destinos")}: ${escape(result.targets || 0)}</p>
-                <p>${__("Períodos afectados")}: ${escape((result.periods || []).join(", ") || "—")}</p>`,
+                <p>${__("Períodos afectados")}: ${escape((result.periods || []).join(", ") || "—")}</p>
+                ${remittanceIssuesHtml(frm.doc)}`,
         });
     } finally {
         frappe.realtime.off(event, onProgress);
@@ -1432,6 +1433,62 @@ function updateDetailPendingAmounts(frm) {
     if (changed && frm.refresh_field) frm.refresh_field("detail_rows");
 }
 
+function remittanceIssues(doc, dirty = false) {
+    if (doc.docstatus === 2) return [];
+    const issues = [];
+    const add = (text, field = "detail_rows") => issues.push({text, field});
+    if (dirty) add("Hay cambios sin guardar. Guarde y use Conciliar para actualizar los motivos mostrados.", "targets");
+    if (doc.docstatus !== 1) add("Confirme el depósito para que pueda participar en la conciliación.", "deposit_amount");
+    const rows = doc.detail_rows || [], targets = doc.targets || [];
+    if (!rows.length && !targets.length) add("Cargue el detalle por cliente o seleccione destinos para explicar el depósito.", "detail_file");
+    if (doc.apply_fifo && rows.length && !(doc.detail_periods || []).some(row => row.period)) {
+        add("FIFO necesita al menos un período seleccionado en Períodos a conciliar.", "detail_periods");
+    }
+    for (const row of rows) {
+        if (["Conciliada", "No deducido"].includes(row.match_status)) continue;
+        const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
+            row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
+        add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
+    }
+    const hints = {
+        "Falta deposito o cobranza": "El destino no está disponible como partida vigente. Revise que esté confirmado, tenga período y conserve saldo.",
+        "Empresa no autorizada": "La empresa del destino no está autorizada para este depósito. Revise empresa pagadora y beneficiaria.",
+        "Importe invalido": "Revise el importe del destino; debe ser válido para el tipo de movimiento.",
+        "Excede deposito": "El importe del destino supera el efectivo disponible del depósito. Revise las otras asignaciones y los saldos a favor reservados.",
+        "Excede cobranza": "El importe supera el pendiente disponible de la aplicación o partida. Revise pagos y reservas existentes.",
+        "Excede cobranza o partida complementaria": "La suma asignada supera el pendiente del destino. Revise importes y otras asignaciones.",
+    };
+    for (const target of targets) {
+        const label = target.complementary_item || target.historical_application || [target.period, target.row_key].filter(Boolean).join(" / ") || "sin seleccionar";
+        if (!target.complementary_item && !target.historical_application && !(target.period && target.row_key)) {
+            add(`Destino ${target.idx || "—"}: seleccione una aplicación o partida válida.`, "targets");
+        } else if (target.result && target.result !== "Aplicada") {
+            add(`Destino ${label}: ${hints[target.result] || target.result}`, "targets");
+        }
+    }
+    const cash = remittanceCashAmounts(doc);
+    if (doc.docstatus === 1 && Number.isFinite(cash.pending) && cash.pending !== 0) {
+        add(cash.pending > 0
+            ? `Quedan US$ ${remittanceMoney(cash.pending)} sin distribuir. Complete los destinos o documente el excedente según su tratamiento real.`
+            : `La distribución supera el depósito en US$ ${remittanceMoney(-cash.pending)}. Revise los importes asignados.`, "targets");
+    }
+    if (!issues.length && !remittancePresentation(doc).reconciled && doc.docstatus === 1) {
+        add("Pulse Conciliar para actualizar la validación y el estado del depósito.", "targets");
+    }
+    return issues;
+}
+
+function remittanceIssuesHtml(doc, dirty = false, interactive = false) {
+    const issues = remittanceIssues(doc, dirty);
+    if (!issues.length) return "";
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    return `<div class="alert alert-warning" style="margin-top:16px"><strong>${esc(__("Qué falta para conciliar"))}</strong>
+        <p class="small">${esc(__("Motivos de la última conciliación. Al corregir los datos, guarde y vuelva a Conciliar."))}</p>
+        <ul style="padding-left:20px;margin-bottom:0">${issues.slice(0, 25).map(issue => `<li style="margin-bottom:6px">${esc(issue.text)}
+            ${interactive ? `<button type="button" class="btn btn-default btn-xs" data-cn-issue-field="${esc(issue.field)}">${esc(__("Revisar"))}</button>` : ""}</li>`).join("")}</ul>
+        ${issues.length > 25 ? `<p>${esc(__("Hay {0} motivos adicionales. Consulte las filas del detalle y sus destinos.", [issues.length - 25]))}</p>` : ""}</div>`;
+}
+
 function renderRemittanceOverview(frm) {
     updateDetailPendingAmounts(frm);
     if (!frm.dashboard || !frm.$wrapper) return;
@@ -1459,6 +1516,7 @@ function renderRemittanceOverview(frm) {
     </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = créditos + partidas complementarias + sin distribuir. Las partidas incluyen saldos a favor documentados."))}
         ${confirmed && cash.credit ? `${escape(__("Saldo a favor documentado"))}: US$ ${remittanceMoney(cash.credit)}.` : ""}</p>
     <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}</p>
+    ${remittanceIssuesHtml(frm.doc, frm.is_dirty(), true)}
     ${state.result !== frm.doc.result && confirmed ? `<details class="text-muted"><summary>${escape(__("Resultado guardado (auditoría)"))}</summary><p>${escape(frm.doc.result || __("Pendiente"))}. ${escape(__("Se conserva el resultado registrado; el estado mostrado arriba considera la distribución y los saldos a favor documentados."))}</p></details>` : ""}
     <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>
     ${next ? `<button type="button" class="btn btn-primary btn-sm cn-deposit-next">${escape(__(next.label))}</button>` : ""}`;
@@ -1470,6 +1528,9 @@ function renderRemittanceOverview(frm) {
         if (!action || this.disabled) return;
         this.disabled = true;
         try {await action.run();} finally {this.disabled = false;}
+    });
+    frm.$wrapper.off("click.cn_issues", "[data-cn-issue-field]").on("click.cn_issues", "[data-cn-issue-field]", event => {
+        frm.scroll_to_field(event.currentTarget.dataset.cnIssueField);
     });
     frm.dashboard.show();
 }

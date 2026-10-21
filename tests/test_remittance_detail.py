@@ -27,6 +27,40 @@ def detail(index, **extra):
 
 
 class RemittanceDetailTests(unittest.TestCase):
+    def test_missing_complement_credit_names_the_record_and_required_credit(self):
+        row = dict(name='ROW', employer='MIDESA', client='3973', client_number='3973',
+                   national_id='0012310900006A', loan_number='0011685-1')
+        application = dict(id='H:APP', kind='H', group='MIDESA', period='P', client='3973',
+                           client_number='3973', loan_number='0011685-1', amount_usd=747.04)
+        item = dict(id='X:CN-COMP-2026-00502', kind='X', group='MIDESA', client_number='3973',
+                    loan_number='', amount_usd=26.32)
+        instructions = [dict(id='A', claim_id='H:APP', amount_usd=747.04, detail_row='ROW'),
+                        dict(id='X', claim_id=item['id'], amount_usd=26.32, detail_row='ROW')]
+        targets, reason = manual_detail_targets(row, [application, item], instructions, 773.36, 'MIDESA')
+        self.assertEqual(targets, [])
+        self.assertIn('CN-COMP-2026-00502', reason)
+        self.assertIn('Falta el número de crédito', reason)
+        self.assertIn('0011685-1', reason)
+        item['loan_number'] = '0011685-1'
+        targets, reason = manual_detail_targets(row, [application, item], instructions, 773.36, 'MIDESA')
+        self.assertEqual([target['amount_usd'] for target in targets], [747.04, 26.32])
+        self.assertIn('validados', reason)
+
+    def test_mismatch_reports_both_client_numbers_and_preserves_rejection(self):
+        row = detail(1, client_number='OTHER')
+        targets, reason = manual_detail_targets(row, [claim(1)],
+            [dict(id='T', claim_id='H:1', amount_usd=1)], 1, 'Empresa A')
+        self.assertFalse(targets)
+        self.assertIn('fila OTHER; destino 1', reason)
+
+    def test_manual_total_message_has_amounts_and_difference(self):
+        targets, reason = manual_detail_targets(detail(1), [claim(1, 10)],
+            [dict(id='T', claim_id='H:1', amount_usd=5)], 10, 'Empresa A')
+        self.assertFalse(targets)
+        self.assertIn('suman US$ 5.00', reason)
+        self.assertIn('requiere US$ 10.00', reason)
+        self.assertIn('diferencia US$ 5.00', reason)
+
     def test_usd_is_authoritative_and_nio_is_not_added(self):
         self.assertEqual(
             detail_amount_usd({"deducted_usd": 46.52, "deducted_nio": 1700}, 36.55)[0],
