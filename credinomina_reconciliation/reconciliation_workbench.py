@@ -166,7 +166,7 @@ def _deposit_check(source, application, row, errors, warnings):
         if detail is None:
             errors.append(_('La fila del depósito cambió. Actualice la mesa.'))
             return None, None
-        from credinomina_reconciliation.remittance_detail import _candidate_matches, _manual_application_identity_matches
+        from credinomina_reconciliation.remittance_detail import _candidate_mismatch, _manual_application_identity_matches
         claim = {key: row.get(key) for key in ('client_name', 'client_number', 'employee_number',
             'national_id', 'loan_number', 'installment_number')}
         claim.update(kind='H', group=period.employer, client=row.client or row.portfolio_client or candidate.get('client'),
@@ -179,8 +179,9 @@ def _deposit_check(source, application, row, errors, warnings):
                 claim[key] = claim.get(key) or client_doc.get(key)
         detail_identity = detail.as_dict()
         detail_identity['client'] = detail.client or (result.get('detail_client') or {}).get('name')
-        if not _candidate_matches(detail_identity, claim) and not _manual_application_identity_matches(detail_identity, claim, deposit.employer):
-            errors.append(_('La aplicación no coincide con los identificadores, crédito, cuota o referencia de la fila del depósito. Revise esos datos antes de vincular.'))
+        mismatch = _candidate_mismatch(detail_identity, claim)
+        if mismatch and not _manual_application_identity_matches(detail_identity, claim, deposit.employer):
+            errors.append(f"{application['document']} · {row.name}: {mismatch}")
         detail_available = _detail_available(deposit, detail, load_credits([deposit.name]))
         source['detail_available_usd'] = money_float(detail_available)
         available = min(available, detail_available)

@@ -41,11 +41,12 @@ def _same_id(left: Any, right: Any) -> bool:
     return bool(clean_text(left)) and canonical_identifier(left) == canonical_identifier(right)
 
 
-def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any], *, check_reference=True) -> bool:
+def _candidate_mismatch(row: Mapping[str, Any], claim: Mapping[str, Any], *, check_reference=True):
+    """Explain the same identity rules used for matching, without accepting more links."""
     if row.get("employer") and clean_text(row["employer"]) != clean_text(claim.get("group")):
-        return False
+        return f"La fila pertenece a {row['employer']} y el destino a {claim.get('group') or 'una empresa sin identificar'}. Revise la empresa del destino."
     if row.get("client") and claim.get("client") and row["client"] != claim["client"]:
-        return False
+        return f"El cliente vinculado no coincide: fila {row['client']}; destino {claim['client']}. Revise el cliente del destino."
     loan = clean_text(row.get("loan_number"))
     client = clean_text(row.get("client_number"))
     employee = clean_text(row.get("employee_number"))
@@ -53,25 +54,27 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any], *, chec
     has_identifier = any((loan, client, employee, national_id))
     identity_match = bool(row.get("client") and claim.get("client") and row["client"] == claim["client"])
     if loan and canonical_credit_number(loan) != canonical_credit_number(claim.get("loan_number")):
-        return False
+        if not clean_text(claim.get('loan_number')):
+            return f"Falta el número de crédito del destino; la fila requiere {loan}. Complete Nro. Crédito si corresponde a ese préstamo."
+        return f"El crédito no coincide: fila {loan}; destino {claim['loan_number']}. Revise el crédito o seleccione otro destino."
     if not has_identifier and not clean_text(row.get("client_name")):
-        return False
+        return "La fila no tiene identificadores ni nombre del cliente. Identifique al cliente en el detalle."
     if client and claim.get("client_number"):
         if not _same_id(client, claim["client_number"]):
-            return False
+            return f"El número de cliente no coincide: fila {client}; destino {claim['client_number']}. Revise los identificadores del cliente."
         identity_match = True
     if employee and claim.get("employee_number"):
         if not _same_id(employee, claim["employee_number"]):
-            return False
+            return f"El número de empleado no coincide: fila {employee}; destino {claim['employee_number']}. Revise el empleado del destino."
         identity_match = True
     if national_id and claim.get("national_id"):
         if clean_text(national_id).casefold() != clean_text(claim["national_id"]).casefold():
-            return False
+            return "La cédula del destino no coincide con la fila. Revise la identificación del cliente."
         identity_match = True
     if (client or employee or national_id) and not identity_match and (
         not loan or claim.get("client_number") or claim.get("employee_number") or claim.get("national_id")
     ):
-        return False
+        return "No hay un identificador de cliente coincidente entre la fila y el destino. Complete o verifique cliente, cédula o empleado."
     # Company details often contain only the employee's name. Use an exact
     # normalized name or registered alias in that case, but never override a
     # conflicting credit/client identifier with a name match.
@@ -81,18 +84,29 @@ def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any], *, chec
             "client_aliases": claim.get("client_names") or (),
         },
     ):
-        return False
+        return "El nombre de la fila no coincide con el cliente ni con sus alias registrados. Verifique al cliente del detalle."
     installment = row.get("installment_number")
     if installment and claim.get("installment_number") and not _same_id(
         installment, claim.get("installment_number")
     ):
-        return False
+        return f"La cuota no coincide: fila {installment}; destino {claim['installment_number']}. Revise la cuota seleccionada."
     reference = clean_text(row.get("application_reference"))
     if check_reference and reference and claim.get("kind") != "X" and reference not in {
         clean_text(value) for value in claim.get("references", ())
     }:
-        return False
-    return True
+        references = ', '.join(clean_text(value) for value in claim.get('references', ()) if clean_text(value)) or 'sin referencia'
+        return f"La referencia no coincide: fila {reference}; destino {references}. Revise la referencia y la identidad antes de vincular."
+    return None
+
+
+def _candidate_matches(row: Mapping[str, Any], claim: Mapping[str, Any], *, check_reference=True) -> bool:
+    return _candidate_mismatch(row, claim, check_reference=check_reference) is None
+
+
+def _destination_label(claim):
+    prefix, _, name = clean_text(claim.get('id')).partition(':')
+    label = {'X': 'Partida', 'H': 'Aplicación', 'C': 'Cobranza'}.get(prefix, 'Destino')
+    return f"{label} {name or claim.get('id') or 'sin identificar'}"
 
 
 def _manual_application_identity_matches(row, claim, employer):
@@ -152,13 +166,13 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         generic = bool(claim and claim.get("kind") == "X" and claim.get("manual_only"))
         groups = set(claim.get("groups") or [claim.get("group")]) if claim else set()
         if not claim or not (groups & allowed if generic else clean_text(claim.get("group")) in allowed):
-            return [], "Destino manual inexistente o de otra empresa"
+            return [], f"Destino {instruction.get('claim_id') or 'sin identificar'}: no existe como partida vigente de una empresa autorizada. Revise o retire ese destino."
         claim_period = clean_text(claim.get("period"))
         if periods and claim_period not in periods and not (claim.get("kind") == "X" and not claim_period):
             if not allow_other_periods:
-                return [], "El destino manual no pertenece a los períodos del detalle"
+                return [], f"{_destination_label(claim)}: el período {claim_period or 'sin identificar'} está fuera de los períodos del detalle. Revise Períodos a conciliar o autorice otros períodos."
             if not claim_period or claim.get("period_closed"):
-                return [], "El destino manual debe pertenecer a un período abierto"
+                return [], f"{_destination_label(claim)}: el período no está abierto. Reabra o corrija el período antes de vincular."
             other_periods.add(claim_period)
         if generic:
             company = clean_text(row.get("employer")) or (next(iter(groups & allowed)) if len(groups & allowed) == 1 else "")
@@ -171,16 +185,18 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
             unidentified_complements.append(claim["id"].removeprefix("X:"))
         elif not _candidate_matches(row, claim):
             if not _manual_application_identity_matches(row, claim, employer):
-                return [], "El destino manual no coincide con la identidad o referencia de la fila; revise cliente, crédito y alias"
+                return [], f"{_destination_label(claim)}: {_candidate_mismatch(row, claim)}"
             different_references.append(claim["id"].removeprefix("H:"))
-        if (not money(instruction["amount_usd"]) or
-                (money(instruction["amount_usd"]) < 0 and claim.get("kind") != "X")):
-            return [], "Solo las partidas complementarias admiten importes negativos"
+        if not money(instruction['amount_usd']):
+            return [], f"{_destination_label(claim)}: indique un importe distinto de cero para el vínculo."
+        if money(instruction['amount_usd']) < 0 and claim.get('kind') != 'X':
+            return [], f"{_destination_label(claim)}: el importe debe ser positivo; solo las partidas complementarias admiten importes negativos."
         targets.append({"claim_id": claim["id"], "amount_usd": money_float(instruction["amount_usd"]),
                         "instruction_id": instruction["id"],
                         **({"group": instruction["group"]} if generic else {})})
     if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
-        return [], "La suma de los destinos manuales vinculados debe coincidir con el importe de esta fila"
+        assigned = sum_money(target['amount_usd'] for target in targets)
+        return [], f"Los destinos vinculados suman US$ {assigned:.2f}; la fila requiere US$ {money(amount_usd):.2f}. Ajuste los importes vinculados (diferencia US$ {money(amount_usd) - assigned:.2f})."
     reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
     if different_references:
         reason += "; referencias distintas aceptadas con cliente, crédito y empresa coincidentes: " + ", ".join(
