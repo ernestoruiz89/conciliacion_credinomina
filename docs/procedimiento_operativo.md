@@ -547,6 +547,24 @@ Registre el depósito por su importe total. Distribuya la porción identificada 
 
 ## Partidas complementarias con asiento separado
 
+### Documentar la diferencia entre depósito y detalle
+
+En **Distribución de Depósito**, cuando el importe difiere del detalle cargado,
+el resumen muestra **Depósito**, **Detalle del depósito** y **Diferencia
+(depósito − detalle)**, comparados en US$. El detalle en C$ se convierte con la
+tasa del depósito, redondeando cada fila; si falta tasa, debe completarla primero.
+Una diferencia de +US$10 significa depósito mayor al detalle; −US$10 significa
+depósito menor al detalle.
+
+Pulse **Crear partida complementaria por diferencia**. El modal trae el importe
+calculado con su signo y la moneda US$ en solo lectura. Seleccione el concepto,
+la subcategoría y complete la justificación y el seguimiento que corresponda.
+La app verifica nuevamente el importe con los datos guardados antes de crear la
+partida y avisa si ya existe una partida confirmada por esa diferencia en Destinos.
+Crear la partida no concilia el depósito: revise la distribución y use **Conciliar**.
+La diferencia por sí sola no determina si corresponde una CxC, un saldo a favor
+u otro ajuste; esa clasificación se hace según su respaldo.
+
 Si la empresa deposita US$100, el core aplica US$90 al crédito y los US$10 restantes son una cobranza administrativa asentada en otro comprobante:
 
 1. Crear una **Partida Complementaria** con referencia, concepto, fecha, importe y justificación. El asiento puede completarse después; si falta, dé seguimiento con **Crear / Ver excepción → Registrar ajuste en el core** y verifique el registro contra la importación contable. Si el importe está en C$, indique la tasa C$/US$.
@@ -557,6 +575,28 @@ Si la empresa deposita US$100, el core aplica US$90 al crédito y los US$10 rest
 La referencia sola no prueba que una partida pertenezca a un cliente. Conserve la justificación y documente el comprobante cuando exista. La cabecera de la partida separa importe utilizado, pendiente financiero y situación contable: conciliar no equivale a contabilizar.
 
 ### Elegir el tratamiento de una complementaria
+
+Para aplicar una partida existente a un depósito, use **Vincular a depósito** en
+la partida o dentro de **Clasificar pendiente**:
+
+1. Seleccione el depósito confirmado. Puede buscar por identificador, referencia
+   o comprobante. La búsqueda incluye depósitos de la misma empresa y pagadoras
+   autorizadas.
+2. Revise el importe sugerido en US$ y su signo; puede indicar un importe parcial.
+   Si la partida explica el pago de un cliente del detalle, seleccione su fila.
+   El modal muestra el disponible de la partida y del depósito.
+3. Si la partida está en borrador, seleccione el concepto y la subcategoría,
+   confirme que revisó importe y signo y pulse **Confirmar y vincular**. La
+   referencia del depósito se completa automáticamente. Se conserva la magnitud
+   original de la partida y el remanente no vinculado. Si ya está confirmada,
+   pulse **Vincular**; se conserva su signo.
+4. Abra el depósito desde el enlace de la respuesta y pulse **Conciliar**.
+   El destino ya estará agregado: vincular prepara la distribución y conciliar
+   comprueba sus identidades, importes y períodos antes de aplicarla.
+
+Si la partida ya está vinculada a ese depósito, abra el depósito y revise el
+destino existente. La acción no crea otra partida ni duplica el destino. Los
+saldos a favor y ajustes de aplicación conservan sus propios procedimientos.
 
 Puede completar o corregir **Nro. Crédito** en una partida de depósito ya confirmada,
 sin volverla a borrador. Abra la partida, indique el crédito que corresponde según

@@ -180,6 +180,97 @@ function cn_unconfirm_item(frm) {
     dialog.show();
 }
 
+function cn_can_link_deposit(frm) {
+    const doc = frm.doc;
+    return !frm.is_new() && [0, 1].includes(doc.docstatus) && !!frm.get_perm(0, "write")
+        && (doc.docstatus === 1 || !!frm.get_perm(0, "submit")) && !!doc.employer
+        && ["Por clasificar", "Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"].includes(doc.category)
+        && !doc.origin_deposit && !doc.registered_deposit && !doc.registration_exception && !doc.receivable_origin
+        && !doc.related_application && !(doc.compensations || []).length && !doc.generic_distribution
+        && !(doc.docstatus === 1 && doc.review_action === "No conciliatoria")
+        && !["Aplicación de pago", "ND de Aplicación de pago"].includes(doc.accounting_classification);
+}
+
+async function cn_link_deposit(frm) {
+    if (!cn_can_link_deposit(frm)) return;
+    if (frm.is_dirty()) await frm.save();
+    const itemName = frm.doc.name, draft = frm.doc.docstatus === 0;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    let dialog, context = null, request = 0, busy = false;
+    const load = async () => {
+        const deposit = dialog.get_value("deposit");
+        const id = ++request;
+        context = null;
+        dialog.disable_primary_action();
+        dialog.fields_dict.preview.$wrapper.empty();
+        dialog.set_df_property("detail_row", "options", [{value: "", label: __("Sin vincular a una fila del detalle")}]);
+        await dialog.set_value("detail_row", "");
+        if (!deposit) return;
+        dialog.fields_dict.preview.$wrapper.html(`<p>${esc(__("Consultando depósito e importe disponible…"))}</p>`);
+        try {
+            const response = await frappe.call({method: "credinomina_reconciliation.complementary_deposit_link.get_context",
+                args: {item_name: itemName, deposit_name: deposit}});
+            if (id !== request || frm.doc.name !== itemName || dialog.get_value("deposit") !== deposit) return;
+            context = response.message;
+            dialog.fields_dict.preview.$wrapper.html(`<div class="alert alert-info">
+                <div>${esc(__("Depósito"))}: <a href="/app/cn-remittance-allocation/${encodeURIComponent(deposit)}" target="_blank" rel="noopener noreferrer">${esc(deposit)}</a> · ${esc(context.date)} · ${esc(context.employer)}</div>
+                <div>${esc(__("Referencia"))}: ${esc(context.reference)}</div>
+                <div>${esc(__("Importe del depósito"))}: ${esc(format_currency(context.deposit_usd, "USD", 2))}</div>
+                <div>${esc(__("Disponible de la partida"))}: ${esc(format_currency(context.available_usd, "USD", 2))}</div>
+                <div>${esc(__("Disponible del depósito"))}: ${esc(format_currency(context.cash_usd, "USD", 2))}</div>
+                ${context.existing ? `<p>${esc(__("Esta partida ya está vinculada. Abra el depósito para revisar o modificar el destino existente."))}</p>` : ""}</div>`);
+            dialog.set_df_property("detail_row", "options", [{value: "", label: __("Sin vincular a una fila del detalle")},
+                ...context.rows.map(row => ({value: row.name, label: `${row.idx}. ${row.client_name || ""} · ${row.loan_number || ""} · ${format_currency(row.amount_usd, "USD", 2)}`}))]);
+            await dialog.set_value("amount_usd", context.suggested_usd || null);
+            if (!context.existing && context.available_usd > 0) dialog.enable_primary_action();
+        } catch (error) {
+            if (id !== request) return;
+            context = null;
+            dialog.fields_dict.preview.$wrapper.html(`<p class="text-danger">${esc(__("No se pudo preparar el vínculo. Revise el mensaje y seleccione otro depósito o vuelva a intentar."))}</p>`);
+        }
+    };
+    dialog = new frappe.ui.Dialog({title: __("Vincular a depósito"), size: "large", fields: [
+        {fieldtype: "HTML", options: `<p>${esc(__("Seleccione el depósito y revise el importe con su signo. El vínculo se guarda en Destinos; use Conciliar en el depósito para aplicar y validar la distribución."))}</p>`},
+        {fieldname: "deposit", fieldtype: "Link", options: "CN Remittance Allocation", label: __("Depósito"), reqd: 1,
+            get_query: () => ({query: "credinomina_reconciliation.complementary_deposit_link.deposit_query", filters: {item_name: itemName}}), onchange: load},
+        {fieldname: "preview", fieldtype: "HTML"},
+        {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe a vincular US$ (+ / −)"), reqd: 1,
+            description: __("Puede vincular un importe parcial. Positivo consume depósito; negativo documenta un faltante. La partida confirmada conserva su signo.")},
+        {fieldname: "detail_row", fieldtype: "Select", label: __("Fila del detalle (opcional)"),
+            options: [{value: "", label: __("Sin vincular a una fila del detalle")}],
+            description: __("Seleccione la fila del cliente cuando la partida deba explicar ese pago.")},
+        ...(draft ? [
+            {fieldtype: "Section Break", label: __("Confirmación de la partida")},
+            {fieldname: "category", fieldtype: "Select", label: __("Concepto"), reqd: 1,
+                options: "Cobranza administrativa\nOtros ingresos\nAjuste de conciliación",
+                default: frm.doc.category === "Por clasificar" ? "Ajuste de conciliación" : frm.doc.category},
+            {fieldname: "subcategory", fieldtype: "Link", options: "CN Complementary Subcategory", label: __("Subcategoría"),
+                default: frm.doc.subcategory || "", depends_on: "eval:doc.category === 'Ajuste de conciliación'",
+                mandatory_depends_on: "eval:doc.category === 'Ajuste de conciliación'"},
+            {fieldname: "reviewed", fieldtype: "Check", label: __("Revisé el importe y su signo y deseo confirmar esta partida"), reqd: 1},
+        ] : []),
+    ], primary_action_label: __(draft ? "Confirmar y vincular" : "Vincular"), async primary_action(values) {
+        if (busy || !context || context.existing) return;
+        if (frm.doc.name !== itemName || frm.is_dirty()) return frappe.msgprint(__("La partida cambió. Guarde o recargue y vuelva a vincular."));
+        busy = true;
+        dialog.disable_primary_action();
+        try {
+            const response = await frappe.call({method: "credinomina_reconciliation.complementary_deposit_link.link",
+                args: {item_name: itemName, deposit_name: values.deposit,
+                    item_modified: context.item_modified, deposit_modified: context.deposit_modified,
+                    amount_usd: values.amount_usd, detail_row: values.detail_row || "", category: values.category || "",
+                    subcategory: values.subcategory || "", reviewed: Number(values.reviewed || 0)},
+                freeze: true, freeze_message: __("Vinculando partida al depósito…")});
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.msgprint({title: __("Partida vinculada"), message: `${esc(__("La partida se agregó a Destinos. Abra el depósito y use Conciliar para validar la distribución."))}<br>
+                <a href="/app/cn-remittance-allocation/${encodeURIComponent(response.message.deposit)}">${esc(response.message.deposit)}</a>`});
+        } finally { busy = false; dialog.enable_primary_action(); }
+    }});
+    dialog.show();
+    dialog.disable_primary_action();
+}
+
 function cn_classify_pending(frm) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const choices = [];
@@ -187,14 +278,10 @@ function cn_classify_pending(frm) {
     const draft = frm.doc.docstatus === 0 && !frm.doc.receivable_origin && !(frm.doc.compensations || []).length;
     if (draft) {
         add("Identificar empresa o cliente", "Complete los vínculos sin modificar la evidencia contable original.", () => frm.scroll_to_field("employer"));
-        if (!["Aplicación de pago", "ND de Aplicación de pago"].includes(frm.doc.accounting_classification)
-                && !["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category)) add("Preparar partida de depósito", "Complete concepto, empresa, referencia e importe revisado. Preparar no distribuye dinero.", async () => {
-            await frm.set_value("review_action", "Partida de depósito");
-            frm.scroll_to_field("category");
-        });
     }
     for (const [label, hint, action] of [
         ["Vincular a aplicación", "Ajuste o reversión total/parcial del core. Seleccione la aplicación real.", () => cn_select_original_application(frm)],
+        ["Vincular a depósito", "Seleccione el depósito y el importe. La partida se agrega directamente a sus destinos.", () => cn_link_deposit(frm)],
         ["Compensar con otra partida", "Vincule la contrapartida; no basta con cambiar el concepto.", () => cn_compensate_items_dialog(frm)],
         ["Aplicar cobro / Compensar CxC", "Elija el depósito o contrapartida que liquida la cuenta por cobrar.", () => cn_receivable_recovery_dialog(frm)],
         ["Crear excepción", "Documente información faltante o registro pendiente en el core con fecha compromiso.", () => cn_comp_create_exception(frm)],
@@ -444,6 +531,9 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         const compensated = (frm.doc.compensations || []).length > 0;
         const betweenItems = frm.doc.category === "Compensación entre partidas";
+        if (cn_can_link_deposit(frm)) {
+            frm.add_custom_button(__("Vincular a depósito"), () => cn_link_deposit(frm));
+        }
         const documentedCredit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category)
             && frm.doc.docstatus === 1 && frm.doc.result === "Saldo a favor documentado" && !!frm.doc.registered_deposit;
         if (documentedCredit && compensated && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
@@ -522,7 +612,7 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         if (frm.doc.accounting_source_key && frm.doc.docstatus === 0) {
             if (frm.doc.review_action === "Partida de depósito") {
-                frm.dashboard.set_headline_alert(__("Partida de depósito: revise concepto, referencia, período e importe y signo. Guarde y confirme para poder agregarla a los destinos de un depósito. No reduce ninguna aplicación."), "blue");
+                frm.dashboard.set_headline_alert(__("Use Vincular a depósito para seleccionar el depósito, revisar el importe y agregar la partida a sus destinos. Después use Conciliar en el depósito."), "blue");
                 return;
             }
             frm.dashboard.set_headline_alert(__("Vincular no afecta saldos. Para reducir una aplicación, revise el importe y use Confirmar ajuste. El movimiento original se conserva."), "orange");

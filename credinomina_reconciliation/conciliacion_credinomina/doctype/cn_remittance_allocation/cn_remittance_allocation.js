@@ -258,6 +258,8 @@ frappe.ui.form.on("CN Remittance Allocation", {
     detail_file(frm) { toggleRemittanceDetailActions(frm); renderRemittanceOverview(frm); },
     support_file: toggleRemittanceDetailActions,
     amount_usd: renderRemittanceOverview,
+    detail_total_usd: renderRemittanceOverview,
+    detail_count: renderRemittanceOverview,
     employer(frm) { loadPayingCompanies(frm); renderRemittanceOverview(frm); toggleApplicationDetailAction(frm); },
     notes: renderRemittanceOverview,
     deposit_amount: updateUsdEquivalent,
@@ -921,6 +923,12 @@ async function createCompanyCreditFromDeposit(frm) {
 
 async function createRemittanceComplementary(frm, options = {}) {
     if (frm.is_new() || frm.is_dirty()) await frm.save();
+    const fromDetailDifference = options.fromDetailDifference === true;
+    const detailDifference = fromDetailDifference ? remittanceDetailDifference(frm.doc) : null;
+    if (fromDetailDifference && (!detailDifference || detailDifference.error || !detailDifference.difference)) {
+        frappe.msgprint(detailDifference?.error || __("No hay diferencia entre el depósito y su detalle. Revise los datos guardados."));
+        return;
+    }
     const companyCredit = options.companyCredit === true;
     if (companyCredit && !canCreateCompanyCredit(frm)) {
         frm.company_credit_workflow = false;
@@ -956,6 +964,7 @@ async function createRemittanceComplementary(frm, options = {}) {
             if (companyCredit) frm.company_credit_workflow = false;
         },
         fields: [
+            ...(fromDetailDifference ? [{fieldtype: "HTML", options: remittanceDetailDifferenceHtml(frm.doc)}] : []),
             {fieldtype: "HTML", options: companyCredit ? `<p><strong>${escape(frm.doc.employer)}</strong> · ${escape(depositName)}</p>
                 <p>${sourceRow ? `${escape(sourceRow.client_name || "")} · ${escape(sourceRow.loan_number || "")} · ${escape(__("Fila"))} ${escape(sourceRow.source_row || sourceRow.idx)}<br>${__("La partida quedará vinculada a esta fila como evidencia del excedente. Su beneficiaria es la empresa; reducirá el pendiente de la fila sin aumentar el pago al crédito del cliente.")}` : __("Se sugiere el saldo sin clasificar del depósito. Confirme que pertenece a la empresa y no a un cliente. No se aplica al crédito ni se agrega a Destinos; aparecerá en la distribución completa del depósito.")}</p>
                 <p>${__("Si ya existe una partida importada de contabilidad para este saldo, vincule esa partida en lugar de crear otra. Registre justificación, responsable y fecha compromiso para su seguimiento.")}</p>` : sourceRow ? `<p><strong>${escape(sourceRow.client_name || sourceRow.client_number || "Cliente sin identificar")}</strong> · ${escape(sourceRow.loan_number || "Sin crédito")} · ${escape(__("Fila"))} ${escape(sourceRow.source_row || sourceRow.idx)}</p>
@@ -985,8 +994,10 @@ async function createRemittanceComplementary(frm, options = {}) {
             {fieldname: "posting_date", fieldtype: "Date", label: __("Fecha de la partida"), default: postingDateDefault,
                 onchange: updateCommitmentDate, reqd: 1},
             {fieldtype: "Column Break"},
-            {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", read_only: !!sourceRow || companyCredit, reqd: 1},
-            {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __(companyCredit ? "Saldo a favor US$" : "Importe (+ / −)"), precision: 2, reqd: 1},
+            {fieldname: "currency", fieldtype: "Select", label: __("Moneda"), options: "USD\nNIO", default: "USD", read_only: !!sourceRow || companyCredit || fromDetailDifference, reqd: 1},
+            {fieldname: "amount", fieldtype: "Currency", options: "currency", label: __(companyCredit ? "Saldo a favor US$" : "Importe (+ / −)"), precision: 2, reqd: 1,
+                default: detailDifference?.difference, read_only: fromDetailDifference,
+                description: fromDetailDifference ? __("Depósito menos detalle en US$. Importe calculado; conserve su signo y seleccione el tratamiento que corresponde.") : ""},
             {fieldname: "fx_rate", fieldtype: "Float", label: __("Tipo de cambio C$/US$"), precision: 8, default: frm.doc.fx_rate,
                 depends_on: "eval:doc.currency === 'NIO'", mandatory_depends_on: "eval:doc.currency === 'NIO'"},
             {fieldtype: "Section Break", label: __("Cliente y seguimiento"), depends_on: "eval:['Saldo a favor del cliente', 'Saldo a favor de la empresa', 'Cuenta por Cobrar a la Empresa'].includes(doc.category) || ['CxC a la empresa', 'CxC al Empleado'].includes(doc.subcategory_effect)"},
@@ -1044,6 +1055,15 @@ async function createRemittanceComplementary(frm, options = {}) {
         primary_action_label: __(sourceRow || companyCredit ? "Crear y confirmar saldo a favor" : "Crear y confirmar partida"),
         primary_action: async values => {
             if (busy) return;
+            if (fromDetailDifference) {
+                const current = remittanceDetailDifference(frm.doc);
+                if (frm.doc.name !== depositName || frm.is_dirty() || !current || current.error
+                        || current.difference !== detailDifference.difference) {
+                    frappe.msgprint(__("El depósito o su detalle cambió. Cierre el modal, guarde y vuelva a crear la partida por diferencia."));
+                    return;
+                }
+                values = {...values, currency: "USD", amount: detailDifference.difference};
+            }
             if (companyCredit) {
                 if (frm.doc.name !== depositName || !canCreateCompanyCredit(frm)) {
                     frappe.msgprint(__("El depósito cambió. Cierre el modal y revise el registro antes de continuar."));
@@ -1075,7 +1095,8 @@ async function createRemittanceComplementary(frm, options = {}) {
             try {
                 const response = await frappe.call({
                     method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.create_complementary_item",
-                    args: {remittance_name: frm.doc.name, modified: frm.doc.modified, values},
+                    args: {remittance_name: frm.doc.name, modified: frm.doc.modified, values,
+                        from_detail_difference: Number(fromDetailDifference)},
                     freeze: true, freeze_message: __("Creando partida complementaria…"),
                 });
                 dialog.hide();
@@ -1402,6 +1423,47 @@ function remittancePresentation(doc, dirty = false) {
     };
 }
 
+function remittanceDetailDifference(doc) {
+    const rows = doc.detail_rows || [];
+    if (!rows.length || doc.docstatus === 2) return null;
+    if (!Number.isFinite(Number(doc.amount_usd)) || Number(doc.amount_usd) <= 0) {
+        return {error: __("Complete el importe y la moneda del depósito para compararlo con su detalle.")};
+    }
+    const rate = toScaledInteger(Number(doc.fx_rate || 0).toFixed(8), 8);
+    let total = 0n;
+    for (const row of rows) {
+        const usd = toScaledInteger(row.deducted_usd, 2), nio = toScaledInteger(row.deducted_nio, 2);
+        if (usd < 0n || nio < 0n) return {error: __("Revise los importes negativos de la fila {0} del detalle.", [row.idx || row.source_row || "—"])};
+        if (usd > 0n) total += usd;
+        else if (nio > 0n) {
+            if (rate <= 0n) return {error: __("Complete la tasa C$/US$ para comparar el depósito con el detalle.")};
+            total += (nio * 100000000n + rate / 2n) / rate;
+        } else if (row.deducted_usd == null && row.deducted_nio == null) {
+            const amount = toScaledInteger(row.amount_usd, 2);
+            if (amount < 0n) return {error: __("Revise el importe de la fila {0} del detalle.", [row.idx || row.source_row || "—"])};
+            total += amount;
+        }
+    }
+    const deposit = toScaledInteger(doc.amount_usd, 2);
+    return {deposit: Number(deposit) / 100, detail: Number(total) / 100, difference: Number(deposit - total) / 100};
+}
+
+function remittanceDetailDifferenceHtml(doc, interactive = false) {
+    const data = remittanceDetailDifference(doc);
+    if (!data || !data.error && !data.difference) return "";
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    if (data.error) return `<div class="alert alert-warning" role="status">${esc(data.error)}</div>`;
+    const signed = `${data.difference > 0 ? "+" : "−"}US$ ${remittanceMoney(Math.abs(data.difference))}`;
+    return `<div class="alert alert-warning" style="margin-top:12px" role="status">
+        <strong>${esc(__("El importe del depósito es diferente al detalle"))}</strong>
+        <div>${esc(__("Depósito"))}: US$ ${esc(remittanceMoney(data.deposit))}${doc.deposit_currency === "NIO" ? ` (C$ ${esc(remittanceMoney(doc.deposit_amount))})` : ""}</div>
+        <div>${esc(__("Detalle del depósito"))}: US$ ${esc(remittanceMoney(data.detail))}</div>
+        <div><strong>${esc(__("Diferencia (depósito − detalle)"))}: ${esc(signed)}</strong></div>
+        <p class="small mt-2">${esc(__("Positiva: depósito mayor al detalle. Negativa: depósito menor al detalle. Revise el origen de la diferencia y las partidas existentes antes de documentarla."))}</p>
+        ${interactive ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Crear partida complementaria por diferencia"))}</button>` : ""}
+    </div>`;
+}
+
 function remittanceMoney(value) {
     const amount = Number(value ?? 0);
     return Number.isFinite(amount) ? amount.toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
@@ -1516,6 +1578,8 @@ function renderRemittanceOverview(frm) {
     </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = créditos + partidas complementarias + sin distribuir. Las partidas incluyen saldos a favor documentados."))}
         ${confirmed && cash.credit ? `${escape(__("Saldo a favor documentado"))}: US$ ${remittanceMoney(cash.credit)}.` : ""}</p>
     <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}</p>
+    ${remittanceDetailDifferenceHtml(frm.doc, frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write")
+        && !!frappe.model.can_create("CN Complementary Item") && !!frappe.model.can_submit("CN Complementary Item"))}
     ${remittanceIssuesHtml(frm.doc, frm.is_dirty(), true)}
     ${state.result !== frm.doc.result && confirmed ? `<details class="text-muted"><summary>${escape(__("Resultado guardado (auditoría)"))}</summary><p>${escape(frm.doc.result || __("Pendiente"))}. ${escape(__("Se conserva el resultado registrado; el estado mostrado arriba considera la distribución y los saldos a favor documentados."))}</p></details>` : ""}
     <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>
@@ -1532,6 +1596,14 @@ function renderRemittanceOverview(frm) {
     frm.$wrapper.off("click.cn_issues", "[data-cn-issue-field]").on("click.cn_issues", "[data-cn-issue-field]", event => {
         frm.scroll_to_field(event.currentTarget.dataset.cnIssueField);
     });
+    frm.$wrapper.off("click.cn_detail_difference", ".cn-create-detail-difference")
+        .on("click.cn_detail_difference", ".cn-create-detail-difference", async function () {
+            if (this.disabled || frm._detail_difference_workflow) return;
+            frm._detail_difference_workflow = true;
+            this.disabled = true;
+            try { await createRemittanceComplementary(frm, {fromDetailDifference: true}); }
+            finally { frm._detail_difference_workflow = false; this.disabled = false; }
+        });
     frm.dashboard.show();
 }
 
