@@ -1669,6 +1669,7 @@ class RemittanceTargetPicker {
             ${detailIntro}
             <p class="text-muted">Seleccione partidas y ajuste los importes si el pago es parcial.
             Puede combinar períodos; no se limita por la fecha del depósito.
+            Los resultados se ordenan por fecha del período, del más antiguo al más reciente; las partidas sin período quedan al final.
             Los saldos corresponden a la última conciliación; se excluyen períodos cerrados y destinos ya agregados.</p>`);
         this.dialog.fields_dict.search.$input.on("input", () => this.filter());
         const wrapper = this.dialog.fields_dict.items.$wrapper;
