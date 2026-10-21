@@ -1,4 +1,4 @@
-"""Pending applications, deposits, and complementary items for an import client."""
+"""Pending applications, deposits, and complementary items for an identified client."""
 
 from collections import defaultdict
 
@@ -24,10 +24,14 @@ def _identity(document, source_row_name):
         frappe.throw(_('La fila no es una aplicación efectiva de esta importación.'))
     key = _client_group_key(selected[1], selected[0])
     peers = [row for index, row in applications if _client_group_key(row, index) == key]
+    return _identity_values(selected[1], peers)
+
+
+def _identity_values(selected, peers):
     names = {str(row.client_name).strip() for row in peers if row.client_name and row.client_name != 'Sin identificar'}
     return {
-        'client_name': selected[1].client_name or _('Sin identificar'),
-        'client_number': selected[1].client_number or '',
+        'client_name': selected.client_name or _('Sin identificar'),
+        'client_number': selected.client_number or '',
         'numbers': {canonical_identifier(row.client_number) for row in peers if row.client_number},
         'number_values': {str(row.client_number).strip() for row in peers if row.client_number},
         'clients': {str(row.client) for row in peers if row.client},
@@ -207,9 +211,26 @@ def get_related_pending(import_name, source_row_name):
     document = frappe.get_doc('CN Accounting Import', import_name)
     document.check_permission('read')
     identity = _identity(document, source_row_name)
-    applications = _application_rows(document.employer, identity)
-    rows = [*_deposit_rows(document.employer, identity),
-            *_complementary_rows(document.employer, identity)]
+    return _related_pending(document.employer, identity)
+
+
+@frappe.whitelist()
+def get_related_pending_for_remittance(remittance_name, detail_row_name):
+    document = frappe.get_doc('CN Remittance Allocation', remittance_name)
+    document.check_permission('read')
+    detail = next((row for row in document.detail_rows or [] if row.name == detail_row_name), None)
+    if detail is None:
+        frappe.throw(_('La fila no pertenece a este depósito.'))
+    identity = _identity_values(detail, [detail])
+    if not any((identity['numbers'], identity['clients'], identity['national_ids'], identity['names'])):
+        frappe.throw(_('Identifique al cliente de esta fila antes de consultar sus pendientes.'))
+    return _related_pending(detail.employer or document.employer, identity)
+
+
+def _related_pending(employer, identity):
+    applications = _application_rows(employer, identity)
+    rows = [*_deposit_rows(employer, identity),
+            *_complementary_rows(employer, identity)]
     applications.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
     rows.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
     return {'client_name': identity['client_name'], 'client_number': identity['client_number'],
