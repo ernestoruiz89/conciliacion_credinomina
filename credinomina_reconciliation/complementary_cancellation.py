@@ -151,8 +151,14 @@ def _load_imports(periods, deposits, applications, companies):
         parents.update(frappe.get_all("CN Source Row", filters={
             "parenttype": "CN Accounting Import", **filters,
         }, pluck="parent", limit_page_length=0))
-    documents = [frappe.get_doc("CN Accounting Import", name) for name in sorted(parents)
-                 if frappe.db.get_value("CN Accounting Import", name, "status") in {"Importado", "Importado con excepciones"}]
+    active = set()
+    ordered = sorted(parents)
+    for offset in range(0, len(ordered), 500):
+        active.update(frappe.get_all("CN Accounting Import", filters={
+            "name": ["in", ordered[offset:offset + 500]],
+            "status": ["in", ["Importado", "Importado con excepciones"]],
+        }, pluck="name", limit_page_length=0))
+    documents = [frappe.get_doc("CN Accounting Import", name) for name in ordered if name in active]
     engine = _engine()
     for company in sorted(companies):
         engine._company_imports(documents, company)

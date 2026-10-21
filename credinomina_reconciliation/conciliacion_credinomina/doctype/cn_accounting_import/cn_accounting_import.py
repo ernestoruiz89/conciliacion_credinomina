@@ -739,12 +739,15 @@ def _company_imports(imports, employer):
     for document in imports:
         belongs = document.get("employer") == employer
         related = {period_employers.get(document.historical_period)}
-        for row in document.rows:
+        source_rows = list(document.rows)
+        applications = [row for row in source_rows if row.event_type != "Deposito"]
+        linked = dict(zip((id(row) for row in applications), _source_linked_periods_batch(applications)))
+        for row in source_rows:
             related.add(row.get("portfolio_employer") or employer_resolver.resolve(row)[0])
             # Deposit allocations can pay authorized beneficiaries. They do not
             # change the company that owns this accounting movement.
             if row.event_type != "Deposito":
-                related.update(period_employers.get(name) for name in _source_linked_periods(row))
+                related.update(period_employers.get(name) for name in linked[id(row)])
         related.discard(None)
         related.discard("")
         if (belongs and related - {employer}) or (not belongs and employer in related):
@@ -1240,13 +1243,22 @@ def _match_applications_by_basis(
     source_rows, collection_rows, deposit_pairs, complementary_by_target, periods,
     fixed_sources=(),
 ):
-    clients = load_client_index(employers={period.employer for period in periods if period.employer})
+    has_operating_application = any(
+        source.event_type == "Aplicacion" and source.effective
+        and source.get("_assigned_operating_period") for source in source_rows
+    )
+    clients = (load_client_index(employers={period.employer for period in periods if period.employer})
+               if has_operating_application else [])
     clients_by_name = {client["name"]: client for client in clients}
+    operating_collections = collection_rows if has_operating_application else ()
     aliases_by_target = {
         row.name: (clients_by_name.get(row.get("client")) or {}).get("client_aliases", ())
-        for row in collection_rows
+        for row in operating_collections
     }
-    collection_values = {row.name: row.as_dict() for row in collection_rows}
+    collection_values = {row.name: row.as_dict() for row in operating_collections}
+    collections_by_period = defaultdict(list)
+    for row in operating_collections:
+        collections_by_period[row.parent].append(row)
     historical_periods = {
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
@@ -1255,7 +1267,7 @@ def _match_applications_by_basis(
     known_employers = frappe.get_all(
         "CN Employer", fields=["name", "employer_name", "employer_code"],
         limit_page_length=100000,
-    )
+    ) if has_operating_application else []
     attach_employer_aliases(known_employers)
     employer_resolver = AccountingEmployerResolver(known_employers)
     pairs_by_reference = defaultdict(list)
@@ -1350,9 +1362,7 @@ def _match_applications_by_basis(
         quality_candidates = []
         application_values = source.as_dict()
         identity_candidates = []
-        for target in collection_rows:
-            if source.get("_assigned_operating_period") and target.parent != source._assigned_operating_period:
-                continue
+        for target in collections_by_period[source._assigned_operating_period]:
             target_period = period_by_name.get(target.parent)
             basis = COLLECTION
             if source_employer and (
@@ -1509,6 +1519,9 @@ def _registered_deposit_pairs(rows, allocations):
         row for row in rows
         if row.event_type == "Deposito" and row.effective
     ]
+    accounting_by_voucher = defaultdict(list)
+    for row in accounting:
+        accounting_by_voucher[clean_text(row.voucher)].append(row)
     used_account_ids = set()
     pairs = []
     deposit_ids = {}
@@ -1536,10 +1549,11 @@ def _registered_deposit_pairs(rows, allocations):
             allocation_reason="",
             allocation_detail="[]",
         )
+        candidate_pool = (accounting_by_voucher[clean_text(item.deposit_voucher)]
+                          if item.deposit_voucher else accounting)
         candidates = [
-            account for account in accounting
+            account for account in candidate_pool
             if account.name not in used_account_ids
-            and (not item.deposit_voucher or clean_text(account.voucher) == clean_text(item.deposit_voucher))
             and deposit_pair_result(account.as_dict(), registered_row.as_dict())[0]
         ]
         candidates = narrow_deposit_candidates_by_date(registered_row, candidates)
