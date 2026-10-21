@@ -10,6 +10,7 @@
     "matching_section", "portfolio_snapshot", "matching_column", "historical_backfill", "historical_period",
     "results_tab", "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
     "total_application_adjustment_usd", "total_net_applied_usd", "application_amount_usd", "deposit_coverage_usd", "complementary_coverage_usd", "balance_usd", "client_summary_section", "client_summary_html", "rows_section", "rows", "notes",
+    "pending_tab", "pending_diagnostics_html",
     "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "file_hash", "bulk_event_date", "bulk_source_file", "bulk_source_hash", "recovery_html"
   ],
   "fields": [
@@ -32,6 +33,8 @@
     {"fieldname": "client_summary_section", "fieldtype": "Section Break", "label": "Saldos por cliente"},
     {"fieldname": "client_summary_html", "fieldtype": "HTML", "label": "Resumen por cliente", "read_only": 1},
     {"fieldname": "rows_section", "fieldtype": "Section Break", "label": "Aplicaciones de pago por cliente"},
+    {"fieldname": "pending_tab", "fieldtype": "Tab Break", "label": "Qué falta para conciliar"},
+    {"fieldname": "pending_diagnostics_html", "fieldtype": "HTML", "label": "Pendientes de conciliación", "read_only": 1},
     {"fieldname": "audit_tab", "fieldtype": "Tab Break", "label": "Historial"},
     {"fieldname": "audit_section", "fieldtype": "Section Break", "label": "Estado de importación"},
     {"fieldname": "recovery_html", "fieldtype": "HTML", "label": "Recuperación del archivo"},
@@ -62,7 +65,7 @@
   ],
   "index_web_pages_for_search": 1,
   "links": [],
-  "modified": "2026-10-04 00:00:00.000000",
+  "modified": "2026-10-21 00:00:00.000000",
   "modified_by": "Administrator",
   "module": "Conciliacion Credinomina",
   "name": "CN Accounting Import",
