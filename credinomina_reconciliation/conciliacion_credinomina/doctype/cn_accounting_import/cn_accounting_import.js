@@ -29,25 +29,7 @@ frappe.ui.form.on("CN Accounting Import", {
             frm.add_custom_button(__("Crear período"), () => createAccountingPeriod(frm));
         }
 
-        frm.add_custom_button(__("3. Cargar movimientos contables"), async () => {
-            if (frm.is_dirty()) await frm.save();
-            return frappe.call({
-                method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.import_source_file",
-                args: { import_name: frm.doc.name },
-                freeze: true,
-                freeze_message: __("Cargando aplicaciones y actualizando saldos sin redistribuir depósitos..."),
-            }).then(response => {
-                frappe.show_alert({
-                    message: __("Movimientos cargados. Se conservaron las distribuciones de depósitos. Para cambiarlas, use Conciliar en el depósito."),
-                    indicator: "green",
-                }, 8);
-                const name = response.message?.import_name;
-                if (name && name !== frm.doc.name) {
-                    return frappe.set_route("Form", frm.doctype, name);
-                }
-                return frm.reload_doc();
-            });
-        });
+        frm.add_custom_button(__("3. Cargar movimientos contables"), () => loadAccountingMovements(frm));
 
         if (frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Conciliar período predeterminado"), () => reconcileCompany(frm));
@@ -66,6 +48,46 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+function loadAccountingMovements(frm) {
+    const period = frm.doc.historical_period;
+    const differing = (frm.doc.rows || []).filter(row => row.event_type === "Aplicacion"
+        && row.historical_period && row.historical_period !== period);
+    if (!period || !differing.length) return importAccountingMovements(frm, false);
+    const dialog = new frappe.ui.Dialog({
+        title: __("Período de las aplicaciones"),
+        fields: [{fieldname: "apply_default_period", fieldtype: "Check", default: 1,
+            label: __("Aplicar {0} a todas las aplicaciones", [period]),
+            description: __("Hay {0} aplicaciones asignadas a otro período. Desmarque para conservar los períodos por fila. Se mantienen los ajustes vinculados; las filas con depósitos asignados o períodos cerrados requieren resolver esos vínculos antes de cambiarlas.", [differing.length])}],
+        primary_action_label: __("Cargar movimientos"),
+        primary_action(values) {
+            dialog.hide();
+            return importAccountingMovements(frm, Boolean(Number(values.apply_default_period)));
+        },
+    });
+    dialog.show();
+}
+
+async function importAccountingMovements(frm, applyDefaultPeriod) {
+    if (frm.is_dirty()) await frm.save();
+    const response = await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.import_source_file",
+        args: {import_name: frm.doc.name, apply_default_period: Number(applyDefaultPeriod)},
+        freeze: true,
+        freeze_message: __("Cargando aplicaciones y actualizando saldos sin redistribuir depósitos..."),
+    });
+    const result = response.message || {};
+    const reassigned = result.reassigned_rows
+        ? __(" Se actualizó el período de {0} aplicaciones a {1}.", [result.reassigned_rows, result.default_period]) : "";
+    frappe.show_alert({
+        message: __("Movimientos cargados. Se conservaron las distribuciones de depósitos. Para cambiarlas, use Conciliar en el depósito.") + reassigned,
+        indicator: "green",
+    }, 8);
+    if (result.import_name && result.import_name !== frm.doc.name) {
+        return frappe.set_route("Form", frm.doctype, result.import_name);
+    }
+    return frm.reload_doc();
+}
 
 function showAccountingRecovery(frm) {
     const wrapper = frm.fields_dict?.recovery_html?.$wrapper;
@@ -150,11 +172,14 @@ async function loadAccountingClientSummary(frm) {
     const wrapper = frm.fields_dict?.client_summary_html?.$wrapper;
     if (!wrapper) return;
     const balanceWrapper = frm.fields_dict?.balance_summary_html?.$wrapper;
-    const showBalance = html => { if (balanceWrapper) balanceWrapper.html(html); };
+    const showBalance = html => {
+        if (balanceWrapper) balanceWrapper.html(html + accountingImportIssuesHtml(frm.doc, frm.is_dirty()));
+    };
     const request = frm._client_summary_request = (frm._client_summary_request || 0) + 1;
     const name = frm.doc.name;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     wrapper.off(".cnClientSummary");
+    bindAccountingImportIssues(frm);
     if (frm.is_new() || frm.is_dirty()) {
         wrapper.html(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos por cliente."))}</p>`);
         showBalance(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos."))}</p>`);
@@ -313,6 +338,112 @@ function importExceptionRows(rows) {
                 reason: row.allocation_reason || __("El depósito tiene saldo sin distribuir. Revise sus destinos y justifique cualquier excedente.")});
         }
         return reasons.length ? [{row, reasons}] : [];
+    });
+}
+
+function accountingImportIssueRecords(row, doc) {
+    const records = [], seen = new Set();
+    const add = (doctype, route, name, label) => {
+        if (typeof name !== "string" || !name.trim() || seen.has(`${doctype}/${name}`)) return;
+        seen.add(`${doctype}/${name}`);
+        records.push({doctype, route, name: String(name), label});
+    };
+    add("CN Remittance Allocation", "cn-remittance-allocation", row.remittance_allocation, __("Depósito"));
+    add("CN Complementary Item", "cn-complementary-item", row.complementary_item, __("Partida"));
+    add("CN Reconciliation Period", "cn-reconciliation-period", row.historical_period, __("Período de la fila"));
+    add("CN Reconciliation Period", "cn-reconciliation-period", row.collection_period, __("Período de cobranza"));
+    if (!row.historical_period && !row.collection_period) {
+        add("CN Reconciliation Period", "cn-reconciliation-period", doc.historical_period, __("Período predeterminado"));
+    }
+    // Only use explicit saved IDs. A bank reference is not a deposit document name.
+    for (const field of ["application_allocation_detail", "allocation_detail", "historical_detail"]) {
+        let entries;
+        try { entries = typeof row[field] === "string" ? JSON.parse(row[field] || "[]") : row[field] || []; }
+        catch (_) { continue; }
+        if (!Array.isArray(entries)) continue;
+        for (const entry of entries) {
+            if (!entry || typeof entry !== "object") continue;
+            add("CN Reconciliation Period", "cn-reconciliation-period", entry.period || entry.periodo, __("Período"));
+            add("CN Complementary Item", "cn-complementary-item", entry.partida || entry.saldo_a_favor, __("Partida"));
+            add("CN Remittance Allocation", "cn-remittance-allocation", entry.deposito_origen, __("Depósito de origen"));
+        }
+    }
+    return records;
+}
+
+function accountingImportIssueAction(row, doc, stage) {
+    if (!doc.employer) return {field: "employer", text: __("Complete Empresa en la cabecera y guarde antes de conciliar.")};
+    if (stage === __("Distribución del depósito")) return {field: "rows", text: __("Revise Destinos e importes en el depósito vinculado y vuelva a conciliar ese depósito.")};
+    if (stage === __("Depósito de la aplicación")) return {field: "rows", text: row.deposit_match_status === "Depósito parcial"
+        ? __("Complete la evidencia del importe pendiente en los destinos del depósito y vuelva a conciliarlo.")
+        : __("Identifique el depósito que paga esta aplicación y revise sus destinos. Use Ver registros relacionados para buscar pendientes del cliente.")};
+    if (!row.loan_number && row.event_type === "Aplicacion") return {field: "rows", text: __("Revise Nro. Crédito de esta fila según el respaldo del movimiento.")};
+    if (!row.historical_period && !row.collection_period && !doc.historical_period) {
+        return {field: "historical_period", text: __("Seleccione el período de la fila o el Período predeterminado de aplicaciones y concilie su vínculo.")};
+    }
+    return {field: "rows", text: __("Corrija en la fila el dato señalado en el motivo y revise su cliente, crédito, referencia o período. Después guarde y actualice la conciliación.")};
+}
+
+function accountingImportIssuesHtml(doc, dirty = false) {
+    if (doc.docstatus === 2) return "";
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const exceptions = importExceptionRows(doc.rows);
+    const notices = [];
+    if (dirty) notices.push(__("Hay cambios sin guardar. Los motivos corresponden a la última conciliación; guarde y vuelva a conciliar para actualizarlos."));
+    if (!doc.employer) notices.push(__("Falta la Empresa de la importación."));
+    if (!(doc.rows || []).length) notices.push(__("Todavía no hay movimientos cargados. Revise Archivo, moneda y tipo de cambio y use Cargar movimientos contables."));
+    if (!exceptions.length && doc.status === "Importado con excepciones") {
+        notices.push(__("El estado guardado indica excepciones, pero las filas actuales no muestran pendientes. Actualice la conciliación para revisar ese estado."));
+    }
+    if (!exceptions.length && !notices.length) return "";
+    const body = exceptions.slice(0, 25).map(({row, reasons}) => {
+        const records = accountingImportIssueRecords(row, doc);
+        const action = accountingImportIssueAction(row, doc, reasons[0].stage);
+        const actionLabel = action.field === "employer" ? __("Revisar empresa")
+            : action.field === "historical_period" ? __("Revisar período") : __("Revisar fila");
+        const link = record => `<div><span class="text-muted">${esc(record.label)}:</span> <a href="/app/${record.route}/${encodeURIComponent(record.name)}" target="_blank" rel="noopener noreferrer">${esc(record.name)}</a></div>`;
+        return `<tr><td>${esc(__("Fila"))} ${esc(row.idx || "—")}${row.source_row ? `<div class="small text-muted">${esc(__("Fila del archivo"))}: ${esc(row.source_row)}</div>` : ""}</td>
+            <td>${esc(row.client_name || __("Sin identificar"))}<div>${esc(__("Cliente"))}: ${esc(row.client_number || "—")}</div><div>${esc(__("Crédito"))}: ${esc(row.loan_number || "—")}</div></td>
+            <td>${records.map(link).join("") || `<span class="text-muted">${esc(__("Sin registro vinculado"))}</span>`}
+                ${row.event_type === "Aplicacion" && !row.remittance_allocation && reasons.some(reason => reason.stage === __("Depósito de la aplicación"))
+                    ? `<div class="text-muted">${esc(__("Depósito: por identificar o completar su distribución"))}</div>` : ""}</td>
+            <td>${reasons.map(({stage, reason}) => `<div style="margin-bottom:10px"><strong>${esc(stage)}</strong><div>${esc(reason)}</div>
+                <div class="small text-muted">${esc(accountingImportIssueAction(row, doc, stage).text)}</div></div>`).join("")}</td>
+            <td><button type="button" class="btn btn-default btn-xs" data-cn-import-issue-row="${esc(row.name || "")}" data-cn-import-issue-index="${esc(row.idx || "")}" data-cn-import-issue-field="${esc(action.field)}">${esc(actionLabel)}</button>
+                ${row.name && row.event_type === "Aplicacion" && Number(row.effective) && row.match_status !== "Ignorado"
+                    ? `<button type="button" class="btn btn-default btn-xs" style="margin-top:6px" data-cn-import-related="${esc(row.name)}">${esc(__("Ver registros relacionados"))}</button>` : ""}</td></tr>`;
+    }).join("");
+    return `<section class="cn-accounting-issues alert alert-warning" style="margin-top:16px"><strong>${esc(__("Qué falta para conciliar"))}</strong>
+        ${notices.length ? `<ul>${notices.map(text => `<li>${esc(text)}</li>`).join("")}</ul>` : ""}
+        ${exceptions.length ? `<p class="small">${esc(__("{0} filas con pendientes. Cada motivo señala qué revisar; los registros enlazados conservan sus permisos de acceso.", [exceptions.length]))}</p>
+        <div class="table-responsive" style="max-height:380px;overflow:auto"><table class="table table-bordered" style="font-size:12px;min-width:760px"><thead style="position:sticky;top:0;background:var(--card-bg);z-index:1"><tr>
+            ${["Fila", "Cliente / crédito", "Registro relacionado", "Qué falta / dato que debe corregir", "Acciones"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table></div>
+            <button type="button" class="btn btn-default btn-sm" data-cn-import-all-issues>${esc(__("Ver todos los pendientes detectados"))}</button>
+            ${exceptions.length > 25 ? `<p class="small">${esc(__("Se muestran las primeras 25 de {0} filas. Abra todos los pendientes para buscar y revisar las demás.", [exceptions.length]))}</p>` : ""}` : ""}
+        <p class="small text-muted" style="margin-top:10px">${esc(__("Motivos de los datos guardados, según la última conciliación. Una aplicación puede tener pendiente de depósito aunque ya esté vinculada al período."))}</p></section>`;
+}
+
+function bindAccountingImportIssues(frm) {
+    const wrapper = frm.fields_dict?.balance_summary_html?.$wrapper;
+    if (!wrapper) return;
+    wrapper.off(".cnImportIssues");
+    wrapper.on("click.cnImportIssues", "[data-cn-import-all-issues]", () => showImportExceptions(frm));
+    wrapper.on("click.cnImportIssues", "[data-cn-import-related]", function () {
+        showAccountingRelatedRecords(frm, this.dataset.cnImportRelated, $(this));
+    });
+    wrapper.on("click.cnImportIssues", "[data-cn-import-issue-row]", async event => {
+        const input = event.currentTarget;
+        if (["employer", "historical_period"].includes(input.dataset.cnImportIssueField)) {
+            await frm.scroll_to_field(input.dataset.cnImportIssueField);
+            return;
+        }
+        const row = (frm.doc.rows || []).find(row => row.name === input.dataset.cnImportIssueRow
+            || (!input.dataset.cnImportIssueRow && String(row.idx) === input.dataset.cnImportIssueIndex));
+        await frm.scroll_to_field("rows");
+        // Grid methods vary by Framework version; scrolling remains available.
+        const grid = frm.fields_dict?.rows?.grid;
+        const gridRow = row && grid?.grid_rows_by_docname?.[row.name];
+        if (gridRow?.toggle_view) gridRow.toggle_view(true);
     });
 }
 
