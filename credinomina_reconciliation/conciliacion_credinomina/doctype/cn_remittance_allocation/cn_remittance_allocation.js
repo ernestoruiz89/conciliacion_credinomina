@@ -632,6 +632,7 @@ async function useApplicationsAsDetail(frm, source = "applications") {
 }
 
 frappe.ui.form.on("CN Remittance Detail", {
+    view_related_pending: showRemittanceRelatedPending,
     create_client_credit: createClientCreditFromDetail,
     create_company_credit: createCompanyCreditFromDetail,
     select_pending_targets: selectPendingTargetsForDetail,
@@ -643,6 +644,8 @@ frappe.ui.form.on("CN Remittance Detail", {
         companyControl?.$wrapper.toggle(canCreateDetailClientCredit(frm, row) && canCreateCompanyCredit(frm));
         const targetControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.select_pending_targets;
         targetControl?.$wrapper.toggle(canSelectDetailPendingTargets(frm, row));
+        const relatedControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.view_related_pending;
+        relatedControl?.$wrapper.toggle(canViewRemittanceRelatedPending(frm, row));
     },
     loan_number(frm) {
         frm.set_value("result", "Pendiente");
@@ -650,6 +653,39 @@ frappe.ui.form.on("CN Remittance Detail", {
         frappe.show_alert({message: __("Guarde y use Conciliar. Revise los destinos manuales si cambió el crédito."), indicator: "orange"});
     },
 });
+
+function canViewRemittanceRelatedPending(frm, row) {
+    const name = row?.client_name && row.client_name !== "Sin identificar" ? row.client_name : "";
+    return !frm.is_new() && frm.doc.docstatus !== 2 && !!row?.name &&
+        !!(row.employer || frm.doc.employer) &&
+        [row.client, row.client_number, row.national_id, name].some(value => String(value || "").trim());
+}
+
+async function showRemittanceRelatedPending(frm, cdt, cdn) {
+    const row = (frm.doc.detail_rows || []).find(item => item.name === cdn);
+    if (!canViewRemittanceRelatedPending(frm, row)) {
+        frappe.msgprint(__("Identifique al cliente de esta fila y guarde el depósito antes de consultar sus pendientes."));
+        return;
+    }
+    if (frm.is_dirty()) {
+        frappe.msgprint(__("Guarde el depósito antes de consultar los registros relacionados."));
+        return;
+    }
+    if (frm.relatedPendingOpening) return;
+    frm.relatedPendingOpening = true;
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.accounting_related_records.get_related_pending_for_remittance",
+            args: {remittance_name: frm.doc.name, detail_row_name: cdn},
+        });
+        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
+        window.credinominaShowRelatedPending(response.message || {});
+    } catch (error) {
+        frappe.msgprint(__("No se pudieron consultar los registros relacionados. Revise sus permisos o vuelva a intentar."));
+    } finally {
+        frm.relatedPendingOpening = false;
+    }
+}
 
 function canSelectDetailPendingTargets(frm, row) {
     const identity = row && [row.client, row.client_number, row.employee_number, row.national_id,
