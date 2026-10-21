@@ -121,8 +121,8 @@ En la pestaña **Historial**, **Generar CSV de recuperación** descarga un archi
 
 ### Consultar qué falta en una importación contable
 
-En **Importación de Movimientos Contables**, la primera pestaña muestra
-**Qué falta para conciliar** debajo de los saldos. Por cada fila pendiente indica
+En **Importación de Movimientos Contables**, abra la pestaña independiente
+**Qué falta para conciliar**, entre **Resultados** e **Historial**. Por cada fila pendiente indica
 el número de la tabla y el del archivo original, el cliente y crédito, los
 registros relacionados disponibles y el motivo con una indicación de qué corregir.
 Los períodos, depósitos y partidas guardados como vínculos se pueden abrir desde
@@ -130,14 +130,15 @@ el resumen. Una referencia bancaria sola no se convierte en un enlace a depósit
 
 Use **Revisar fila** para abrir el movimiento; cuando falta una empresa o un
 período predeterminado, el botón lleva al campo correspondiente. **Ver registros
-relacionados** permite buscar movimientos pendientes del cliente. Si hay más de
-25 filas, **Ver todos los pendientes detectados** abre la consulta con búsqueda,
-filtros y páginas.
+relacionados** permite buscar movimientos pendientes del cliente. La pestaña tiene
+búsqueda por cliente, crédito, fila, registro relacionado o motivo y páginas de
+25 filas con **Anterior** y **Siguiente**. **Ver todos los pendientes detectados**
+abre la consulta adicional con filtros por estado, etapa e importe.
 
 El resumen utiliza los motivos de la última conciliación. Después de corregir,
 guarde y actualice el vínculo con el período; la distribución financiera se
 actualiza con **Conciliar** en el depósito. Si el depósito no está identificado,
-se indica expresamente. El resumen sigue visible aunque no se puedan consultar
+se indica expresamente. La pestaña sigue disponible aunque no se puedan consultar
 los saldos por cliente, y no cambia importes ni asignaciones.
 
 ### Carga masiva de varios meses
