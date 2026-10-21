@@ -87,7 +87,7 @@
 
         scope() {
             return {employer: this.employer.get_value() || null, client: this.client.get_value() || null,
-                context: this.context ? JSON.stringify(this.context) : null};
+                ...(this.context ? {context: JSON.stringify(this.context)} : {})};
         }
 
         empty(message) {
