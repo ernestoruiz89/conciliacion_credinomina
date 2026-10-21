@@ -141,8 +141,6 @@ class CNRemittanceAllocation(Document):
             loans = load_detail_loan_clients(self.detail_rows, clients, allowed)
             complete_detail_clients(self.detail_rows, clients, self.employer, allowed, loans)
         selected = [row.period for row in self.get("detail_periods") or []]
-        if self.get("apply_fifo") and not any(selected):
-            frappe.throw(_("Seleccione al menos un período en Períodos a conciliar para aplicar FIFO."))
         if len(selected) != len(set(selected)):
             frappe.throw(_("No repita períodos en Períodos del detalle."))
         self.applied_usd = money(0)
@@ -649,6 +647,11 @@ def _reconcile_remittance(remittance_name: str, progress_id: str = "", reason: s
     document.check_permission("write")
     if document.docstatus != 1:
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
+    # Imported deposits retain FIFO by default before any detail or period is set.
+    # Require a period only when this action can actually distribute detail rows.
+    if document.apply_fifo and document.detail_rows and not any(
+            row.period for row in document.get("detail_periods") or []):
+        frappe.throw(_("Seleccione al menos un período en Períodos a conciliar para aplicar FIFO."))
     document._validate_deposit()
 
     def progress(percent, message):
