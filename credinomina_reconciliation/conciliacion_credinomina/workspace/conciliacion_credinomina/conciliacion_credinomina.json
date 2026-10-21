@@ -177,7 +177,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "6. Control y reportes",
-      "link_count": 8,
+      "link_count": 9,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -188,6 +188,16 @@
       "label": "Control de Credinómina",
       "link_count": 0,
       "link_to": "control-credinomina",
+      "link_type": "Page",
+      "onboard": 0,
+      "type": "Link"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 0,
+      "label": "Mesa de conciliación",
+      "link_count": 0,
+      "link_to": "mesa-conciliacion",
       "link_type": "Page",
       "onboard": 0,
       "type": "Link"

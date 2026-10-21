@@ -73,7 +73,7 @@ def _application_rows(employer, identity):
               'client_name', 'client_number', 'national_id', 'loan_number',
               'amount_usd', 'net_applied_usd', 'application_adjustment_usd',
               'historical_period', 'historical_balance_usd', 'match_status',
-              'deposit_match_status']
+              'deposit_match_status', 'collection_period', 'difference_reason']
     conditions = [('client_number', identity['number_values']),
                   ('client', identity['clients']),
                   ('national_id', identity['national_values']),
@@ -111,6 +111,8 @@ def _application_rows(employer, identity):
         result.append(dict(type='Aplicación', document=row.parent,
             date=str(row.event_date or ''), reference=row.reference or '',
             source_row=row.source_row, row_name=row.name,
+            period=row.historical_period or row.collection_period or '',
+            difference_reason=row.difference_reason or '',
             client_name=row.client_name or '', loan_number=row.loan_number or '',
             amount_usd=money_float(net),
             pending_usd=money_float(pending) if pending is not None else None,
@@ -125,7 +127,7 @@ def _deposit_rows(employer, identity):
                   ('national_id', identity['national_values']),
                   ('client_name', identity['name_values'])]
     child_fields = ['name', 'parent', 'source_row', 'client', 'client_number', 'national_id', 'client_name',
-                    'loan_number', 'amount_usd', 'pending_usd', 'match_status']
+                    'loan_number', 'amount_usd', 'pending_usd', 'match_status', 'difference_reason']
     for field, values in conditions:
         for value in values:
             for row in frappe.get_all('CN Remittance Detail', filters={
@@ -168,6 +170,8 @@ def _deposit_rows(employer, identity):
                 continue
             result.append(dict(type='Depósito', document=parent.name, date=str(parent.deposit_date or ''),
                 reference=parent.deposit_reference or '', source_row=detail.source_row,
+                row_name=detail.name, docstatus=parent.docstatus,
+                difference_reason=detail.difference_reason or '',
                 client_name=detail.client_name or '',
                 loan_number=detail.loan_number or '', amount_usd=money_float(detail.amount_usd),
                 pending_usd=money_float(pending), status=detail.match_status or state))
@@ -177,6 +181,7 @@ def _deposit_rows(employer, identity):
             continue
         pending = money(parent.amount_usd) if parent.docstatus == 0 else money(parent.unclassified_usd)
         result.append(dict(type='Depósito', document=parent.name, date=str(parent.deposit_date or ''),
+            row_name='', docstatus=parent.docstatus,
             reference=parent.deposit_reference or '', client_name=parent.source_client_name or '',
             loan_number=parent.source_loan_number or '', amount_usd=money_float(parent.amount_usd),
             pending_usd=money_float(pending) if pending > 0 else None, status=state))
@@ -199,6 +204,9 @@ def _complementary_rows(employer, identity):
         if pending <= 0 and state != 'Revisar distribución':
             continue
         result.append(dict(type='Partida complementaria', document=item.name,
+            docstatus=item.docstatus, period=item.period or '', category=item.category or '',
+            direction=('Crédito' if money(item.source_credit) > 0 and not money(item.source_debit)
+                       else 'Débito' if money(item.source_debit) > 0 and not money(item.source_credit) else ''),
             date=str(item.posting_date or ''), reference=item.get('reference') or '',
             client_name=item.client_name or item.source_client_name or '',
             loan_number=item.loan_number or '', amount_usd=balance['original_usd'],
@@ -211,7 +219,8 @@ def get_related_pending(import_name, source_row_name):
     document = frappe.get_doc('CN Accounting Import', import_name)
     document.check_permission('read')
     identity = _identity(document, source_row_name)
-    return _related_pending(document.employer, identity)
+    return dict(_related_pending(document.employer, identity), employer=document.employer,
+                context={'import_name': import_name, 'source_row_name': source_row_name})
 
 
 @frappe.whitelist()
@@ -224,7 +233,9 @@ def get_related_pending_for_remittance(remittance_name, detail_row_name):
     identity = _identity_values(detail, [detail])
     if not any((identity['numbers'], identity['clients'], identity['national_ids'], identity['names'])):
         frappe.throw(_('Identifique al cliente de esta fila antes de consultar sus pendientes.'))
-    return _related_pending(detail.employer or document.employer, identity)
+    employer = detail.employer or document.employer
+    return dict(_related_pending(employer, identity), employer=employer,
+                context={'remittance_name': remittance_name, 'detail_row_name': detail_row_name})
 
 
 def _related_pending(employer, identity):

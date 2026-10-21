@@ -239,6 +239,23 @@ como respaldo de recuperación.
 
 Si la empresa no envía a tiempo el detalle, registre y confirme el depósito sin inventar la deducción. Cargue el archivo en ese mismo depósito cuando llegue, o genere un detalle desde aplicaciones pendientes con revisión explícita de destinatarios e importes.
 
+## Mesa de conciliación
+
+La página **Mesa de conciliación** (`/app/mesa-conciliacion`) reúne los pendientes
+por empresa y cliente: aplicaciones a la izquierda y depósitos o partidas
+complementarias a la derecha, con fecha, período, crédito, importe y saldo.
+También se abre desde **Registros pendientes** de importaciones y depósitos.
+
+Seleccione una aplicación y un origen y use **Comprobar selección** para consultar
+la disponibilidad actual, las reservas, restricciones y saldos que quedarían. El
+importe puede ser parcial. **Continuar** lleva la propuesta al selector del
+formulario correspondiente; guardar y conciliar conservan el flujo existente.
+La comprobación es de consulta y no reserva dinero ni modifica documentos.
+
+El parche `add_reconciliation_workbench` registra la página y añade los accesos
+durante `bench --site <sitio> migrate`, conservando los accesos personalizados.
+No agrega campos financieros ni recalcula saldos históricos.
+
 ## Alcance del botón Conciliar en un depósito
 
 **Conciliar** recalcula solamente la empresa pagadora y las empresas vinculadas

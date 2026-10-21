@@ -26,6 +26,11 @@ window.credinominaShowRelatedPending = function (result) {
         title: __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]),
         size: "extra-large",
         fields: [{fieldname: "related_html", fieldtype: "HTML"}],
+        ...(result.context ? {secondary_action_label: __("Abrir mesa de conciliación"), secondary_action() {
+            dialog.hide();
+            frappe.route_options = {cn_workbench: {employer: result.employer, context: result.context}};
+            frappe.set_route("mesa-conciliacion");
+        }} : {}),
         primary_action_label: __("Cerrar"), primary_action() { dialog.hide(); },
     });
     dialog.fields_dict.related_html.$wrapper.html(`<p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>

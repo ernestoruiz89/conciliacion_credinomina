@@ -1,0 +1,14 @@
+{
+  "doctype": "Page",
+  "name": "mesa-conciliacion",
+  "page_name": "mesa-conciliacion",
+  "title": "Mesa de conciliación",
+  "module": "Conciliacion Credinomina",
+  "standard": "Yes",
+  "system_page": 0,
+  "roles": [
+    {"role": "System Manager"},
+    {"role": "Supervisor Credinomina"},
+    {"role": "Operador Credinomina"}
+  ]
+}
