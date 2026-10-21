@@ -3,7 +3,7 @@ import json
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 from credinomina_reconciliation.parsers import (
     SourceFileError, clean_text, file_sha256, normalize_returned_credit_number, parse_collection_file,
@@ -492,8 +492,33 @@ def correct_deposit_data(remittance_name: str, modified: str, employer: str,
     return {"name": document.name}
 
 
+def _deposit_detail_difference(document):
+    """Compare original detail amounts with cash, rounding each row to cents."""
+    if not document.detail_rows:
+        frappe.throw(_("Cargue el detalle del depósito antes de crear una partida por su diferencia."))
+    rate = decimal_value(document.fx_rate)
+    total = money(0)
+    for row in document.detail_rows:
+        usd, nio = money(row.get("deducted_usd")), money(row.get("deducted_nio"))
+        if usd < 0 or nio < 0:
+            frappe.throw(_("Revise los importes negativos de la fila {0} del detalle.").format(row.idx))
+        if usd > 0:
+            amount = usd
+        elif nio > 0:
+            if rate <= 0:
+                frappe.throw(_("Complete la tasa C$/US$ para comparar el depósito con el detalle."))
+            amount = money(nio / rate)
+        else:
+            amount = (money(row.get("amount_usd"))
+                      if row.get("deducted_usd") is None and row.get("deducted_nio") is None else money(0))
+        if amount < 0:
+            frappe.throw(_("Revise el importe de la fila {0} del detalle.").format(row.idx))
+        total += amount
+    return money(document.amount_usd) - total
+
+
 @frappe.whitelist(methods=["POST"])
-def create_complementary_item(remittance_name: str, modified: str, values):
+def create_complementary_item(remittance_name: str, modified: str, values, from_detail_difference: int = 0):
     """Create, confirm and attach a complement in one permission-checked transaction."""
     from credinomina_reconciliation.client_credit import lock_credit_deposit
     document = lock_credit_deposit(remittance_name)
@@ -508,6 +533,21 @@ def create_complementary_item(remittance_name: str, modified: str, values):
     values = frappe.parse_json(values) if isinstance(values, str) else values
     if not isinstance(values, dict):
         frappe.throw(_("Los datos de la partida no son válidos."))
+    if cint(from_detail_difference):
+        difference = _deposit_detail_difference(document)
+        if not difference:
+            frappe.throw(_("El depósito y su detalle tienen el mismo importe; no hay diferencia que documentar."))
+        if values.get("currency") != "USD" or money(values.get("amount")) != difference:
+            frappe.throw(_("La diferencia cambió o el importe fue modificado. Recargue el depósito y abra nuevamente Crear partida por diferencia."))
+        # An unchanged detail keeps the same gross difference after documenting
+        # it. Repeating the shortcut must not create the same offset twice.
+        targets = [row for row in document.targets or [] if row.complementary_item and money(row.amount_usd) == difference]
+        if targets and frappe.db.exists("CN Complementary Item", {
+            "name": ["in", [row.complementary_item for row in targets]],
+            "docstatus": 1, "amount_usd": difference,
+        }):
+            frappe.throw(_("Ya hay una partida confirmada por esta diferencia en Destinos. Revise esa partida antes de crear otra."))
+        values = dict(values, currency="USD", amount=money_float(difference))
     item = frappe.new_doc("CN Complementary Item")
     for field in ("category", "subcategory", "voucher", "voucher_line", "posting_date", "currency", "amount",
                   "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type",
@@ -534,6 +574,11 @@ def create_complementary_item(remittance_name: str, modified: str, values):
     item.flags.defer_reconciliation = True
     item.insert()
     item.submit()
+    if cint(from_detail_difference):
+        item.add_comment("Comment", _(
+            "Creada desde la diferencia del depósito {0}: depósito US$ {1}; detalle US$ {2}; "
+            "diferencia (depósito menos detalle) US$ {3}."
+        ).format(document.name, money(document.amount_usd), money(document.amount_usd) - difference, difference))
     if not company_credit and not client_credit:
         document.append("targets", {
             "complementary_item": item.name, "amount_usd": item.amount_usd,
