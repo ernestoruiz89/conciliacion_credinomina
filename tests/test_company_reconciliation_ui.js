@@ -107,12 +107,13 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     context.updateImportExceptionNotice(importFrm);
     assert.equal(intro, "");
 
-    // Frappe 15 child layouts share parent tab state/IDs: keep rows section-only.
+    // The row form groups movement, reconciliation, validation and source data in tabs.
     const rowMeta = JSON.parse(fs.readFileSync(path.join(__dirname,
         "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_source_row/cn_source_row.json"), "utf8"));
-    assert.ok(!rowMeta.fields.some(field => field.fieldtype === "Tab Break"));
+    assert.deepEqual(rowMeta.fields.filter(field => field.fieldtype === "Tab Break").map(field => field.fieldname),
+        ["movement_tab", "reconciliation_tab", "validation_tab", "origin_tab"]);
     assert.equal(formHandlers["CN Source Row"]?.form_render, undefined);
-    assert.equal(rowMeta.field_order[0], "client_section");
+    assert.equal(rowMeta.field_order[0], "movement_tab");
     for (const name of ["client_section", "movement_section", "matching_section"]) {
         const section = rowMeta.fields.find(field => field.fieldname === name);
         assert.equal(section.fieldtype, "Section Break");

@@ -11,7 +11,7 @@ from credinomina_reconciliation.application_quality import (
 )
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime
+from frappe.utils import cint, flt, getdate, now_datetime
 
 from credinomina_reconciliation.allocation import allocate_cash, can_document_surplus
 from credinomina_reconciliation.allocation_origin import DETAIL, FIFO, MANUAL, TOLERANCE
@@ -526,23 +526,25 @@ def _attached_file(document):
 
 
 @frappe.whitelist(methods=["POST"])
-def import_source_file(import_name: str):
+def import_source_file(import_name: str, apply_default_period: int = 0):
     # A concurrent change to a complementary item can invalidate MariaDB's
     # snapshot while refresh_rows() takes its locking read. Retry the complete
     # request in a fresh transaction, never just the failed SELECT: earlier
     # steps may already have created linked rows.
     for attempt in range(3):
         try:
-            return _import_source_file(import_name)
+            return _import_source_file(import_name, apply_default_period=bool(cint(apply_default_period)))
         except frappe.QueryDeadlockError:
             if attempt == 2:
                 raise
             frappe.db.rollback()
 
 
-def _import_source_file(import_name: str):
+def _import_source_file(import_name: str, *, apply_default_period=False):
     document = frappe.get_doc("CN Accounting Import", import_name)
     document.check_permission("write")
+    if apply_default_period and not document.historical_period:
+        frappe.throw(_("Seleccione el período predeterminado antes de aplicarlo a todas las filas."))
     from credinomina_reconciliation.accounting_import_scope import linked_periods
     previous_periods = linked_periods(document)
     if document.bulk_source_hash:
@@ -630,11 +632,17 @@ def _import_source_file(import_name: str):
             )
     document.file_hash = file_sha256(content)
     document.set("rows", [])
+    reassigned_rows = []
     for record in parsed:
         previous = existing_settings[record["source_key"]]
         preserved_name, manual_rate, prior_period, prior_route, difference_reason = (
             previous.pop(0) if previous else (None, 0, "", "", "")
         )
+        period = ""
+        if record["event_type"] == "Aplicacion" and document.historical_period:
+            period = document.historical_period if apply_default_period else prior_period or document.historical_period
+            if preserved_name and period != prior_period:
+                reassigned_rows.append((len(document.rows) + 1, prior_period))
         document.append(
             "rows",
             {
@@ -643,10 +651,7 @@ def _import_source_file(import_name: str):
                 "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
                 "processing_route": prior_route,
                 "difference_reason": difference_reason,
-                "historical_period": (
-                    prior_period or document.historical_period
-                    if record["event_type"] == "Aplicacion" and document.historical_period else ""
-                ),
+                "historical_period": period,
                 "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
                 "match_status": "Pendiente",
                 "deposit_match_status": "Pendiente",
@@ -667,12 +672,20 @@ def _import_source_file(import_name: str):
         document.save()
     finally:
         _source_import_refresh.reset(token)
+    if reassigned_rows:
+        document.add_comment("Comment", _(
+            "Recarga de movimientos: período predeterminado {0} aplicado a las filas {1}. "
+            "Períodos anteriores: {2}. Se conservaron los identificadores de las aplicaciones y sus ajustes vinculados."
+        ).format(document.historical_period, ", ".join(str(idx) for idx, _period in reassigned_rows),
+                 ", ".join(sorted({period or _("Sin período") for _idx, period in reassigned_rows}))))
     result = _reconcile_sources(
         document.employer, preserve_deposits=True,
         unassigned_import=document.name if not document.historical_period else None,
         import_name=document.name, previous_periods=previous_periods,
     )
     result["import_name"] = document.name
+    result["reassigned_rows"] = len(reassigned_rows)
+    result["default_period"] = document.historical_period
     return result
 
 

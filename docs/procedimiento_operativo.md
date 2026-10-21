@@ -107,6 +107,8 @@ Ruta: **Conciliación Credinómina → Aplicaciones del core → Importación co
 7. Use **Crear período** si necesita preparar un período desde esta carga. Revise mes de cobranza y corte; el botón crea un borrador, no cierra ni liquida aplicaciones.
 8. Seleccione el período predeterminado y presione **Conciliar período predeterminado** después de guardar cambios. Revise la respuesta con filas procesadas, conciliadas y pendientes. Si la carga abarca varios períodos, trabaje cada uno desde su formulario. Para distribuir un depósito use **Conciliar** en ese depósito.
 
+Si ya existen aplicaciones asignadas a otro período, la carga muestra **Período de las aplicaciones**. La opción **Aplicar [período] a todas las aplicaciones** está marcada inicialmente: úsela para corregir las filas al período seleccionado en el encabezado. Desmárquela si el archivo mezcla períodos y necesita conservar las asignaciones por fila. La carga conserva los identificadores de las aplicaciones y sus ajustes confirmados, recalcula los períodos anterior y nuevo y registra los cambios en el historial. Los ajustes de aplicaciones directas se muestran en su período actual. Si hay depósitos asignados, destinos reservados o períodos cerrados, resuelva primero el vínculo o solicite la reapertura que indique el mensaje. Cambiar el período no resuelve diferencias de importe pendientes.
+
 En **Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
 
 Al inicio de la pestaña **Importación**, cuatro tarjetas muestran **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
@@ -116,6 +118,27 @@ Control posterior: compare número de líneas, débitos y créditos originales c
 El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-consecutivo. El mes y año se obtienen de las fechas de las filas, no de la fecha de creación del documento. Duplicar una importación no copia el archivo adjunto.
 
 En la pestaña **Historial**, **Generar CSV de recuperación** descarga un archivo construido con las filas contables guardadas cuando el archivo adjunto se haya perdido. El CSV conserva la fila original y la identidad de cada movimiento; la app comprueba esa identidad antes de permitir la descarga. No es una copia exacta del archivo original ni recupera columnas ajenas a los movimientos importados. Revíselo antes de adjuntarlo y ejecutar de nuevo **3. Cargar movimientos contables**. La eliminación de archivos vinculados a importaciones exige el rol **Eliminar Mov. del Core**.
+
+### Consultar qué falta en una importación contable
+
+En **Importación de Movimientos Contables**, la primera pestaña muestra
+**Qué falta para conciliar** debajo de los saldos. Por cada fila pendiente indica
+el número de la tabla y el del archivo original, el cliente y crédito, los
+registros relacionados disponibles y el motivo con una indicación de qué corregir.
+Los períodos, depósitos y partidas guardados como vínculos se pueden abrir desde
+el resumen. Una referencia bancaria sola no se convierte en un enlace a depósito.
+
+Use **Revisar fila** para abrir el movimiento; cuando falta una empresa o un
+período predeterminado, el botón lleva al campo correspondiente. **Ver registros
+relacionados** permite buscar movimientos pendientes del cliente. Si hay más de
+25 filas, **Ver todos los pendientes detectados** abre la consulta con búsqueda,
+filtros y páginas.
+
+El resumen utiliza los motivos de la última conciliación. Después de corregir,
+guarde y actualice el vínculo con el período; la distribución financiera se
+actualiza con **Conciliar** en el depósito. Si el depósito no está identificado,
+se indica expresamente. El resumen sigue visible aunque no se puedan consultar
+los saldos por cliente, y no cambia importes ni asignaciones.
 
 ### Carga masiva de varios meses
 

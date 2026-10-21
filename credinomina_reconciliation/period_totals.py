@@ -129,12 +129,30 @@ class PeriodTotalsContext:
         }, fields=["period", "related_application", "application_adjustment_usd", "adjustment_periods", "application_adjustment_history"],
             limit_page_length=0) if employers else []
         from credinomina_reconciliation.application_adjustment_links import links
-        for item in [portion for adjustment in adjustments for portion in links(adjustment)]:
-            # Use the item's explicit period; never repeat a reduction in every
-            # period of an application shared across two payroll halves.
-            source = by_name.get(item.related_application)
+        portions = [portion for adjustment in adjustments for portion in links(adjustment)]
+        current_periods = {name: source.get("historical_period") for name, source in by_name.items()}
+        # Confirmed adjustment metadata records the original scope. A historical
+        # application may have been reassigned since then. Resolve missing rows
+        # that would otherwise leave an offset behind when saving its old period.
+        missing = set()
+        for item in portions:
             saved = entries(item.get("adjustment_periods"))
-            period_name = item.period or (source.get("historical_period") if source else None)
+            previous_period = item.period or (saved[0] if len(saved) == 1 else None)
+            if item.related_application not in current_periods and previous_period in self.periods:
+                missing.add(item.related_application)
+        ordered = sorted(missing)
+        for offset in range(0, len(ordered), 500):
+            current_periods.update({row.name: row.historical_period for row in frappe.get_all(
+                "CN Source Row", filters={"parenttype": "CN Accounting Import", "event_type": "Aplicacion",
+                    "name": ["in", ordered[offset:offset + 500]]},
+                fields=["name", "historical_period"], limit_page_length=0,
+            )})
+        for item in portions:
+            # Direct applications have one current period. For payroll links,
+            # retain the explicit period rather than repeating the reduction
+            # across every payroll half sharing an application.
+            saved = entries(item.get("adjustment_periods"))
+            period_name = current_periods.get(item.related_application) or item.period
             if not period_name and len(saved) == 1:
                 period_name = saved[0]
             if period_name and period_name in self.periods:
