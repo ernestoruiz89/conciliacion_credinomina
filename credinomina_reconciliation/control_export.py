@@ -16,7 +16,7 @@ from collections import defaultdict
 
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Font, NamedStyle, PatternFill
 from openpyxl.utils import get_column_letter
 
 from credinomina_reconciliation.reconciliation import net_application_amount
@@ -39,6 +39,7 @@ def build_control_workbook(
 ) -> bytes:
     """Return a read-only-in-practice, value-based audit snapshot as XLSX bytes."""
     book = Workbook()
+    book._cn_date_format = date_format
     summary = book.active
     summary.title = "Resumen"
     periods = data["periods"]
@@ -212,15 +213,8 @@ def build_control_workbook(
               _date(r.get("application_date")), _date(r.get("due_date")), r.get("payment_term_origin"),
               r.get("applied_usd"), r.get("paid_usd"), r.get("adjustment_usd"), r.get("amount_usd"), r.get("age_days"),
               r.get("observation")) for r in data["aging_rows"]], money_columns={8, 9, 10, 11}, date_columns={5, 6})
-    # System Settings uses the same numeric day/month/year tokens as Excel.
-    # Keep native dates (sortable/filterable), changing only their display style.
-    for sheet in book:
-        for row in sheet:
-            for cell in row:
-                if isinstance(cell.value, datetime):
-                    cell.number_format = f"{date_format} hh:mm"
-                elif isinstance(cell.value, date) and cell.number_format != "yyyy-mm":
-                    cell.number_format = date_format
+    # Dates are formatted as each cell is written. Do not traverse every cell
+    # again just to find dates in a large, already formatted workbook.
     stream = io.BytesIO()
     book.save(stream)
     return stream.getvalue()
@@ -904,14 +898,50 @@ def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_c
             cell.alignment = Alignment(horizontal="right")
 
 
+def _table_styles(book):
+    """Bind reusable formats once per workbook instead of per output cell."""
+    styles = getattr(book, "_cn_table_styles", None)
+    if styles is not None:
+        return styles
+    styles = {}
+    date_format = getattr(book, "_cn_date_format", DATE_FORMAT)
+    font = Font(name="Arial", size=10, color=TEXT)
+    vertical = Alignment(vertical="center")
+    right = Alignment(horizontal="right", vertical="center")
+    center = Alignment(horizontal="center", vertical="center")
+    formats = {
+        "general": ("General", vertical),
+        "text": ("@", Alignment(horizontal="left", vertical="center", wrap_text=True)),
+        "numeric": ("General", right), "money": (MONEY_FORMAT, right), "text_right": ("@", right),
+        "date": (date_format, center), "datetime": (f"{date_format} hh:mm", center),
+        "date_unaligned": (date_format, vertical), "datetime_unaligned": (f"{date_format} hh:mm", vertical),
+    }
+    for kind, (number_format, alignment) in formats.items():
+        for striped in (False, True):
+            style = NamedStyle(name=f"cn_{kind}_{int(striped)}", font=font, alignment=alignment,
+                               number_format=number_format)
+            if striped:
+                style.fill = PatternFill("solid", fgColor="F7F9FC")
+            book.add_named_style(style)
+            styles[kind, striped] = style
+    header = NamedStyle(name="cn_header", font=Font(name="Arial", size=10, bold=True, color="FFFFFF"),
+                        fill=PatternFill("solid", fgColor=NAVY),
+                        alignment=Alignment(horizontal="center", vertical="center", wrap_text=True))
+    book.add_named_style(header)
+    styles["header"] = header
+    book._cn_table_styles = styles
+    return styles
+
+
 def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=()):
     if header_row + len(rows) > MAX_EXCEL_ROWS:
         raise ValueError("El informe supera el máximo de filas permitido por Excel.")
+    styles = _table_styles(sheet.parent)
+    money_columns, date_columns = set(money_columns), set(date_columns)
+    wrap_widths = {}
     for column, heading in enumerate(headers, start=1):
         cell = sheet.cell(header_row, column, heading)
-        cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor=NAVY)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.style = styles["header"]
         width = 17
         if any(text in heading.lower() for text in ("nombre", "detalle", "comentario", "acción", "resolución", "observaciones", "motivo")):
             width = 35
@@ -922,30 +952,27 @@ def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=(
         elif len(heading) > 24:
             width = 26
         sheet.column_dimensions[get_column_letter(column)].width = width
+        wrap_widths[column] = max(width - 2, 1)
     sheet.row_dimensions[header_row].height = 45
     for row_number, values in enumerate(rows, start=header_row + 1):
         line_count = 1
         for column, value in enumerate(values, start=1):
             cell = sheet.cell(row_number, column, _safe_text(value))
-            cell.font = Font(name="Arial", size=10, color=TEXT)
-            cell.alignment = Alignment(vertical="center")
+            kind = "general"
             if isinstance(value, str):
-                cell.number_format = "@"
-                width = sheet.column_dimensions[get_column_letter(column)].width
-                line_count = max(line_count, sum(max(math.ceil(len(part) / max(width - 2, 1)), 1)
+                kind = "text"
+                line_count = max(line_count, sum(max(math.ceil(len(part) / wrap_widths.get(column, 11)), 1)
                                                  for part in value.split("\n")))
-                cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
             if column in money_columns and isinstance(value, (int, float)):
-                cell.number_format = MONEY_FORMAT
-                cell.alignment = Alignment(horizontal="right", vertical="center")
+                kind = "money"
             elif column in money_columns and value == NA:
-                cell.alignment = Alignment(horizontal="right", vertical="center")
-            elif column in date_columns and isinstance(value, (date, datetime)):
-                cell.number_format = DATE_FORMAT if isinstance(value, date) and not isinstance(value, datetime) else "dd/mm/yyyy hh:mm"
-                cell.alignment = Alignment(horizontal="center", vertical="center")
+                kind = "text_right"
+            elif isinstance(value, (date, datetime)):
+                kind = "datetime" if isinstance(value, datetime) else "date"
+                if column not in date_columns:
+                    kind += "_unaligned"
             elif isinstance(value, (int, float)):
-                cell.alignment = Alignment(horizontal="right", vertical="center")
-            if row_number % 2 == 0:
-                cell.fill = PatternFill("solid", fgColor="F7F9FC")
+                kind = "numeric"
+            cell.style = styles[kind, row_number % 2 == 0]
         sheet.row_dimensions[row_number].height = min(409, max(20, line_count * 14 + 4))
     sheet.auto_filter.ref = f"A{header_row}:{get_column_letter(len(headers))}{max(header_row, header_row + len(rows))}"
