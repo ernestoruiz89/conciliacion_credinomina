@@ -4,6 +4,40 @@ from collections import defaultdict
 import frappe
 
 
+def application_years(employer):
+    """Resolve visible application years without loading amounts or cash JSON."""
+    from frappe.utils import getdate
+    from credinomina_reconciliation.application_context import (
+        IMPORTED_STATUSES, application_employer, import_company_scope,
+    )
+    from credinomina_reconciliation.report_records import records, child_records
+    if not frappe.has_permission("CN Accounting Import", "read"):
+        return set()
+    periods = {row.name: row for row in records("CN Reconciliation Period",
+        filters={"employer": employer}, fields=["name", "employer"])}
+    parents = {row.name: row for row in records("CN Accounting Import",
+        filters={"status": ["in", list(IMPORTED_STATUSES)]}, **import_company_scope(employer),
+        fields=["name", "employer", "historical_period"])}
+    sources = list(child_records("CN Source Row", parents, "CN Accounting Import", "rows",
+        filters={"event_type": "Aplicacion", "effective": 1, "event_date": ["is", "set"]},
+        fields=["parent", "event_date", "historical_period", "collection_row_id", "portfolio_employer"]))
+    # Only blank-company legacy imports can require collection evidence after
+    # checking their direct period. Ordinary imports need no collection rows.
+    collection_names = {row.collection_row_id for row in sources if row.collection_row_id
+        and not parents[row.parent].employer
+        and (row.historical_period or parents[row.parent].historical_period) not in periods}
+    collections = {}
+    names = sorted(collection_names)
+    for offset in range(0, len(names), 500):
+        if periods:
+            collections.update({row.name: row for row in frappe.get_all("CN Collection Row", filters={
+                "name": ["in", names[offset:offset + 500]], "parent": ["in", list(periods)],
+                "parenttype": "CN Reconciliation Period", "parentfield": "collection_rows",
+            }, fields=["name", "parent"], limit_page_length=0)})
+    return {getdate(row.event_date).year for row in sources if row.event_date
+        and application_employer(row, parents[row.parent], periods, collections) == employer}
+
+
 def collection_summaries(period_names):
     result = {}
     for start in range(0, len(period_names), 500):

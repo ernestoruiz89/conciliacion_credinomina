@@ -1104,6 +1104,10 @@ Si una distribución conjunta entre aplicaciones anteriores y posteriores al cor
 
 **Control de Credinómina** separa **Calendario** y **Trabajo de conciliación** en pestañas. La bandeja reúne aplicaciones sin período, depósitos por revisar, complementarias, saldos a favor por gestionar y excepciones aunque no tengan período. Siempre consulta **todos los años**, independientemente del año elegido para el calendario, cifras de control y Excel general. Filtre por empresa, tipo de pendiente, responsable o compromiso; el filtro considera todas las páginas. La bandeja se carga al abrir su pestaña; si falla, muestra un aviso y permite reintentar, sin presentar un conjunto parcial como completo. La celda mensual muestra por separado los depósitos completos recibidos ese mes, aunque paguen períodos anteriores. El efectivo no debe sumarse otra vez a sus asignaciones.
 
+Al abrir o actualizar **Calendario**, los pendientes se consultan al entrar en
+**Trabajo de conciliación**, incluso si eligió **Todos** en Año. El contador
+muestra **…** hasta cargar la bandeja; no significa que haya cero pendientes.
+
 En el formulario del depósito, **depositado = asignado + saldo a favor documentado + sin asignar ni justificar**. Un depósito completamente distribuido puede mostrar **Conciliado con saldo a favor** y, simultáneamente, una gestión de devolución o aplicación futura pendiente. El saldo a favor original se conserva aunque su gestión se complete; no se vuelve a liberar ese efectivo para pagar otra aplicación. El estado de conciliación no certifica por sí mismo el registro contable en el core. Si el importe no cuadra o el detalle sigue por revisar, no se muestra en verde aunque el resultado guardado diga «Conciliado».
 
 La celda mensual por empresa suma los períodos disponibles y permite abrir cada quincena por separado; no muestra una quincena inexistente como si ya estuviera conciliada.
