@@ -130,9 +130,10 @@ def export_control_excel(year=None, employer=None):
 @frappe.whitelist()
 def get_control_data(year=None, employer=None):
     """Permission-scoped, real data for the monthly control matrix."""
-    data = _build_control_data(year, employer, summary_only=True)
-    # A calendar-year sample must never masquerade as the complete work queue.
-    data["work_scope"] = "Todos" if data["year"] == "Todos" else "calendar"
+    data = _build_control_data(year, employer, summary_only=True, include_work_items=False)
+    # The complete all-year queue is loaded only by its tab, including when the
+    # calendar itself is showing all years. An unloaded queue is not zero cases.
+    data["work_scope"] = "calendar"
     return data
 
 
@@ -283,12 +284,8 @@ def _available_years(employer=None):
                     years.add(getdate(row[field]).year)
     if frappe.has_permission("CN Accounting Import", "read"):
         if employer:
-            from credinomina_reconciliation.application_context import load_application_context, application_employer
-            sources, parents, periods, collections, _employers = load_application_context(employer)
-            for row in sources:
-                if (row.get('event_date') and application_employer(row, parents.get(row.get('parent'), {}),
-                        periods, collections) == employer):
-                    years.add(getdate(row.get('event_date')).year)
+            from credinomina_reconciliation.control_summary import application_years
+            years.update(application_years(employer))
             return sorted(years, reverse=True)
         imports = frappe.get_list("CN Accounting Import", filters={**company,
             "status": ["in", ["Importado", "Importado con excepciones"]]},

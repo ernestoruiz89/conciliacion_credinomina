@@ -1,5 +1,6 @@
 """Read-only control of cash by receipt month, independently of payroll month."""
 import json
+from collections import defaultdict
 
 import frappe
 
@@ -12,6 +13,11 @@ def _entries(value):
     except (TypeError, ValueError):
         return []
     return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _deposit_entries(deposit, entries_by_deposit=None):
+    return (entries_by_deposit.get(deposit["name"], []) if entries_by_deposit is not None
+            else _entries(deposit.get("allocation_detail")))
 
 
 def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name=None, deposits=None):
@@ -32,10 +38,14 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
                 "justified_surplus_usd", "allocation_detail", "result"],
         order_by="deposit_date asc, name asc", limit_page_length=0,
     )
+    deposits = list(deposits)
+    # One parsed journal per visible deposit, reused for IDs, periods, customer
+    # evidence and totals. Do not decode large allocation JSON for every step.
+    entries_by_deposit = {deposit["name"]: _entries(deposit.get("allocation_detail")) for deposit in deposits}
     # Parent permission checks also apply to descriptions of complementary items
     # and periods; never expose an inaccessible document through the overview.
     item_ids = sorted({e.get("partida") or e.get("movimiento") for d in deposits
-                       for e in _entries(d.get("allocation_detail")) if e.get("partida") or e.get("movimiento")})
+                       for e in entries_by_deposit[d["name"]] if e.get("partida") or e.get("movimiento")})
     items = {}
     client_credits = []
     if frappe.has_permission("CN Complementary Item", "read"):
@@ -53,7 +63,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
             ):
                 items[item["name"]] = item
     period_ids = sorted({e.get("periodo") or items.get(e.get("partida"), {}).get("period")
-                         for d in deposits for e in _entries(d.get("allocation_detail"))} - {None, ""})
+                         for d in deposits for e in entries_by_deposit[d["name"]]} - {None, ""})
     periods = {}
     if frappe.has_permission("CN Reconciliation Period", "read"):
         for offset in range(0, len(period_ids), 500):
@@ -68,9 +78,11 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
         from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
         receivables = load_receivables(item_names=receivable_names)
     if not include_details:
-        return build_cash_deposits(deposits, items, periods, include_details=False, client_credits=client_credits, receivables=receivables)
-    people = _load_credit_people(deposits, periods)
-    return build_cash_deposits(deposits, items, periods, people, client_credits=client_credits, receivables=receivables)
+        return build_cash_deposits(deposits, items, periods, include_details=False, client_credits=client_credits,
+                                   receivables=receivables, entries_by_deposit=entries_by_deposit)
+    people = _load_credit_people(deposits, periods, entries_by_deposit=entries_by_deposit)
+    return build_cash_deposits(deposits, items, periods, people, client_credits=client_credits,
+                               receivables=receivables, entries_by_deposit=entries_by_deposit)
 
 
 def _credit_key(entry):
@@ -79,9 +91,9 @@ def _credit_key(entry):
     return ("C", entry.get("periodo"), entry.get("fila_id"))
 
 
-def _load_credit_people(deposits, periods):
+def _load_credit_people(deposits, periods, *, entries_by_deposit=None):
     """Resolve child identities in batches, honoring their parent permissions."""
-    wanted = {_credit_key(e) for d in deposits for e in _entries(d.get("allocation_detail"))
+    wanted = {_credit_key(e) for d in deposits for e in _deposit_entries(d, entries_by_deposit)
               if e.get("tipo") in {"Cobranza", "Aplicacion historica"}
               and e.get("periodo") in periods}
     result = {}
@@ -113,9 +125,17 @@ def _load_credit_people(deposits, periods):
     return result
 
 
-def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True, client_credits=None, receivables=()):
+def build_cash_deposits(deposits, items=None, periods=None, people=None, *, include_details=True,
+                        client_credits=None, receivables=(), entries_by_deposit=None):
     """Actual allocations classify cash; planned/manual targets do not settle it."""
     items, periods, people = items or {}, periods or {}, people or {}
+    credits_by_deposit, receivables_by_deposit = defaultdict(list), defaultdict(list)
+    for item in client_credits or []:
+        credits_by_deposit[item.get("registered_deposit")].append(item)
+    for item in receivables:
+        for name in set((item.get("related_deposits") or "").split(", ")) - {""}:
+            receivables_by_deposit[name].append(dict(name=item["name"], employer=item.get("employer"),
+                                                    amount_usd=item["receivable_usd"]))
     output = []
     for deposit in {d["name"]: d for d in deposits}.values():
         credits, other, adjustments = money(0), money(0), money(0)
@@ -123,7 +143,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         destinations = {}
         destination_employers = {}
         credit_details = {}
-        for entry in _entries(deposit.get("allocation_detail")):
+        for entry in _deposit_entries(deposit, entries_by_deposit):
             period = entry.get("periodo") or items.get(entry.get("partida"), {}).get("period")
             if period:
                 related.add(period)
@@ -169,7 +189,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         total = money(deposit.get("amount_usd"))
         allocated = money(deposit.get("allocated_usd"))
         credit_balance = money(deposit.get("justified_surplus_usd"))
-        balances = [item for item in client_credits or [] if item.get("registered_deposit") == deposit["name"]]
+        balances = credits_by_deposit[deposit["name"]]
         client_balances = [item for item in balances if item.get("category") != "Saldo a favor de la empresa"]
         company_balances = [item for item in balances if item.get("category") == "Saldo a favor de la empresa"]
         client_total = sum((money(item.get("amount_usd")) for item in client_balances), money(0))
@@ -203,8 +223,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "client_credit_usd": float(client_total), "client_credit_pending_usd": float(client_pending),
             "company_credit_usd": float(company_total), "company_credit_pending_usd": float(company_pending),
             "credit_management_pending_usd": float(client_pending + company_pending),
-            "receivable_entries": [dict(name=item['name'], employer=item.get('employer'), amount_usd=item['receivable_usd'])
-                for item in receivables if deposit['name'] in (item.get('related_deposits') or '').split(', ')],
+            "receivable_entries": receivables_by_deposit[deposit["name"]],
             "undetailed_credit_usd": float(credit_balance - client_total - company_total),
             "unclassified_usd": float(unclassified), "review_usd": float(review),
             "result": result, "needs_review": needs_review,
