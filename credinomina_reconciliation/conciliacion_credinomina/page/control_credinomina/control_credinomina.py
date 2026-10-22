@@ -50,7 +50,7 @@ def export_control_excel(year=None, employer=None):
         frappe.throw(_("No tiene permiso para exportar el control completo."))
     from credinomina_reconciliation.control_export import build_control_workbook
 
-    data = _build_control_data(year, employer, full_export=True)
+    data = _build_control_data(year, employer, full_export=True, include_work_items=False)
     from credinomina_reconciliation.core_item_position import load_core_items
     data['core_complementary_items'] = load_core_items(cint(data['year']) or None, employer)
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
@@ -304,7 +304,8 @@ def _available_years(employer=None):
 
 
 @cached_balance_reads
-def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False, detail_period=None, detail_section=None, unpaged_work=False):
+def _build_control_data(year=None, employer=None, *, full_export=False, summary_only=False,
+                        detail_period=None, detail_section=None, unpaged_work=False, include_work_items=True):
     """Build dashboard data; exports can request the complete matching population."""
     if not frappe.has_permission("CN Reconciliation Period", "read"):
         frappe.throw(_("No tiene permiso para consultar la conciliacion."))
@@ -856,13 +857,16 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 fields=["name", "employer_name"],
             )
         })
+    # The general workbook uses periods, deposits and exceptions directly. Its
+    # work queue is a separate export; avoid loading/grouping that unused queue.
     work_items = _build_work_items(
         output, deposits, registered, target_links,
         unassigned_historical_applications, unassigned_operational_applications,
         employer_names,
-    )
-    from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up, group_work_cases
-    if not detail_period and detail_section in (None, "work_items", "work_overview"):
+    ) if include_work_items else []
+    if include_work_items:
+        from credinomina_reconciliation.follow_up_queue import load_follow_up, merge_follow_up, group_work_cases
+    if include_work_items and not detail_period and detail_section in (None, "work_items", "work_overview"):
         work_items = merge_follow_up(work_items, load_follow_up(year, employer))
         from credinomina_reconciliation.pending_payments import load_pending_payments
         pending_payments = (load_pending_payments(output, registered, target_links)
@@ -878,7 +882,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             task.get('target_name') in explained
             and task['kind'] in {'review_deposit_detail', 'unassigned_deposit'})]
         work_items.extend(pending_payments)
-    work_items = group_work_cases(work_items)
+    if include_work_items:
+        work_items = group_work_cases(work_items)
     if detail_section == "work_overview":
         return {"work_scope": "Todos", "work_items": work_items if unpaged_work else work_items[:100], "work_item_count": len(work_items),
                 "work_action_count": sum(item.get('action_count', 1) for item in work_items),
