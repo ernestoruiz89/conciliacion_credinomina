@@ -534,6 +534,9 @@ def create_complementary_item(remittance_name: str, modified: str, values, from_
     if not isinstance(values, dict):
         frappe.throw(_("Los datos de la partida no son válidos."))
     if cint(from_detail_difference):
+        from credinomina_reconciliation.deposit_presentation import reconciliation_status
+        if reconciliation_status(document) in {"Conciliado", "Conciliado con saldo a favor"}:
+            frappe.throw(_("El depósito ya está conciliado. La diferencia está resuelta en su distribución; no necesita crear otra partida."))
         difference = _deposit_detail_difference(document)
         if not difference:
             frappe.throw(_("El depósito y su detalle tienen el mismo importe; no hay diferencia que documentar."))
@@ -541,12 +544,16 @@ def create_complementary_item(remittance_name: str, modified: str, values, from_
             frappe.throw(_("La diferencia cambió o el importe fue modificado. Recargue el depósito y abra nuevamente Crear partida por diferencia."))
         # An unchanged detail keeps the same gross difference after documenting
         # it. Repeating the shortcut must not create the same offset twice.
-        targets = [row for row in document.targets or [] if row.complementary_item and money(row.amount_usd) == difference]
-        if targets and frappe.db.exists("CN Complementary Item", {
-            "name": ["in", [row.complementary_item for row in targets]],
-            "docstatus": 1, "amount_usd": difference,
-        }):
-            frappe.throw(_("Ya hay una partida confirmada por esta diferencia en Destinos. Revise esa partida antes de crear otra."))
+        targets = [row for row in document.targets or [] if row.complementary_item and not row.detail_row
+                   and (not row.result or row.result in {"Pendiente", "Aplicada"})]
+        confirmed = set(frappe.get_all("CN Complementary Item", filters={
+            "name": ["in", sorted({row.complementary_item for row in targets})], "docstatus": 1,
+            "category": ["in", ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"]],
+            "origin_deposit": ["is", "not set"],
+        }, pluck="name", limit_page_length=0)) if targets else set()
+        selected = sum((money(row.amount_usd) for row in targets if row.complementary_item in confirmed), money(0))
+        if selected == difference:
+            frappe.throw(_("La diferencia ya tiene partidas confirmadas en Destinos. Guarde y use Conciliar para validar la distribución."))
         values = dict(values, currency="USD", amount=money_float(difference))
     item = frappe.new_doc("CN Complementary Item")
     for field in ("category", "subcategory", "voucher", "voucher_line", "posting_date", "currency", "amount",
