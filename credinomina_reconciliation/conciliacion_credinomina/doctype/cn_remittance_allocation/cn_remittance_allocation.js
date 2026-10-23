@@ -925,6 +925,11 @@ async function createRemittanceComplementary(frm, options = {}) {
     if (frm.is_new() || frm.is_dirty()) await frm.save();
     const fromDetailDifference = options.fromDetailDifference === true;
     const detailDifference = fromDetailDifference ? remittanceDetailDifference(frm.doc) : null;
+    if (fromDetailDifference && (remittancePresentation(frm.doc).reconciled
+            || detailDifference && !detailDifference.error && remittanceDifferenceTargets(frm.doc, detailDifference.difference).length)) {
+        frappe.msgprint(__("La diferencia ya tiene una partida vinculada o está conciliada. Revise Destinos y use Conciliar si aún está pendiente."));
+        return;
+    }
     if (fromDetailDifference && (!detailDifference || detailDifference.error || !detailDifference.difference)) {
         frappe.msgprint(detailDifference?.error || __("No hay diferencia entre el depósito y su detalle. Revise los datos guardados."));
         return;
@@ -1448,19 +1453,32 @@ function remittanceDetailDifference(doc) {
     return {deposit: Number(deposit) / 100, detail: Number(total) / 100, difference: Number(deposit - total) / 100};
 }
 
+function remittanceDifferenceTargets(doc, difference) {
+    const targets = (doc.targets || []).filter(row => row.complementary_item && !row.detail_row
+        && (!row.result || ["Pendiente", "Aplicada"].includes(row.result)));
+    const selected = targets.reduce((sum, row) => sum + toScaledInteger(row.amount_usd, 2), 0n);
+    return difference && selected === toScaledInteger(difference, 2) ? targets : [];
+}
+
 function remittanceDetailDifferenceHtml(doc, interactive = false) {
+    if (remittancePresentation(doc).reconciled) return "";
     const data = remittanceDetailDifference(doc);
     if (!data || !data.error && !data.difference) return "";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     if (data.error) return `<div class="alert alert-warning" role="status">${esc(data.error)}</div>`;
     const signed = `${data.difference > 0 ? "+" : "−"}US$ ${remittanceMoney(Math.abs(data.difference))}`;
-    return `<div class="alert alert-warning" style="margin-top:12px" role="status">
-        <strong>${esc(__("El importe del depósito es diferente al detalle"))}</strong>
+    const selected = remittanceDifferenceTargets(doc, data.difference);
+    const links = [...new Set(selected.map(row => row.complementary_item))].map(name =>
+        `<a href="/app/cn-complementary-item/${encodeURIComponent(name)}" target="_blank" rel="noopener noreferrer">${esc(name)}</a>`).join(", ");
+    return `<div class="alert ${selected.length ? "alert-info" : "alert-warning"}" style="margin-top:12px" role="status">
+        <strong>${esc(__(selected.length ? "Diferencia con partidas vinculadas; pendiente de conciliar" : "El importe del depósito es diferente al detalle"))}</strong>
         <div>${esc(__("Depósito"))}: US$ ${esc(remittanceMoney(data.deposit))}${doc.deposit_currency === "NIO" ? ` (C$ ${esc(remittanceMoney(doc.deposit_amount))})` : ""}</div>
         <div>${esc(__("Detalle del depósito"))}: US$ ${esc(remittanceMoney(data.detail))}</div>
         <div><strong>${esc(__("Diferencia (depósito − detalle)"))}: ${esc(signed)}</strong></div>
-        <p class="small mt-2">${esc(__("Positiva: depósito mayor al detalle. Negativa: depósito menor al detalle. Revise el origen de la diferencia y las partidas existentes antes de documentarla."))}</p>
-        ${interactive ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Crear partida complementaria por diferencia"))}</button>` : ""}
+        ${selected.length ? `<p class="small mt-2">${esc(__("Partidas seleccionadas"))}: ${links}.</p>
+            <p class="small">${esc(__("La diferencia ya está indicada en Destinos. Guarde y use Conciliar para validar y aplicar la distribución."))}</p>`
+            : `<p class="small mt-2">${esc(__("Positiva: depósito mayor al detalle. Negativa: depósito menor al detalle. Revise el origen de la diferencia y las partidas existentes antes de documentarla."))}</p>`}
+        ${interactive && !selected.length ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Crear partida complementaria por diferencia"))}</button>` : ""}
     </div>`;
 }
 
