@@ -563,7 +563,9 @@ La app verifica nuevamente el importe con los datos guardados antes de crear la
 partida y avisa si ya existe una partida confirmada por esa diferencia en Destinos.
 Crear la partida no concilia el depósito: revise la distribución y use **Conciliar**.
 Cuando la diferencia ya está indicada en las partidas de **Destinos**, el aviso
-muestra sus enlaces y pide conciliar, sin ofrecer crear otra partida. Al quedar
+muestra sus enlaces y el botón **Conciliar depósito** para guardar los cambios
+y ejecutar la conciliación directamente desde el aviso, sin ofrecer crear otra
+partida. El botón está disponible en depósitos confirmados con permiso de escritura. Al quedar
 el depósito **Conciliado** o **Conciliado con saldo a favor**, se ocultan el aviso
 de diferencia y el botón de creación.
 La diferencia por sí sola no determina si corresponde una CxC, un saldo a favor
