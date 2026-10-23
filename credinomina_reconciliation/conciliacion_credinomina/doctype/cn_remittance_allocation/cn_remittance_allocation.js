@@ -1460,7 +1460,7 @@ function remittanceDifferenceTargets(doc, difference) {
     return difference && selected === toScaledInteger(difference, 2) ? targets : [];
 }
 
-function remittanceDetailDifferenceHtml(doc, interactive = false) {
+function remittanceDetailDifferenceHtml(doc, interactive = false, canReconcile = false) {
     if (remittancePresentation(doc).reconciled) return "";
     const data = remittanceDetailDifference(doc);
     if (!data || !data.error && !data.difference) return "";
@@ -1478,6 +1478,7 @@ function remittanceDetailDifferenceHtml(doc, interactive = false) {
         ${selected.length ? `<p class="small mt-2">${esc(__("Partidas seleccionadas"))}: ${links}.</p>
             <p class="small">${esc(__("La diferencia ya está indicada en Destinos. Guarde y use Conciliar para validar y aplicar la distribución."))}</p>`
             : `<p class="small mt-2">${esc(__("Positiva: depósito mayor al detalle. Negativa: depósito menor al detalle. Revise el origen de la diferencia y las partidas existentes antes de documentarla."))}</p>`}
+        ${selected.length && canReconcile && doc.docstatus === 1 ? `<button type="button" class="btn btn-primary btn-sm cn-reconcile-detail-difference">${esc(__("Conciliar depósito"))}</button>` : ""}
         ${interactive && !selected.length ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Crear partida complementaria por diferencia"))}</button>` : ""}
     </div>`;
 }
@@ -1597,7 +1598,8 @@ function renderRemittanceOverview(frm) {
         ${confirmed && cash.credit ? `${escape(__("Saldo a favor documentado"))}: US$ ${remittanceMoney(cash.credit)}.` : ""}</p>
     <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}</p>
     ${remittanceDetailDifferenceHtml(frm.doc, frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write")
-        && !!frappe.model.can_create("CN Complementary Item") && !!frappe.model.can_submit("CN Complementary Item"))}
+        && !!frappe.model.can_create("CN Complementary Item") && !!frappe.model.can_submit("CN Complementary Item"),
+        confirmed && !!frm.get_perm(0, "write"))}
     ${remittanceIssuesHtml(frm.doc, frm.is_dirty(), true)}
     ${state.result !== frm.doc.result && confirmed ? `<details class="text-muted"><summary>${escape(__("Resultado guardado (auditoría)"))}</summary><p>${escape(frm.doc.result || __("Pendiente"))}. ${escape(__("Se conserva el resultado registrado; el estado mostrado arriba considera la distribución y los saldos a favor documentados."))}</p></details>` : ""}
     <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>
@@ -1614,6 +1616,13 @@ function renderRemittanceOverview(frm) {
     frm.$wrapper.off("click.cn_issues", "[data-cn-issue-field]").on("click.cn_issues", "[data-cn-issue-field]", event => {
         frm.scroll_to_field(event.currentTarget.dataset.cnIssueField);
     });
+    frm.$wrapper.off("click.cn_reconcile_difference", ".cn-reconcile-detail-difference")
+        .on("click.cn_reconcile_difference", ".cn-reconcile-detail-difference", async function () {
+            if (this.disabled || frm.reconciliation_running || frm.doc.docstatus !== 1 || !frm.get_perm(0, "write")) return;
+            this.disabled = true;
+            try { await reconcileRemittance(frm); }
+            finally { this.disabled = false; }
+        });
     frm.$wrapper.off("click.cn_detail_difference", ".cn-create-detail-difference")
         .on("click.cn_detail_difference", ".cn-create-detail-difference", async function () {
             if (this.disabled || frm._detail_difference_workflow) return;
