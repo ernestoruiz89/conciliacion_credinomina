@@ -59,6 +59,16 @@ Ruta: **Conciliación Credinómina → Preparación**. También puede buscar dir
 
 Control posterior: confirme que una variante de nombre devuelve una sola empresa o persona y que los números no pertenecen a otro cliente. Nunca cambie un identificador para ocultar una contradicción entre la cartera y el archivo.
 
+### Consultar partidas pendientes desde el cliente
+
+En un **CN Client** guardado, pulse **Ver partidas vinculadas**. El modal muestra
+las aplicaciones pendientes y, en otro panel, los depósitos y partidas
+complementarias pendientes del mismo cliente y empresa, incluyendo otros créditos.
+Cada registro indica número de crédito, importe, pendiente, estado y enlace al
+documento. La consulta usa los identificadores y alias verificados del cliente y
+respeta los permisos de lectura. **Abrir mesa de conciliación** lleva la empresa
+y el cliente seleccionados para continuar la revisión. Consultar no modifica saldos.
+
 ### Cuando una empresa paga por otra
 
 En la ficha de la pagadora, agregue las beneficiarias en **Empresas por las que puede pagar**. Si INDENICSA paga a CBC, configure CBC dentro de INDENICSA y registre un solo depósito con pagadora INDENICSA. Esta autorización no fusiona empresas, no autoriza el pago inverso y no se extiende a terceros indirectos.
