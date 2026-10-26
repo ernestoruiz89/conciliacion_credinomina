@@ -158,6 +158,8 @@ def _locked_context(item_name, modified, application_id):
 
 
 def _save_journal(item, entry):
+    from credinomina_reconciliation.complementary_state import mark
+    mark([item.name])
     history = json.loads(item.credit_history or '[]')
     if credit_usage.resolved_amount(item, history) != money(item.credit_resolved_usd):
         frappe.throw(_('El saldo gestionado no coincide con su historial. Revise la partida.'))

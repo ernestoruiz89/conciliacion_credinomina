@@ -274,6 +274,8 @@ def reconcile_deposit(document, progress=None, undo=False):
                 "linked_usd": 0, "client_credit_usd": 0, "company_credit_usd": 0, "pending_usd": row.amount_usd,
             }, update_modified=False)
         record_transition(document.name, before, snapshot({**before, **values}))
+        from credinomina_reconciliation.complementary_state import deposit_changed
+        deposit_changed({"name": document.name, "allocation_detail": "[]"}, previous=before)
     active_parents = {row.parent for row in active_sources}
     for account, bank in pairs:
         if bank.name != document.name and bank.get("parent"):

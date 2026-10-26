@@ -294,6 +294,8 @@ def verify_and_resolve(exception_name, voucher, evidence_type, evidence_name, re
     evidence_item = row if evidence_type == ITEM else (
         frappe.get_doc(ITEM, row.complementary_item) if row.complementary_item else None)
     if evidence_item and evidence_item.name != item.name:
+        from credinomina_reconciliation.complementary_state import mark
+        mark([evidence_item.name])
         evidence_item.check_permission("write")
         evidence_item.review_action = "No conciliatoria"
         evidence_item.review_notes = _("Registro en el core de {0}; verificado en {1}. No distribuir nuevamente.").format(item.name, document.name)

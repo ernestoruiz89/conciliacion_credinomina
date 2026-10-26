@@ -38,10 +38,11 @@ assert.equal(context.targetDisplayLabel({notes:'Destino conservado'}), 'Destino 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
     let rendered = 0;
-    const list = {data:[{name:'C', docstatus:1}], page:{add_inner_button(){}}, render(){rendered++;}};
+    const list = {data:[{name:'C', docstatus:1, reconciliation_status:'Conciliado'}], page:{add_inner_button(){}}, render(){rendered++;}};
     settings.onload(list);
     list.settings.before_render();
-    assert.equal(settings.get_indicator(list.data[0])[0], 'Consultando conciliación');
+    assert.equal(settings.get_indicator(list.data[0])[0], 'Conciliado');
+    assert.equal(settings.get_indicator(list.data[0])[2], 'reconciliation_status,=,Conciliado');
     calls.shift().resolve({message:{C:{state:'Conciliado',pending_usd:0,management_status:'Pendiente',management_pending_usd:15}}});
     await tick();
     assert.equal(settings.get_indicator(list.data[0])[1], 'green');
@@ -52,12 +53,12 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     assert.ok(html.includes('white-space:nowrap') && !html.includes('<br>'));
     list.settings.before_render();
     const obsolete = calls.shift();
-    list.data = [{name:'OTHER'}];
+    list.data = [{name:'OTHER', reconciliation_status:'Parcial'}];
     list.settings.before_render();
     obsolete.resolve({message:{C:{state:'Conciliado'}}});
     calls.shift().reject(new Error('offline'));
     await tick();
-    assert.equal(settings.get_indicator(list.data[0])[0], 'Saldo no disponible');
+    assert.equal(settings.get_indicator(list.data[0])[0], 'Parcial');
     assert.equal(list.data[0]._cn_balance, undefined);
     console.log('OK: financial cards, readable targets, asynchronous list states and stale/error responses.');
 })().catch(error => {console.error(error); process.exitCode=1;});

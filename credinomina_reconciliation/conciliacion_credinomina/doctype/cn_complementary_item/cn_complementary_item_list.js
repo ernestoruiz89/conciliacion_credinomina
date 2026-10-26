@@ -1,14 +1,12 @@
 frappe.listview_settings["CN Complementary Item"] = {
-    add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit", "amount_usd", "usd_currency"],
+    add_fields: ["reconciliation_status", "accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit", "amount_usd", "usd_currency"],
     has_indicator_for_draft: true,
+    has_indicator_for_cancelled: true,
     get_indicator(doc) {
-        if (doc.docstatus === 2) return [__("Cancelada"), "gray", "docstatus,=,2"];
-        if (doc.status === "Revertido") return [__("Revertida"), "gray", "status,=,Revertido"];
-        // Linked evidence skips the financial-balance request on the form.
-        if (doc.origin_deposit) return [__("Vinculado a depósito"), "blue", "origin_deposit,is,set"];
-        const state = (doc._cn_balance || doc.__onload?.cn_balance)?.state;
-        return [__(state || (doc._cn_balance_error || doc.__onload?.cn_balance_error ? "Saldo no disponible" : "Consultando conciliación")),
-            {Conciliado: "green", Parcial: "orange", Pendiente: "red", "Revisar distribución": "red", "Vinculado a depósito": "blue"}[state] || "gray", ""];
+        const state = doc.reconciliation_status || "Pendiente";
+        return [__(state), {Conciliado: "green", Parcial: "orange", Pendiente: "red",
+            "Revisar distribución": "red", "Vinculado a depósito": "blue"}[state] || "gray",
+            `reconciliation_status,=,${state}`];
     },
     formatters: {
         amount_usd(value, df, doc) {

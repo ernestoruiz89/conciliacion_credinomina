@@ -27,5 +27,5 @@ const indicator = context.frappe.listview_settings['CN Complementary Item'].get_
     accounting_source_key: 'source', docstatus: 0, review_status: 'No conciliatoria', _cn_balance: {state:'Pendiente'}});
 assert.equal(indicator[0], 'Pendiente');
 assert.equal(indicator[1], 'red');
-assert.equal(indicator[2], '');
+assert.equal(indicator[2], 'reconciliation_status,=,Pendiente');
 console.log('OK: next action, financial cards and statement drill-down.');

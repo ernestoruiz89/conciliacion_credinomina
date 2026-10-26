@@ -126,6 +126,14 @@ diferencia en el control de calidad.
   se consulta por separado. Mientras carga el saldo o si la evidencia no está
   disponible, los importes muestran **—**. Aplicado y Pendiente se calculan al
   consultar la lista y carecen de ordenamiento global por esas columnas.
+  **Estado de conciliación** (`reconciliation_status`) es un campo de solo lectura
+  disponible en los filtros de la lista. Alimenta la misma etiqueta de color de
+  la columna **Estado** y se actualiza al guardar, conciliar, compensar, revertir
+  o cancelar, incluso si el cambio se origina en un depósito. La actualización
+  forma parte de la misma transacción. La gestión de devolución de un saldo a
+  favor y su registro contable conservan sus estados independientes.
+  Al actualizar, `bench --site <sitio> migrate` ejecuta el parche que calcula
+  este campo en los registros existentes sin rehacer la conciliación.
   La cobranza administrativa se agrega en **Destinos**, no como una fila ficticia
   en **Detalle por cliente**. Por ejemplo, US$103.16 de clientes y US$16.84 de
   partida complementaria cubren un depósito de US$120.00. Solo se reconoce esta

@@ -123,8 +123,11 @@ def reconciliation_state(balance):
     return "Parcial" if money(used) > 0 and money(pending) > 0 else "Pendiente"
 
 
-def _distribution_index(wanted=None):
-    from credinomina_reconciliation.report_records import records, require_complete_evidence
+def _distribution_index(wanted=None, *, authoritative=False):
+    from credinomina_reconciliation.report_records import records, require_complete_evidence, _pages
+    # Internal status maintenance reads complete journals. Ordinary financial
+    # views retain their permission checks and never expose hidden evidence.
+    read = (lambda doctype, **kwargs: _pages(frappe.get_all, doctype, **kwargs)) if authoritative else records
     distributions = defaultdict(list)
     if wanted is not None and not wanted:
         return distributions
@@ -142,7 +145,7 @@ def _distribution_index(wanted=None):
             kwargs['or_filters'] = [['allocation_detail', 'like', '%' + token + '%'] for token in patterns]
         filters = {"docstatus": 1, "allocation_detail": ["like", '%"Partida complementaria"%']}
         readable = set()
-        for deposit in records("CN Remittance Allocation", filters=filters,
+        for deposit in read("CN Remittance Allocation", filters=filters,
                 fields=["name", "allocation_detail", "deposit_date"], **kwargs):
             readable.add(deposit.name)
             if deposit.name in visited:
@@ -173,8 +176,9 @@ def _distribution_index(wanted=None):
             except (ValueError, TypeError):
                 return any(json.dumps(name, ensure_ascii=ascii_only) in (deposit.allocation_detail or "")
                            for name in wanted for ascii_only in (True, False))
-        require_complete_evidence("CN Remittance Allocation", readable, filters=filters,
-                                  fields=["allocation_detail"], relevant=relevant, **kwargs)
+        if not authoritative:
+            require_complete_evidence("CN Remittance Allocation", readable, filters=filters,
+                                      fields=["allocation_detail"], relevant=relevant, **kwargs)
     return distributions
 
 

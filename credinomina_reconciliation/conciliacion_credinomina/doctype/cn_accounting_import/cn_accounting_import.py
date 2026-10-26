@@ -2372,6 +2372,8 @@ def _distribute_deposits(
 
 
 def _classify_surplus(allocation, surplus_items):
+    from credinomina_reconciliation.complementary_state import mark
+    mark([item.name for item in surplus_items])
     from credinomina_reconciliation.paying_employers import allowed_employers
     """Document unapplied cash, without treating it as a loan or fee payment."""
     meta_by_id = allocation["deposit_meta"]
@@ -2445,6 +2447,7 @@ def _classify_surplus(allocation, surplus_items):
 
 
 def _sync_registered_deposit_detail(allocation):
+    from credinomina_reconciliation.complementary_state import deposit_changed
     from credinomina_reconciliation.deposit_presentation import coverage_totals, reconciliation_status
     for name, deposit_id in allocation["registered_ids"].items():
         meta = allocation["deposit_meta"].get(deposit_id)
@@ -2525,6 +2528,8 @@ def _sync_registered_deposit_detail(allocation):
                               "unclassified_usd": source.unclassified_usd,
                               "result": result, "detail_status": detail_status})
             record_transition(name, before, after)
+        deposit_changed({"name": name, "allocation_detail": source.allocation_detail},
+                        previous=allocation.get("audit_before", {}).get(name))
 
 
 def _sync_rounding_movements(movements, allocation, source_rows, employer=None, deposit_name=None):
