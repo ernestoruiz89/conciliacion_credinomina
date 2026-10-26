@@ -82,6 +82,7 @@ class DepositIdentityTests(unittest.TestCase):
             for docstatus in (0, 1):
                 with self.subTest(credit=credit, docstatus=docstatus):
                     with patch.object(BaseDocument, "_get_table_fields", return_value=[]), \
+                            patch.object(BaseDocument, "meta", new=property(lambda _self: Mock(_table_doctypes={}, _non_computed_table_doctypes={}))), \
                             patch.object(CNRemittanceDetail, "init_valid_columns"):
                         row = CNRemittanceDetail(dict(doctype="CN Remittance Detail", loan_number=credit, docstatus=docstatus))
                     # A real Frappe document supports .get(), not row["loan_number"].

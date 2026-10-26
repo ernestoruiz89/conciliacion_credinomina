@@ -559,3 +559,28 @@ seleccionadas y las protecciones existentes de dinero y períodos cerrados.
 
 No requiere cambios de esquema. Actualizar el código y recargar la lista para
 mostrar el botón nuevo.
+
+## Alias desde el detalle de depósitos — 26 de octubre de 2026
+
+Crear alias aparece junto al nombre del detalle y al abrir la fila cuando no se
+puede verificar ese nombre. El servidor exige un cliente único comprobado por
+crédito, número de cliente o empleado, conservando los controles de cédula,
+empresa, permisos y períodos abiertos. Rechaza nombres que ya correspondan a
+otra persona de la misma empresa. No crea clientes para personas desconocidas.
+
+- 74 pruebas y 84 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0. Incluyen
+  identificadores contradictorios, personas sin cliente, nombres ya registrados,
+  versiones obsoletas, autorización y preservación del nombre importado.
+- Pasaron los archivos JavaScript `test_remittance_client_alias_ui.js`,
+  `test_remittance_presentation.js`, `test_remittance_diagnostics_ui.js` y
+  `test_remittance_picker.js`. El ensayo adicional `test_client_credit_ui.js`
+  encuentra un fallo previo en el formulario complementario: su entorno de
+  prueba no define `window`; ese formulario no se modificó en esta mejora.
+- `smoke_remittance_client_alias.run`, en `cn-reconciliation-test.local`, verifica
+  depósitos en borrador y confirmados con el crédito 12671-1, registro del alias,
+  identificación posterior, importes y destinos conservados, y reversión del
+  alias si falla el guardado del depósito. Todo se revierte al finalizar y se
+  comprueban los conteos iniciales.
+
+Ejecutar `bench --site <sitio> migrate` al actualizar el servidor para incorporar
+el botón nuevo al metadato de CN Remittance Detail.

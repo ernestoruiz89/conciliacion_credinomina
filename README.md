@@ -957,6 +957,16 @@ ese dato antes de volver a migrar. Realice una copia de seguridad antes de migra
    identidades desconocidas, ambiguas o contradictorias quedan por revisar y
    no se concilian automáticamente. La búsqueda respeta las empresas autorizadas
    por la pagadora. El importe equivalente US$ se calcula al cargar el detalle.
+   Si el único dato que no se puede verificar es el nombre, **Crear alias**
+   aparece debajo del nombre en la línea y al abrir la fila. El modal propone
+   únicamente al cliente verificado por crédito, número de cliente o empleado,
+   conservando la comprobación de los demás identificadores. Registra el nombre
+   importado como alias y actualiza la identificación del detalle; después use
+   **Conciliar** para actualizar sus destinos. Requiere permiso para modificar
+   el depósito y el cliente, y períodos relacionados abiertos. No permite crear
+   alias para personas sin identificación verificable ni resolver identificadores
+   contradictorios. Las filas de personas ajenas al crédito siguen pendientes de
+   revisión y clasificación; el alias no sustituye ese tratamiento.
    Adjunte el archivo completado y pulse **Cargar detalle del depósito**. Un
    depósito puede cubrir 200 aplicaciones; varias
    depósitos pueden cubrir una aplicación. El detalle se compara en US$ y no
