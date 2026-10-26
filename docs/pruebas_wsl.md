@@ -641,3 +641,33 @@ se marcan Saldo no disponible, conservando los demás registros del lote.
 El parche `backfill_complementary_reconciliation_status` se registra al final de
 post_model_sync, recarga el DocType y recorre registros en lotes por nombre.
 Requiere `bench --site <sitio> migrate` en el servidor después de actualizar.
+
+## Aplicado y Pendiente filtrables en complementarias — 26 de octubre de 2026
+
+Se agregan `applied_usd` y `pending_usd`, Currency de solo lectura e indexados,
+como filtros estándar de CN Complementary Item. Usan el mismo cálculo financiero
+del formulario y se actualizan junto con el estado antes del commit, incluso
+cuando cambia el importe y permanece el estado Parcial. Las columnas de la lista
+leen los valores guardados, admiten ordenamiento nativo y reemplazan las claves
+anteriores de presentación en las preferencias cargadas de la lista.
+
+- 93 pruebas y 75 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0; las pruebas
+  afectadas se repitieron después del ajuste para campos Currency no nulos.
+- Pasaron los siete archivos JavaScript de complementarias y vistas relacionadas.
+  Se comprueban filtros definidos en el esquema, ordenamiento, preferencias
+  anteriores, cero visible y valores persistidos que no cambia la consulta asíncrona.
+- `smoke_complementary_state.run`, con controladores y SQL reales en
+  `cn-reconciliation-test.local`, verifica importes 0/100 → 40/60 → 100/0,
+  desconciliación, cancelación, dos compensaciones manteniendo estado Parcial,
+  reversión y filtros numéricos nativos. El parche corrige los campos derivados,
+  conserva importes originales y timestamps, y resulta idempotente. Todo el
+  ensayo financiero se revierte y se comprueban los conteos iniciales.
+- Frappe crea Currency como NOT NULL. Ante evidencia ilegible se conserva el
+  estado explícito Saldo no disponible y se guardan ceros de respaldo, mostrados
+  como **—**. Para buscar ceros conocidos debe excluirse ese estado; el ensayo
+  comprueba esta combinación de filtros.
+
+El nuevo parche `backfill_complementary_list_amounts`, registrado después del
+parche del estado, reutiliza la lectura por lotes y calcula los tres campos sin
+guardar documentos ni repetir operaciones de conciliación. Requiere ejecutar
+`bench --site <sitio> migrate` después de actualizar el servidor.

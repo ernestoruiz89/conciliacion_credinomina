@@ -123,17 +123,22 @@ diferencia en el control de calidad.
   con el mismo saldo financiero del formulario: importe original, utilizado por
   distribuciones/compensaciones/ajustes y remanente. En saldos a favor, documentar
   el importe cuenta como utilizado; su gestión pendiente de devolución o aplicación
-  se consulta por separado. Mientras carga el saldo o si la evidencia no está
-  disponible, los importes muestran **—**. Aplicado y Pendiente se calculan al
-  consultar la lista y carecen de ordenamiento global por esas columnas.
+  se consulta por separado. **Aplicado USD** (`applied_usd`) y **Pendiente USD**
+  (`pending_usd`) son campos de solo lectura, indexados y disponibles para filtrar
+  y ordenar la lista. Por ejemplo: **Pendiente USD > 0** o **Aplicado USD = 0**.
+  Si la evidencia no está disponible, ambos importes muestran **—** y el estado
+  es **Saldo no disponible**. Frappe guarda cero en esos campos monetarios; para
+  buscar ceros conocidos, excluya ese estado en los filtros.
   **Estado de conciliación** (`reconciliation_status`) es un campo de solo lectura
   disponible en los filtros de la lista. Alimenta la misma etiqueta de color de
   la columna **Estado** y se actualiza al guardar, conciliar, compensar, revertir
-  o cancelar, incluso si el cambio se origina en un depósito. La actualización
-  forma parte de la misma transacción. La gestión de devolución de un saldo a
+  o cancelar, incluso si el cambio se origina en un depósito. Los importes y el
+  estado se actualizan en la misma transacción, aunque el estado no cambie.
+  La gestión de devolución de un saldo a
   favor y su registro contable conservan sus estados independientes.
   Al actualizar, `bench --site <sitio> migrate` ejecuta el parche que calcula
-  este campo en los registros existentes sin rehacer la conciliación.
+  estos campos en los registros existentes sin rehacer la conciliación ni
+  modificar sus importes originales o vínculos.
   La cobranza administrativa se agrega en **Destinos**, no como una fila ficticia
   en **Detalle por cliente**. Por ejemplo, US$103.16 de clientes y US$16.84 de
   partida complementaria cubren un depósito de US$120.00. Solo se reconoce esta
