@@ -1,5 +1,5 @@
 frappe.listview_settings["CN Complementary Item"] = {
-    add_fields: ["reconciliation_status", "accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit", "amount_usd", "usd_currency"],
+    add_fields: ["reconciliation_status", "applied_usd", "pending_usd", "accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit", "amount_usd", "usd_currency"],
     has_indicator_for_draft: true,
     has_indicator_for_cancelled: true,
     get_indicator(doc) {
@@ -12,11 +12,11 @@ frappe.listview_settings["CN Complementary Item"] = {
         amount_usd(value, df, doc) {
             return cnComplementaryListAmount(doc, "original_usd", df);
         },
-        cn_list_applied_usd(value, df, doc) {
-            return cnComplementaryListAmount(doc, "used_usd", df);
+        applied_usd(value, df, doc) {
+            return cnComplementaryStoredAmount(value, df, doc);
         },
-        cn_list_pending_usd(value, df, doc) {
-            return cnComplementaryListAmount(doc, "pending_usd", df);
+        pending_usd(value, df, doc) {
+            return cnComplementaryStoredAmount(value, df, doc);
         },
         accounting_status(value, df, doc) {
             const esc = text => frappe.utils.escape_html(String(text ?? ""));
@@ -46,7 +46,6 @@ frappe.listview_settings["CN Complementary Item"] = {
             if (!rows.length) return;
             rows.forEach(row => {
                 delete row._cn_balance; delete row._cn_balance_error;
-                row.cn_list_applied_usd = row.cn_list_pending_usd = null;
             });
             const load = async () => {
                 const balances = {};
@@ -62,8 +61,6 @@ frappe.listview_settings["CN Complementary Item"] = {
                 if (sequence !== listview.cn_balance_sequence || rows !== listview.data) return;
                 rows.forEach(row => {
                     row._cn_balance = message?.[row.name]; row._cn_balance_error = !row._cn_balance;
-                    row.cn_list_applied_usd = row._cn_balance?.used_usd ?? null;
-                    row.cn_list_pending_usd = row._cn_balance?.pending_usd ?? null;
                 });
                 listview.render();
             }).catch(() => {
@@ -114,14 +111,29 @@ function cnComplementaryListAmount(doc, key, df) {
         {...doc, usd_currency: "USD"});
 }
 
+function cnComplementaryStoredAmount(value, df, doc) {
+    if (doc.reconciliation_status === "Saldo no disponible" || value == null || !Number.isFinite(Number(value))) {
+        return `<span title="${frappe.utils.escape_html(__("Saldo no disponible"))}">—</span>`;
+    }
+    return frappe.format(value, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
+        {...doc, usd_currency: "USD"});
+}
+
 function cnComplementaryListColumns(listview) {
     if (listview.cn_balance_columns_configured || !listview.setup_columns || !listview.list_view_settings) return;
     listview.cn_balance_columns_configured = true;
-    const applied = "cn_list_applied_usd", pending = "cn_list_pending_usd";
-    const calculated = new Set([applied, pending]);
+    const applied = "applied_usd", pending = "pending_usd";
+    const financial = new Set([applied, pending, "cn_list_applied_usd", "cn_list_pending_usd"]);
+    // Keep existing saved list layouts, replacing the earlier display-only keys.
+    const saved = listview.list_view_settings.fields;
+    if (saved) {
+        const fields = JSON.parse(saved).map(field => ({...field,
+            fieldname: ({cn_list_applied_usd: applied, cn_list_pending_usd: pending})[field.fieldname] || field.fieldname}));
+        listview.list_view_settings.fields = JSON.stringify(fields.filter((field, index) => fields.findIndex(other => other.fieldname === field.fieldname) === index));
+    }
     const apply = () => {
         if (!listview.columns) return;
-        const columns = listview.columns.filter(column => !calculated.has(column.df?.fieldname));
+        const columns = listview.columns.filter(column => !financial.has(column.df?.fieldname));
         let index = columns.findIndex(column => column.df?.fieldname === "amount_usd");
         const amount = index >= 0 ? columns.splice(index, 1)[0] : {type: "Field", df: {fieldname: "amount_usd"}};
         if (index < 0) index = columns.length;
@@ -132,14 +144,8 @@ function cnComplementaryListColumns(listview) {
             {type: "Field", df: {...currency, fieldname: pending, label: __("Pendiente USD")}});
         listview.columns = columns;
     };
-    // These columns are page-level financial calculations, never database
-    // fields. Native fetch validation skips them; their headers cannot SQL-sort.
-    if (listview.get_header_html) {
-        const header = listview.get_header_html;
-        listview.get_header_html = function(...args) {
-            return header.apply(this, args).replace(/data-sort-by="cn_list_(?:applied|pending)_usd"/g, "");
-        };
-    }
+    // Both monetary columns are real fields, so native filtering and sorting
+    // use the same persisted values shown in the list.
     const setup = listview.setup_columns;
     listview.setup_columns = function(...args) {
         const result = setup.apply(this, args);
