@@ -290,6 +290,8 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
                     "usuario": frappe.session.user, "registrado_el": str(now_datetime())})
     values = credit_usage.totals(item, history=history)
     resolved, status = money(values['credit_resolved_usd']), values['credit_management_status']
+    from credinomina_reconciliation.complementary_state import mark
+    mark([item.name])
     frappe.db.set_value(item.doctype, item.name, {
         "credit_resolved_usd": money_float(resolved), "credit_pending_usd": money_float(money(item.amount_usd) - resolved),
         "credit_management_status": status, "credit_history": json.dumps(history, ensure_ascii=False), "credit_usage_issue": '',
@@ -360,6 +362,8 @@ def reverse_management(item_name, modified, entry_id, event_date, reason):
                     "usuario": frappe.session.user, "registrado_el": str(now_datetime())})
     values = credit_usage.totals(item, history=history)
     pending, status = money(values['credit_pending_usd']), values['credit_management_status']
+    from credinomina_reconciliation.complementary_state import mark
+    mark([item.name])
     frappe.db.set_value(item.doctype, item.name, {
         "credit_resolved_usd": money_float(resolved), "credit_pending_usd": money_float(pending),
         "credit_management_status": status, "credit_history": json.dumps(history, ensure_ascii=False), "credit_usage_issue": ''})

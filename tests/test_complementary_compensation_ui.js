@@ -23,7 +23,7 @@ class Dialog {
 }
 const summary = name => ({name, original_usd: 100, compensated_usd: 0, pending_usd: 100,
     posting_date: postingDates[name], description: "<script>bad</script>"});
-const context = vm.createContext({__: text => text, format_currency: value => `USD ${value}`, frappe: {
+const context = vm.createContext({window: {}, __: text => text, format_currency: value => `USD ${value}`, frappe: {
     ui: {form: {on: (_name, handlers) => { events = handlers; }}, Dialog},
     datetime: {get_today: () => "2026-10-01", str_to_user: date => "formatted:" + date},
     utils: {escape_html: value => value.replaceAll("<", "&lt;")},
@@ -36,7 +36,7 @@ const base = path.join(__dirname, "../credinomina_reconciliation/conciliacion_cr
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item_list.js"), "utf8"), context);
 const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_date: postingDates.A},
-    is_new: () => false, is_dirty: () => true, get_perm: () => allow, trigger() {},
+    is_new: () => false, is_dirty: () => true, get_perm: () => allow, trigger() {}, page: {add_menu_item() {}},
     set_df_property: (field, prop, value) => { properties[field + ":" + prop] = value; },
     add_custom_button: (label, handler) => {actions[label] = handler;},
     toggle_display() {},
@@ -88,14 +88,14 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
     const linkedIndicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({
-        docstatus: 1, origin_deposit: "DEP-4-2026-0049"});
+        docstatus: 1, origin_deposit: "DEP-4-2026-0049", reconciliation_status: "Vinculado a depósito"});
     assert.equal(linkedIndicator[0], "Vinculado a depósito");
     assert.equal(linkedIndicator[1], "blue");
     frm.doc.compensation_pending_usd = 70;
     allow = false;
     events.refresh(frm);
     assert.equal(actions["Compensar con otra partida"], undefined);
-    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category: frm.doc.category, compensation_status: "Compensada totalmente", _cn_balance:{state:"Conciliado"}});
+    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category: frm.doc.category, compensation_status: "Compensada totalmente", reconciliation_status:"Conciliado", _cn_balance:{state:"Conciliado"}});
     assert.equal(indicator[1], "green");
     allow = true;
     frm.doc = {name: "CREDIT", docstatus: 1, category: "Saldo a favor del cliente", employer: "EMP",

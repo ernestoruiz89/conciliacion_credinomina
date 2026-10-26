@@ -609,3 +609,35 @@ encabezados no intentan ordenar por campos que no existen en la base de datos.
   Los módulos donde ocurren esos fallos no se modificaron en esta mejora.
 
 No requiere migración de esquema; actualizar código y recargar la lista.
+
+## Estado de conciliación filtrable de complementarias — 26 de octubre de 2026
+
+Se agrega `reconciliation_status`, Select de solo lectura e indexado, como filtro
+estándar de CN Complementary Item. El indicador nativo de la lista lee este campo
+y devuelve el filtro correspondiente a su valor. La consulta asíncrona de importes
+conserva su función y no reemplaza el indicador por otro estado.
+
+Los cambios de documentos acumulan partidas afectadas y actualizan el estado
+antes del commit. Los escritores directos de distribuciones, clasificación de
+saldos a favor, gestión y verificación contable también notifican sus cambios.
+Se leen completos los diarios internos para mantener un estado independiente de
+los permisos de lectura del operador; las consultas de importes siguen aplicando
+sus comprobaciones de evidencia y permisos. Los registros con evidencia ilegible
+se marcan Saldo no disponible, conservando los demás registros del lote.
+
+- 91 pruebas y 75 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0. Cubren
+  finanzas, ajustes, compensaciones, saldos a favor, cola transaccional y parche.
+- Siete archivos JavaScript aprobados: columnas de importes, consistencia entre
+  vistas, claridad operativa, revisión, saldos de clientes, compensaciones y
+  seguimiento contable. Los entornos de prueba incorporan las interfaces ya
+  utilizadas por los formularios (`window` y menú) y filtros del reporte.
+- `smoke_complementary_state.run`, con controladores y SQL reales en
+  `cn-reconciliation-test.local`, comprueba Pendiente → Parcial → Conciliado con
+  dos depósitos, desconciliación y cancelación, compensación y reversión, filtros
+  nativos y un parche idempotente que conserva importes, historial y timestamps.
+  Los callbacks de precommit se ejecutan sin confirmar las fixtures; todo se
+  revierte al terminar y se verifican los conteos iniciales.
+
+El parche `backfill_complementary_reconciliation_status` se registra al final de
+post_model_sync, recarga el DocType y recorre registros en lotes por nombre.
+Requiere `bench --site <sitio> migrate` en el servidor después de actualizar.

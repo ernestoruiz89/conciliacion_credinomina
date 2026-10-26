@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 const handlers = {}, calls = [], props = {}, shown = {}, buttons = {};
 let dialog, historyHTML = "", reloads = 0, pendingManagement, canCreate = true, canSubmit = true, dialogCount = 0;
-const context = vm.createContext({setTimeout: callback => callback(), __: (text, values) => values ? text.replace("{0}", values[0]) : text,
+const context = vm.createContext({window: {}, setTimeout: callback => callback(), __: (text, values) => values ? text.replace("{0}", values[0]) : text,
     format_currency: amount => `USD ${amount}`, frappe: {
     ui: {form: {on: (dt, events) => {handlers[dt] = events;}}, Dialog: class {
         constructor(options) {this.options = options; this.values = {}; dialog = this; dialogCount++;}
@@ -34,7 +34,7 @@ vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item/cn_comple
 const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN Complementary Item", docstatus:0, category:"Saldo a favor del cliente", employer:"CBC",
     registered_deposit:"DEP", credit_client:"123", client_number:"123", modified:"stamp"},
     fields_dict: {credit_history_preview: {$wrapper: {html: value => {historyHTML = value;}}}},
-    is_new: () => false, is_dirty: () => false, get_perm: () => true, trigger() {},
+    is_new: () => false, is_dirty: () => false, get_perm: () => true, trigger() {}, page: {add_menu_item() {}},
     set_value: async (key, value) => typeof key === "string" ? frm.doc[key] = value : Object.assign(frm.doc, key),
     set_df_property: (field, prop, value) => {props[field + prop] = value;}, toggle_display: (field, value) => {shown[field] = value;},
     add_custom_button: (name, action) => {buttons[name] = action;}, reload_doc: async () => {reloads++;},
@@ -82,7 +82,7 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     frm.doc.credit_pending_usd = 0;
     events.refresh(frm);
     assert.equal(shown.record_credit_management, false);
-    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category:"Saldo a favor del cliente", docstatus:1, credit_management_status:"Resuelto", _cn_balance:{state:"Conciliado"}});
+    const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category:"Saldo a favor del cliente", docstatus:1, credit_management_status:"Resuelto", reconciliation_status:"Conciliado", _cn_balance:{state:"Conciliado"}});
     assert.equal(indicator[1], "green");
     const added = [];
     context.frappe.listview_settings["CN Complementary Item"].onload({page:{add_inner_button: (label, action) => {if (label === "Saldos de clientes pendientes") action();}}, filter_area:{add: filter => added.push(filter)}});

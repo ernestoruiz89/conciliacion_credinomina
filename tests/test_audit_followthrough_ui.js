@@ -14,7 +14,7 @@ for (const name of ['Estado de Cuenta Operativo', 'Estado de Cuenta por Empresa'
     }]));
     const buttons = {};
     const wrapper = {off() {}, on() {}};
-    settings.onload({get_filter: name => controls[name], page: {wrapper,
+    settings.onload({get_filter: name => controls[name], get_filter_value: name => controls[name]?.get_value(), page: {wrapper,
         add_inner_button(label, callback) {buttons[label] = callback; return {text() {}};}}});
     const hidden = Object.keys(controls).filter(key => controls[key].$wrapper.visible === false);
     assert.ok(hidden.length > 0);
@@ -35,5 +35,5 @@ assert.ok(!html.includes('<br>'));
 assert.ok(html.includes('white-space:nowrap') && html.includes('var(--text-color)'));
 const schema = JSON.parse(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item.json`, 'utf8'));
 assert.deepEqual(schema.fields.filter(f => f.in_standard_filter).map(f => f.fieldname).sort(),
-    ['accounting_status', 'category', 'employer', 'posting_date']);
+    ['accounting_status', 'category', 'employer', 'posting_date', 'reconciliation_status']);
 console.log('OK: focused filters, visible active criteria, explicit receivable and management labels.');

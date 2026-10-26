@@ -9,7 +9,7 @@
     "financial_overview_section", "financial_overview",
     "receivable_origin", "receivable_operation", "receivable_method", "receivable_counterpart",
     "item_section", "usd_currency", "nio_currency", "naming_series",
-    "reference", "category", "subcategory", "subcategory_effect", "posting_date", "amount_column", "currency", "amount", "fx_rate", "amount_usd",
+    "reference", "category", "reconciliation_status", "subcategory", "subcategory_effect", "posting_date", "amount_column", "currency", "amount", "fx_rate", "amount_usd",
     "allocation_section", "employer", "period", "allocation_column", "client_name", "client_number", "loan_number", "installment_number",
     "support_section", "description", "support_column", "support_file",
     "tratamiento_tab",
@@ -28,6 +28,7 @@
     "evidence_section", "tmov", "tdoc", "accounting_classification", "classification_reason", "source_classification", "source_column", "source_account", "source_currency", "source_debit", "source_credit", "source_fx_rate", "source_date", "accounting_reference", "source_voucher", "source_client_name", "source_description", "source_file", "source_row", "source_file_hash", "accounting_source_key"
   ],
   "fields": [
+    {"fieldname": "reconciliation_status", "fieldtype": "Select", "label": "Estado de conciliación", "options": "Pendiente\nParcial\nConciliado\nRevisar distribución\nVinculado a depósito\nRevertida\nParcialmente revertida\nCancelada\nSaldo no disponible", "default": "Pendiente", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "in_standard_filter": 1, "search_index": 1, "description": "Estado calculado por el servidor al guardar o conciliar. Es el mismo indicador mostrado en la columna Estado de la lista."},
     {"fieldname": "partida_tab", "fieldtype": "Tab Break", "label": "1. Partida y saldo"},
     {"fieldname": "tratamiento_tab", "fieldtype": "Tab Break", "label": "2. Tratamiento y gestión"},
     {"fieldname": "evidencia_tab", "fieldtype": "Tab Break", "label": "3. Registro y evidencia"},

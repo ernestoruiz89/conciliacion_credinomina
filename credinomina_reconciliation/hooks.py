@@ -51,3 +51,5 @@ doc_events = {
 doc_events["File"] = {
     "on_trash": "credinomina_reconciliation.import_file_guard.guard_import_file_deletion",
 }
+doc_events["CN Complementary Item"]["on_change"] = "credinomina_reconciliation.complementary_state.item_changed"
+doc_events["CN Remittance Allocation"]["on_change"] = "credinomina_reconciliation.complementary_state.deposit_changed"

@@ -63,21 +63,23 @@ const tick = () => new Promise(done => setImmediate(done));
     vm.runInContext(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item_list.js`, 'utf8'), context);
     const indicator = context.frappe.listview_settings['CN Complementary Item'].get_indicator;
     const states = [];
-    const headerForm = {doc:{name:'HEADER',docstatus:1,amount_usd:20}, is_new:()=>false,
+    const headerForm = {doc:{name:'HEADER',docstatus:1,amount_usd:20,reconciliation_status:'Conciliado'}, is_new:()=>false,
         fields_dict:{financial_overview:{$wrapper:{html() {}}}},
         toolbar:{set_indicator:()=>states.push(indicator(headerForm.doc)[0])}};
     const loading = context.cn_render_complementary_balance(headerForm);
-    assert.equal(states.at(-1),'Consultando conciliación');
+    assert.equal(states.at(-1),'Conciliado');
     resolveBalance({message:{original_usd:20,used_usd:20,pending_usd:0,reconciliation_state:'Conciliado'}});
     await loading;
     assert.equal(states.at(-1),'Conciliado');
     assert.equal(headerForm.doc.amount_usd,20);
     headerForm.doc.docstatus=2;
+    headerForm.doc.reconciliation_status='Cancelada';
     assert.equal(indicator(headerForm.doc)[0],'Cancelada');
     headerForm.doc.docstatus=1;
+    headerForm.doc.reconciliation_status='Conciliado';
     context.frappe.call=()=>Promise.reject(new Error('offline'));
     await context.cn_render_complementary_balance(headerForm);
-    assert.equal(states.at(-1),'Saldo no disponible');
+    assert.equal(states.at(-1),'Conciliado');
     assert.equal(headerForm.doc.__onload.cn_balance,undefined,'Never retain a stale successful balance after an error');
     console.log('OK: case navigation, classification financial preview, safe HTML, stale responses and actual status suggestions.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

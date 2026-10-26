@@ -154,6 +154,8 @@ def delete_history(item_name, kind, entry_id, token, reason):
                     doc.flags.pop('compensation_write_token', None)
             else:
                 values = credit_usage.totals(doc, history=rest)
+                from credinomina_reconciliation.complementary_state import mark
+                mark([doc.name])
                 frappe.db.set_value(doc.doctype, doc.name, dict(credit_history=json.dumps(rest, ensure_ascii=False), credit_usage_issue='', **values))
                 doc.clear_cache()
             # Keep an audit record outside the financial histories. No compensating

@@ -9,6 +9,17 @@ const context = vm.createContext({__: text => text, frappe: {
 const directory = path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_complementary_item");
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_complementary_item_list.js"), "utf8"), context);
 const settings = context.frappe.listview_settings["CN Complementary Item"];
+const meta = JSON.parse(fs.readFileSync(path.join(directory, "cn_complementary_item.json"), "utf8"));
+const stateField = meta.fields.find(field => field.fieldname === "reconciliation_status");
+assert.equal(stateField.in_standard_filter, 1);
+assert.equal(stateField.read_only, 1);
+assert.equal(stateField.search_index, 1);
+assert.ok(settings.add_fields.includes("reconciliation_status"));
+for (const state of stateField.options.split("\n")) {
+    const indicator = settings.get_indicator({reconciliation_status: state, _cn_balance: {state: "outdated"}});
+    assert.equal(indicator[0], state);
+    assert.equal(indicator[2], `reconciliation_status,=,${state}`);
+}
 const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
     for (const asynchronous of [false, true]) for (const personalized of [false, true]) {
