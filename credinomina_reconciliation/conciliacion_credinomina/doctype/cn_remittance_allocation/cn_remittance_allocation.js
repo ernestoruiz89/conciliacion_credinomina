@@ -207,6 +207,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         const targetNotes = frappe.meta?.get_docfield?.("CN Remittance Target", "notes");
         if (targetNotes) targetNotes.formatter = targetFormatter;
         frm.fields_dict.targets?.grid?.update_docfield_property?.("notes", "formatter", targetFormatter);
+        setupRemittanceClientAlias(frm);
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
         renderRemittanceDistribution(frm);
@@ -636,12 +637,15 @@ async function useApplicationsAsDetail(frm, source = "applications") {
 }
 
 frappe.ui.form.on("CN Remittance Detail", {
+    create_client_alias: createRemittanceClientAlias,
     view_related_pending: showRemittanceRelatedPending,
     create_client_credit: createClientCreditFromDetail,
     create_company_credit: createCompanyCreditFromDetail,
     select_pending_targets: selectPendingTargetsForDetail,
     form_render(frm, cdt, cdn) {
         const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+        const aliasControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_alias;
+        aliasControl?.$wrapper.toggle(canCreateRemittanceClientAlias(frm, row));
         const control = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_credit;
         control?.$wrapper.toggle(canCreateDetailClientCredit(frm, row));
         const companyControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_company_credit;
@@ -657,6 +661,79 @@ frappe.ui.form.on("CN Remittance Detail", {
         frappe.show_alert({message: __("Guarde y use Conciliar. Revise los destinos manuales si cambió el crédito."), indicator: "orange"});
     },
 });
+
+function canCreateRemittanceClientAlias(frm, row) {
+    return !frm.is_new() && frm.doc.docstatus !== 2 && !frm.doc.consolidated_deposit &&
+        frm.doc.cash_identity_status !== "Origen vinculado" && !!frm.get_perm(0, "write") &&
+        !!frappe.model?.can_write?.("CN Client") && !!row?.name && !row.client &&
+        !!String(row.client_name || "").trim() &&
+        (row.identity_reason || "").includes("no se pudo verificar Nombre y apellidos") &&
+        [row.loan_number, row.client_number, row.employee_number].some(value => String(value || "").trim());
+}
+
+function setupRemittanceClientAlias(frm) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const formatter = (value, df, options, row) => `${esc(value)}${row?.parent === frm.doc.name && canCreateRemittanceClientAlias(frm, row)
+        ? `<br><a href="#" data-create-client-alias="${esc(row.name)}">${__("Crear alias")}</a>` : ""}`;
+    const field = frappe.meta?.get_docfield?.("CN Remittance Detail", "client_name");
+    if (field) field.formatter = formatter;
+    frm.fields_dict.detail_rows?.grid?.update_docfield_property?.("client_name", "formatter", formatter);
+    const wrapper = frm.fields_dict.detail_rows?.$wrapper;
+    if (wrapper?.off && wrapper?.on) {
+        wrapper.off("click.cnClientAlias", "[data-create-client-alias]").on("click.cnClientAlias", "[data-create-client-alias]", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            createRemittanceClientAlias(frm, "CN Remittance Detail", event.currentTarget.dataset.createClientAlias);
+        });
+    }
+}
+
+async function createRemittanceClientAlias(frm, cdt, cdn) {
+    const row = (frm.doc.detail_rows || []).find(item => item.name === cdn);
+    if (!canCreateRemittanceClientAlias(frm, row)) return;
+    if (frm.clientAliasDialog) {frm.clientAliasDialog.show(); return;}
+    if (frm.clientAliasOpening) return;
+    frm.clientAliasOpening = true;
+    const depositName = frm.doc.name;
+    const api = "credinomina_reconciliation.remittance_client_alias.";
+    try {
+        if (frm.is_dirty()) await frm.save();
+        if (frm.doc.name !== depositName) return;
+        const response = await frappe.call({method: api + "preview_alias",
+            args: {remittance_name: depositName, detail_row_name: cdn}});
+        const data = response.message;
+        let saving = false;
+        const dialog = new frappe.ui.Dialog({title: __("Crear alias del cliente"), fields: [
+            {fieldtype: "Link", fieldname: "client", label: __("Cliente verificado"), options: "CN Client", reqd: 1,
+                default: data.client, get_query: () => ({filters: {name: ["in", [data.client]]}})},
+            {fieldtype: "Data", fieldname: "client_name", label: __("Nombre registrado"), read_only: 1, default: data.client_name},
+            {fieldtype: "Data", fieldname: "client_number", label: __("Nro. Cliente"), read_only: 1, default: data.client_number},
+            {fieldtype: "Data", fieldname: "employee_number", label: __("Nro. Empleado"), read_only: 1, default: data.employee_number},
+            {fieldtype: "Data", fieldname: "loan_number", label: __("Nro. Crédito de la fila"), read_only: 1, default: data.loan_number},
+            {fieldtype: "Data", fieldname: "employer", label: __("Empresa del detalle"), read_only: 1, default: data.employer},
+            {fieldtype: "Data", fieldname: "alias_name", label: __("Nombre importado que se agregará como alias"),
+                read_only: 1, default: data.alias_name,
+                description: __("Confirme que el nombre importado corresponde a esta persona. Después de guardar, use Conciliar para actualizar los destinos.")},
+        ], primary_action_label: __("Guardar alias"), async primary_action(values) {
+            if (saving) return;
+            if (frm.doc.name !== depositName || frm.is_dirty()) {
+                frappe.msgprint(__("El depósito cambió. Cierre el modal, guarde y vuelva a abrir Crear alias.")); return;
+            }
+            saving = true;
+            dialog.disable_primary_action();
+            try {
+                await frappe.call({method: api + "create_alias", type: "POST", freeze: true, args: {
+                    remittance_name: depositName, detail_row_name: cdn, client_name: values.client,
+                    modified: data.modified, client_modified: data.client_modified}});
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({message: __("Alias guardado y cliente identificado. Use Conciliar para actualizar los destinos."), indicator: "green"});
+            } finally {saving = false; dialog.enable_primary_action();}
+        }, onhide() {if (frm.clientAliasDialog === dialog) frm.clientAliasDialog = null;}});
+        frm.clientAliasDialog = dialog;
+        dialog.show();
+    } finally {frm.clientAliasOpening = false;}
+}
 
 function canViewRemittanceRelatedPending(frm, row) {
     const name = row?.client_name && row.client_name !== "Sin identificar" ? row.client_name : "";

@@ -5,7 +5,7 @@
   "engine": "InnoDB",
   "field_order": [
     "payment_tab", "usd_currency", "nio_currency",
-    "detail_identity_section", "source_row", "employer", "client_name", "client_number", "loan_number", "portfolio_credit_status",
+    "detail_identity_section", "source_row", "employer", "client_name", "create_client_alias", "client_number", "loan_number", "portfolio_credit_status",
     "detail_actions_column", "view_related_pending", "difference_reason", "select_pending_targets", "create_client_credit", "create_company_credit",
     "detail_amounts_section", "deducted_usd", "deducted_nio", "amount_usd",
     "detail_balance_column", "linked_usd", "client_credit_usd", "company_credit_usd", "pending_usd",
@@ -46,6 +46,7 @@
     {"fieldname": "client_number", "fieldtype": "Data", "label": "Nro. Cliente", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "employee_number", "fieldtype": "Data", "label": "Nro. Empleado", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1},
     {"fieldname": "client_name", "fieldtype": "Data", "label": "Nombre del cliente", "read_only": 1, "allow_on_submit": 1, "in_list_view": 1, "columns": 3, "description": "Se completa al identificar al cliente. Basta crédito, cédula, número de cliente, número de empleado o nombre; si informa varios, deben corresponder a la misma persona."},
+    {"fieldname": "create_client_alias", "fieldtype": "Button", "label": "Crear alias", "allow_on_submit": 1, "depends_on": "eval:!doc.client && !!doc.client_name && (doc.identity_reason || '').includes('no se pudo verificar Nombre y apellidos')", "description": "Registra el nombre importado como alias del cliente verificado por crédito, número de cliente o empleado."},
     {"fieldname": "national_id", "fieldtype": "Data", "label": "Nro. Cédula", "read_only": 1, "allow_on_submit": 1},
     {"fieldname": "loan_number", "fieldtype": "Data", "label": "Nro. Crédito", "allow_on_submit": 1, "in_list_view": 1, "columns": 2, "description": "Puede corregirlo después de confirmar el depósito, excepto si la fila tiene un saldo a favor del cliente confirmado. Guarde y use Conciliar para actualizar los destinos."},
     {"fieldname": "loan_selection_snapshot", "fieldtype": "Link", "options": "CN Credit Portfolio Snapshot", "label": "Corte de cartera seleccionado", "read_only": 1, "allow_on_submit": 1},
