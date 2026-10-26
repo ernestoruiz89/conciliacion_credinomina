@@ -584,3 +584,28 @@ otra persona de la misma empresa. No crea clientes para personas desconocidas.
 
 Ejecutar `bench --site <sitio> migrate` al actualizar el servidor para incorporar
 el botón nuevo al metadato de CN Remittance Detail.
+
+## Importes en la lista de partidas complementarias — 26 de octubre de 2026
+
+La lista muestra Importe USD, Aplicado USD y Pendiente USD a partir de la consulta
+financiera existente por página. No se guardan saldos adicionales ni se agregan
+consultas SQL por fila. Las columnas calculadas se agregan después de preparar
+las columnas nativas y conservan las demás columnas personalizadas; sus
+encabezados no intentan ordenar por campos que no existen en la base de datos.
+
+- 35 pruebas y 11 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0. Verifican
+  consistencia con el formulario para ajustes, compensaciones, saldos documentados,
+  cancelaciones y orígenes vinculados, conservando permisos y gestión separada.
+- Pasaron `test_complementary_list_amounts_ui.js` y
+  `test_cross_view_consistency_ui.js`: configuración síncrona y asíncrona, listas
+  personalizadas, columnas sin duplicar, importes negativos y cero, y errores de
+  lectura mostrados como no disponibles.
+- Un ensayo local utiliza directamente los métodos de consulta y renderizado de
+  las listas de ambos Frappe: solo se solicitan campos reales y se renderiza el
+  importe calculado correctamente.
+- Ensayos adicionales de interfaz encuentran fallos previos en sus entornos:
+  `test_audit_followthrough_ui.js` no proporciona `get_filter_value` al reporte y
+  `test_complementary_compensation_ui.js` no define `window` para el formulario.
+  Los módulos donde ocurren esos fallos no se modificaron en esta mejora.
+
+No requiere migración de esquema; actualizar código y recargar la lista.

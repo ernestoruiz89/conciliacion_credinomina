@@ -224,6 +224,8 @@ def get_list_balances(names):
                 receivables[row['name']] = None if previous is None or row['receivable_usd'] is None else previous + money(row['receivable_usd'])
     return {item['name']: {
         'state': balances[item['name']]['financial_status'] if item.get('docstatus') == 2 else reconciliation_state(balances[item['name']]),
+        'original_usd': balances[item['name']]['original_usd'],
+        'used_usd': balances[item['name']]['used_usd'],
         'pending_usd': balances[item['name']]['pending_usd'],
         'management_status': balances[item['name']]['management_status'],
         'management_pending_usd': balances[item['name']]['management_pending_usd'],
