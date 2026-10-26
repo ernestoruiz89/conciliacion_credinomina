@@ -94,12 +94,31 @@ class CrossViewConsistencyTests(unittest.TestCase):
             result = complementary_balances.get_list_balances(['C'])
         self.assertEqual(query.call_args.kwargs['filters']['name'], ['in', ['C']])
         self.assertEqual(result['C']['state'], 'Conciliado')
+        self.assertEqual((result['C']['original_usd'], result['C']['used_usd']), (20, 20))
         self.assertEqual(result['C']['pending_usd'], 0)
         self.assertEqual(result['C']['management_pending_usd'], 20)
         self.assertEqual(result['C']['management_status'], 'Pendiente')
         with patch.object(frappe, 'has_permission', return_value=False), patch.object(frappe, 'get_list') as query:
             self.assertEqual(complementary_balances.get_list_balances(['PRIVATE']), {})
             query.assert_not_called()
+
+    def test_list_amounts_reuse_financial_balance_for_adjustments_and_compensations(self):
+        items = [
+            dict(name='ADJ', category='Ajuste de aplicación', docstatus=1, amount_usd=.64,
+                 related_application='APP', application_adjustment_usd=.17),
+            dict(name='COMP', category='Compensación entre partidas', docstatus=1,
+                 amount_usd=-100, compensated_usd=40),
+            dict(name='LINK', category='Vinculado a depósito', docstatus=1, amount_usd=20, origin_deposit='DEP'),
+            dict(name='CANCEL', category='Ajuste de aplicación', docstatus=2, amount_usd=10),
+        ]
+        with patch.object(frappe, 'has_permission', return_value=True), \
+             patch('credinomina_reconciliation.report_records.records', return_value=items):
+            result = complementary_balances.get_list_balances([item['name'] for item in items])
+        for item in items:
+            with self.subTest(name=item['name']):
+                balance = complementary_balances.financial_balance(item)
+                self.assertEqual({key: result[item['name']][key] for key in ('original_usd', 'used_usd', 'pending_usd')},
+                    {key: balance[key] for key in ('original_usd', 'used_usd', 'pending_usd')})
 
 
 if __name__ == '__main__':

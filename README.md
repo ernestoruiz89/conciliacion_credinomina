@@ -119,6 +119,13 @@ diferencia en el control de calidad.
   completar el campo **Asiento contable**, editable incluso después de confirmar.
   La lista de partidas incluye el filtro **Pendientes de registro** para dar
   seguimiento; conciliar el depósito no da por registrado el asiento en el core.
+  También muestra **Importe USD**, **Aplicado USD** y **Pendiente USD**, calculados
+  con el mismo saldo financiero del formulario: importe original, utilizado por
+  distribuciones/compensaciones/ajustes y remanente. En saldos a favor, documentar
+  el importe cuenta como utilizado; su gestión pendiente de devolución o aplicación
+  se consulta por separado. Mientras carga el saldo o si la evidencia no está
+  disponible, los importes muestran **—**. Aplicado y Pendiente se calculan al
+  consultar la lista y carecen de ordenamiento global por esas columnas.
   La cobranza administrativa se agrega en **Destinos**, no como una fila ficticia
   en **Detalle por cliente**. Por ejemplo, US$103.16 de clientes y US$16.84 de
   partida complementaria cubren un depósito de US$120.00. Solo se reconoce esta

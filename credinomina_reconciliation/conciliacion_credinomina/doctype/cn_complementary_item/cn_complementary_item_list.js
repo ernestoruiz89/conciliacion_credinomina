@@ -1,5 +1,5 @@
 frappe.listview_settings["CN Complementary Item"] = {
-    add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit"],
+    add_fields: ["accounting_status", "category", "status", "review_status", "accounting_source_key", "docstatus", "compensation_status", "credit_management_status", "credit_pending_usd", "result", "origin_deposit", "amount_usd", "usd_currency"],
     has_indicator_for_draft: true,
     get_indicator(doc) {
         if (doc.docstatus === 2) return [__("Cancelada"), "gray", "docstatus,=,2"];
@@ -11,6 +11,15 @@ frappe.listview_settings["CN Complementary Item"] = {
             {Conciliado: "green", Parcial: "orange", Pendiente: "red", "Revisar distribución": "red", "Vinculado a depósito": "blue"}[state] || "gray", ""];
     },
     formatters: {
+        amount_usd(value, df, doc) {
+            return cnComplementaryListAmount(doc, "original_usd", df);
+        },
+        cn_list_applied_usd(value, df, doc) {
+            return cnComplementaryListAmount(doc, "used_usd", df);
+        },
+        cn_list_pending_usd(value, df, doc) {
+            return cnComplementaryListAmount(doc, "pending_usd", df);
+        },
         accounting_status(value, df, doc) {
             const esc = text => frappe.utils.escape_html(String(text ?? ""));
             const balance = doc._cn_balance;
@@ -29,6 +38,7 @@ frappe.listview_settings["CN Complementary Item"] = {
     },
     onload(listview) {
         listview.settings ||= frappe.listview_settings["CN Complementary Item"];
+        cnComplementaryListColumns(listview);
         // Frappe 15 does not await before_render. Read the visible page once,
         // then redraw locally (render does not invoke before_render again).
         listview.settings.before_render = () => {
@@ -36,7 +46,10 @@ frappe.listview_settings["CN Complementary Item"] = {
             listview.cn_balance_sequence = sequence;
             const rows = listview.data || [];
             if (!rows.length) return;
-            rows.forEach(row => {delete row._cn_balance; delete row._cn_balance_error;});
+            rows.forEach(row => {
+                delete row._cn_balance; delete row._cn_balance_error;
+                row.cn_list_applied_usd = row.cn_list_pending_usd = null;
+            });
             const load = async () => {
                 const balances = {};
                 for (let offset = 0; offset < rows.length; offset += 500) {
@@ -49,7 +62,11 @@ frappe.listview_settings["CN Complementary Item"] = {
             };
             load().then(message => {
                 if (sequence !== listview.cn_balance_sequence || rows !== listview.data) return;
-                rows.forEach(row => {row._cn_balance = message?.[row.name]; row._cn_balance_error = !row._cn_balance;});
+                rows.forEach(row => {
+                    row._cn_balance = message?.[row.name]; row._cn_balance_error = !row._cn_balance;
+                    row.cn_list_applied_usd = row._cn_balance?.used_usd ?? null;
+                    row.cn_list_pending_usd = row._cn_balance?.pending_usd ?? null;
+                });
                 listview.render();
             }).catch(() => {
                 if (sequence !== listview.cn_balance_sequence || rows !== listview.data) return;
@@ -88,3 +105,54 @@ frappe.listview_settings["CN Complementary Item"] = {
         }, __("Vistas rápidas"));
     },
 };
+
+function cnComplementaryListAmount(doc, key, df) {
+    const value = doc._cn_balance?.[key];
+    if (value == null || !Number.isFinite(Number(value))) {
+        const label = doc._cn_balance_error ? __("Saldo no disponible") : __("Consultando conciliación");
+        return `<span title="${frappe.utils.escape_html(label)}">—</span>`;
+    }
+    return frappe.format(value, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
+        {...doc, usd_currency: "USD"});
+}
+
+function cnComplementaryListColumns(listview) {
+    if (listview.cn_balance_columns_configured || !listview.setup_columns || !listview.list_view_settings) return;
+    listview.cn_balance_columns_configured = true;
+    const applied = "cn_list_applied_usd", pending = "cn_list_pending_usd";
+    const calculated = new Set([applied, pending]);
+    const apply = () => {
+        if (!listview.columns) return;
+        const columns = listview.columns.filter(column => !calculated.has(column.df?.fieldname));
+        let index = columns.findIndex(column => column.df?.fieldname === "amount_usd");
+        const amount = index >= 0 ? columns.splice(index, 1)[0] : {type: "Field", df: {fieldname: "amount_usd"}};
+        if (index < 0) index = columns.length;
+        const currency = {fieldtype: "Currency", options: "usd_currency", precision: 2, read_only: 1};
+        columns.splice(index, 0,
+            {...amount, df: {...amount.df, ...currency, label: __("Importe USD")}},
+            {type: "Field", df: {...currency, fieldname: applied, label: __("Aplicado USD")}},
+            {type: "Field", df: {...currency, fieldname: pending, label: __("Pendiente USD")}});
+        listview.columns = columns;
+    };
+    // These columns are page-level financial calculations, never database
+    // fields. Native fetch validation skips them; their headers cannot SQL-sort.
+    if (listview.get_header_html) {
+        const header = listview.get_header_html;
+        listview.get_header_html = function(...args) {
+            return header.apply(this, args).replace(/data-sort-by="cn_list_(?:applied|pending)_usd"/g, "");
+        };
+    }
+    const setup = listview.setup_columns;
+    listview.setup_columns = function(...args) {
+        const result = setup.apply(this, args);
+        if (result?.then) return result.then(() => {apply();});
+        apply();
+        return result;
+    };
+    const count = Math.max((listview.meta?.fields || []).filter(field => field.in_list_view).length,
+        JSON.parse(listview.list_view_settings.fields || "[]").length) + 5;
+    listview.list_view_settings.total_fields = Math.max(Number(listview.list_view_settings.total_fields) || 0, count);
+    const result = listview.setup_columns();
+    if (result?.then) result.then(() => listview.render_header(true));
+    else listview.render_header(true);
+}
