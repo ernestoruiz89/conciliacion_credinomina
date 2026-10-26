@@ -69,6 +69,9 @@ frappe.listview_settings["CN Complementary Item"] = {
                 listview.render();
             });
         };
+        listview.page.add_inner_button(__("Pendiente USD mayor que cero"), () => {
+            listview.filter_area.add([["CN Complementary Item", "pending_usd", ">", 0]]);
+        }, __("Vistas rápidas"));
         listview.page.add_inner_button(__("Saldos de empresas pendientes"), () => {
             listview.filter_area.add([["CN Complementary Item", "category", "=", "Saldo a favor de la empresa"],
                 ["CN Complementary Item", "credit_pending_usd", ">", 0], ["CN Complementary Item", "docstatus", "=", 1]]);
