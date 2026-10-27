@@ -6,7 +6,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation import difference_documentation as module
-from credinomina_reconciliation.manual_items_review import review_rows, ITEM, DEPOSIT, IMPORT, PERIOD
+from credinomina_reconciliation.manual_items_review import review_rows, summarize_rows, execute, ITEM, DEPOSIT, IMPORT, PERIOD
 from credinomina_reconciliation.manual_complementary_policy import guard_new_item, imported_item
 from credinomina_reconciliation.rounding import rounding_movements
 
@@ -124,6 +124,50 @@ class ManualReviewTests(unittest.TestCase):
         self.assertTrue(any(row.get("related_document") == "P" and row.get("related_row") == "C" for row in rows))
         self.assertTrue(any(row.get("related_document") == "D" for row in rows))
         self.assertTrue(any(row.get("source_key") == "KD" for row in rows))
+
+    def test_shared_period_import_and_deposit_do_not_expand_to_unrelated_applications(self):
+        nodes, owners, metadata = self.evidence()
+        nodes[(ITEM, "M")].related_import = "I"
+        for field, kind in (("related_import", IMPORT), ("remittance_allocation", DEPOSIT)):
+            metadata["CN Source Row"].fields.append(SimpleNamespace(fieldname=field, fieldtype="Link", options=kind))
+        for index in range(1000):
+            key = ("CN Source Row", f"UNRELATED-{index}")
+            nodes[key] = frappe._dict(name=key[1], parent="I", historical_period="P",
+                                     related_import="I", remittance_allocation="D")
+            owners[key] = (IMPORT, "I")
+        rows = review_rows(nodes, owners, metadata)
+        self.assertNotIn("UNRELATED-", str(rows))
+        self.assertTrue(any(row.get("related_row") == "A" for row in rows))
+        self.assertTrue(any(row.get("related_document") == "P" for row in rows))
+        self.assertTrue(any(row.get("source_key") == "KD" for row in rows))
+
+    def test_summary_keeps_one_balance_per_item_and_counts_distinct_targets(self):
+        nodes, owners, metadata = self.evidence()
+        nodes[(ITEM, "M")].update(applied_usd=3, pending_usd=7)
+        key = (ITEM, "UNLINKED")
+        nodes[key] = frappe._dict(name=key[1], amount_usd=5, reconciliation_status="Saldo no disponible")
+        owners[key] = key
+        detail = review_rows(nodes, owners, metadata)
+        summary = summarize_rows(detail + detail)
+        self.assertEqual(len(summary), 2)
+        manual = next(row for row in summary if row["item"] == "M")
+        self.assertEqual((manual["amount_usd"], manual["applied_usd"], manual["pending_usd"]), (10, 3, 7))
+        self.assertEqual(manual["link_count"], 4)  # application, deposit, period, core source
+        self.assertEqual(manual["candidate_count"], 0)  # same application already linked
+        unlinked = next(row for row in summary if row["item"] == "UNLINKED")
+        self.assertEqual(unlinked["link_count"], 0)
+        self.assertIsNone(unlinked["pending_usd"])
+
+    def test_report_defaults_to_summary_and_keeps_detail_explicit(self):
+        with patch("credinomina_reconciliation.manual_items_review.load_evidence", return_value=self.evidence()), \
+                patch.object(frappe, "has_permission", return_value=True):
+            columns, rows, message = execute({"show_details": "0"})
+            self.assertEqual(len(rows), 1)
+            self.assertIn("details", [column["fieldname"] for column in columns])
+            self.assertNotIn("relation_usd", [column["fieldname"] for column in columns])
+            columns, rows, message = execute({"item": "M", "show_details": "1"})
+            self.assertGreater(len(rows), 1)
+            self.assertIn("relation_usd", [column["fieldname"] for column in columns])
 
 
 if __name__ == "__main__":
