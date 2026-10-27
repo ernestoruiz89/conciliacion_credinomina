@@ -5,9 +5,9 @@
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
-    "import_tab", "source_section", "employer", "source_file", "source_column", "currency", "manual_fx_rate",
+    "import_tab", "coverage_section", "balance_summary_html", "source_section", "employer", "source_file", "source_column", "currency", "manual_fx_rate",
     "matching_section", "historical_backfill", "historical_period", "matching_column", "portfolio_snapshot",
-    "results_tab", "coverage_section", "balance_summary_html", "rows_section", "rows", "notes",
+    "results_tab", "rows_section", "rows", "notes",
     "audit_tab", "audit_section", "status", "imported_on", "audit_column", "imported_by", "bulk_event_date", "bulk_source_file", "recovery_html",
     "summary_section", "row_count", "matched_count", "exception_count", "result_column", "ignored_count", "total_usd", "total_nio",
     "total_application_adjustment_usd", "total_net_applied_usd", "application_amount_usd", "deposit_coverage_usd", "complementary_coverage_usd", "balance_usd",

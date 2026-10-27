@@ -505,8 +505,8 @@ permanecen disponibles. Esto evita duplicar movimientos al reanudar.
    depósitos registradas; para distribuir un depósito use su botón **Conciliar**.
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
 
-El formulario de importación se organiza en **1. Importación** (archivo, moneda,
-período y cartera), **2. Conciliación** (tarjetas de cobertura y la tabla **Filas**)
+El formulario de importación se organiza en **1. Importación** (tarjetas de cobertura
+al inicio, archivo, moneda, período y cartera), **2. Conciliación** (la tabla **Filas**)
 y **3. Historial** (datos de la carga, conteos, totales y recuperación del archivo).
 **Filas** es el único detalle de movimientos dentro del formulario.
 **Consultas → Revisar pendientes** abre los motivos y permite ir a la fila o al

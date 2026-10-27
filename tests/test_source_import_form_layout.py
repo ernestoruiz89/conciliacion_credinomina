@@ -54,9 +54,10 @@ class SourceImportFormLayoutTest(unittest.TestCase):
         self.assertEqual(doctype["field_order"][0], "import_tab")
         self.assertEqual([name for name, field in fields.items() if field["fieldtype"] == "Table"], ["rows"])
         self.assertEqual(fields["rows"]["label"], "Filas")
-        for name in ("employer", "source_file", "historical_period", "portfolio_snapshot"):
+        for name in ("coverage_section", "balance_summary_html", "employer", "source_file", "historical_period", "portfolio_snapshot"):
             self.assertEqual(groups[name], "import_tab")
-        for name in ("balance_summary_html", "rows", "notes"):
+        self.assertEqual(doctype["field_order"][:3], ["import_tab", "coverage_section", "balance_summary_html"])
+        for name in ("rows", "notes"):
             self.assertEqual(groups[name], "results_tab")
         for name in ("row_count", "total_usd", "total_net_applied_usd", "recovery_html"):
             self.assertEqual(groups[name], "audit_tab")
