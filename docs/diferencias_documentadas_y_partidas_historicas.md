@@ -20,7 +20,7 @@ Muestra importe original, aplicado y pendiente guardados; cliente y crédito; co
 
 Las coincidencias por referencia o comprobante son **Candidato; requiere revisión**. No prueban que una partida manual tenga respaldo y nunca se vinculan automáticamente. Los historiales ilegibles y vínculos no disponibles se señalan. Se respetan los permisos: la vista puede ser parcial, y no encontrar un vínculo visible no demuestra su inexistencia.
 
-Hay una fila por relación: los importes de la partida se repiten y **no deben sumarse**. El importe del vínculo solo se presenta cuando consta expresamente en esa evidencia; puede ser un registro histórico o una reversión, no necesariamente un uso vigente. Consultar o exportar no recalcula saldos.
+La vista principal muestra **una fila por partida**, con sus importes guardados y la cantidad de vínculos y candidatos adicionales. **Ver vínculos** filtra esa partida y activa **Mostrar detalle de vínculos**; desmarcar esa opción vuelve al resumen. El detalle tiene una fila por relación: allí los importes de la partida se repiten y **no deben sumarse**. Compartir un período, una importación o un depósito no convierte por sí solo a los demás movimientos de ese documento en vínculos de la partida. El importe del vínculo solo se presenta cuando consta expresamente en esa evidencia; puede ser un registro histórico o una reversión, no necesariamente un uso vigente. Consultar o exportar no recalcula saldos.
 
 ## Tratamiento del histórico
 

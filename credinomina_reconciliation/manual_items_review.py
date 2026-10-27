@@ -195,6 +195,11 @@ def review_rows(nodes, owners, metadata, filters=None):
             emit(other, label, amount)
             # Follow the exact related movement to its periods and core evidence.
             for a, b, nested_label, nested_amount in edges[other]:
+                # Shared parents are not evidence that their other movements
+                # belong to this item. Reverse traversal is valid only for an
+                # exact application/collection row (e.g. its cash allocation).
+                if a != other and other[0] not in ("CN Source Row", "CN Collection Row"):
+                    continue
                 nested = b if a == other else a
                 if nested != key and nested[0] in (PERIOD, IMPORT, DEPOSIT, "CN Source Row", "CN Collection Row"):
                     emit(nested, label + " → " + nested_label, nested_amount)
@@ -216,11 +221,43 @@ def review_rows(nodes, owners, metadata, filters=None):
     return output
 
 
+SUMMARY_FIELDS = (
+    "item", "employer", "posting_date", "origin", "category", "docstatus",
+    "tolerance_status", "reconciliation_status", "amount_usd", "applied_usd", "pending_usd",
+    "client_number", "loan_number", "reference", "voucher", "description",
+    "difference_reason", "difference_notes",
+)
+
+
+def summarize_rows(rows):
+    """One saved balance per item; count unique evidence, never sum relation amounts."""
+    grouped = {}
+    for row in rows:
+        if row["item"] not in grouped:
+            grouped[row["item"]] = (
+                {field: row.get(field) for field in SUMMARY_FIELDS}, set(), set(), set())
+        summary, links, candidates, observations = grouped[row["item"]]
+        if row.get("related_document"):
+            target = (row.get("related_doctype"), row["related_document"], row.get("related_row") or "")
+            bucket = candidates if row.get("evidence") == "Candidato; requiere revisión" else links
+            bucket.add(target)
+        if row.get("observation"):
+            observations.update(row["observation"].split("; "))
+    result = []
+    for summary, links, candidates, observations in grouped.values():
+        result.append({**summary, "link_count": len(links), "candidate_count": len(candidates - links),
+                       "details": _("Ver vínculos"), "observation": "; ".join(sorted(observations))})
+    return result
+
+
 def execute(filters=None):
     if not frappe.has_permission(ITEM, "read"):
         frappe.throw(_("No tiene permiso para consultar partidas."), frappe.PermissionError)
     nodes, owners, metadata = load_evidence()
     rows = review_rows(nodes, owners, metadata, filters)
+    detailed = cint((filters or {}).get("show_details"))
+    if not detailed:
+        rows = summarize_rows(rows)
     columns = []
     definitions = [
         ("item", "Partida", "Link", ITEM), ("employer", "Empresa", "Link", "CN Employer"),
@@ -249,6 +286,16 @@ def execute(filters=None):
         ("difference_reason", "Razón de la diferencia", "Link", "CN Difference Reason"),
         ("difference_notes", "Documentación", "Data", None), ("observation", "Observaciones", "Data", None),
     ]
+    if not detailed:
+        definitions = [definition for definition in definitions
+                       if definition[0] in SUMMARY_FIELDS or definition[0] == "observation"]
+        definitions[2:2] = [
+            ("details", "Detalle", "Data", None),
+            ("link_count", "Vínculos", "Int", None),
+            ("candidate_count", "Candidatos adicionales", "Int", None),
+        ]
     for field, label, kind, options in definitions:
         columns.append(dict(fieldname=field, label=_(label), fieldtype=kind, options=options, width=180))
-    return columns, rows, _("Una fila por relación; los importes de la partida se repiten y no deben sumarse. Solo evidencia visible según permisos. Las coincidencias no confirman respaldo contable. Consultar no modifica vínculos, saldos ni conciliaciones.")
+    message = (_("Detalle: una fila por relación; los importes de la partida se repiten y no deben sumarse.")
+               if detailed else _("Una fila por partida. Ver vínculos abre su detalle. Los candidatos adicionales son coincidencias sin vínculo registrado."))
+    return columns, rows, message + " " + _("Solo evidencia visible según permisos. Las coincidencias no confirman respaldo contable. Consultar no modifica vínculos, saldos ni conciliaciones.")

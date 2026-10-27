@@ -145,7 +145,10 @@ def run():
                     raise AssertionError("No se comprobó permiso de escritura")
             assert snapshot(source.doctype, source.name) == immutable
             report_before = snapshot(deposit.doctype, deposit.name)
-            _columns, rows, _message = frappe.get_doc("Report", "Revision de Partidas Manuales").execute_module({"item": item.name, "include_tolerance": 1})
+            report = frappe.get_doc("Report", "Revision de Partidas Manuales")
+            _columns, summary, _message = report.execute_module({"item": item.name, "include_tolerance": 1})
+            assert len(summary) == 1 and summary[0]["item"] == item.name, summary
+            _columns, rows, _message = report.execute_module({"item": item.name, "include_tolerance": 1, "show_details": 1})
             assert any(row.get("related_document") == deposit.name for row in rows), rows
             assert any(row.get("related_document") == imported.name for row in rows), rows
             assert any(row.get("related_document") == period.name and row.get("related_status") == "Cerrado" for row in rows), rows
