@@ -255,6 +255,22 @@ class CNComplementaryItem(Document):
 
 
 @frappe.whitelist(methods=["POST"])
+def cancel_item(item_name: str, modified: str):
+    """Cancel only this item through its existing financial and dependency guards."""
+    item = frappe.get_doc("CN Complementary Item", item_name, for_update=True)
+    item.check_permission("cancel")
+    item.check_permission("write")
+    if item.docstatus != 1 or str(item.modified) != str(modified):
+        frappe.throw(_("La partida cambió. Recargue el formulario antes de cancelar."))
+    # No cancel-all, no bypass flags: the ordinary hooks retain closed-period,
+    # core-removal, management-history and linked-document checks.
+    item.cancel()
+    scope = item.flags.get("cancellation_result") or {}
+    return {"name": item.name, "docstatus": 2,
+            "deposits": scope.get("deposits", []), "periods": scope.get("periods", [])}
+
+
+@frappe.whitelist(methods=["POST"])
 def unconfirm_item(item_name: str, modified: str, reason: str):
     """Reverse a submitted item's effects, then reopen that same record as a draft."""
     reason = clean_text(reason)
