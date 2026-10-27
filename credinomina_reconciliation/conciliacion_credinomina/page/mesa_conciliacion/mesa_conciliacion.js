@@ -57,16 +57,35 @@
         }
 
         async show() {
-            const options = frappe.route_options?.cn_workbench;
+            let options = frappe.route_options?.cn_workbench;
             if (!options) return this.data ? this.load() : undefined;
             delete frappe.route_options.cn_workbench;
             this.sequence++;
+            this.data = null;
             this.invalidatePreview();
-            this.ready = false;
+            try {
+                // Frappe restores URL query parameters as strings, including
+                // nested route options serialized by its router.
+                const object = value => {
+                    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+                    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Invalid scope");
+                    return parsed;
+                };
+                options = object(options);
+                if (options.context) options.context = object(options.context);
+            } catch (error) {
+                this.context = null;
+                this.employer.set_input("");
+                this.client.set_input("");
+                this.client.set_description("");
+                this.empty(__("No se pudo leer el origen de la consulta. Vuelva a abrir la mesa desde Registros pendientes."));
+                return;
+            }
             this.context = options.context || null;
-            await this.employer.set_value(options.employer || "");
-            await this.client.set_value(options.client || "");
-            this.ready = true;
+            // Prefill page controls without triggering a manual scope change.
+            this.employer.set_input(options.employer || "");
+            this.client.set_input(options.client || "");
+            this.client.set_description("");
             return this.load();
         }
 
@@ -75,6 +94,7 @@
             this.sequence++;
             this.context = null;
             this.data = null;
+            this.client.set_description("");
             if (companyChanged) {
                 this.ready = false;
                 this.client.set_value("");
@@ -110,6 +130,12 @@
             try {
                 const {message} = await frappe.call({method: API + "get_data", args});
                 if (sequence !== this.sequence) return;
+                if (this.context) {
+                    // The server resolves the existing, readable client from
+                    // the origin; never assume its number is its document ID.
+                    this.client.set_input(message.client || "");
+                    this.client.set_description(esc([message.client_name, message.client_number].filter(Boolean).join(" · ")));
+                }
                 this.data = message;
                 this.pages = {applications: 0, rows: 0};
                 this.render();

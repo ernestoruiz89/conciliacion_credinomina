@@ -671,3 +671,27 @@ El nuevo parche `backfill_complementary_list_amounts`, registrado después del
 parche del estado, reutiliza la lectura por lotes y calcula los tres campos sin
 guardar documentos ni repetir operaciones de conciliación. Requiere ejecutar
 `bench --site <sitio> migrate` después de actualizar el servidor.
+
+## Filtros al abrir la mesa desde Registros pendientes — 27 de octubre de 2026
+
+La mesa acepta `cn_workbench` como objeto o JSON recuperado de la URL por Frappe,
+incluyendo el contexto de la fila. Completa los controles sin disparar un cambio
+manual de alcance y consulta los pendientes automáticamente. El servidor devuelve
+el ID de un cliente único y legible de la empresa para completar el Link; si no
+puede resolverlo, mantiene el contexto de origen y muestra su nombre y número.
+
+- 18 pruebas y 3 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0: selección de
+  cliente por documento o número, ambigüedad, identificadores contradictorios y
+  permisos. La fixture BaseDocument del resumen de clientes proporciona también
+  el metadato de tablas que requiere Frappe 16.
+- Pasaron `test_reconciliation_workbench_ui.js`,
+  `test_accounting_client_summary_ui.js` y `test_remittance_diagnostics_ui.js`.
+  El botón real del modal se prueba con navegación objeto/JSON, orígenes de
+  importación, depósito y cliente, reapertura de la página, respuestas obsoletas,
+  contexto ilegible y nombres escapados.
+- `smoke_workbench_scope.run` verifica con SQL y documentos reales en
+  `cn-reconciliation-test.local` que ambos orígenes consultan automáticamente la
+  empresa y el cliente correctos, excluyen al otro cliente de la empresa y no
+  modifican los documentos. Todo se revierte al terminar y se comprueban conteos.
+
+Esta corrección no agrega campos ni requiere un parche de datos.
