@@ -21,7 +21,7 @@ frappe.listview_settings["CN Remittance Allocation"] = {
     get_indicator(doc) {
         if (doc.financial_status) {
             const state = doc.financial_status;
-            const green = ["Conciliado", "Conciliado con saldo a favor"].includes(state);
+            const green = ["Conciliado", "Conciliado con saldo a favor", "Conciliado con diferencia documentada"].includes(state);
             const review = /revisar|Revisar|Parcial|Detalle pendiente/.test(state);
             return [__(state), green ? "green" : state === "No participa" ? "gray" : review ? "orange" : "blue",
                 `financial_status,=,${state}`];

@@ -250,6 +250,21 @@ def summarize_rows(rows):
     return result
 
 
+@frappe.whitelist()
+def get_item_details(item):
+    """Read a single item's evidence without changing the report's filters."""
+    frappe.get_doc(ITEM, item).check_permission("read")
+    columns, rows, message = execute({"item": item, "include_tolerance": 1, "show_details": 1})
+    summaries = summarize_rows(rows)
+    return {
+        "summary": summaries[0] if summaries else None,
+        "summary_columns": [column for column in columns if column["fieldname"] in SUMMARY_FIELDS],
+        "columns": [column for column in columns if column["fieldname"] not in SUMMARY_FIELDS],
+        "rows": rows,
+        "message": message,
+    }
+
+
 def execute(filters=None):
     if not frappe.has_permission(ITEM, "read"):
         frappe.throw(_("No tiene permiso para consultar partidas."), frappe.PermissionError)

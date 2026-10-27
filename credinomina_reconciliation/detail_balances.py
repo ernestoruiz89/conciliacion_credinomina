@@ -34,6 +34,8 @@ def update_detail_balances(document):
         if target.get("detail_row"):
             by_row[target.get("detail_row")].append(target)
     for row in document.get("detail_rows") or []:
+        if row.get("row_kind") == "Diferencia documentada":
+            continue
         row.update(linked_balance(row.get("amount_usd"), by_row[row.get("name")], row.get("matched_targets")))
         row.client_credit_usd = credits.get(row.get("name"), 0)
         row.company_credit_usd = company_credits.get(row.get("name"), 0)

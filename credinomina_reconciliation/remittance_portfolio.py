@@ -139,6 +139,9 @@ def apply_credit_states(details, cuts, portfolio_rows, allowed):
         if row.get("employer") in allowed:
             index[(row.get("parent"), credit_key(row.get("credit_number")))].append(row)
     for detail in details:
+        if detail.get("row_kind") == "Diferencia documentada":
+            detail.update(dict(zip(FIELDS, ("No aplica", None, None))))
+            continue
         detail.update(dict(zip(FIELDS, ("No Identificado", None, None))))
         key = credit_key(detail.get("loan_number"))
         if not key:
