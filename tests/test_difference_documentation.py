@@ -6,7 +6,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation import difference_documentation as module
-from credinomina_reconciliation.manual_items_review import review_rows, summarize_rows, execute, ITEM, DEPOSIT, IMPORT, PERIOD
+from credinomina_reconciliation.manual_items_review import review_rows, summarize_rows, execute, get_item_details, ITEM, DEPOSIT, IMPORT, PERIOD
 from credinomina_reconciliation.manual_complementary_policy import guard_new_item, imported_item
 from credinomina_reconciliation.rounding import rounding_movements
 
@@ -168,6 +168,23 @@ class ManualReviewTests(unittest.TestCase):
             columns, rows, message = execute({"item": "M", "show_details": "1"})
             self.assertGreater(len(rows), 1)
             self.assertIn("relation_usd", [column["fieldname"] for column in columns])
+
+    def test_modal_detail_is_scoped_and_checks_document_permission(self):
+        nodes, owners, metadata = self.evidence()
+        nodes[(ITEM, "OTHER")] = frappe._dict(name="OTHER", amount_usd=99)
+        owners[(ITEM, "OTHER")] = (ITEM, "OTHER")
+        with patch("credinomina_reconciliation.manual_items_review.load_evidence", return_value=(nodes, owners, metadata)), \
+                patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_doc") as get_doc:
+            data = get_item_details("M")
+            get_doc.assert_called_once_with(ITEM, "M")
+            get_doc.return_value.check_permission.assert_called_once_with("read")
+            self.assertEqual(data["summary"]["item"], "M")
+            self.assertTrue(all(row["item"] == "M" for row in data["rows"]))
+            self.assertNotIn("amount_usd", [col["fieldname"] for col in data["columns"]])
+            self.assertIn("amount_usd", [col["fieldname"] for col in data["summary_columns"]])
+            get_doc.return_value.check_permission.side_effect = frappe.PermissionError
+            with self.assertRaises(frappe.PermissionError):
+                get_item_details("OTHER")
 
 
 if __name__ == "__main__":

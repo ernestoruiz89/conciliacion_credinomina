@@ -736,6 +736,7 @@ async function createRemittanceClientAlias(frm, cdt, cdn) {
 }
 
 function canViewRemittanceRelatedPending(frm, row) {
+    if (row?.row_kind === "Diferencia documentada") return false;
     const name = row?.client_name && row.client_name !== "Sin identificar" ? row.client_name : "";
     return !frm.is_new() && frm.doc.docstatus !== 2 && !!row?.name &&
         !!(row.employer || frm.doc.employer) &&
@@ -769,6 +770,7 @@ async function showRemittanceRelatedPending(frm, cdt, cdn) {
 }
 
 function canSelectDetailPendingTargets(frm, row) {
+    if (row?.row_kind === "Diferencia documentada") return false;
     const identity = row && [row.client, row.client_number, row.employee_number, row.national_id,
         row.client_name, row.loan_number].some(value => String(value || "").trim());
     return !frm.is_new() && frm.doc.docstatus === 1 && !!frm.get_perm(0, "write") &&
@@ -913,9 +915,57 @@ async function createRemittanceComplementary(frm, options = {}) {
         frappe.msgprint(__("Guarde el documento antes de documentar la diferencia."));
         return;
     }
+    const detailRow = (frm.doc.detail_rows || []).find(row => row.name === options.detailRowName);
+    if (options.fromDetailDifference || detailRow?.row_kind === "Diferencia documentada") {
+        return documentRemittanceCompanyDifference(frm);
+    }
     return credinomina.document_difference({doctype: frm.doc.doctype, name: frm.doc.name,
         parentfield: options.detailRowName ? "detail_rows" : "", row_name: options.detailRowName || "",
         on_saved: () => frm.reload_doc()});
+}
+
+async function documentRemittanceCompanyDifference(frm) {
+    const method = "credinomina_reconciliation.deposit_difference.";
+    const response = await frappe.call({method: method + "preview", args: {name: frm.doc.name}});
+    const preview = response.message;
+    let saving = false;
+    const dialog = new frappe.ui.Dialog({
+        title: __("Diferencia del detalle del depósito"), size: "large",
+        fields: [
+            {fieldname: "information", fieldtype: "HTML", options: `<p>${__("Se registrará una fila de diferencia a nombre de la empresa. Los importes originales se conservan.")}</p>
+                <p>${__("Si falta efectivo, se distribuye proporcionalmente entre las filas de clientes, redondeando a centavos. El faltante conserva su saldo; documentarlo no lo convierte en un pago.")}</p>
+                <p>${__("Puede vincular una partida importada del core ahora o más adelante. Debe corresponder a la misma empresa, importe y signo. Después de guardar, use Conciliar.")}</p>`},
+            {fieldname: "employer", fieldtype: "Data", label: __("Empresa"), read_only: 1, default: preview.employer},
+            {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", label: __("Diferencia (depósito − detalle) US$"), read_only: 1, default: preview.amount_usd},
+            {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), reqd: 1, default: preview.difference_reason},
+            {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Documentación"), reqd: 1, default: preview.difference_notes},
+            {fieldname: "core_item", fieldtype: "Link", options: "CN Complementary Item", label: __("Partida del core (opcional)"), default: preview.core_item,
+                get_query: () => ({filters: {docstatus: 1, employer: preview.employer, accounting_source_key: ["is", "set"], amount_usd: preview.amount_usd}})},
+        ],
+        primary_action_label: __("Guardar diferencia"),
+        secondary_action_label: preview.has_difference ? __("Retirar diferencia") : undefined,
+        async secondary_action() {
+            if (saving || !preview.has_difference) return;
+            saving = true;
+            try {
+                await frappe.call({method: method + "record", args: {name: frm.doc.name, modified: preview.modified, remove: 1}});
+                dialog.hide(); await frm.reload_doc();
+            } finally {saving = false;}
+        },
+        async primary_action(values) {
+            if (saving) return;
+            saving = true; dialog.disable_primary_action();
+            try {
+                await frappe.call({method: method + "record", args: {name: frm.doc.name, modified: preview.modified,
+                    difference_reason: values.difference_reason, difference_notes: values.difference_notes,
+                    core_item: values.core_item || ""}});
+                dialog.hide();
+                await frm.reload_doc();
+                frappe.show_alert({message: __("Diferencia guardada. Use Conciliar para actualizar la distribución."), indicator: "green"});
+            } finally {saving = false; dialog.enable_primary_action();}
+        },
+    });
+    dialog.show();
 }
 
 async function linkRemittanceDetailTargets(frm) {
@@ -1188,7 +1238,8 @@ function remittancePresentation(doc, dirty = false) {
     const recordedSettlement = ["Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente"].includes(doc.result)
         || cash.credit > 0 && ["Parcial con saldo a favor", "Saldo a favor documentado"].includes(doc.result);
     const detailReview = (doc.detail_status || "").startsWith("Revisar");
-    const reconciled = doc.docstatus === 1 && recordedSettlement && !financialReview && !detailReview;
+    const documented = doc.result === "Conciliado con diferencia documentada" && doc.detail_status === doc.result;
+    const reconciled = doc.docstatus === 1 && !detailReview && (recordedSettlement && !financialReview || documented);
     const review = doc.docstatus === 1 && (detailReview ||
         ["Revisar detalle", "Revisar destinos", "Detalle pendiente"].includes(doc.result) || recordedSettlement && financialReview);
     let hint = "Depósito en borrador: todavía no participa en la conciliación. Complete los datos, guarde y confirme el depósito.";
@@ -1225,6 +1276,7 @@ function remittanceDetailDifference(doc) {
     const rate = toScaledInteger(Number(doc.fx_rate || 0).toFixed(8), 8);
     let total = 0n;
     for (const row of rows) {
+        if (row.row_kind === "Diferencia documentada") continue;
         const usd = toScaledInteger(row.deducted_usd, 2), nio = toScaledInteger(row.deducted_nio, 2);
         if (usd < 0n || nio < 0n) return {error: __("Revise los importes negativos de la fila {0} del detalle.", [row.idx || row.source_row || "—"])};
         if (usd > 0n) total += usd;
@@ -1249,9 +1301,10 @@ function remittanceDifferenceTargets(doc, difference) {
 }
 
 function remittanceDetailDifferenceHtml(doc, interactive = false, canReconcile = false) {
-    if (remittancePresentation(doc).reconciled) return "";
+    const recorded = (doc.detail_rows || []).find(row => row.row_kind === "Diferencia documentada");
+    if (!recorded && remittancePresentation(doc).reconciled) return "";
     const data = remittanceDetailDifference(doc);
-    if (!data || !data.error && !data.difference) return "";
+    if (!data || !recorded && !data.error && !data.difference) return "";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     if (data.error) return `<div class="alert alert-warning" role="status">${esc(data.error)}</div>`;
     const signed = `${data.difference > 0 ? "+" : "−"}US$ ${remittanceMoney(Math.abs(data.difference))}`;
@@ -1263,10 +1316,12 @@ function remittanceDetailDifferenceHtml(doc, interactive = false, canReconcile =
         <div>${esc(__("Depósito"))}: US$ ${esc(remittanceMoney(data.deposit))}${doc.deposit_currency === "NIO" ? ` (C$ ${esc(remittanceMoney(doc.deposit_amount))})` : ""}</div>
         <div>${esc(__("Detalle del depósito"))}: US$ ${esc(remittanceMoney(data.detail))}</div>
         <div><strong>${esc(__("Diferencia (depósito − detalle)"))}: ${esc(signed)}</strong></div>
+        ${recorded ? `<div>${esc(__("Fila de empresa"))}: ${esc(recorded.client_name)} · ${esc(recorded.difference_reason)} · ${esc(recorded.difference_core_status || "Pendiente de respaldo del core")}</div>
+            <div>${esc(__("Pendiente de respaldo del core"))}: US$ ${esc(remittanceMoney(recorded.difference_core_pending_usd))}</div>` : ""}
         ${selected.length ? `<p class="small mt-2">${esc(__("Partidas seleccionadas"))}: ${links}.</p>
             <p class="small">${esc(__("La diferencia ya está indicada en Destinos. Guarde y use Conciliar para validar y aplicar la distribución."))}</p>`
             : `<p class="small mt-2">${esc(__("Positiva: depósito mayor al detalle. Negativa: depósito menor al detalle. Revise el origen de la diferencia y las partidas existentes antes de documentarla."))}</p>`}
-        ${selected.length && canReconcile && doc.docstatus === 1 ? `<button type="button" class="btn btn-primary btn-sm cn-reconcile-detail-difference">${esc(__("Conciliar depósito"))}</button>` : ""}
+        ${(selected.length || recorded) && canReconcile && doc.docstatus === 1 ? `<button type="button" class="btn btn-primary btn-sm cn-reconcile-detail-difference">${esc(__("Conciliar depósito"))}</button>` : ""}
         ${interactive ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Clasificar / documentar diferencia"))}</button>` : ""}
     </div>`;
 }
@@ -1288,6 +1343,7 @@ function updateDetailPendingAmounts(frm) {
     const cents = value => Math.round((Number(value || 0) + Number.EPSILON) * 100);
     let changed = false;
     for (const row of frm.doc.detail_rows || []) {
+        if (row.row_kind === "Diferencia documentada") continue;
         let matched = [];
         try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
         const entries = manual.get(row.name) || (Array.isArray(matched) ? matched.filter(entry => entry && !entry.instruction_id) : []);
@@ -1314,7 +1370,7 @@ function remittanceIssues(doc, dirty = false) {
         add("FIFO necesita al menos un período seleccionado en Períodos a conciliar.", "detail_periods");
     }
     for (const row of rows) {
-        if (["Conciliada", "No deducido"].includes(row.match_status)) continue;
+        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
         const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
             row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
@@ -1336,7 +1392,7 @@ function remittanceIssues(doc, dirty = false) {
         }
     }
     const cash = remittanceCashAmounts(doc);
-    if (doc.docstatus === 1 && Number.isFinite(cash.pending) && cash.pending !== 0) {
+    if (doc.docstatus === 1 && doc.result !== "Conciliado con diferencia documentada" && Number.isFinite(cash.pending) && cash.pending !== 0) {
         add(cash.pending > 0
             ? `Quedan US$ ${remittanceMoney(cash.pending)} sin distribuir. Complete los destinos o documente el excedente según su tratamiento real.`
             : `La distribución supera el depósito en US$ ${remittanceMoney(-cash.pending)}. Revise los importes asignados.`, "targets");

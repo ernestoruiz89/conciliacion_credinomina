@@ -7,6 +7,8 @@ from credinomina_reconciliation.paying_employers import allowed_employers, choos
 def complete_detail_clients(rows, clients, employer, allowed=None, loan_clients=None):
     allowed = {employer} if allowed is None else allowed
     for row in rows:
+        if row.get("row_kind") == "Diferencia documentada":
+            continue
         client, reason = choose_detail_client(row, clients, employer, allowed, loan_clients)
         row.identity_reason = reason
         if not client:
@@ -74,6 +76,8 @@ def load_detail_context(remittance_name, detail_row_name):
     row = next((item for item in doc.detail_rows if item.name == detail_row_name), None)
     if not row:
         frappe.throw(_("La fila no pertenece al detalle de este depósito."))
+    if row.get("row_kind") == "Diferencia documentada":
+        frappe.throw(_("La fila de diferencia representa a la empresa; no se vincula a un cliente o crédito."))
     clients = load_client_index()
     from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
     allowed = allowed_employers(doc.employer)

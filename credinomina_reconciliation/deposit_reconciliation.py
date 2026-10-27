@@ -274,6 +274,9 @@ def reconcile_deposit(document, progress=None, undo=False):
                 "match_status": "Pendiente", "match_reason": _("Depósito desconciliado."),
                 "matched_targets": "[]", "matched_targets_summary": "",
                 "linked_usd": 0, "client_credit_usd": 0, "company_credit_usd": 0, "pending_usd": row.amount_usd,
+                **({"difference_core_pending_usd": abs(row.difference_amount_usd),
+                    "difference_core_status": "Vinculada; pendiente de conciliar" if row.difference_core_item else "Pendiente de respaldo del core"}
+                   if row.get("row_kind") == "Diferencia documentada" else {}),
             }, update_modified=False)
         record_transition(document.name, before, snapshot({**before, **values}))
         from credinomina_reconciliation.complementary_state import deposit_changed
@@ -294,7 +297,8 @@ def reconcile_deposit(document, progress=None, undo=False):
         finally:
             engine._source_reconcile_verified.reset(token)
     document.reload()
-    matched = sum(row.match_status in {"Conciliada", "No deducido"} for row in document.detail_rows)
+    matched = sum(row.match_status in {"Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"}
+                  for row in document.detail_rows)
     report(100, _("Conciliación del depósito finalizada."))
     return {"deposit": document.name, "result": document.result, "periods": sorted(affected),
             "detail_rows": len(document.detail_rows), "detail_matched": matched,

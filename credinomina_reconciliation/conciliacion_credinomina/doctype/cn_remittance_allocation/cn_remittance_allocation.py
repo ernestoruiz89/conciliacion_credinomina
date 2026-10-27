@@ -63,6 +63,8 @@ class CNRemittanceAllocation(Document):
 
     def validate(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.deposit_difference import guard_rows
+        guard_rows(self, previous)
         from credinomina_reconciliation.difference_reasons import only_detail_reasons_changed
         if only_detail_reasons_changed(self, previous):
             return
@@ -358,6 +360,8 @@ class CNRemittanceAllocation(Document):
 
     def before_update_after_submit(self):
         previous = self.get_doc_before_save()
+        from credinomina_reconciliation.deposit_difference import guard_rows
+        guard_rows(self, previous)
         from credinomina_reconciliation.difference_reasons import only_detail_reasons_changed
         if only_detail_reasons_changed(self, previous):
             return
@@ -424,7 +428,8 @@ class CNRemittanceAllocation(Document):
         ]
         if current_targets != previous_targets:
             return True
-        detail_fields = ("name", "employer", "client", "client_number", "loan_number")
+        detail_fields = ("name", "employer", "client", "client_number", "loan_number", "row_kind",
+                         "difference_basis", "difference_amount_usd", "difference_core_item")
         def detail_identity(document):
             return [tuple(row.get(field) or "" for field in detail_fields)
                     for row in (document.get("detail_rows") or [])]
@@ -626,6 +631,10 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     if document.detail_hash == detail_hash:
         for row in document.detail_rows or []:
             previous_reasons.setdefault((row.source_row, row.row_key), []).append({"difference_reason": row.difference_reason, "difference_notes": row.get("difference_notes")})
+    # Keep accepted differences as evidence; a new detail invalidates their
+    # snapshot until the operator reviews and documents the new difference.
+    from credinomina_reconciliation.deposit_difference import is_difference
+    difference_rows = [row for row in document.detail_rows or [] if is_difference(row)]
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
     for target in document.targets or []:
@@ -665,6 +674,8 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             **(saved_reasons.pop(0) if saved_reasons else {}),
             "matched_targets": "[]",
         })
+    for row in difference_rows:
+        document.append("detail_rows", row)
     from credinomina_reconciliation.remittance_portfolio import fill_unique_detail_credits
     fill_unique_detail_credits(document, clients)
     document.detail_hash = detail_hash

@@ -4,7 +4,7 @@
   "doctype": "DocType",
   "engine": "InnoDB",
   "field_order": [
-    "payment_tab", "usd_currency", "nio_currency", "detail_identity_section", "source_row", "employer",
+    "payment_tab", "row_kind", "difference_amount_usd", "difference_core_item", "difference_core_pending_usd", "difference_core_status", "difference_recorded_by", "difference_recorded_on", "difference_basis", "usd_currency", "nio_currency", "detail_identity_section", "source_row", "employer",
     "client_name", "create_client_alias", "client_number", "loan_number", "portfolio_credit_status", "detail_actions_column",
     "view_related_pending", "difference_reason", "difference_notes", "select_pending_targets", "create_client_credit", "create_company_credit",
     "detail_amounts_section", "deducted_usd", "deducted_nio", "amount_usd", "detail_balance_column", "linked_usd",
@@ -15,6 +15,15 @@
     "row_key", "expected_usd", "expected_nio", "matched_targets"
   ],
   "fields": [
+    {"fieldname": "row_kind", "fieldtype": "Select", "options": "Cliente\nDiferencia documentada", "default": "Cliente", "label": "Tipo de fila", "in_list_view": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
+    {"fieldname": "difference_amount_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Diferencia de empresa US$", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_core_item", "fieldtype": "Link", "options": "CN Complementary Item", "label": "Partida del core vinculada", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_core_pending_usd", "fieldtype": "Currency", "options": "usd_currency", "precision": "2", "label": "Pendiente de respaldo del core US$", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_core_status", "fieldtype": "Data", "label": "Respaldo del core", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_recorded_by", "fieldtype": "Link", "options": "User", "label": "Diferencia documentada por", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_recorded_on", "fieldtype": "Datetime", "label": "Fecha de documentación", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+    {"fieldname": "difference_basis", "fieldtype": "Data", "label": "Base de la diferencia", "hidden": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
+
     {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Documentación de la diferencia", "allow_on_submit": 1, "no_copy": 1},
     {"fieldname": "payment_tab", "fieldtype": "Tab Break", "label": "1. Pago y conciliación"},
     {"fieldname": "evidence_tab", "fieldtype": "Tab Break", "label": "2. Identificación y evidencia"},

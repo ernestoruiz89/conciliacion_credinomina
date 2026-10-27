@@ -30,6 +30,8 @@ def build_pending_payments(periods, deposits, collections, details, target_links
         links[target['parent']].add(target['period'])
     detail_by_deposit = defaultdict(list)
     for row in details:
+        if row.get('row_kind') == 'Diferencia documentada':
+            continue
         detail_by_deposit[row['parent']].append(row)
     tasks, used = [], defaultdict(lambda: money(0))
     for deposit in deposits:
@@ -97,7 +99,7 @@ def load_pending_payments(periods, deposits, target_links=()):
          'deducted_usd', 'deducted_nio', 'deduction_status', 'applied_usd', 'complementary_usd'], collections),
         (deposits, 'CN Remittance Detail', ['name', 'parent', 'employer', 'client', 'client_number',
          'employee_number', 'national_id', 'client_name', 'loan_number', 'installment_number',
-         'application_reference', 'pending_usd'], details),
+         'application_reference', 'pending_usd', 'row_kind'], details),
     ):
         for offset in range(0, len(parents), 500):
             output.extend(frappe.get_all(doctype, filters={
