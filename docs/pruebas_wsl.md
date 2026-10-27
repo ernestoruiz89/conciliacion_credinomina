@@ -729,3 +729,37 @@ filtros; se ocultan solo en el formulario mediante `depends_on`, para presentar
 los importes una sola vez en las tarjetas. No hay cambios en el cálculo ni en
 los vínculos financieros. Aplicar `bench --site <sitio> migrate` al desplegar
 para actualizar la distribución del formulario.
+
+## Aplicado y saldo en el detalle de movimientos — 27 de octubre de 2026
+
+CN Source Row incorpora dos columnas virtuales de consulta: Aplicado USD y
+Saldo USD. La primera suma depósitos y ajustes confirmados y descuenta la
+diferencia menor de conciliación; la segunda muestra lo pendiente por aplicación.
+La consulta existente de saldos devuelve ambos importes por fila con las mismas
+colecciones ya leídas. Una cobertura compartida no se divide arbitrariamente:
+el total por cliente puede conocerse mientras sus importes individuales muestran
+**—**. Las filas sin conversión, ignoradas, no efectivas o ajenas a aplicaciones
+tampoco se muestran como saldo cero.
+
+- 21 pruebas y 2 subpruebas aprobadas en Frappe 15.117.0 y 16.52.0: ajustes
+  parciales/totales, depósitos, operativo atribuible y compartido, importes cero,
+  conversión faltante, excesos, diferencias de centavos, permisos y distribución
+  de columnas. El cálculo agrupado por cliente conserva sus resultados.
+- Pasaron diagnóstico, resumen de clientes y conciliación del período en
+  JavaScript. Los números de consulta solo modifican campos virtuales, muestran
+  cero cuando corresponde y dejan **—** si la lectura falla. Se actualizan las
+  celdas visibles sin redibujar el grid ni modificar datos financieros.
+- Los métodos nativos `Grid.setup_visible_columns` de ambos Frappe confirman que
+  las columnas nuevas caben junto a nombre, número de cliente, crédito, fecha,
+  monto y estado. Se reduce el ancho predeterminado del nombre de 4 a 2 espacios
+  para respetar el límite de 10 de Frappe 15.
+- `smoke_accounting_row_amounts.run`, en `cn-reconciliation-test.local`, consulta
+  una aplicación real de US$100 sin cobertura: muestra aplicado cero y saldo
+  US$100. Verifica que no existen columnas SQL para estos campos y que enviar
+  valores virtuales de US$999 al guardar no cambia la evidencia ni el cálculo.
+  Todo se revierte y se comprueban los conteos iniciales. También pasa el ensayo
+  de consulta de pendientes por empresa/cliente tras recargar el esquema.
+
+Ejecutar `bench --site <sitio> migrate` para incorporar las columnas al metadato.
+Los registros existentes se consultan directamente; no requieren un parche de
+saldos ni volver a conciliar.

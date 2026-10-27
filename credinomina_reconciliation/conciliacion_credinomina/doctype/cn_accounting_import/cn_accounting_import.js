@@ -19,6 +19,7 @@ frappe.ui.form.on("CN Accounting Import", {
             query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.get_company_portfolio_snapshots",
             filters: {employer: frm.doc.employer},
         }));
+        setupAccountingRowAmounts(frm);
         updateImportExceptionNotice(frm);
         loadAccountingClientSummary(frm);
         showAccountingRecovery(frm);
@@ -169,6 +170,33 @@ function accountingBalanceSummary(totals) {
     </div><p class="text-muted" style="margin:12px 0 0">${esc(__("Solo aplicaciones efectivas. Depósitos y partidas reflejan la cobertura atribuible a esta importación; el saldo suma pendientes sin compensar sobrantes entre créditos. «—» indica que una distribución compartida no permite determinar el importe sin duplicarlo."))}</p>`;
 }
 
+function setupAccountingRowAmounts(frm) {
+    const grid = frm.fields_dict?.rows?.grid;
+    if (!grid?.update_docfield_property) return;
+    for (const [fieldname, key] of [["row_applied_usd", "applied_usd"], ["row_balance_usd", "balance_usd"]]) {
+        grid.update_docfield_property(fieldname, "formatter", (value, df, options, row) => {
+            const balance = row?._cn_row_amounts, amount = balance?.[key];
+            if (amount == null) return `<span title="${frappe.utils.escape_html(__("Importe no determinado o no aplicable a esta fila"))}">—</span>`;
+            const formatted = frappe.format(amount, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2},
+                null, {...row, usd_currency: "USD"});
+            return balance.issue ? `<span title="${frappe.utils.escape_html(balance.issue)}">${formatted}</span>` : formatted;
+        });
+    }
+}
+
+function updateAccountingRowAmounts(frm, amounts = {}) {
+    const grid = frm.fields_dict?.rows?.grid;
+    for (const row of frm.doc.rows || []) {
+        // Virtual display fields: do not dirty the document or persist these
+        // values as a second source of financial balances.
+        row._cn_row_amounts = amounts[row.name] || null;
+        row.row_applied_usd = row._cn_row_amounts?.applied_usd ?? null;
+        row.row_balance_usd = row._cn_row_amounts?.balance_usd ?? null;
+        const gridRow = grid?.grid_rows_by_docname?.[row.name];
+        for (const field of ["row_applied_usd", "row_balance_usd"]) gridRow?.refresh_field?.(field);
+    }
+}
+
 function showAccountingClientSummary(frm) {
     if (frm.is_new() || frm.is_dirty()) {
         frappe.msgprint(__("Guarde la importación antes de consultar los saldos por cliente."));
@@ -189,6 +217,7 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
     const request = frm._client_summary_request = (frm._client_summary_request || 0) + 1;
     const name = frm.doc.name;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    updateAccountingRowAmounts(frm);
     wrapper?.off(".cnClientSummary");
     balanceWrapper?.off(".cnAccountingBalance");
     if (frm.is_new() || frm.is_dirty()) {
@@ -208,6 +237,7 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
             return;
         }
         const rows = response.message.rows || [];
+        updateAccountingRowAmounts(frm, response.message.row_amounts);
         showBalance(accountingBalanceSummary(response.message.totals));
         if (!wrapper) return;
         const filters = frm._client_summary_filters?.name === name

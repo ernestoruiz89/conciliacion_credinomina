@@ -509,6 +509,10 @@ El formulario de importación se organiza en **1. Importación** (tarjetas de co
 al inicio, archivo, moneda, período y cartera), **2. Conciliación** (la tabla **Filas**)
 y **3. Historial** (datos de la carga, conteos, totales y recuperación del archivo).
 **Filas** es el único detalle de movimientos dentro del formulario.
+Incluye **Aplicado USD** (cobertura por depósitos y ajustes confirmados, descontando
+la diferencia menor de conciliación) y **Saldo USD** por aplicación. Son columnas
+de consulta; muestran **—** si el importe no se puede atribuir a la fila, falta
+conversión o el movimiento no es una aplicación efectiva.
 **Consultas → Revisar pendientes** abre los motivos y permite ir a la fila o al
 campo que debe corregirse; los resúmenes se consultan sin agregar otras tablas
 al formulario.

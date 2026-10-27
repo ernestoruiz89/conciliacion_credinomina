@@ -53,7 +53,7 @@ def _client_group_key(row, index):
                 ('row', row.get('name') or index))
 
 
-def build_summary(document, collections, *, collection_usage=None):
+def build_summary(document, collections, *, collection_usage=None, group_by_row=False):
     customers, claims = {}, defaultdict(list)
 
     def add(group, net, paid=0, rounding=0, reason=''):
@@ -69,7 +69,7 @@ def build_summary(document, collections, *, collection_usage=None):
     for index, row in enumerate(document.get('rows') or []):
         if row.get('event_type') != 'Aplicacion' or not row.get('effective') or row.get('match_status') == 'Ignorado':
             continue
-        identity = _client_group_key(row, index)
+        identity = ('row', row.get('name') or index) if group_by_row else _client_group_key(row, index)
         group = customers.setdefault(identity, dict(client_name=row.get('client_name') or 'Sin identificar',
             client_number=row.get('client_number') or '', source_row_name=row.get('name') or '',
             loans=set(), applications=0,
@@ -143,6 +143,24 @@ def balance_totals(document, rows):
     }
 
 
+def row_amounts(document, collections):
+    """Attribute coverage per movement without dividing shared collections."""
+    if document.get('docstatus') == 2:
+        return {}
+    sources = {row.get('name'): row for row in document.get('rows') or []}
+    result = {}
+    for row in build_summary(document, collections, group_by_row=True):
+        name = row['source_row_name']
+        if not name:
+            continue
+        paid, rounding = row['assigned_usd'], row['rounding_usd']
+        applied = (money(paid) + money(sources[name].get('application_adjustment_usd')) - money(rounding)
+                   if paid is not None and rounding is not None else None)
+        result[name] = dict(applied_usd=money_float(applied) if applied is not None else None,
+            balance_usd=row['balance_usd'], issue=' · '.join(row['observations']))
+    return result
+
+
 def _collections_for_import(document, *, check_permissions=False):
     ids = set()
     for row in document.rows:
@@ -177,4 +195,4 @@ def get_client_summary(import_name):
     document.check_permission('read')
     collections = _collections_for_import(document, check_permissions=True)
     rows = build_summary(document, collections)
-    return {'rows': rows, 'totals': balance_totals(document, rows)}
+    return {'rows': rows, 'totals': balance_totals(document, rows), 'row_amounts': row_amounts(document, collections)}
