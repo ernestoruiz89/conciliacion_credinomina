@@ -137,7 +137,7 @@ def test_ordinary_saves_cannot_forge_or_repurpose_linked_items():
 def test_origin_submission_uses_normal_submit_without_reconciliation_and_resets_context():
     from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item import CNComplementaryItem
     previous = item()
-    origin = item(check_permission=Mock(), get_doc_before_save=lambda: previous, _reconcile=Mock())
+    origin = item(check_permission=Mock(), is_new=lambda: False, get_doc_before_save=lambda: previous, _reconcile=Mock())
 
     def submit():
         origin.docstatus = 1

@@ -74,6 +74,9 @@ class SignedComplementaryTests(unittest.TestCase):
     def test_no_voucher_is_pending_and_does_not_collide_with_other_pending_items(self):
         doc = self.document()
         doc.flags = {}
+        doc.is_new = lambda: False
+        doc.docstatus = 1
+        doc.get_doc_before_save = lambda: doc
         doc.get = lambda field, default=None: getattr(doc, field, default)
         with patch.object(frappe, "db", Mock()) as db:
             db.get_value.return_value = 'Sin CxC adicional'

@@ -21,40 +21,17 @@ class Row(dict):
 
 
 class ClientCreditTests(unittest.TestCase):
-    def test_selected_credit_creation_accepts_one_row_and_keeps_selection_limits(self):
+    def test_legacy_bulk_creation_is_rejected_without_creating_or_reconciling(self):
         from inspect import unwrap
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import create_client_credit_items_bulk
-
-        row = Row(name="R", idx=1, client="CLIENT", client_number="123", loan_number="100-1",
-                  amount_usd=110, linked_usd=100, client_credit_usd=0)
-        deposit = Row(name="DEP", docstatus=1, modified="stamp", detail_rows=[row],
-                      deposit_reference="REF", deposit_voucher="V", check_permission=Mock(),
-                      _assert_open_related_periods=Mock())
-        item = Row(name="CREDIT", flags=Row(), insert=Mock(), submit=Mock(), reload=Mock(),
-                   amount_usd=10, result="Saldo a favor documentado")
-        values = dict(remittance_name="DEP", modified="stamp", reason_type="Por cancelación",
-                      description="Excedente revisado", credit_treatment="Pendiente de decisión",
-                      credit_assigned_to="Operator", credit_commitment_date="2026-05-31",
-                      posting_date="2026-04-17")
-        with patch.object(credit, "lock_credit_deposit", return_value=deposit), \
-                patch.object(credit.frappe, "has_permission", return_value=True), \
-                patch.object(credit.frappe, "new_doc", return_value=item) as create, \
-                patch.object(credit.frappe, "throw", side_effect=ValueError), \
-                patch("credinomina_reconciliation.deposit_reconciliation.reconcile_deposit") as reconcile:
-            result = unwrap(create_client_credit_items_bulk)(
-                rows=json.dumps([dict(detail_row="R", amount=10)]), **values)
-            self.assertEqual(result["created"], [dict(name="CREDIT", detail_row="R", amount_usd=10)])
-            self.assertEqual((item.registered_deposit, item.credit_detail_row, item.amount), ("DEP", "R", 10))
-            create.assert_called_once_with("CN Complementary Item")
-            item.insert.assert_called_once()
-            item.submit.assert_called_once()
-            reconcile.assert_called_once_with(deposit)
-            create.reset_mock()
-            for rows in ([], [dict(detail_row="R", amount=10)] * 201,
-                         [dict(detail_row="R", amount=11)]):
-                with self.subTest(rows_count=len(rows)), self.assertRaises(ValueError):
-                    unwrap(create_client_credit_items_bulk)(rows=rows, **values)
+        with patch.object(credit.frappe, "throw", side_effect=ValueError), \
+             patch.object(credit.frappe, "new_doc") as create, \
+             patch("credinomina_reconciliation.deposit_reconciliation.reconcile_deposit") as reconcile:
+            with self.assertRaises(ValueError):
+                unwrap(create_client_credit_items_bulk)("D", "stamp", [{"detail_row": "R", "amount": 10}],
+                    "Otro por aclarar", "Descripción", "Pendiente de decisión", "Operator", "2026-10-31", "2026-10-15")
             create.assert_not_called()
+            reconcile.assert_not_called()
 
     def test_confirmed_credit_reason_can_change_without_changing_cash_or_follow_up(self):
         for category in credit.CREDIT_CATEGORIES:

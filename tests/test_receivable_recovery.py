@@ -118,7 +118,7 @@ class ReceivableRecoveryTests(unittest.TestCase):
              patch('credinomina_reconciliation.deposit_reconciliation.lock_cash_pool'), \
              patch('credinomina_reconciliation.paying_employers.reconciliation_companies', return_value=['E']), \
              patch.object(frappe, 'throw', side_effect=reject), \
-             self.assertRaisesRegex(frappe.ValidationError, 'cancelado'):
+             self.assertRaisesRegex(frappe.ValidationError, 'no se crean partidas manuales'):
             recovery.apply_recovery(item.name, 'E', 'Depósito', 'D1', 3, '2025-05-01', 'Cobro', 'a' * 32)
 
     def test_canceled_target_explains_correction_without_deleting_history(self):

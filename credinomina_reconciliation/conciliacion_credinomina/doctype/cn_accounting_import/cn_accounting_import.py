@@ -21,7 +21,7 @@ from credinomina_reconciliation.accounting_naming import (
 from credinomina_reconciliation.company_credit import CATEGORY as COMPANY_CREDIT
 from credinomina_reconciliation.client_credit import CATEGORY as CLIENT_CREDIT
 from credinomina_reconciliation.tolerance_items import (
-    CATEGORY as TOLERANCE_CATEGORY, item_values, tolerance_item_write,
+    CATEGORY as TOLERANCE_CATEGORY,
 )
 from credinomina_reconciliation.cadence import unique_full_quincena_pair
 from credinomina_reconciliation.client_registry import (
@@ -627,7 +627,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
                     row.name, row.manual_fx_rate,
                     row.historical_period,
                     row.processing_route,
-                    row.difference_reason,
+                    row.difference_reason, row.get("difference_notes"),
                 )
             )
     document.file_hash = file_sha256(content)
@@ -635,8 +635,8 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
     reassigned_rows = []
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, prior_period, prior_route, difference_reason = (
-            previous.pop(0) if previous else (None, 0, "", "", "")
+        preserved_name, manual_rate, prior_period, prior_route, difference_reason, difference_notes = (
+            previous.pop(0) if previous else (None, 0, "", "", "", "")
         )
         period = ""
         if record["event_type"] == "Aplicacion" and document.historical_period:
@@ -651,6 +651,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
                 "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
                 "processing_route": prior_route,
                 "difference_reason": difference_reason,
+                "difference_notes": difference_notes,
                 "historical_period": period,
                 "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
                 "match_status": "Pendiente",
@@ -875,6 +876,9 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
             order_by="creation asc", pluck="name", limit_page_length=0,
         )
         imports = [frappe.get_doc("CN Accounting Import", name) for name in import_names]
+    if not preserve_deposits:
+        from credinomina_reconciliation.manual_complementary_policy import assert_no_legacy_tolerance
+        assert_no_legacy_tolerance({"employer": ["in", companies]} if companies else {})
     for document in imports:
         document._reconciliation_original_state = document_state(document)
     original_source_rows = [
@@ -1942,7 +1946,7 @@ def _distribute_deposits(
     )
     attach_employer_aliases(known_employers)
     tolerance_by_employer = {
-        employer.name: money_float(employer.rounding_tolerance_usd)
+        employer.name: 0  # Retired: do not accept unmatched detail using a tolerance.
         for employer in known_employers
     }
     employer_by_label, ambiguous_labels = employer_alias_index(known_employers)
@@ -2533,71 +2537,12 @@ def _sync_registered_deposit_detail(allocation):
 
 
 def _sync_rounding_movements(movements, allocation, source_rows, employer=None, deposit_name=None):
-    """Persist deterministic movements and reverse stale ones; never post GL."""
-    desired = {movement["name"]: movement for movement in movements}
-    existing = {
-        item.name: item
-        for item in frappe.get_all(
-            "CN Complementary Item",
-            filters={"category": TOLERANCE_CATEGORY, "docstatus": 1,
-                     **({"employer": employer} if employer else {}),
-                     **({"deposit_source_row": deposit_name} if deposit_name else {})},
-            fields=["name", "status", "period"],
-            limit_page_length=100000,
-        )
-    }
-    for name, item in existing.items():
-        if item.status != "Vigente" or name in desired:
-            continue
-        if frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
-            frappe.throw(_("El movimiento {0} pertenece a un período cerrado y no puede revertirse automáticamente.").format(name))
-        document = frappe.get_doc("CN Complementary Item", name)
-        document.status = "Revertido"
-        document.reversed_on = now_datetime()
-        document.reversal_reason = _(
-            "La diferencia ya no cumple la tolerancia, la referencia o el enlace único entre aplicación y depósito."
-        )
-        with tolerance_item_write():
-            document.save(ignore_permissions=True)
-
-    source_by_name = {row.name: row for row in source_rows}
-    detail_by_source = defaultdict(list)
-    for movement in movements:
-        name = movement["name"]
-        period = movement["period"]
-        if name not in existing or existing[name].status != "Vigente":
-            if frappe.db.get_value("CN Reconciliation Period", period, "status") == "Cerrado":
-                frappe.throw(_("No se puede crear o reactivar un ajuste en el período cerrado {0}.").format(period))
-            if name in existing:
-                document = frappe.get_doc("CN Complementary Item", name)
-                document.status = "Vigente"
-                document.reversed_on = None
-                document.reversal_reason = ""
-                with tolerance_item_write():
-                    document.save(ignore_permissions=True)
-            else:
-                deposit = allocation["deposit_meta"][movement["deposit_id"]]["account"]
-                with tolerance_item_write():
-                    document = frappe.get_doc(item_values(movement, deposit))
-                    document.insert(ignore_permissions=True, set_name=name)
-                    document.submit()
-        for source_id in (
-            movement["deposit_id"],
-            allocation["deposit_meta"][movement["deposit_id"]]["bank"].name,
-            movement["application_id"],
-        ):
-            detail_by_source[source_id].append({
-                "movimiento": name,
-                "diferencia_usd": movement["signed_amount_usd"],
-                "periodo": period,
-            })
-    for source_id, entries in detail_by_source.items():
-        source = source_by_name.get(source_id)
-        if source:
-            source.rounding_adjustment_usd = money_float(
-                sum(flt(entry["diferencia_usd"]) for entry in entries)
-            )
-            source.rounding_movement_detail = json.dumps(entries, ensure_ascii=False)
+    """Retired writer. Existing evidence is retained for manual review."""
+    from credinomina_reconciliation.manual_complementary_policy import assert_no_legacy_tolerance
+    assert_no_legacy_tolerance({**({"employer": employer} if employer else {}),
+                                **({"deposit_source_row": deposit_name} if deposit_name else {})})
+    if movements:
+        frappe.throw(_("La generación de partidas por tolerancia está deshabilitada."))
 
 
 _OPERATIVE_PERIOD_AMOUNTS = (

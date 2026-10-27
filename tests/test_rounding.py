@@ -54,35 +54,13 @@ class RoundingMovementTest(unittest.TestCase):
             {"EMP-1": tolerance},
         )
 
-    def test_extra_cent_is_recorded_and_consumes_only_the_residual(self):
-        movement = self.find()[0]
-        self.assertEqual(0.01, movement["signed_amount_usd"])
-        self.assertEqual(0.01, movement["consumed_residual_usd"])
-        self.assertEqual("APP-1", movement["application_id"])
-        self.assertEqual(movement["name"], self.find()[0]["name"])
+    def test_extra_cent_remains_unabsorbed(self):
+        self.assertEqual([], self.find())
 
-    def test_deposit_rename_keeps_tolerance_identity(self):
-        original = self.find()[0]["name"]
-        self.deposits[0].update(id="DEP-9-2026-0001", reconciliation_identity="DEP-1")
-        self.allocations[0]["deposit_id"] = "DEP-9-2026-0001"
-        movement = rounding_movements(self.deposits, self.claims, self.allocations,
-            {"DEP-9-2026-0001": 0.01}, {"C:ROW-1": 0}, {"EMP-1": 0.01})[0]
-        self.assertEqual(movement["name"], original)
-        self.assertEqual(movement["deposit_id"], "DEP-9-2026-0001")
-
-    def test_extra_cent_already_inside_collection_claim_is_not_double_allocated(self):
-        self.claims[0]["amount_usd"] = 46.53
-        self.allocations[0]["amount_usd"] = 46.53
-        movement = self.find(remaining=0)[0]
-        self.assertEqual(0.01, movement["signed_amount_usd"])
-        self.assertEqual(0, movement["consumed_residual_usd"])
-
-    def test_short_cent_is_a_signed_movement_not_fictitious_cash(self):
+    def test_short_cent_remains_uncovered(self):
         self.deposits[0]["amount_usd"] = self.deposits[0]["bank_amount_usd"] = 46.52
         self.claims[0]["amount_usd"] = self.claims[0]["core_applied_usd"] = 46.53
-        movement = self.find(remaining=0, claim_remaining=0.01)[0]
-        self.assertEqual(-0.01, movement["signed_amount_usd"])
-        self.assertEqual(0, movement["consumed_residual_usd"])
+        self.assertEqual([], self.find(remaining=0, claim_remaining=0.01))
 
     def test_zero_tolerance_or_larger_difference_stays_open(self):
         self.assertEqual([], self.find(tolerance=0))

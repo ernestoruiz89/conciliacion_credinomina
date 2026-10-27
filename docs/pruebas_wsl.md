@@ -763,3 +763,15 @@ tampoco se muestran como saldo cero.
 Ejecutar `bench --site <sitio> migrate` para incorporar las columnas al metadato.
 Los registros existentes se consultan directamente; no requieren un parche de
 saldos ni volver a conciliar.
+
+### Diferencias documentales y retiro de tolerancias (octubre de 2026)
+
+Sincronizar metadatos con el parche `document_differences_preserve_manual_items`
+en el sitio desechable. Ejecutar `credinomina_reconciliation.testing.smoke_difference_documentation.run`;
+no admite producción y revierte los datos de ensayo. Cubre saldos intactos,
+parche repetible, vínculos históricos, reporte, bloqueo de creación manual y
+residuales de ±US$0.01 sin partidas automáticas.
+
+Pruebas focalizadas: `tests/test_difference_documentation.py`,
+`tests/test_rounding.py`, `tests/test_difference_documentation_ui.js`,
+`tests/test_period_pending_ui.js` y pruebas de clientes/empresas/CxC actualizadas.

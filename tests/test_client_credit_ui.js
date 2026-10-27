@@ -87,129 +87,15 @@ const frm = {doctype:"CN Complementary Item", doc: {name:"CREDIT", doctype:"CN C
     const added = [];
     context.frappe.listview_settings["CN Complementary Item"].onload({page:{add_inner_button: (label, action) => {if (label === "Saldos de clientes pendientes") action();}}, filter_area:{add: filter => added.push(filter)}});
     assert.ok(JSON.stringify(added).includes("credit_pending_usd"));
-    await context.createRemittanceComplementary({doc:{name:"DEP", employer:"INDENICSA", detail_rows:[{name:"R", client:"123", client_name:"Ana", loan_number:"100-1"}]},
-        is_new: () => false, is_dirty: () => false, reload_doc: async () => {reloads++;}, paying_companies:["INDENICSA","CBC"]});
-    assert.ok(dialog.options.fields.find(f => f.fieldname === "category").options.includes("Saldo a favor del cliente"));
-    const reason = dialog.options.fields.find(f => f.fieldname === "reason_type");
-    assert.equal(reason.default, "");
-    assert.equal(reason.options, reasonField.options);
-    assert.equal(reason.options.split("\n")[0], "");
-    for (const category of ["Saldo a favor del cliente", "Saldo a favor de la empresa", "Otros ingresos"]) {
-        context.doc = {category};
-        for (const condition of [reason.depends_on, reason.mandatory_depends_on]) {
-            assert.equal(vm.runInContext(condition.slice(5), context), category !== "Otros ingresos");
-        }
-    }
-    dialog.values.credit_detail_row = "R";
-    await dialog.options.fields.find(f => f.fieldname === "credit_detail_row").onchange();
-    assert.equal(dialog.values.credit_client, "123");
-    await dialog.options.primary_action({category:"Saldo a favor del cliente", amount:10, credit_client:"123", credit_detail_row:"R"});
-    assert.ok(calls.find(call => call.message?.includes("No se aplicó a créditos")));
-    // Row shortcut reuses the same creation API; only explicit confirmation writes.
-    const row = {name:"R", idx:1, source_row:2, client:"123", client_number:"123", client_name:"<script>Ana", loan_number:"100-1", pending_usd:10};
-    const deposit = {doc:{name:"DEP", employer:"INDENICSA", docstatus:1, modified:"stamp", deposit_date:"2025-05-10", detail_rows:[row]},
-        fields_dict:{detail_rows:{grid:{grid_rows_by_docname:{R:{grid_form:{fields_dict:{
-            create_client_credit:{$wrapper:{toggle: value => {shown.rowButton = value;}}},
-            select_pending_targets:{$wrapper:{toggle: value => {shown.rowTargetButton = value;}}},
-        }}}}}}},
-        is_new: () => false, is_dirty: () => false, get_perm: () => true, reload_doc: async () => {reloads++;}, paying_companies:["INDENICSA","CBC"]};
-    const detailEvents = handlers["CN Remittance Detail"];
-    detailEvents.form_render(deposit, "CN Remittance Detail", "R");
-    assert.equal(shown.rowButton, true);
-    assert.equal(shown.rowTargetButton, true);
-    const createsBefore = calls.filter(call => call.method?.endsWith("create_complementary_item")).length;
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    const rowDialog = dialog, count = dialogCount;
-    assert.equal(deposit.detail_credit_workflow, true);
-    assert.equal(rowDialog.options.title, "Crear saldo a favor del cliente");
-    assert.equal(rowDialog.values.amount, 10);
-    assert.equal(rowDialog.values.currency, "USD");
-    assert.equal(rowDialog.values.credit_client, "123");
-    assert.equal(rowDialog.values.credit_detail_row, "R");
-    assert.equal(rowDialog.values.loan_number, "100-1");
-    assert.ok(rowDialog.options.fields.find(f => f.fieldname === "category").read_only);
-    assert.ok(rowDialog.options.fields.find(f => f.fieldname === "credit_detail_row").read_only);
-    assert.ok(rowDialog.options.fields[0].options.includes("&lt;script>"));
-    assert.equal(calls.filter(call => call.method?.endsWith("create_complementary_item")).length, createsBefore);
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    assert.equal(dialogCount, count); // Duplicate clicks cannot open a second creation modal.
-    for (const amount of [-1, 0, 11, NaN]) await rowDialog.options.primary_action({amount});
-    assert.equal(calls.filter(call => call.method?.endsWith("create_complementary_item")).length, createsBefore);
-    const values = {amount:10, category:"Cobranza administrativa", currency:"NIO", credit_client:"OTHER", credit_detail_row:"OTHER", client_number:"WRONG", loan_number:"OTHER", reason_type:"Pago adicional no informado"};
-    const submit = rowDialog.options.primary_action(values);
-    await rowDialog.options.primary_action(values);
-    await submit;
-    const creation = calls.filter(call => call.method?.endsWith("create_complementary_item")).at(-1);
-    assert.equal(creation.args.values.category, "Saldo a favor del cliente");
-    assert.equal(creation.args.values.currency, "USD");
-    assert.equal(creation.args.values.credit_detail_row, "R");
-    assert.equal(creation.args.values.credit_client, "123");
-    assert.equal(creation.args.values.client_number, "123");
-    assert.equal(creation.args.values.loan_number, "100-1");
-    assert.equal(creation.args.values.reason_type, "Pago adicional no informado");
-    assert.equal(creation.args.modified, "stamp");
-    assert.equal(calls.filter(call => call.method?.endsWith("create_complementary_item")).length, createsBefore + 1);
-    assert.equal(deposit.detail_credit_workflow, false);
-
-    for (const pending of [0, -1, NaN]) {
-        row.pending_usd = pending;
-        detailEvents.form_render(deposit, "CN Remittance Detail", "R");
-        assert.equal(shown.rowButton, false);
-        assert.equal(shown.rowTargetButton, false);
-        await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-        assert.equal(dialogCount, count);
-    }
-    row.pending_usd = 10;
-    for (const docstatus of [0, 2]) {
-        deposit.doc.docstatus = docstatus;
-        await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-        assert.equal(dialogCount, count);
-    }
-    deposit.doc.docstatus = 1;
-    canCreate = false;
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    canCreate = true; canSubmit = false;
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    assert.equal(dialogCount, count);
-    canSubmit = true;
-    // The selection action must work for a single pending row as well as several.
-    let selected = [], selectionChanged, bulkAction, bulkHidden;
-    const grid = deposit.fields_dict.detail_rows.grid;
-    Object.assign(grid, {custom_buttons: {}, grid_buttons: {},
-        get_selected_children: () => selected,
-        add_custom_button: (_label, action) => {bulkAction = action; return {toggleClass: (_class, hidden) => {bulkHidden = hidden;}};},
-        wrapper: {off() {return this;}, on(_event, _selector, action) {selectionChanged = action; return this;}},
-    });
-    context.addBulkClientCreditButton(deposit);
-    assert.equal(bulkHidden, true);
-    const beforeEmptySelection = dialogCount;
-    await bulkAction();
-    assert.equal(dialogCount, beforeEmptySelection);
-    selected = [row]; selectionChanged();
-    assert.equal(bulkHidden, false);
-    await bulkAction();
-    assert.equal(dialog.options.title, "Crear saldo a favor del cliente");
-    assert.equal(dialog.options.primary_action_label, "Crear y confirmar saldo a favor");
-    assert.ok(dialog.options.fields[0].options.includes('data-credit-amount="R"'));
-    dialog.hide();
-    selected = [row, {...row, name: "R2"}]; selectionChanged();
-    assert.equal(bulkHidden, false);
-    row.pending_usd = 0; selectionChanged();
-    assert.equal(bulkHidden, true);
-    row.pending_usd = 10;
-    // Defaults must use the saved row, not the stale object from before save.
-    deposit.is_dirty = () => true;
-    let saves = 0;
-    deposit.save = async () => {saves++; deposit.doc.detail_rows = [{...row, pending_usd:7}]; deposit.doc.modified = "saved";};
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    assert.equal(saves, 1);
-    assert.equal(dialog.values.amount, 7);
-    dialog.hide();
-    assert.equal(deposit.detail_credit_workflow, false);
-    deposit.save = async () => {deposit.doc.detail_rows = [];};
-    const beforeDeletedRow = dialogCount;
-    await detailEvents.create_client_credit(deposit, "CN Remittance Detail", "R");
-    assert.equal(dialogCount, beforeDeletedRow);
-    assert.equal(deposit.detail_credit_workflow, false);
-    console.log("OK: customer credit category, exact optional row, beneficiary company, financial locks, management proof, history escaping, double-click guard and pending list.");
+    const documentary = [];
+    context.credinomina = {document_difference: async options => documentary.push(options)};
+    const deposit = {doc: {doctype: "CN Remittance Allocation", name: "DEP", docstatus: 1},
+        is_new: () => false, is_dirty: () => false, reload_doc: async () => {}};
+    await context.createRemittanceComplementary(deposit, {detailRowName: "ROW"});
+    assert.equal(documentary[0].name, "DEP");
+    assert.equal(documentary[0].parentfield, "detail_rows");
+    assert.equal(documentary[0].row_name, "ROW");
+    assert.equal(documentary[0].amount, undefined);
+    assert.equal(context.canCreateCompanyCredit(deposit), false);
+    console.log("OK: legacy credit history preserved; new differences open documentary classification.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

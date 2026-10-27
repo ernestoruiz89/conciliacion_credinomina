@@ -38,6 +38,9 @@ def only_detail_reasons_changed(document, previous):
     changed = False
     for field in document.meta.fields:
         name = field.fieldname
+        if name in {"difference_reason", "difference_notes"}:
+            changed |= not same_value(field, document.get(name), previous.get(name))
+            continue
         if field.fieldtype != "Table":
             if not same_value(field, document.get(name), previous.get(name)):
                 return False
@@ -50,8 +53,8 @@ def only_detail_reasons_changed(document, previous):
             if current.name != saved.name or current.idx != saved.idx:
                 return False
             for child_field in child_fields:
-                if name == "detail_rows" and child_field.fieldname == "difference_reason":
-                    changed |= not same_value(child_field, current.get("difference_reason"), saved.get("difference_reason"))
+                if name == "detail_rows" and child_field.fieldname in {"difference_reason", "difference_notes"}:
+                    changed |= not same_value(child_field, current.get(child_field.fieldname), saved.get(child_field.fieldname))
                 elif not same_value(child_field, current.get(child_field.fieldname), saved.get(child_field.fieldname)):
                     return False
     return changed

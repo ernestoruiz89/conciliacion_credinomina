@@ -1,5 +1,8 @@
 # Conciliación Credinómina
 
+> **Cambio vigente (octubre de 2026):** las diferencias se clasifican/documentan con `difference_reason` sin cambiar saldos. Ya no se crean partidas manuales ni tolerancias automáticas. Las instrucciones anteriores de creación y recuperación manual se conservan solo como referencia del histórico. Consulte [Diferencias documentadas y partidas históricas](docs/diferencias_documentadas_y_partidas_historicas.md) para la operación actual, el reporte y el parche.
+
+
 App independiente para **Frappe Framework** que concilia la cobranza de créditos
 por deducción de planilla con las aplicaciones del core y los depósitos de las
 empresas. Está diseñada para una IMF con core de créditos propio: **no requiere

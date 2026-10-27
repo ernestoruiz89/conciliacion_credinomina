@@ -1,5 +1,8 @@
 # Manual operativo de conciliación Credinómina
 
+> **Cambio vigente (octubre de 2026):** las diferencias se clasifican/documentan con `difference_reason` sin cambiar saldos. Ya no se crean partidas manuales ni tolerancias automáticas. Las instrucciones anteriores de creación y recuperación manual se conservan solo como referencia del histórico. Consulte [Diferencias documentadas y partidas históricas](diferencias_documentadas_y_partidas_historicas.md) para la operación actual, el reporte y el parche.
+
+
 Esta guía permite cargar evidencia del core, relacionarla con los depósitos y dar seguimiento a diferencias, ajustes y saldos a favor. Está dirigida a los operadores y supervisores de conciliación de MIDESA. La app funciona sobre Frappe Framework, sin depender de ERPNext ni de Loan Manager, y no sustituye el core de crédito ni registra asientos en él.
 
 Versión del manual: 1.7. Fecha de revisión: 19 de octubre de 2026. Referencia de plataforma: Frappe Framework v15 o superior. Las rutas indicadas son relativas al sitio instalado; pueden abrirse mediante la búsqueda de Frappe. Los nombres de botones corresponden a la versión de la app revisada.
@@ -570,20 +573,13 @@ tasa del depósito, redondeando cada fila; si falta tasa, debe completarla prime
 Una diferencia de +US$10 significa depósito mayor al detalle; −US$10 significa
 depósito menor al detalle.
 
-Pulse **Crear partida complementaria por diferencia**. El modal trae el importe
-calculado con su signo y la moneda US$ en solo lectura. Seleccione el concepto,
-la subcategoría y complete la justificación y el seguimiento que corresponda.
-La app verifica nuevamente el importe con los datos guardados antes de crear la
-partida y avisa si ya existe una partida confirmada por esa diferencia en Destinos.
-Crear la partida no concilia el depósito: revise la distribución y use **Conciliar**.
-Cuando la diferencia ya está indicada en las partidas de **Destinos**, el aviso
-muestra sus enlaces y el botón **Conciliar depósito** para guardar los cambios
-y ejecutar la conciliación directamente desde el aviso, sin ofrecer crear otra
-partida. El botón está disponible en depósitos confirmados con permiso de escritura. Al quedar
-el depósito **Conciliado** o **Conciliado con saldo a favor**, se ocultan el aviso
-de diferencia y el botón de creación.
-La diferencia por sí sola no determina si corresponde una CxC, un saldo a favor
-u otro ajuste; esa clasificación se hace según su respaldo.
+Pulse **Clasificar / documentar diferencia**. Seleccione la razón y describa
+el soporte. Guardar no crea una partida, no modifica el importe pendiente y no
+concilia el depósito. La documentación queda en el documento y en su historial.
+Los vínculos históricos existentes siguen disponibles para revisión.
+
+El procedimiento siguiente describe únicamente partidas históricas anteriores
+al cambio; para nuevos movimientos debe importar y vincular la evidencia del core.
 
 Si la empresa deposita US$100, el core aplica US$90 al crédito y los US$10 restantes son una cobranza administrativa asentada en otro comprobante:
 

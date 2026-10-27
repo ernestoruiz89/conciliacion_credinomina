@@ -4,6 +4,7 @@ let rpc, calls = [], created = [], messages = [];
 const context = vm.createContext({
     __: (text, args = []) => String(text).replace(/\{(\d+)\}/g, (_, i) => args[i]),
     format_currency: n => `USD ${Number(n).toFixed(2)}`,
+    credinomina: {document_difference: async options => created.push(options)},
     frappe: {ui: {form: {on() {}}}, utils: {escape_html: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")},
         datetime: {get_today: () => "2026-10-08"},
         new_doc: (doctype, values) => created.push({doctype, values}), msgprint: value => messages.push(value),
@@ -36,18 +37,16 @@ const action = name => wrapper.handlers[`[data-pending="${name}"]`];
     assert.equal(calls.at(-1).args.kind, "Aplicación");
     frm.doc.status = "Parcial";
     const second = {...row, source_row: "APPLICATION-80", client_name: "Álvaro", pending: 0.01};
-    rpc = async () => ({message: {rows: [row, second], total: 2, count: 2, can_create_complementary: true}});
+    rpc = async () => ({message: {rows: [row, second], total: 2, count: 2, can_document_difference: true}});
     await context.refreshPeriodPending(frm);
     assert.ok(wrapper.content.includes('data-pending="complementary"'));
     const click = () => action("complementary")({currentTarget: {dataset: {rowIndex: "1"}}});
     await click();
-    assert.equal(created[0].doctype, "CN Complementary Item");
-    assert.deepEqual(JSON.parse(JSON.stringify(created[0].values)), {
-        employer: "EMP", period: "P", client_name: "Álvaro", client_number: "5552", loan_number: "001500-1",
-        installment_number: "4", currency: "USD", posting_date: "2026-10-08", category: "Ajuste de aplicación",
-        related_import: "I", related_application: "APPLICATION-80", review_action: "Ajuste de aplicación",
-        application_adjustment_usd: 0.01, amount: 0.01,
-    });
+    assert.equal(created[0].doctype, "CN Accounting Import");
+    assert.equal(created[0].name, "I");
+    assert.equal(created[0].row_name, "APPLICATION-80");
+    assert.equal(created[0].parentfield, "rows");
+    assert.equal(created[0].amount, undefined);
     frm.is_dirty = () => true;
     await click();
     assert.equal(created.length, 1);
@@ -55,31 +54,11 @@ const action = name => wrapper.handlers[`[data-pending="${name}"]`];
     frm.is_dirty = () => false;
     frm.doc.status = "Cerrado";
     await click();
-    assert.equal(created.length, 1);
-    frm.doc.status = "Parcial";
-    context.createPeriodPendingComplementary(frm, {...row, kind: "Cobranza", pending: 10});
-    assert.equal(created.at(-1).values.amount, -10);
-    assert.equal(created.at(-1).values.related_application, undefined);
-    assert.equal(created.at(-1).values.loan_number, "001500-1");
-    context.createPeriodPendingComplementary(frm, {kind: "Depósito", pending: 3});
-    assert.equal(created.at(-1).values.amount, 3);
-    assert.equal(created.at(-1).values.client_number, "");
-    const unapplied = {kind: "Cobranza", source: "P", row: 4, applied: 0, paid: 28.43, pending: 28.43,
-        status: "Pago pendiente de aplicar", paid_identified: 28.43, pending_application: 28.43,
-        pending_deposit: 0, pending_label: "Por aplicar", can_create_complementary: false,
-        deposit_evidence: [{name: "DEP <script>", amount_usd: 28.43}]};
-    rpc = async () => ({message: {rows: [unapplied], total: 1, count: 1, can_create_complementary: true}});
-    await context.refreshPeriodPending(frm);
-    assert.ok(wrapper.content.includes("USD 28.43"));
-    assert.ok(wrapper.content.includes("Pago pendiente de aplicar"));
-    assert.ok(wrapper.content.includes("Por aplicar"));
-    assert.ok(wrapper.content.includes("/app/cn-remittance-allocation/DEP%20%3Cscript%3E"));
-    assert.ok(wrapper.content.includes("DEP &lt;script&gt;"));
-    assert.ok(!wrapper.content.includes('data-pending="complementary"'));
-    const before = created.length;
-    context.createPeriodPendingComplementary(frm, unapplied);
-    assert.equal(created.length, before);
-    assert.ok(messages.at(-1).includes("pendiente de aplicar en el core"));
+    assert.equal(created.length, 2, "Classification is allowed on closed periods without reopening them");
+    const unapplied = {...row, kind: "Cobranza", doctype: "CN Reconciliation Period", source: "P", source_row: "C", pending_application: 10};
+    await context.createPeriodPendingComplementary(frm, unapplied);
+    assert.equal(created.at(-1).parentfield, "collection_rows");
+    assert.equal(created.at(-1).row_name, "C");
     rpc = async () => ({message: {rows: [{...unapplied, pending_deposit: 10}], total: 1, count: 1}});
     await context.refreshPeriodPending(frm);
     assert.ok(wrapper.content.includes("USD 10.00 por cubrir con depósito"));

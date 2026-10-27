@@ -25,20 +25,12 @@ for (const key of ['credit_client', 'credit_assigned_to', 'credit_commitment_dat
 assert.equal(enabled(schema.fields.find(row => row.fieldname === 'receivable_terms_section').depends_on), true);
 assert.equal(enabled(schema.fields.find(row => row.fieldname === 'select_credit_detail').depends_on), false);
 (async () => {
-    await context.createRemittanceComplementary({doc: {name: 'D', employer: 'E'}, is_new: () => false, is_dirty: () => false});
-    const field = key => dialog.options.fields.find(row => row.fieldname === key);
-    dialog.values = {subcategory: 'CxC al Empleado', category: 'Ajuste de conciliación', receivable_due_date: '2025-05-10'};
-    await field('subcategory').onchange();
-    assert.equal(dialog.values.subcategory_effect, 'CxC al Empleado');
-    assert.equal(dialog.values.receivable_due_date, null, 'Employer deadline must be cleared on reclassification');
-    dialog.values.period = 'P'; dialog.values.receivable_due_date = '2025-05-15';
-    await field('period').onchange();
-    assert.equal(dialog.values.receivable_due_date, '2025-05-15');
-    assert.equal(requests.length, 0, 'Individual deadline must not be replaced with the employer deadline');
-    assert.equal(enabled(field('credit_client').depends_on), true);
-    assert.equal(enabled(field('credit_client').mandatory_depends_on), true);
-    dialog.values.credit_client = 'CLIENT';
-    await field('credit_client').onchange();
-    assert.equal(dialog.values.client_number, '123');
-    console.log('Employee CxC: client identity, required follow-up and independent deadline OK.');
+    const documentary = [];
+    context.credinomina = {document_difference: async options => documentary.push(options)};
+    await context.createRemittanceComplementary({doc: {doctype: "CN Remittance Allocation", name: "D"},
+        is_new: () => false, is_dirty: () => false});
+    assert.equal(documentary[0].name, "D");
+    assert.equal(documentary[0].parentfield, "");
+    assert.equal(requests.length, 0, "Documentary shortcut never creates a manual CxC");
+    console.log("OK: existing CxC metadata retained; new differences are documentary.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

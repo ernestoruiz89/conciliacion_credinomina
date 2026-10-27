@@ -17,12 +17,12 @@ class EmployerAliasSaveTests(unittest.TestCase):
         db.exists.assert_not_called()
         reconcile.assert_not_called()
 
-    def test_tolerance_change_still_refreshes_existing_accounting(self):
+    def test_retired_tolerance_setting_cannot_recalculate_existing_accounting(self):
         document = frappe._dict(name="A", rounding_tolerance_usd=0.02, employer_code="A",
             get_doc_before_save=lambda: frappe._dict(rounding_tolerance_usd=0.01, employer_code="A"))
         with patch.object(api.frappe, "db", Mock(exists=Mock(return_value=True))), patch.object(accounting, "_reconcile_sources") as reconcile:
             api.CNEmployer.on_update(document)
-        reconcile.assert_called_once_with("A")
+        reconcile.assert_not_called()
 
     def document(self, aliases=()):
         document = Mock(employer_name="Empresa A",
