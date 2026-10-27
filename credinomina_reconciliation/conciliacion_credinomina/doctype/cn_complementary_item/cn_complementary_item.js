@@ -45,6 +45,47 @@ async function cn_render_complementary_balance(frm) {
     }
 }
 
+function cn_add_cancel_action(frm) {
+    frm.remove_custom_button?.(__("Cancelar partida"));
+    if (frm.is_new() || frm.doc.docstatus !== 1 || frm.doc.origin_deposit || frm.doc.receivable_origin
+            || ["Diferencia por tolerancia", "Compensación entre partidas", "Vinculado a depósito", "Cobro de CxC"].includes(frm.doc.category)) return;
+    // A configured workflow retains ownership of its transitions.
+    if (frm.toolbar?.has_workflow?.()) return;
+    if (!frm.get_perm(0, "cancel") || !frm.get_perm(0, "write")) {
+        if (frm.get_perm(0, "write")) frm.dashboard?.add_comment?.(
+            __("Para cancelar esta partida necesita permiso de cancelación. Solicite la revisión de un Supervisor Credinomina."), "blue", true);
+        return;
+    }
+    frm.add_custom_button(__("Cancelar partida"), () => cn_cancel_item(frm));
+}
+
+function cn_cancel_item(frm) {
+    if (frm._cn_cancelling || frm.is_new() || frm.doc.docstatus !== 1) return;
+    if (!frm.get_perm(0, "cancel") || !frm.get_perm(0, "write")) {
+        return frappe.msgprint(__("No tiene permiso para cancelar esta partida."));
+    }
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de cancelarla."));
+    const name = frm.doc.name, modified = frm.doc.modified;
+    frm._cn_cancelling = true;
+    return frappe.confirm(
+        __("¿Cancelar esta partida? Se conservará el registro cancelado y se recalcularán sus vínculos afectados. Esta acción no cancela los depósitos relacionados."),
+        async () => {
+            try {
+                if (frm.doc.name !== name || frm.doc.modified !== modified || frm.is_dirty()) {
+                    return frappe.msgprint(__("La partida cambió. Recargue antes de cancelar."));
+                }
+                await frappe.call({
+                    method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item.cancel_item",
+                    args: {item_name: name, modified}, freeze: true, freeze_message: __("Cancelando partida…"),
+                });
+                if (frm.doc.name === name) await frm.reload_doc();
+                frappe.show_alert({message: __("Partida cancelada."), indicator: "green"});
+            } finally {frm._cn_cancelling = false;}
+        },
+        () => {frm._cn_cancelling = false;},
+    );
+}
+
 function cn_unconfirm_item(frm) {
     const name = frm.doc.name;
     const modified = frm.doc.modified;
@@ -372,6 +413,7 @@ frappe.ui.form.on("CN Complementary Item", {
             deposit_voucher: r.message.deposit_voucher, posting_date: frm.doc.posting_date || r.message.deposit_date});
     },
     refresh(frm) {
+        cn_add_cancel_action(frm);
         window.credinominaWorkbenchHandoff?.(frm, result => frm.doc.docstatus === 1
             ? cn_distribute_applications(frm, result) : cn_select_original_application(frm, result));
         if (frm.doc.origin_deposit) {

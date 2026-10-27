@@ -5,10 +5,41 @@ from unittest.mock import Mock, patch
 import frappe
 
 from credinomina_reconciliation import complementary_cancellation as cancellation
-from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item import CNComplementaryItem
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementary_item.cn_complementary_item import CNComplementaryItem, cancel_item
 
 
 class ComplementaryCancellationTests(unittest.TestCase):
+    def test_explicit_action_cancels_only_selected_item_using_normal_hooks(self):
+        item = frappe._dict(name="X", docstatus=1, modified="STAMP", flags=frappe._dict(
+            cancellation_result={"deposits": ["DEP"], "periods": ["P"]}),
+            check_permission=Mock(), cancel=Mock())
+        with patch.object(frappe, "get_doc", return_value=item) as get_doc:
+            result = cancel_item("X", "STAMP")
+        get_doc.assert_called_once_with("CN Complementary Item", "X", for_update=True)
+        self.assertEqual([call.args[0] for call in item.check_permission.call_args_list], ["cancel", "write"])
+        item.cancel.assert_called_once_with()
+        self.assertEqual(result, {"name": "X", "docstatus": 2, "deposits": ["DEP"], "periods": ["P"]})
+        self.assertFalse(item.flags.get("cn_unconfirming"))
+        self.assertFalse(item.flags.get("ignore_permissions"))
+
+    def test_explicit_action_rejects_stale_draft_cancelled_or_unauthorized_requests(self):
+        for status, stamp in ((0, "STAMP"), (2, "STAMP"), (1, "OLD")):
+            item = frappe._dict(docstatus=status, modified=stamp, check_permission=Mock(), cancel=Mock())
+            with patch.object(frappe, "get_doc", return_value=item), patch.object(frappe, "throw", side_effect=ValueError):
+                with self.assertRaises(ValueError): cancel_item("X", "STAMP")
+            item.cancel.assert_not_called()
+        item = frappe._dict(check_permission=Mock(side_effect=frappe.PermissionError), cancel=Mock())
+        with patch.object(frappe, "get_doc", return_value=item):
+            with self.assertRaises(frappe.PermissionError): cancel_item("X", "STAMP")
+        item.cancel.assert_not_called()
+
+    def test_explicit_action_preserves_financial_guard_errors(self):
+        item = frappe._dict(docstatus=1, modified="STAMP", check_permission=Mock(),
+                            cancel=Mock(side_effect=frappe.ValidationError("Período cerrado")))
+        with patch.object(frappe, "get_doc", return_value=item):
+            with self.assertRaisesRegex(frappe.ValidationError, "Período cerrado"):
+                cancel_item("X", "STAMP")
+
     def test_cancel_does_not_call_global_or_company_reconciliation(self):
         scope = {"companies": ["A"], "deposits": ["D"], "periods": ["P"], "applications": []}
         document = Mock(category="Cobranza administrativa", movement_key=None, flags=frappe._dict(cancellation_scope=scope))
