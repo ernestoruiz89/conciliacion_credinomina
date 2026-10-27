@@ -68,6 +68,28 @@ class SourceImportFormLayoutTest(unittest.TestCase):
             self.assertFalse(fields[name].get("hidden"), "keep the list filter picker available")
             self.assertEqual(fields[name]["in_list_view"], 1)
 
+    def test_row_grid_fits_the_two_read_only_usd_columns(self):
+        source = SOURCE_IMPORT_DOCTYPE.parent.parent / "cn_source_row" / "cn_source_row.json"
+        doctype = json.loads(source.read_text(encoding="utf-8"))
+        fields = {field["fieldname"]: field for field in doctype["fields"]}
+        visible, size = [], 0
+        for name in doctype["field_order"]:
+            field = fields[name]
+            if not field.get("in_list_view"):
+                continue
+            width = field.get("columns") or 2
+            if size + width > 10:
+                break
+            size += width
+            visible.append(name)
+        for name in ("client_name", "loan_number", "amount", "match_status", "row_applied_usd", "row_balance_usd"):
+            self.assertIn(name, visible)
+        for name, label in (("row_applied_usd", "Aplicado USD"), ("row_balance_usd", "Saldo USD")):
+            self.assertEqual(fields[name]["label"], label)
+            self.assertEqual(fields[name]["read_only"], 1)
+            self.assertEqual(fields[name]["is_virtual"], 1)
+            self.assertEqual(fields[name]["precision"], "2")
+
 
 if __name__ == "__main__":
     unittest.main()

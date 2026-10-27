@@ -11,6 +11,7 @@ const context = {__: translate, format_currency: value => `US$ ${Number(value).t
         get_field() {return {$wrapper: this.wrapper};}
         show() {this.visible = true;} hide() {this.visible = false;}
     }}, utils: {escape_html: esc},
+        format: (value, df, options, doc) => `${doc.usd_currency} ${Number(value).toFixed(df.precision)}`,
         call: args => new Promise((resolve, reject) => requests.push({args, resolve, reject}))}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js', 'utf8'), context);
@@ -22,6 +23,8 @@ const source = {name: 'APP', idx: 1, source_row: 5100, client_name: '<unsafe>', 
     historical_detail: '[{"referencia":"BANK-REF","comprobante":"VOUCHER","importe_usd":10}]'};
 const doc = {name: 'IMPORT', employer: 'MIDESA', status: 'Importado con excepciones', rows: [source]};
 const before = JSON.stringify(doc);
+const financialDoc = value => JSON.stringify(value, (key, item) =>
+    ['_cn_row_amounts', 'row_applied_usd', 'row_balance_usd'].includes(key) ? undefined : item);
 const html = context.accountingImportIssuesHtml(doc);
 assert.match(html, /Pendientes de conciliación/);
 assert.match(html, /Fila del archivo.*5100/);
@@ -67,16 +70,32 @@ function wrapper() {
         find(selector) {if (!this.children.has(selector)) this.children.set(selector, wrapper()); return this.children.get(selector);}};
 }
 (async () => {
-    const balance = wrapper(), visited = [], opened = [];
+    const balance = wrapper(), visited = [], opened = [], formatters = {}, refreshed = [];
     const frm = {doc, is_new:()=>false, is_dirty:()=>false, scroll_to_field:async field => visited.push(field),
         fields_dict:{balance_summary_html:{$wrapper:balance},
-            rows:{grid:{grid_rows_by_docname:{APP:{toggle_view:value => opened.push(value)}}}}}};
+            rows:{grid:{grid_rows_by_docname:{APP:{toggle_view:value => opened.push(value), refresh_field:field => refreshed.push(field)}},
+                refresh() {assert.fail('updating the monetary cells must not redraw the grid');},
+                update_docfield_property(field, property, formatter) {assert.equal(property, 'formatter'); formatters[field] = formatter;}}}}};
+    context.setupAccountingRowAmounts(frm);
+    assert.match(formatters.row_applied_usd(0, {}, {}, source), /—/, 'an unloaded value is not zero');
     const load = context.loadAccountingClientSummary(frm);
     assert.match(balance.content, /Consultando saldos/);
-    requests.shift().resolve({message:{rows:[], totals:{amount_usd:100, balance_usd:26.32}}});
+    requests.shift().resolve({message:{rows:[], totals:{amount_usd:100, balance_usd:26.32},
+        row_amounts:{APP:{applied_usd:73.68, balance_usd:26.32, issue:''}}}});
     await load;
     assert.match(balance.content, /Importe US\$/);
     assert.ok(!balance.content.includes('<table'), 'only summary cards are embedded above Filas');
+    assert.equal(source.row_applied_usd, 73.68);
+    assert.equal(source.row_balance_usd, 26.32);
+    assert.ok(refreshed.includes('row_applied_usd') && refreshed.includes('row_balance_usd'));
+    assert.equal(formatters.row_applied_usd(0, {}, {}, source), 'USD 73.68');
+    assert.equal(formatters.row_balance_usd(0, {}, {}, source), 'USD 26.32');
+    const zero = {_cn_row_amounts:{applied_usd:0, balance_usd:0, issue:'<review>'}};
+    assert.match(formatters.row_applied_usd(0, {}, {}, zero), /USD 0.00/);
+    assert.match(formatters.row_balance_usd(0, {}, {}, zero), /&lt;review&gt;/);
+    const unknownBalance = {_cn_row_amounts:{applied_usd:null, balance_usd:null}};
+    assert.match(formatters.row_balance_usd(0, {}, {}, unknownBalance), /—/);
+    assert.equal(financialDoc(frm.doc), before, 'only virtual display values can change');
     assert.equal(dialogs.length, 0, 'summaries must not open automatically');
     context.showAccountingImportIssues(frm);
     let pending = dialogs.at(-1);
@@ -104,7 +123,7 @@ function wrapper() {
     await clientLoad;
     assert.match(clients.wrapper.find('.cn-client-table').content, /Cliente 1/);
     assert.ok(!balance.content.includes('<table'), 'opening a summary does not add another table to the form');
-    assert.equal(JSON.stringify(frm.doc), before, 'consultations cannot alter the import');
+    assert.equal(financialDoc(frm.doc), before, 'consultations cannot alter the import');
     const old = context.loadAccountingClientSummary(frm);
     frm.doc = {...doc, name:'OTHER', rows:[{...source, client_name:'Cliente nuevo'}]};
     const current = context.loadAccountingClientSummary(frm);
@@ -116,6 +135,7 @@ function wrapper() {
     const failed = context.loadAccountingClientSummary(frm);
     requests.shift().reject(new Error('Unavailable totals')); await failed;
     assert.match(balance.content, /No se pudieron consultar los saldos/);
+    assert.equal(frm.doc.rows[0].row_balance_usd, null, 'failed reads must not leave a stale zero');
     assert.match(balance.content, /Reintentar/);
     context.showAccountingImportIssues(frm);
     pending = dialogs.at(-1);

@@ -123,6 +123,8 @@ El formulario tiene tres pestañas: **1. Importación**, con la cobertura al ini
 
 En **Consultas → Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
 
+En **Detalle de movimientos → Filas**, **Aplicado USD** indica lo cubierto por depósitos y ajustes confirmados, descontando la diferencia menor de conciliación; **Saldo USD** indica lo pendiente por aplicación. Por ejemplo, un movimiento de US$100 con US$60 de depósitos y US$10 de ajuste muestra US$70 aplicado y US$30 de saldo. Las columnas solo consultan datos guardados. Si varias aplicaciones comparten una cobertura que no puede repartirse con certeza, muestran **—**, aunque el resumen por cliente pueda determinar el total. Los movimientos ignorados, no efectivos o distintos de aplicaciones también muestran **—**.
+
 Al inicio de **1. Importación**, la sección **Cobertura de las aplicaciones** muestra las tarjetas **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas, antes de los datos del archivo. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
 
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.

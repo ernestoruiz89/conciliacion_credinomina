@@ -104,5 +104,56 @@ class AccountingClientSummaryTests(unittest.TestCase):
              patch.object(summary.frappe, 'has_permission', return_value=False):
             result = summary.get_client_summary('I')
         self.assertIsNone(result['rows'][0]['balance_usd'])
+        self.assertIsNone(result['row_amounts']['A']['balance_usd'])
         self.assertEqual(read.call_args.kwargs['filters']['name'], ['in', ['C']])
         document.check_permission.assert_called_once_with('read')
+
+    def test_row_amounts_include_confirmed_adjustments_and_real_cash(self):
+        rows = [self.source(name='PARTIAL', application_adjustment_usd=20, historical_remitted_usd=30),
+                self.source(name='ADJUSTED', application_adjustment_usd=100),
+                self.source(name='UNASSIGNED', historical_period='', match_status='Sin coincidencia')]
+        original = [dict(row) for row in rows]
+        amounts = summary.row_amounts({'rows': rows}, {})
+        self.assertEqual((amounts['PARTIAL']['applied_usd'], amounts['PARTIAL']['balance_usd']), (50, 50))
+        self.assertEqual((amounts['ADJUSTED']['applied_usd'], amounts['ADJUSTED']['balance_usd']), (100, 0))
+        self.assertEqual((amounts['UNASSIGNED']['applied_usd'], amounts['UNASSIGNED']['balance_usd']), (0, 100))
+        self.assertEqual(rows, original)
+
+    def test_row_amounts_do_not_invent_a_split_within_the_same_customer(self):
+        rows = [self.source(name='A', historical_period='', amount=60, collection_row_id='C'),
+                self.source(name='B', historical_period='', amount=40, collection_row_id='C')]
+        collections = {'C': dict(applied_usd=100, remittance_detail=[{'importe_usd': 40}])}
+        self.assertEqual(self.build(rows, collections)[0]['assigned_usd'], 40)
+        amounts = summary.row_amounts({'rows': rows}, collections)
+        for row in amounts.values():
+            self.assertIsNone(row['applied_usd'])
+            self.assertIsNone(row['balance_usd'])
+            self.assertIn('compartida', row['issue'])
+
+    def test_single_operational_row_has_attributable_coverage(self):
+        row = self.source(historical_period='', collection_row_id='C', application_adjustment_usd=20)
+        collections = {'C': dict(applied_usd=80, remittance_detail=[{'importe_usd': 30},
+            {'importe_usd': 999, 'destino': 'Partida complementaria'}])}
+        amounts = summary.row_amounts({'rows': [row]}, collections)['A']
+        self.assertEqual((amounts['applied_usd'], amounts['balance_usd']), (50, 50))
+
+    def test_minor_differences_do_not_inflate_applied_and_overpayment_is_visible(self):
+        for gross, cash, delta in ((46.52, 46.53, .01), (46.53, 46.52, -.01)):
+            with self.subTest(delta=delta):
+                row = self.source(amount=gross, historical_remitted_usd=cash, historical_detail=[{'diferencia_usd': delta}])
+                result = summary.row_amounts({'rows': [row]}, {})['A']
+                self.assertEqual((result['applied_usd'], result['balance_usd']), (gross, 0))
+        result = summary.row_amounts({'rows': [self.source(historical_remitted_usd=110)]}, {})['A']
+        self.assertEqual((result['applied_usd'], result['balance_usd']), (110, 0))
+        self.assertIn('mayor', result['issue'])
+
+    def test_zero_unknown_excluded_rows_and_cancellation(self):
+        rows = [self.source(name='ZERO', amount=0), self.source(name='NO-FX', currency='NIO'),
+                self.source(name='IGNORED', match_status='Ignorado'), self.source(name='INACTIVE', effective=0),
+                self.source(name='DEPOSIT', event_type='Deposito')]
+        result = summary.row_amounts({'rows': rows}, {})
+        self.assertEqual(set(result), {'ZERO', 'NO-FX'})
+        self.assertEqual((result['ZERO']['applied_usd'], result['ZERO']['balance_usd']), (0, 0))
+        self.assertIsNone(result['NO-FX']['applied_usd'])
+        self.assertIsNone(result['NO-FX']['balance_usd'])
+        self.assertEqual(summary.row_amounts({'rows': rows, 'docstatus': 2}, {}), {})
