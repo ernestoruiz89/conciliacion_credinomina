@@ -50,6 +50,8 @@ class CNComplementaryItem(Document):
         _complete_client_name(self)
 
     def validate(self):
+        from credinomina_reconciliation.manual_complementary_policy import guard_new_item
+        guard_new_item(self)
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
         from credinomina_reconciliation.application_adjustment_links import guard
         guard(self, previous)

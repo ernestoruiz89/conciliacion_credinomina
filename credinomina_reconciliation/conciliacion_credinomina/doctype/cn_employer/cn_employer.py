@@ -52,8 +52,7 @@ class CNEmployer(Document):
         # Alias edits only update identification for the next analysis. Do not
         # scan accounting history or redistribute deposits while saving names.
         if not previous or (
-            money(previous.rounding_tolerance_usd) == money(self.rounding_tolerance_usd)
-            and previous.employer_code == self.employer_code
+            previous.employer_code == self.employer_code
         ):
             return
         if not frappe.db.exists(

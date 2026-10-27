@@ -40,14 +40,8 @@ frappe.ui.form.on("CN Reconciliation Period", {
             return;
         }
 
-        if (!frm.doc.prepared_deposit && !frm.doc.no_collection) {
-            frm.add_custom_button(__("Generar ajustes provisionales"), () => updateProvisionalAdjustments(frm, "generate_proposals"), __("Más opciones"));
-            if ((frm.doc.provisional_adjustments || []).length) {
-                frm.add_custom_button(__("Aprobar ajustes provisionales"), () => frappe.confirm(
-                    __("¿Aprueba la clasificación de todas las diferencias? No se crearán partidas reales hasta trasladarlas a un depósito confirmado."),
-                    () => updateProvisionalAdjustments(frm, "approve_proposals")
-                ), __("Más opciones"));
-            }
+        if ((frm.doc.provisional_adjustments || []).length) {
+            frm.add_custom_button(__("Ver ajustes provisionales históricos"), () => frm.scroll_to_field("provisional_adjustments"), __("Más opciones"));
         }
 
         if (!frm.doc.no_collection) frm.add_custom_button(__("1. Cargar cobranza"), async () => {
@@ -257,7 +251,7 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
                     <td class="text-right">${money(row.pending)}${row.pending_label ? `<div class="text-muted">${esc(__(row.pending_label))}</div>` : ""}${row.pending_application > 0 && row.pending_deposit > 0 ? `<div>${money(row.pending_deposit)} ${esc(__("por cubrir con depósito"))}</div>` : ""}</td>
                     <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}
                         ${(row.deposit_evidence || []).map(deposit => `<div><a href="/app/cn-remittance-allocation/${encodeURIComponent(deposit.name)}">${esc(deposit.name)}</a> · ${money(deposit.amount_usd)}</div>`).join("")}
-                        ${data.can_create_complementary && row.can_create_complementary !== false ? `<div class="mt-2"><button type="button" class="btn btn-default btn-xs" data-pending="complementary" data-row-index="${index}">${esc(__("Crear partida complementaria"))}</button></div>` : ""}</details></td>
+                        ${data.can_document_difference ? `<div class="mt-2"><button type="button" class="btn btn-default btn-xs" data-pending="complementary" data-row-index="${index}">${esc(__("Clasificar / documentar diferencia"))}</button></div>` : ""}</details></td>
                 </tr>`).join("")}</tbody></table></div>` : `<p>${esc(__(data.total ? "No hay pendientes que coincidan con los filtros." : "No hay pendientes detectados en los registros visibles vinculados a este período."))}</p>`}
             <p class="text-muted">${esc(__("En depósitos se muestra el importe completo y su saldo sin distribuir, que puede corresponder a otros períodos. No se suma a lo pendiente de aplicaciones o cobranzas."))}</p>
             <p class="text-muted">${esc(__("En cobranza, Depositado incluye lo asignado y los pagos identificados en el detalle que aún esperan aplicación. Por aplicar y Por cubrir con depósito son pendientes distintos; identificar el pago no modifica la distribución."))}</p>
@@ -271,7 +265,7 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
         wrapper.on("click.cnPending", '[data-pending="previous"]', () => refreshPeriodPending(frm, Math.max(start - 50, 0), search, kind));
         wrapper.on("click.cnPending", '[data-pending="next"]', () => refreshPeriodPending(frm, start + 50, search, kind));
         wrapper.on("click.cnPending", '[data-pending="complementary"]', event => {
-            if (!current() || !data.can_create_complementary || frm.doc.status === "Cerrado" || frm.doc.docstatus === 2) return;
+            if (!current() || !data.can_document_difference || frm.doc.docstatus === 2) return;
             const row = data.rows[Number(event.currentTarget.dataset.rowIndex)];
             if (row) return createPeriodPendingComplementary(frm, row);
         });
@@ -283,31 +277,15 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
 }
 
 function createPeriodPendingComplementary(frm, row) {
-    if (row.can_create_complementary === false || row.pending_application > 0) {
-        frappe.msgprint(__("Este pago está pendiente de aplicar en el core. Revise la aplicación y vuelva a conciliar; no requiere crear un saldo a favor ni un ajuste desde esta fila."));
-        return;
-    }
     if (frm.is_dirty()) {
-        frappe.msgprint(__("Guarde los cambios del período antes de crear la partida complementaria."));
+        frappe.msgprint(__("Guarde los cambios antes de documentar la diferencia."));
         return;
     }
-    const amount = Number(row.pending || 0);
-    const adjustment = row.kind === "Aplicación" && !!row.source_row && amount > 0;
-    const values = {
-        employer: frm.doc.employer, period: frm.doc.name,
-        client_name: row.client_name || "", client_number: row.client_number || "",
-        loan_number: row.loan_number || "", installment_number: row.installment_number || "",
-        currency: "USD", posting_date: frappe.datetime.get_today(),
-        category: adjustment ? "Ajuste de aplicación" : "Ajuste de conciliación",
-    };
-    if (adjustment) {
-        Object.assign(values, {related_import: row.source, related_application: row.source_row,
-            review_action: "Ajuste de aplicación", application_adjustment_usd: amount, amount});
-    } else if (amount > 0) {
-        values.amount = row.kind === "Depósito" ? amount : -amount;
-    }
-    return frappe.new_doc("CN Complementary Item", values);
+    return credinomina.document_difference({doctype: row.doctype, name: row.source,
+        parentfield: row.kind === "Aplicación" ? "rows" : row.kind === "Cobranza" ? "collection_rows" : "",
+        row_name: row.source_row || ""});
 }
+
 
 async function refreshPeriodExceptions(frm, offset = 0, includeClosed = false) {
     const wrapper = frm.fields_dict?.exceptions_html?.$wrapper;

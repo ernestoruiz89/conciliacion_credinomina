@@ -204,5 +204,4 @@ def get_period_pending(period_name, start=0, search=None, kind=None):
     start = max(cint(start), 0)
     return {"rows": issues[start:start + 50], "count": len(issues), "total": total,
             "restricted": restricted, "start": start,
-            "can_create_complementary": period.status != "Cerrado" and period.docstatus != 2
-                and bool(frappe.has_permission("CN Complementary Item", "create"))}
+            "can_document_difference": period.docstatus != 2 and bool(frappe.has_permission("CN Reconciliation Period", "write"))}

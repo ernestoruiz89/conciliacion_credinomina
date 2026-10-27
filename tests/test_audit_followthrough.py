@@ -65,6 +65,7 @@ def test_controller_checks_magnitude_after_currency_conversion():
         reference='', voucher='', voucher_line='', flags=frappe._dict(), compensations=[])
     new = frappe._dict(old, amount=50)
     new.get_doc_before_save = lambda: old
+    new.is_new = lambda: False
     with patch.object(frappe, 'throw', side_effect=ValueError), pytest.raises(ValueError):
         CNComplementaryItem.validate(new)
 

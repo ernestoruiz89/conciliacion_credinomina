@@ -145,6 +145,8 @@ def reconcile_deposit(document, progress=None, undo=False):
     document.check_permission("write")
     if document.docstatus != 1:
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
+    from credinomina_reconciliation.manual_complementary_policy import assert_no_legacy_tolerance
+    assert_no_legacy_tolerance({"deposit_source_row": document.name})
     document._validate_deposit()
     if undo:
         document._assert_can_reverse_distribution()

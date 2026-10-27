@@ -63,7 +63,10 @@ def create_review_items(records, source_file, file_hash):
             "source_client_name": row.get("client_name") or row.get("portfolio_client_name") or "",
             "source_date": row["event_date"], "source_fx_rate": row.get("manual_fx_rate") or row.get("fx_rate") or 0,
             "review_action": "Pendiente de revisión",
-        }).insert()
+        })
+        from credinomina_reconciliation.manual_complementary_policy import imported_item
+        with imported_item(key):
+            document.insert()
         from credinomina_reconciliation.file_references import attach_existing_file
         attach_existing_file(source_file, document.doctype, document.name, "source_file")
         row["complementary_item"] = document.name

@@ -159,23 +159,23 @@ class PeriodPendingTests(unittest.TestCase):
              patch.object(pending.frappe, "get_all") as query:
             result = pending.get_period_pending("P")
         self.assertEqual(len(result["restricted"]), 2)
-        self.assertFalse(result["can_create_complementary"])
+        self.assertFalse(result["can_document_difference"])
         query.assert_not_called()
 
-    def test_create_action_requires_permission_and_open_period(self):
+    def test_documentation_requires_write_permission_but_not_reopening(self):
         period = Mock(reconciliation_mode="Historica", status="Parcial", docstatus=0)
         period.name = "P"
         with patch.object(pending.frappe, "get_doc", return_value=period), \
-             patch.object(pending.frappe, "has_permission", side_effect=lambda dt, action: action == "create") as permission:
-            self.assertTrue(pending.get_period_pending("P")["can_create_complementary"])
+             patch.object(pending.frappe, "has_permission", side_effect=lambda dt, action: action == "write") as permission:
+            self.assertTrue(pending.get_period_pending("P")["can_document_difference"])
             period.status = "Cerrado"
-            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
+            self.assertTrue(pending.get_period_pending("P")["can_document_difference"])
             period.status = "Parcial"
             period.docstatus = 2
-            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
+            self.assertFalse(pending.get_period_pending("P")["can_document_difference"])
             period.docstatus = 0
             permission.side_effect = lambda *_: False
-            self.assertFalse(pending.get_period_pending("P")["can_create_complementary"])
+            self.assertFalse(pending.get_period_pending("P")["can_document_difference"])
 
 
 if __name__ == "__main__":

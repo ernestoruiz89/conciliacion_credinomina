@@ -128,27 +128,7 @@ def _lock_period_pool(name):
 
 @frappe.whitelist(methods=["POST"])
 def generate_proposals(period_name):
-    _lock_period_pool(period_name)
-    period = _load_period(period_name)
-    if period.get("prepared_deposit") or any(row.state == "Materializado" for row in period.get("provisional_adjustments") or []):
-        frappe.throw(_("Este período ya trasladó ajustes a un depósito. Revise las partidas reales vinculadas."))
-    previous = {row.collection_row: row for row in period.get("provisional_adjustments") or []}
-    rows = []
-    for collection in period.collection_rows:
-        values = row_basis(period, collection)
-        if not money(values["amount_usd"]):
-            continue
-        old = previous.get(collection.name)
-        if old and old.fingerprint == values["fingerprint"]:
-            rows.append(old.as_dict())
-        else:
-            classification = {key: old.get(key) for key in CLASSIFICATION} if old else {}
-            rows.append({**values, **classification, "state": "Pendiente de revisión"})
-    with provisional_write():
-        period.set("provisional_adjustments", rows)
-        period.save()
-    period.add_comment("Comment", _("Ajustes provisionales actualizados: {0}. Sin efecto en saldos.").format(len(rows)))
-    return {"rows": len(rows)}
+    frappe.throw(_("Use Clasificar / documentar diferencia en la fila de cobranza. Ya no se generan ajustes manuales provisionales."))
 
 
 def validate_classification(proposal):
@@ -382,25 +362,7 @@ def apply_transfer(remittance_name, fingerprint, confirm_correspondence=False):
                     if proposal.existing_item:
                         item = _existing_item(proposal, period, row)
                     else:
-                        item = frappe.new_doc("CN Complementary Item")
-                        item.update({"category": proposal.category, "subcategory": proposal.subcategory,
-                            "reason_type": proposal.reason_type, "description": proposal.description,
-                            "reference": document.deposit_reference, "posting_date": document.deposit_date,
-                            "employer": period.employer, "period": period.name, "currency": "USD",
-                            "amount": proposal.amount_usd, "client_number": collection_client_number(row),
-                            "loan_number": row.loan_number, "installment_number": row.installment_number,
-                            "credit_assigned_to": proposal.assigned_to, "credit_commitment_date": proposal.commitment_date,
-                            "receivable_due_date": proposal.get("receivable_due_date")})
-                        if proposal.category in CREDITS:
-                            item.registered_deposit = document.name
-                            item.credit_treatment = "Pendiente de decisión"
-                            if proposal.category == "Saldo a favor del cliente":
-                                item.credit_client, item.credit_detail_row = row.client, detail.name
-                            else:
-                                item.client_number = item.loan_number = item.installment_number = ""
-                        item.flags.defer_reconciliation = True
-                        item.insert()
-                        item.submit()
+                        frappe.throw(_("La diferencia preparada no tiene un movimiento del core vinculado. Use Clasificar / documentar diferencia en la fila de cobranza; no se crearán partidas manuales."))
                     proposal.state, proposal.complementary_item, proposal.deposit = "Materializado", item.name, document.name
                     materialized.append(item.name)
                     if item.category not in CREDITS:

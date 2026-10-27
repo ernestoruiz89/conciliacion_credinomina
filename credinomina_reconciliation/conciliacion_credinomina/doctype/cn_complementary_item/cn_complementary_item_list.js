@@ -35,6 +35,9 @@ frappe.listview_settings["CN Complementary Item"] = {
         },
     },
     onload(listview) {
+        listview.page.add_inner_button(__("Revisión de Partidas Manuales"), () => {
+            frappe.set_route("query-report", "Revision de Partidas Manuales", {include_tolerance: 1});
+        });
         listview.settings ||= frappe.listview_settings["CN Complementary Item"];
         cnComplementaryListColumns(listview);
         // Frappe 15 does not await before_render. Read the visible page once,

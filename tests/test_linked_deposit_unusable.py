@@ -30,7 +30,7 @@ def test_linked_origin_cannot_create_complement_or_credit_through_server_endpoin
     doc = frappe._dict(consolidated_deposit="MAIN", check_permission=Mock())
     with patch.object(frappe.db, "get_value", return_value=None), patch.object(frappe, "get_doc", return_value=doc), \
          patch.object(frappe, "throw", side_effect=reject), patch.object(frappe, "new_doc") as create:
-        with pytest.raises(ValueError, match="depósito principal"):
+        with pytest.raises(ValueError, match="partidas nuevas"):
             remittance.create_complementary_item("ORIGIN", "modified", {"category": "Saldo a favor de la empresa"})
         create.assert_not_called()
 

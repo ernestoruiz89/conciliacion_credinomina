@@ -1,108 +1,6 @@
 async function cn_receivable_recovery_dialog(frm) {
-    const itemName = frm.doc.name;
-    if (frm.is_dirty()) await frm.save();
-    if (frm.doc.name !== itemName) return;
-    const {message: preview} = await frappe.call({method: "credinomina_reconciliation.receivable_recovery.preview_recovery", args: {item_name: itemName}});
-    if (frm.doc.name !== itemName) return;
-    const companies = preview.companies.filter(row => Number(row.available_usd) > 0);
-    if (!companies.length) {
-        frappe.msgprint(__(preview.companies.some(row => row.receivable_usd == null)
-            ? "La CxC tiene cobros o compensaciones inconsistentes. Revise los vínculos en el resumen de la partida."
-            : "No hay CxC disponible para una nueva liquidación. Revise los cobros y destinos ya vinculados en el resumen de la partida."));
-        return;
-    }
-    let dialog, destinationInfo = null, requestSequence = 0;
-    const api = "credinomina_reconciliation.receivable_recovery.";
-    const destinationQuery = method => ({query: api + "search_recovery_destinations", filters: {
-        item_name: itemName, employer: dialog.get_value("employer"), method,
-    }});
-    const renderDestination = () => {
-        if (!dialog) return;
-        const amount = Number(dialog.get_value("amount_usd") || 0);
-        const info = destinationInfo;
-        const esc = value => frappe.utils.escape_html(String(value ?? ""));
-        const money = value => esc(format_currency(value, "USD", 2));
-        dialog.fields_dict.destination_info.$wrapper.html(info ? `<div class="alert alert-info">
-            ${__("Disponible en el destino")}: <strong>${money(info.available_usd)}</strong> ·
-            ${__("A utilizar")}: <strong>${money(amount)}</strong><br>
-            ${__("Restará en el destino")}: <strong>${money(Number(info.available_usd) - amount)}</strong> ·
-            ${__("CxC restante")}: <strong>${money(Number(info.receivable_usd) - amount)}</strong></div>`
-            : `<p class="text-muted">${__("Seleccione un movimiento elegible para ver su disponible y el saldo posterior. Los saldos se vuelven a verificar al confirmar.")}</p>`);
-        dialog.get_primary_btn().prop("disabled", !info || amount <= 0 || amount > Number(info.available_usd) || amount > Number(info.receivable_usd));
-    };
-    const updateDestination = async () => {
-        if (!dialog) return;
-        const sequence = ++requestSequence;
-        destinationInfo = null;
-        renderDestination();
-        const method = dialog.get_value("method");
-        const destination = dialog.get_value(method === "Depósito" ? "deposit" : "counterpart");
-        if (!destination) return;
-        try {
-            const {message} = await frappe.call({method: api + "get_recovery_destination", args: {
-                item_name: itemName, employer: dialog.get_value("employer"), method, destination,
-            }});
-            if (sequence !== requestSequence) return;
-            destinationInfo = message;
-            await dialog.set_value("amount_usd", message.suggested_usd);
-            renderDestination();
-        } catch (error) {
-            if (sequence === requestSequence) { destinationInfo = null; renderDestination(); }
-        }
-    };
-    const updateCompany = () => {
-        if (!dialog) return;
-        const company = companies.find(row => row.employer === dialog.get_value("employer"));
-        const esc = value => frappe.utils.escape_html(String(value ?? ""));
-        dialog.fields_dict.cxc_info.$wrapper.html(`<div class="alert alert-info"><strong>${esc([company?.employer, company?.subcategory_effect, company?.client_name, company?.loan_number].filter(Boolean).join(" · "))}</strong> · ${esc(__("CxC disponible US$"))}: <strong>${esc(format_currency(company?.available_usd || 0, "USD", 2))}</strong><br>${esc(__("La distribución del depósito original se conserva. Solo un depósito o una compensación vinculada liquida esta CxC; registrar el asiento en el core no la cobra."))}</div>`);
-    };
-    dialog = new frappe.ui.Dialog({title: __("Aplicar cobro / Compensar CxC"), size: "large", fields: [
-        {fieldname: "cxc_info", fieldtype: "HTML"},
-        {fieldname: "recovery_section", fieldtype: "Section Break", label: __("Liquidación de la CxC")},
-        {fieldname: "employer", fieldtype: "Select", label: __("Empresa de la CxC"), options: companies.map(row => row.employer), default: companies[0].employer, reqd: 1,
-            onchange: () => {
-                if (!dialog) return;
-                dialog.set_value("amount_usd", companies.find(row => row.employer === dialog.get_value("employer"))?.available_usd || 0);
-                dialog.set_value("deposit", null);
-                dialog.set_value("counterpart", null);
-                updateCompany();
-                updateDestination();
-            }},
-        {fieldname: "amount_usd", fieldtype: "Currency", label: __("Importe a liquidar US$"), options: "USD", precision: 2, default: companies[0].available_usd, reqd: 1, onchange: renderDestination},
-        {fieldname: "recovery_column", fieldtype: "Column Break"},
-        {fieldname: "method", fieldtype: "Select", label: __("Medio de liquidación"), options: ["Depósito", "Compensación"], default: "Depósito", reqd: 1, onchange: updateDestination},
-        {fieldname: "recovery_date", fieldtype: "Date", label: __("Fecha de liquidación"), default: frappe.datetime.get_today(), reqd: 1},
-        {fieldname: "destination_section", fieldtype: "Section Break", label: __("Movimiento que liquida el saldo")},
-        {fieldname: "deposit", fieldtype: "Link", label: __("Depósito con dinero disponible"), options: "CN Remittance Allocation", depends_on: "eval:doc.method == 'Depósito'", mandatory_depends_on: "eval:doc.method == 'Depósito'", get_query: () => destinationQuery("Depósito"), onchange: updateDestination},
-        {fieldname: "counterpart", fieldtype: "Link", label: __("Partida de crédito para compensar"), options: "CN Complementary Item", depends_on: "eval:doc.method == 'Compensación'", mandatory_depends_on: "eval:doc.method == 'Compensación'", get_query: () => destinationQuery("Compensación"), onchange: updateDestination},
-        {fieldname: "destination_info", fieldtype: "HTML"},
-        {fieldname: "reason", fieldtype: "Small Text", label: __("Motivo y referencia de la gestión"), reqd: 1},
-    ], primary_action_label: __("Aplicar liquidación"), async primary_action(values) {
-        if (frm.doc.name !== itemName) {
-            dialog.hide();
-            frappe.msgprint(__("El formulario cambió. Abra la liquidación desde la partida que desea gestionar."));
-            return;
-        }
-        const limit = companies.find(row => row.employer === values.employer)?.available_usd || 0;
-        if (!destinationInfo || !(Number(values.amount_usd) > 0) || Number(values.amount_usd) > Number(limit) || Number(values.amount_usd) > Number(destinationInfo.available_usd)) {
-            frappe.msgprint(__("El importe debe ser positivo y no superar la CxC disponible de la empresa."));
-            return;
-        }
-        dialog.get_primary_btn().prop("disabled", true);
-        try {
-            await frappe.call({method: "credinomina_reconciliation.receivable_recovery.apply_recovery", args: {
-                item_name: itemName, employer: values.employer, method: values.method,
-                destination: values.method === "Depósito" ? values.deposit : values.counterpart,
-                amount_usd: values.amount_usd, recovery_date: values.recovery_date, reason: values.reason, request_key: preview.request_key,
-            }, freeze: true, freeze_message: __("Aplicando liquidación y verificando saldos…")});
-            dialog.hide();
-            if (frm.doc.name === itemName) await frm.reload_doc();
-            frappe.show_alert({message: __("Liquidación vinculada. El saldo de CxC fue actualizado."), indicator: "green"});
-        } finally { dialog.get_primary_btn().prop("disabled", false); }
-    }});
-    dialog.show();
-    updateCompany();
-    renderDestination();
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde antes de documentar la diferencia."));
+    return credinomina.document_difference({doctype: frm.doc.doctype, name: frm.doc.name, on_saved: () => frm.reload_doc()});
 }
 
 async function cn_render_complementary_balance(frm) {
@@ -134,7 +32,7 @@ async function cn_render_complementary_balance(frm) {
             ${value.receivable_companies?.length ? `<div class="alert ${value.receivable_issue_count ? "alert-danger" : (value.receivable_usd ?? value.company_receivable_usd) ? "alert-warning" : "alert-success"}"><strong>${esc(__(value.receivable_issue_count ? "CxC con cobros por revisar" : (value.receivable_usd ?? value.company_receivable_usd) ? "CxC pendiente de cobro" : "CxC cobrada"))}</strong>
                 <div class="row mt-2">${[["CxC original US$", "receivable_original_usd"], ["Cobrado US$", "receivable_paid_usd"], ["Compensado US$", "receivable_compensated_usd"], ["Pendiente US$", "receivable_usd"]].map(([label, field]) => `<div class="col-sm-3"><div>${esc(__(label))}</div><strong>${esc(receivableSum(field))}</strong></div>`).join("")}</div>
                 ${value.receivable_companies.filter(row => row.observation).map(row => `<p>${esc(row.observation)}</p>`).join("")}
-                <div class="mt-2">${__("Registrar el asiento en el core no liquida la deuda. Use Aplicar cobro / Compensar CxC para vincular su liquidación.")}</div></div>` : ""}
+                <div class="mt-2">${__("Registrar el asiento en el core no liquida la deuda. Use Documentar seguimiento de CxC para vincular su liquidación.")}</div></div>` : ""}
             ${value.recoveries?.length ? `<details><summary>${esc(__("Cobros y compensaciones vinculados"))}</summary><table class="table table-bordered"><thead><tr><th>${esc(__("Partida"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Fecha"))}</th><th>${esc(__("Estado"))}</th><th>${esc(__("Original US$"))}</th><th>${esc(__("Liquidado US$"))}</th></tr></thead><tbody>${value.recoveries.map(row => `<tr><td><a href="/app/cn-complementary-item/${encodeURIComponent(row.name)}">${esc(row.name)}</a></td><td>${esc(row.employer)}</td><td>${esc(frappe.datetime.str_to_user(row.posting_date))}</td><td>${esc(__(row.financial_status))}</td><td>${esc(format_currency(row.amount_usd, "USD", 2))}</td><td>${esc(format_currency(row.effective_usd, "USD", 2))}</td></tr>`).join("")}</tbody></table></details>` : ""}
             <p class="text-muted">${__("Tener un asiento informado no significa que la partida esté conciliada. Solo se suman distribuciones realizadas, no destinos seleccionados.")}</p>
             ${value.distributions?.length ? `<details><summary>${__("Depósitos que utilizan esta partida")}</summary><table class="table table-bordered"><thead><tr><th>${__("Depósito")}</th><th>${__("Empresa / cliente")}</th><th>${__("US$")}</th></tr></thead><tbody>${value.distributions.map(row => `<tr><td><a href="/app/cn-remittance-allocation/${encodeURIComponent(row.deposit)}">${esc(row.deposit)}</a></td><td>${esc([row.employer, row.client].filter(Boolean).join(" · "))}</td><td>${esc(format_currency(row.amount_usd, "USD", 2))}</td></tr>`).join("")}</tbody></table></details>` : ""}`);
@@ -283,7 +181,7 @@ function cn_classify_pending(frm) {
         ["Vincular a aplicación", "Ajuste o reversión total/parcial del core. Seleccione la aplicación real.", () => cn_select_original_application(frm)],
         ["Vincular a depósito", "Seleccione el depósito y el importe. La partida se agrega directamente a sus destinos.", () => cn_link_deposit(frm)],
         ["Compensar con otra partida", "Vincule la contrapartida; no basta con cambiar el concepto.", () => cn_compensate_items_dialog(frm)],
-        ["Aplicar cobro / Compensar CxC", "Elija el depósito o contrapartida que liquida la cuenta por cobrar.", () => cn_receivable_recovery_dialog(frm)],
+        ["Documentar seguimiento de CxC", "Documente el soporte; el saldo y los vínculos históricos se conservan.", () => cn_receivable_recovery_dialog(frm)],
         ["Crear excepción", "Documente información faltante o registro pendiente en el core con fecha compromiso.", () => cn_comp_create_exception(frm)],
         ["Ver excepción", "Consulte la gestión y evidencia vinculadas.", () => frappe.set_route("Form", "CN Reconciliation Exception", frm.doc.accounting_exception || frm.doc.registration_exception)],
         ["Abrir depósito", "Revise el detalle y documente allí el saldo a favor del cliente o empresa.", () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.registered_deposit)],
@@ -305,8 +203,8 @@ function cn_classify_pending(frm) {
     if (!choices.length) {frappe.msgprint(__("No hay acciones de clasificación disponibles para este documento.")); return;}
     const preferred = choices.some(item => item.label === "Documentar devolución o aplicación")
         ? "Documentar devolución o aplicación"
-        : choices.some(item => item.label === "Aplicar cobro / Compensar CxC")
-            ? "Aplicar cobro / Compensar CxC" : choices[0].label;
+        : choices.some(item => item.label === "Documentar seguimiento de CxC")
+            ? "Documentar seguimiento de CxC" : choices[0].label;
     let dialog, balance, balanceError = false;
     const documentName = frm.doc.name;
     const describe = () => {
@@ -491,7 +389,7 @@ frappe.ui.form.on("CN Complementary Item", {
         cn_render_credit_detail(frm);
         cn_comp_add_exception_button(frm);
         if (frm.doc.docstatus === 1 && ["CxC a la empresa", "CxC al Empleado"].includes(frm.doc.subcategory_effect) && frm.get_perm(0, "write") && frm.get_perm(0, "submit")) {
-            frm.add_custom_button(__("Aplicar cobro / Compensar CxC"), () => cn_receivable_recovery_dialog(frm));
+            frm.add_custom_button(__("Documentar seguimiento de CxC"), () => cn_receivable_recovery_dialog(frm));
         }
         const automatic = frm.doc.category === "Diferencia por tolerancia";
         const categories = ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Saldo a favor de la empresa", "Saldo a favor del cliente", "Ajuste de aplicación", "Compensación entre partidas"];
@@ -506,7 +404,7 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.disable_save();
             frm.dashboard.set_headline_alert(frm.doc.accounting_exception
                 ? __("Ajuste automático por tolerancia. El registro en el core se gestiona en su excepción; su vigencia financiera se controla al conciliar.")
-                : __("Ajuste automático por tolerancia. No requiere asiento por defecto. Si necesita registrarlo en el core, use Crear excepción; su vigencia se controla al conciliar."), "blue");
+                : __("Tolerancia histórica conservada para revisión. No se generan ni revierten partidas por tolerancia automáticamente."), "blue");
             return;
         }
         if (frm._cn_tolerance_read_only) {

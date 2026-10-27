@@ -519,83 +519,8 @@ def _deposit_detail_difference(document):
 
 @frappe.whitelist(methods=["POST"])
 def create_complementary_item(remittance_name: str, modified: str, values, from_detail_difference: int = 0):
-    """Create, confirm and attach a complement in one permission-checked transaction."""
-    from credinomina_reconciliation.client_credit import lock_credit_deposit
-    document = lock_credit_deposit(remittance_name)
-    document.check_permission("write")
-    if document.docstatus == 2:
-        frappe.throw(_("El depósito está cancelado."))
-    document._assert_open_related_periods()
-    if str(document.modified) != str(modified):
-        frappe.throw(_("El depósito cambió. Recárguelo antes de crear la partida."))
-    if not frappe.has_permission("CN Complementary Item", "create") or not frappe.has_permission("CN Complementary Item", "submit"):
-        frappe.throw(_("Necesita permisos para crear y confirmar partidas complementarias."), frappe.PermissionError)
-    values = frappe.parse_json(values) if isinstance(values, str) else values
-    if not isinstance(values, dict):
-        frappe.throw(_("Los datos de la partida no son válidos."))
-    if cint(from_detail_difference):
-        from credinomina_reconciliation.deposit_presentation import reconciliation_status
-        if reconciliation_status(document) in {"Conciliado", "Conciliado con saldo a favor"}:
-            frappe.throw(_("El depósito ya está conciliado. La diferencia está resuelta en su distribución; no necesita crear otra partida."))
-        difference = _deposit_detail_difference(document)
-        if not difference:
-            frappe.throw(_("El depósito y su detalle tienen el mismo importe; no hay diferencia que documentar."))
-        if values.get("currency") != "USD" or money(values.get("amount")) != difference:
-            frappe.throw(_("La diferencia cambió o el importe fue modificado. Recargue el depósito y abra nuevamente Crear partida por diferencia."))
-        # An unchanged detail keeps the same gross difference after documenting
-        # it. Repeating the shortcut must not create the same offset twice.
-        targets = [row for row in document.targets or [] if row.complementary_item and not row.detail_row
-                   and (not row.result or row.result in {"Pendiente", "Aplicada"})]
-        confirmed = set(frappe.get_all("CN Complementary Item", filters={
-            "name": ["in", sorted({row.complementary_item for row in targets})], "docstatus": 1,
-            "category": ["in", ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"]],
-            "origin_deposit": ["is", "not set"],
-        }, pluck="name", limit_page_length=0)) if targets else set()
-        selected = sum((money(row.amount_usd) for row in targets if row.complementary_item in confirmed), money(0))
-        if selected == difference:
-            frappe.throw(_("La diferencia ya tiene partidas confirmadas en Destinos. Guarde y use Conciliar para validar la distribución."))
-        values = dict(values, currency="USD", amount=money_float(difference))
-    item = frappe.new_doc("CN Complementary Item")
-    for field in ("category", "subcategory", "voucher", "voucher_line", "posting_date", "currency", "amount",
-                  "fx_rate", "period", "client_number", "loan_number", "installment_number", "description", "reason_type",
-                  "credit_client", "credit_detail_row", "credit_treatment", "credit_assigned_to", "credit_commitment_date", "receivable_due_date"):
-        if field in values:
-            item.set(field, values[field])
-    item.reference = document.deposit_reference
-    item.employer = document.employer
-    company_receivable = item.category == "Cuenta por Cobrar a la Empresa"
-    if company_receivable:
-        # A direct UI choice reuses the established receivable classification,
-        # so balances, collection and reversal keep the same accounting rules.
-        from credinomina_reconciliation.complementary_subcategories import ADJUSTMENT, RECEIVABLE
-        item.category = ADJUSTMENT
-        item.subcategory = RECEIVABLE
-    company_credit = item.category == "Saldo a favor de la empresa"
-    client_credit = item.category == "Saldo a favor del cliente"
-    if client_credit:
-        item.employer = ""  # The beneficiary's company may differ from the payer.
-    if company_credit or client_credit:
-        item.registered_deposit = document.name
-    if item.period and frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
-        frappe.throw(_("El período está cerrado."))
-    item.flags.defer_reconciliation = True
-    item.insert()
-    item.submit()
-    if cint(from_detail_difference):
-        item.add_comment("Comment", _(
-            "Creada desde la diferencia del depósito {0}: depósito US$ {1}; detalle US$ {2}; "
-            "diferencia (depósito menos detalle) US$ {3}."
-        ).format(document.name, money(document.amount_usd), money(document.amount_usd) - difference, difference))
-    if not company_credit and not client_credit:
-        document.append("targets", {
-            "complementary_item": item.name, "amount_usd": item.amount_usd,
-            "notes": item.description,
-        })
-        document.save()
-    return {"name": item.name, "accounting_status": item.accounting_status,
-            "company_credit": company_credit, "client_credit": client_credit,
-            "company_receivable": item.get("subcategory_effect") == "CxC a la empresa",
-            "employee_receivable": item.get("subcategory_effect") == "CxC al Empleado", "result": item.result}
+    """Legacy endpoint retained for stale clients; never create manual movements."""
+    frappe.throw(_("Use Clasificar / documentar diferencia. Las partidas nuevas deben proceder del core."))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -603,81 +528,8 @@ def create_client_credit_items_bulk(remittance_name: str, modified: str, rows,
                                     reason_type: str, description: str,
                                     credit_treatment: str, credit_assigned_to: str,
                                     credit_commitment_date: str, posting_date: str):
-    """Create a separate, row-linked client credit for every selected detail row."""
-    from credinomina_reconciliation.client_credit import lock_credit_deposit
-    from credinomina_reconciliation.provisional_adjustments import defer_deposit_reconciliation
-    from credinomina_reconciliation.rounding import money
-    from frappe.utils import getdate
-
-    document = lock_credit_deposit(remittance_name)
-    document.check_permission("write")
-    if document.docstatus != 1:
-        frappe.throw(_("Confirme primero el depósito."))
-    document._assert_open_related_periods()
-    if str(document.modified) != str(modified):
-        frappe.throw(_("El depósito cambió. Recárguelo antes de crear los saldos a favor."))
-    if not frappe.has_permission("CN Complementary Item", "create") or not frappe.has_permission("CN Complementary Item", "submit"):
-        frappe.throw(_("Necesita permisos para crear y confirmar partidas complementarias."), frappe.PermissionError)
-    rows = frappe.parse_json(rows) if isinstance(rows, str) else rows
-    if not isinstance(rows, list) or not 1 <= len(rows) <= 200:
-        frappe.throw(_("Seleccione entre 1 y 200 filas para crear saldos a favor."))
-    if (reason_type not in {"Error de la empresa", "Pago adicional no informado", "Por refinanciamiento",
-                            "Por cancelación", "Otro por aclarar"}
-            or not clean_text(description) or credit_treatment not in {"Pendiente de decisión", "Devolución", "Aplicación futura"}
-            or not credit_assigned_to or not credit_commitment_date or not posting_date):
-        frappe.throw(_("Complete el motivo, justificación y seguimiento de los saldos a favor."))
-    getdate(posting_date)
-    getdate(credit_commitment_date)
-    row_by_name = {row.name: row for row in document.detail_rows or []}
-    prepared, seen = [], set()
-    for entry in rows:
-        if not isinstance(entry, dict):
-            frappe.throw(_("Una de las filas seleccionadas no es válida."))
-        row_name, amount = clean_text(entry.get("detail_row")), money(entry.get("amount"))
-        row = row_by_name.get(row_name)
-        if not row or row_name in seen:
-            frappe.throw(_("Las filas seleccionadas cambiaron o están repetidas. Recargue el depósito."))
-        pending = money(row.amount_usd) - money(row.linked_usd) - money(row.client_credit_usd) - money(row.get("company_credit_usd"))
-        if amount <= 0 or amount > pending:
-            frappe.throw(_("El importe del saldo a favor de la fila {0} debe ser positivo y no superar su pendiente de US$ {1}.").format(
-                row.source_row or row.idx, max(pending, 0)))
-        if not any(clean_text(row.get(field)) for field in
-                   ("client", "client_number", "employee_number", "national_id", "client_name", "loan_number")):
-            frappe.throw(_("La fila {0} no tiene una identidad de cliente para crear el saldo a favor.").format(row.source_row or row.idx))
-        seen.add(row_name)
-        prepared.append((row, amount))
-
-    created = []
-    with defer_deposit_reconciliation():
-        for row, amount in prepared:
-            item = frappe.new_doc("CN Complementary Item")
-            item.update({
-                "category": "Saldo a favor del cliente", "reason_type": reason_type,
-                "description": clean_text(description), "reference": document.deposit_reference,
-                "deposit_voucher": document.deposit_voucher, "posting_date": getdate(posting_date),
-                "employer": "", "registered_deposit": document.name, "currency": "USD",
-                "amount": float(amount), "credit_client": row.client or "",
-                "credit_detail_row": row.name, "credit_treatment": credit_treatment,
-                "credit_assigned_to": credit_assigned_to,
-                "credit_commitment_date": getdate(credit_commitment_date),
-                "client_number": row.client_number or "", "loan_number": row.loan_number or "",
-            })
-            item.flags.defer_reconciliation = True
-            item.insert()
-            item.submit()
-            created.append(item)
-
-    from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
-    from credinomina_reconciliation.reconciliation_audit import audit_reason
-    with audit_reason("Crear saldos a favor del cliente en lote", clean_text(description)):
-        reconcile_deposit(document)
-    for item in created:
-        item.reload()
-        if item.result != "Saldo a favor documentado":
-            frappe.throw(_("El saldo a favor de la fila {0} no se pudo documentar: {1}.").format(
-                item.credit_detail_row, item.result or "Pendiente"))
-    return {"created": [{"name": item.name, "detail_row": item.credit_detail_row,
-                          "amount_usd": item.amount_usd} for item in created]}
+    """Legacy endpoint retained for stale clients; never create manual movements."""
+    frappe.throw(_("Use Clasificar / documentar diferencia. Las partidas nuevas deben proceder del core."))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -773,7 +625,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     previous_reasons = {}
     if document.detail_hash == detail_hash:
         for row in document.detail_rows or []:
-            previous_reasons.setdefault((row.source_row, row.row_key), []).append(row.difference_reason)
+            previous_reasons.setdefault((row.source_row, row.row_key), []).append({"difference_reason": row.difference_reason, "difference_notes": row.get("difference_notes")})
     document.set("detail_rows", [])
     # Reimport creates new row identities; prior manual evidence must be reviewed.
     for target in document.targets or []:
@@ -810,7 +662,7 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "pending_usd": amount,
             "match_status": "Revisar" if not client else "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
             "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),
-            "difference_reason": saved_reasons.pop(0) if saved_reasons else None,
+            **(saved_reasons.pop(0) if saved_reasons else {}),
             "matched_targets": "[]",
         })
     from credinomina_reconciliation.remittance_portfolio import fill_unique_detail_credits

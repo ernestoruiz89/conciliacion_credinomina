@@ -35,5 +35,5 @@ assert.ok(!html.includes('<br>'));
 assert.ok(html.includes('white-space:nowrap') && html.includes('var(--text-color)'));
 const schema = JSON.parse(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item.json`, 'utf8'));
 assert.deepEqual(schema.fields.filter(f => f.in_standard_filter).map(f => f.fieldname).sort(),
-    ['accounting_status', 'applied_usd', 'category', 'employer', 'pending_usd', 'posting_date', 'reconciliation_status']);
+    ['accounting_status', 'applied_usd', 'category', 'employer', 'legacy_manual_review', 'pending_usd', 'posting_date', 'reconciliation_status']);
 console.log('OK: focused filters, visible active criteria, explicit receivable and management labels.');

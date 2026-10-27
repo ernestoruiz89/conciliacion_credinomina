@@ -130,17 +130,13 @@ class CompanyReconciliationTests(unittest.TestCase):
                 source.reconcile_company_sources("IA")
         run.assert_not_called()
 
-    def test_rounding_reversal_only_queries_selected_company(self):
+    def test_legacy_tolerance_is_not_reversed_automatically(self):
         movement = Record(status="Vigente", name="MA", period="PA")
-        document = Record(save=Mock())
-        with (
-            patch.object(source.frappe, "get_all", return_value=[movement]) as query,
-            patch.object(source.frappe, "get_doc", return_value=document) as get_doc,
-            patch.object(source.frappe, "db", Mock(get_value=Mock(return_value="Abierto"))),
-            patch.object(source, "now_datetime", return_value="2026-09-29 00:00:00"),
-            patch.object(source, "_", side_effect=lambda text: text),
-        ):
-            source._sync_rounding_movements([], {}, [], employer="A")
-        self.assertEqual(query.call_args.kwargs["filters"], {"category": "Diferencia por tolerancia", "docstatus": 1, "employer": "A"})
-        get_doc.assert_called_once_with("CN Complementary Item", "MA")
-        self.assertEqual(document.status, "Revertido")
+        with patch.object(source.frappe, "get_all", return_value=[movement]) as query, \
+             patch.object(source.frappe, "get_doc") as get_doc, \
+             patch.object(source.frappe, "throw", side_effect=ValueError):
+            with self.assertRaises(ValueError):
+                source._sync_rounding_movements([], {}, [], employer="A")
+        self.assertEqual(query.call_args.kwargs["filters"], {"category": "Diferencia por tolerancia", "docstatus": 1, "status": "Vigente", "employer": "A"})
+        get_doc.assert_not_called()
+        self.assertEqual(movement.status, "Vigente")
