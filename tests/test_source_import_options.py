@@ -40,7 +40,7 @@ class SourceImportOptionsTest(unittest.TestCase):
 
     def test_form_has_only_accounting_import_action(self):
         script = (SOURCE_DIR / "cn_accounting_import.js").read_text(encoding="utf-8")
-        self.assertIn("3. Cargar movimientos contables", script)
+        self.assertIn("Cargar movimientos contables", script)
         self.assertNotIn("Transacciones del core", script)
         self.assertNotIn("Detalle de depositos", script)
 
@@ -66,6 +66,7 @@ class SourceImportOptionsTest(unittest.TestCase):
             patch.object(source, "apply_accounting_currency_override", return_value=records),
             patch.object(source, "enrich_accounting_records", return_value=records),
             patch.object(source, "enrich_source_import_clients", return_value=records),
+            patch.object(source, "ClientIndex"),
             patch.object(source, "_reconcile_sources", return_value={"rows": 1}) as reconcile,
         ):
             result = source.import_source_file("IMPORT")

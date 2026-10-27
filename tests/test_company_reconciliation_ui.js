@@ -33,7 +33,7 @@ const context = vm.createContext({
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js"), "utf8"), context);
 
 (async () => {
-    const actions = {};
+    const actions = {}, groups = {};
     const queries = {};
     const accountingForm = {
         doc: {name: "IA", employer: "A", currency: "USD", rows: [], status: "Borrador", historical_period: "CLOSED-EXISTING"},
@@ -41,7 +41,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
         save: async () => events.push("save"), reload_doc: async () => events.push("reload"),
         toggle_reqd() {}, toggle_display() {}, set_df_property() {}, set_intro() {},
         set_query(...args) { queries[args.slice(0, -1).join(".")] = args.at(-1); },
-        get_perm: () => false, add_custom_button(label, action) { actions[label] = action; },
+        get_perm: () => false, add_custom_button(label, action, group) { actions[label] = action; groups[label] = group; },
     };
     context.frappe.set_route = async (...route) => {
         assert.deepEqual(route, ["Form", "CN Accounting Import", "CONTA-5111-9-2026-001"]);
@@ -60,10 +60,14 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.equal(accountingForm.doc.historical_period, "CLOSED-EXISTING", "Keep existing closed links for audit");
     accountingForm.doc.bulk_source_hash = "bulk-file-hash";
     formHandlers["CN Accounting Import"].refresh(accountingForm);
-    assert.ok(actions["3. Cargar movimientos contables"]);
+    assert.ok(actions["Cargar movimientos contables"]);
+    for (const label of ["Saldos por cliente", "Revisar pendientes"]) {
+        assert.ok(actions[label]);
+        assert.equal(groups[label], "Consultas");
+    }
     assert.equal(actions["Reprocesar CSV individual"], undefined);
     result.import_name = "CONTA-5111-9-2026-001";
-    await actions["3. Cargar movimientos contables"]();
+    await actions["Cargar movimientos contables"]();
     assert.deepEqual(events, ["save", "call", "preserved-alert", "navigate"]);
     events.length = 0;
     delete result.import_name;
@@ -89,14 +93,13 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(!exceptionHtml.includes("5 / 1"));
     assert.ok(exceptionHtml.includes("&lt;script&gt;unsafe&lt;/script&gt;"));
     assert.ok(!exceptionHtml.includes("<script>unsafe</script>"));
-    let intro, exceptionAction;
+    let intro;
     importFrm.set_intro = text => {intro = text;};
-    importFrm.add_custom_button = (label, action) => {
-        assert.equal(label, "Ver pendientes detectados"); exceptionAction = action;
-    };
+    importFrm.add_custom_button = () => assert.fail("the notice must not add a duplicate diagnostic action");
     context.updateImportExceptionNotice(importFrm);
     assert.ok(intro.includes("3 filas"));
-    exceptionAction();
+    assert.ok(intro.includes("Consultas → Revisar pendientes"));
+    context.showImportExceptions(importFrm);
     assert.ok(dialogOptions.title.includes("IA"));
     assert.deepEqual(events, ["dialog"]); // Viewing exceptions must not call or save.
     events.length = 0;

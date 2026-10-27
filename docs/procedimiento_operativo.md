@@ -111,28 +111,30 @@ Ruta: **Conciliación Credinómina → Aplicaciones del core → Importación co
 1. Cree una importación y seleccione la empresa antes de cargar. Adjunte el archivo con los movimientos correspondientes; para el control de esta operación use la cuenta contable 160209013004. Si recibe todas las cuentas, prepare una extracción de esa cuenta conservando el original y coteje sus totales.
 2. Seleccione **Moneda reportada en el archivo**. Para NIO, indique **Tipo de cambio manual C$ por US$** cuando la fila no tenga equivalente documentado en dólares. Separe archivos que mezclen monedas; no suponga USD por el nombre del reporte.
 3. Elija el corte de cartera si necesita uno específico. Para histórico, marque **Carga histórica de aplicaciones** cuando corresponda y seleccione un período histórico abierto o asígnelo después por fila.
-4. Guarde y presione **3. Cargar movimientos contables**. La carga clasifica líneas: una aplicación, un depósito y un movimiento interno no son el mismo hecho financiero.
-5. En **Resultados**, revise nombre, Nro. Cliente, Nro. Crédito, fecha, monto original, monto US$, asiento, recibo, empresa y motivos. Si falta un cliente, la app puede crearlo con la información identificada; revise que su empresa y número provengan de la evidencia correcta.
-6. Abra **Ver pendientes detectados**. En **Cliente / crédito**, las aplicaciones muestran el estado original del crédito y el corte de cartera utilizado por la importación; un guion indica que no se obtuvo un estado. Filtre por cliente, crédito, estado del crédito, corte, asiento, estado del pendiente, etapa o rango de importes. Estas alertas no son necesariamente documentos de excepción: una aplicación sin depósito puede estar correctamente importada y pendiente de pago.
+4. Guarde y presione **Cargar movimientos contables**. La carga clasifica líneas: una aplicación, un depósito y un movimiento interno no son el mismo hecho financiero.
+5. En **2. Conciliación → Filas**, revise nombre, Nro. Cliente, Nro. Crédito, fecha, monto original, monto US$, asiento, recibo, empresa y motivos. Si falta un cliente, la app puede crearlo con la información identificada; revise que su empresa y número provengan de la evidencia correcta.
+6. Abra **Consultas → Revisar pendientes** para conocer el motivo y abrir la fila que debe corregirse. **Filtrar por estado, etapa o importe** abre una consulta detallada; en **Cliente / crédito** muestra el estado original del crédito y el corte de cartera utilizado, con un guion cuando no se obtuvo el dato. Estas alertas no son necesariamente documentos de excepción: una aplicación sin depósito puede estar correctamente importada y pendiente de pago.
 7. Use **Crear período** si necesita preparar un período desde esta carga. Revise mes de cobranza y corte; el botón crea un borrador, no cierra ni liquida aplicaciones.
 8. Seleccione el período predeterminado y presione **Conciliar período predeterminado** después de guardar cambios. Revise la respuesta con filas procesadas, conciliadas y pendientes. Si la carga abarca varios períodos, trabaje cada uno desde su formulario. Para distribuir un depósito use **Conciliar** en ese depósito.
 
 Si ya existen aplicaciones asignadas a otro período, la carga muestra **Período de las aplicaciones**. La opción **Aplicar [período] a todas las aplicaciones** está marcada inicialmente: úsela para corregir las filas al período seleccionado en el encabezado. Desmárquela si el archivo mezcla períodos y necesita conservar las asignaciones por fila. La carga conserva los identificadores de las aplicaciones y sus ajustes confirmados, recalcula los períodos anterior y nuevo y registra los cambios en el historial. Los ajustes de aplicaciones directas se muestran en su período actual. Si hay depósitos asignados, destinos reservados o períodos cerrados, resuelva primero el vínculo o solicite la reapertura que indique el mensaje. Cambiar el período no resuelve diferencias de importe pendientes.
 
-En **Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
+El formulario tiene tres pestañas: **1. Importación**, para archivo, moneda y criterios; **2. Conciliación**, con la cobertura y la tabla **Filas**; y **3. Historial**, con los datos de la carga y su resumen desplegable. **Filas** conserva el detalle original. Las otras tablas se consultan en ventanas independientes desde **Consultas**.
 
-Al inicio de la pestaña **Importación**, cuatro tarjetas muestran **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
+En **Consultas → Saldos por cliente**, active **Solo pendientes** para ver únicamente clientes con estado **Pendiente**, **Parcial** o **Revisar**. Puede combinarlo con la búsqueda; los totales abarcan todos los clientes filtrados, aunque se muestren en varias páginas.
+
+Al inicio de **2. Conciliación**, cuatro tarjetas muestran **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
 
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.
 
 El identificador de la carga utiliza CONTA-nombre corto o código-mes-año-consecutivo. El mes y año se obtienen de las fechas de las filas, no de la fecha de creación del documento. Duplicar una importación no copia el archivo adjunto.
 
-En la pestaña **Historial**, **Generar CSV de recuperación** descarga un archivo construido con las filas contables guardadas cuando el archivo adjunto se haya perdido. El CSV conserva la fila original y la identidad de cada movimiento; la app comprueba esa identidad antes de permitir la descarga. No es una copia exacta del archivo original ni recupera columnas ajenas a los movimientos importados. Revíselo antes de adjuntarlo y ejecutar de nuevo **3. Cargar movimientos contables**. La eliminación de archivos vinculados a importaciones exige el rol **Eliminar Mov. del Core**.
+En la pestaña **Historial**, **Generar CSV de recuperación** descarga un archivo construido con las filas contables guardadas cuando el archivo adjunto se haya perdido. El CSV conserva la fila original y la identidad de cada movimiento; la app comprueba esa identidad antes de permitir la descarga. No es una copia exacta del archivo original ni recupera columnas ajenas a los movimientos importados. Revíselo antes de adjuntarlo y ejecutar de nuevo **Cargar movimientos contables**. La eliminación de archivos vinculados a importaciones exige el rol **Eliminar Mov. del Core**.
 
 ### Consultar qué falta en una importación contable
 
-En **Importación de Movimientos Contables**, abra la pestaña independiente
-**Qué falta para conciliar**, entre **Resultados** e **Historial**. Por cada fila pendiente indica
+En **Importación de Movimientos Contables**, abra **Consultas → Revisar pendientes**.
+La ventana **Pendientes de conciliación** indica, por cada fila pendiente,
 el número de la tabla y el del archivo original, el cliente y crédito, los
 registros relacionados disponibles y el motivo con una indicación de qué corregir.
 Los períodos, depósitos y partidas guardados como vínculos se pueden abrir desde
@@ -140,9 +142,9 @@ el resumen. Una referencia bancaria sola no se convierte en un enlace a depósit
 
 Use **Revisar fila** para abrir el movimiento; cuando falta una empresa o un
 período predeterminado, el botón lleva al campo correspondiente. **Ver registros
-relacionados** permite buscar movimientos pendientes del cliente. La pestaña tiene
+relacionados** permite buscar movimientos pendientes del cliente. La ventana tiene
 búsqueda por cliente, crédito, fila, registro relacionado o motivo y páginas de
-25 filas con **Anterior** y **Siguiente**. **Ver todos los pendientes detectados**
+25 filas con **Anterior** y **Siguiente**. **Filtrar por estado, etapa o importe**
 abre la consulta adicional con filtros por estado, etapa e importe.
 
 El resumen utiliza los motivos de la última conciliación. Después de corregir,
@@ -159,7 +161,7 @@ La acción **Carga masiva** está en la vista de lista, no en el formulario. Pre
 2. Revise la tabla de empresas identificadas y la tabla separada de **NO IDENTIFICADA**. Los casos sin empresa tienen búsqueda por cliente, crédito, asiento o descripción, filtro de tipo y páginas de 50 filas; puede revisar todos, no solo los primeros 100. Al cambiar de página se conservan las empresas elegidas. Consulte la descripción del asiento y cambie la empresa solo si tiene evidencia.
 3. Repita el análisis después de corregir empresas. Las elecciones se conservan y se consideran para agrupar; verifique el resultado antes de confirmar la selección.
 4. Seleccione las empresas a importar y confirme la carga. Las aplicaciones se agrupan por empresa y fecha de aplicación. Los casos NO IDENTIFICADA se registran por separado, aunque sean del mismo día, para corregir cada caso posteriormente.
-5. La carga conserva un CSV individual para cada importación y referencias al archivo masivo original compartido. Ver el mismo original en los adjuntos de varios documentos no significa que exista una copia física por documento. Los CSV de cada grupo sí son archivos distintos. Para reprocesar un grupo use su CSV en **3. Cargar movimientos contables**; no requiere otro botón.
+5. La carga conserva un CSV individual para cada importación y referencias al archivo masivo original compartido. Ver el mismo original en los adjuntos de varios documentos no significa que exista una copia física por documento. Los CSV de cada grupo sí son archivos distintos. Para reprocesar un grupo use su CSV en **Cargar movimientos contables**; no requiere otro botón.
 6. Si la carga se interrumpe, revise qué documentos se crearon antes de iniciar otra. Una nueva vista previa distingue lo ya importado. No ejecute cargas concurrentes ni borre bloqueos desde Redis sin comprobar primero el trabajo del servidor.
 
 El CSV individual conserva la empresa resuelta y CN_FILA_ORIGEN. No quite ni cambie esa columna. Líneas contables iguales en filas originales distintas se conservan; se señalan para revisión, no se eliminan por parecer duplicadas. La app protege la evidencia original y puede rechazar un CSV alterado que intente reutilizar la identidad de otra fila.

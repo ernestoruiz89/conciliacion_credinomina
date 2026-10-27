@@ -343,7 +343,7 @@ mientras permanezca en la misma vista.
 
 ### Distribución por antigüedad (FIFO)
 
-**3. Cargar movimientos contables** actualiza las aplicaciones y sus saldos
+**Cargar movimientos contables** actualiza las aplicaciones y sus saldos
 usando las distribuciones de depósitos ya guardadas; no vuelve a repartirlas ni
 recalcula sus detalles FIFO. Cargar junio no debe redistribuir un depósito que
 cubrió abril. Se mantienen los controles de cierre: si cambian realmente los
@@ -505,7 +505,15 @@ permanecen disponibles. Esto evita duplicar movimientos al reanudar.
    depósitos registradas; para distribuir un depósito use su botón **Conciliar**.
    La carga masiva no crea/cierra períodos ni concilia automáticamente.
 
-En **Resultados → Saldos por cliente**, cada importación muestra el aplicado
+El formulario de importación se organiza en **1. Importación** (archivo, moneda,
+período y cartera), **2. Conciliación** (tarjetas de cobertura y la tabla **Filas**)
+y **3. Historial** (datos de la carga, conteos, totales y recuperación del archivo).
+**Filas** es el único detalle de movimientos dentro del formulario.
+**Consultas → Revisar pendientes** abre los motivos y permite ir a la fila o al
+campo que debe corregirse; los resúmenes se consultan sin agregar otras tablas
+al formulario.
+
+En **Consultas → Saldos por cliente**, cada importación muestra el aplicado
 neto, depósitos asignados, ajuste de centavos y saldo pendiente por cliente,
 con búsqueda por nombre/número/crédito y totales de todos los clientes filtrados
 (no solo de la página visible). Los ajustes confirmados ya están descontados
@@ -514,7 +522,7 @@ del aplicado neto; no se compensan deudas con sobrantes de otro crédito.
 asignaciones. Si una cobranza operativa comparte depósitos entre importaciones
 y no permite atribuirlos a esta carga, se muestra **— / Revisar**, sin inventar
 un reparto. Los períodos no legibles y conversiones faltantes tampoco se presentan
-como saldos cero. Para incorporar esta sección en un sitio existente, ejecute
+como saldos cero. Para aplicar la organización del formulario en un sitio existente, ejecute
 `bench --site <sitio> migrate` tras actualizar la app y recargue el navegador.
 
 El procesamiento requiere un worker de la cola `long`. Puede cerrar el modal
@@ -560,7 +568,7 @@ Las cargas antiguas no tienen bloques persistidos: vuelva a analizarlas con las
 selecciones conservadas en su navegador/vista previa mientras estén disponibles.
 No se pueden recuperar documentos que la transacción antigua no llegó a guardar.
 
-Use el mismo botón **3. Cargar movimientos contables** para recargar
+Use el mismo botón **Cargar movimientos contables** para recargar
 el CSV individual de un documento sin
 mezclarlo con los otros grupos. El CSV conserva las columnas e importes originales
 (antes de convertir NIO a USD), incluyendo una columna `CN_FILA_ORIGEN` para rastrear
