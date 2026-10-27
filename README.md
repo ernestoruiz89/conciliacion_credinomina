@@ -265,6 +265,11 @@ La página **Mesa de conciliación** (`/app/mesa-conciliacion`) reúne los pendi
 por empresa y cliente: aplicaciones a la izquierda y depósitos o partidas
 complementarias a la derecha, con fecha, período, crédito, importe y saldo.
 También se abre desde **Registros pendientes** de importaciones y depósitos.
+Al abrirla desde ese modal se conserva la empresa y el cliente de la fila y se
+consultan sus pendientes automáticamente, incluso al volver a una mesa ya abierta.
+El campo Cliente se completa cuando existe una coincidencia única que puede
+consultar; en los demás casos se muestra el nombre del origen debajo del campo
+y se conserva la consulta por la fila original.
 
 Seleccione una aplicación y un origen y use **Comprobar selección** para consultar
 la disponibilidad actual, las reservas, restricciones y saldos que quedarían. El

@@ -10,6 +10,7 @@ from credinomina_reconciliation import accounting_related_records as related
 from credinomina_reconciliation.complementary_balances import load_balances
 from credinomina_reconciliation.parsers import canonical_identifier, clean_text
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
+from credinomina_reconciliation.report_records import records
 
 
 def _scope(employer=None, client=None, context=None):
@@ -74,6 +75,21 @@ def _decorate(row):
     return row
 
 
+def _filter_client(company, identity):
+    """Populate the Link only for a unique readable client matching the origin."""
+    if not frappe.has_permission('CN Client', 'read'):
+        return None
+    conditions = [[field, 'in', sorted(values)] for field, values in (
+        ('name', identity['clients']), ('client_number', identity['number_values']),
+        ('national_id', identity['national_values']), ('client_name', identity['name_values'])) if values]
+    if not conditions:
+        return None
+    matches = {row.name for row in records('CN Client', filters={'employer': company}, or_filters=conditions,
+        fields=['name', 'client_number', 'national_id', 'client_name'])
+        if related._matches(dict(row, client=row.name), identity, 'client_name')}
+    return next(iter(matches)) if len(matches) == 1 else None
+
+
 @frappe.whitelist()
 def get_data(employer=None, client=None, context=None):
     company, identity = _scope(employer, client, context)
@@ -81,7 +97,7 @@ def get_data(employer=None, client=None, context=None):
     for key in ('applications', 'rows'):
         data[key] = sorted((_decorate(row) for row in data[key]),
                            key=lambda row: (not bool(row['date']), row['date'], row.get('period') or '', row['document'], row['id']))
-    return dict(data, employer=company, consulted_on=str(now_datetime()))
+    return dict(data, employer=company, client=_filter_client(company, identity), consulted_on=str(now_datetime()))
 
 
 def _amount_result(application_pending, source_available, amount=None):

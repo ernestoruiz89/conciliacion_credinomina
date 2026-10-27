@@ -84,12 +84,14 @@ class AccountingClientSummaryTests(unittest.TestCase):
 
     def test_frappe_child_document_is_not_a_subscriptable_dict(self):
         from frappe.model.base_document import BaseDocument
-        with patch.object(BaseDocument, '_get_table_fields', return_value=[]):
+        with patch.object(BaseDocument, '_get_table_fields', return_value=[]), \
+             patch.object(frappe, 'get_meta', return_value=frappe._dict(_table_doctypes={})):
             row = BaseDocument(self.source(doctype='CN Source Row', loan_number='L', historical_remitted_usd=30))
         result = self.build([row])[0]
         self.assertEqual(result['balance_usd'], 70)
         self.assertEqual(result['loans'], ['L'])
-        with patch.object(BaseDocument, '_get_table_fields', return_value=[]):
+        with patch.object(BaseDocument, '_get_table_fields', return_value=[]), \
+             patch.object(frappe, 'get_meta', return_value=frappe._dict(_table_doctypes={})):
             row = BaseDocument(self.source(doctype='CN Source Row', historical_period='', collection_row_id='C'))
         self.assertEqual(summary.collection_links(row, 100), [{'collection_row_id': 'C', 'amount_usd': 100}])
 
