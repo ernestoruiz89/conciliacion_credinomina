@@ -4,8 +4,13 @@ const translate = (text, args = []) => text.replace(/\{(\d+)\}/g, (_, i) => args
 const esc = value => String(value).replace(/[&<>"']/g, char =>
     ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'})[char]);
 const requests = [];
+const dialogs = [], handlers = {};
 const context = {__: translate, format_currency: value => `US$ ${Number(value).toFixed(2)}`,
-    $: value => value, frappe: {ui: {form: {on() {}}}, utils: {escape_html: esc},
+    $: value => value, frappe: {ui: {form: {on(doctype, events) {handlers[doctype] = events;}}, Dialog: class {
+        constructor(options) {this.options = options; this.wrapper = wrapper(); dialogs.push(this);}
+        get_field() {return {$wrapper: this.wrapper};}
+        show() {this.visible = true;} hide() {this.visible = false;}
+    }}, utils: {escape_html: esc},
         call: args => new Promise((resolve, reject) => requests.push({args, resolve, reject}))}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js', 'utf8'), context);
@@ -18,7 +23,7 @@ const source = {name: 'APP', idx: 1, source_row: 5100, client_name: '<unsafe>', 
 const doc = {name: 'IMPORT', employer: 'MIDESA', status: 'Importado con excepciones', rows: [source]};
 const before = JSON.stringify(doc);
 const html = context.accountingImportIssuesHtml(doc);
-assert.match(html, /Qué falta para conciliar/);
+assert.match(html, /Pendientes de conciliación/);
 assert.match(html, /Fila del archivo.*5100/);
 assert.match(html, /&lt;unsafe&gt;/);
 assert.ok(!html.includes('<unsafe>'));
@@ -49,37 +54,57 @@ assert.match(context.accountingImportIssuesHtml({...doc, rows:[noPeriod]}), /Rev
 const large = {...doc, rows:Array.from({length:120}, (_, i) => ({...source, idx:i+1, name:`A${i}`, client_name:`Persona ${i}`}))};
 const largeHtml = context.accountingImportIssuesHtml(large);
 assert.equal((largeHtml.match(/data-cn-import-issue-row=/g) || []).length, 25);
-assert.match(largeHtml, /primeras 25 de 120/);
-assert.match(largeHtml, /Ver todos los pendientes detectados/);
+assert.match(largeHtml, /Mostrando 1–25 de 120/);
+assert.match(largeHtml, /Filtrar por estado, etapa o importe/);
+assert.match(context.accountingImportIssuesHtml(large, false, {page: 1}), /data-cn-import-issue-row="A25"/);
+assert.equal((context.accountingImportIssuesHtml(large, false, {query:'Persona 119'}).match(/data-cn-import-issue-row=/g) || []).length, 1);
 
 function wrapper() {
-    return {content:'', handlers:new Map(), html(value) {this.content = value; return this;},
+    return {content:'', handlers:new Map(), children:new Map(), html(value) {this.content = value; return this;},
         off(namespace) {for (const key of this.handlers.keys()) if (key.includes(namespace)) this.handlers.delete(key); return this;},
         on(event, selector, callback) {this.handlers.set(`${event}|${selector}`, callback); return this;},
-        find() {return {html() {}, text() {}, prop() {}};}};
+        text() {return this;}, prop() {return this;},
+        find(selector) {if (!this.children.has(selector)) this.children.set(selector, wrapper()); return this.children.get(selector);}};
 }
 (async () => {
-    const balance = wrapper(), clients = wrapper(), visited = [], opened = [];
+    const balance = wrapper(), visited = [], opened = [];
     const frm = {doc, is_new:()=>false, is_dirty:()=>false, scroll_to_field:async field => visited.push(field),
-        fields_dict:{balance_summary_html:{$wrapper:balance}, client_summary_html:{$wrapper:clients},
+        fields_dict:{balance_summary_html:{$wrapper:balance},
             rows:{grid:{grid_rows_by_docname:{APP:{toggle_view:value => opened.push(value)}}}}}};
     const load = context.loadAccountingClientSummary(frm);
-    assert.match(balance.content, /Qué falta para conciliar/, 'blockers must be visible while balances are loading');
+    assert.match(balance.content, /Consultando saldos/);
     requests.shift().resolve({message:{rows:[], totals:{amount_usd:100, balance_usd:26.32}}});
     await load;
     assert.match(balance.content, /Importe US\$/);
-    assert.match(balance.content, /Qué falta para conciliar/, 'totals must not overwrite diagnostics');
-    context.bindAccountingImportIssues(frm);
-    assert.equal(balance.handlers.size, 3, 'refresh must replace event handlers');
-    const action = balance.handlers.get('click.cnImportIssues|[data-cn-import-issue-row]');
+    assert.ok(!balance.content.includes('<table'), 'only summary cards are embedded above Filas');
+    assert.equal(dialogs.length, 0, 'summaries must not open automatically');
+    context.showAccountingImportIssues(frm);
+    let pending = dialogs.at(-1);
+    assert.equal(pending.options.title, 'Pendientes de conciliación');
+    assert.match(pending.wrapper.find('.cn-import-issues-content').content, /26.32 pendientes/);
+    const handlerCount = pending.wrapper.handlers.size;
+    context.renderAccountingImportIssues(frm, pending.wrapper, () => pending.hide());
+    assert.equal(pending.wrapper.handlers.size, handlerCount, 'redraw replaces event handlers');
+    const action = pending.wrapper.handlers.get('click.cnImportIssues|[data-cn-import-issue-row]');
     await action({currentTarget:{dataset:{cnImportIssueRow:'APP', cnImportIssueField:'rows'}}});
+    assert.equal(pending.visible, false, 'close the diagnostic modal before opening the original row');
     assert.deepEqual(visited, ['rows']); assert.deepEqual(opened, [true]);
     await action({currentTarget:{dataset:{cnImportIssueField:'historical_period'}}});
     assert.equal(visited.at(-1), 'historical_period');
     let modal;
     context.showImportExceptions = form => {modal = form;};
-    balance.handlers.get('click.cnImportIssues|[data-cn-import-all-issues]')();
+    pending.wrapper.handlers.get('click.cnImportIssues|[data-cn-import-all-issues]')();
     assert.equal(modal, frm);
+
+    const clientLoad = context.showAccountingClientSummary(frm), clients = dialogs.at(-1);
+    assert.equal(clients.options.title, 'Saldos por cliente');
+    assert.match(clients.wrapper.content, /Consultando saldos por cliente/);
+    requests.shift().resolve({message:{rows:[{client_name:'Cliente 1', applied_usd:100, assigned_usd:73.68,
+        rounding_usd:0, balance_usd:26.32, status:'Parcial'}], totals:{amount_usd:100, balance_usd:26.32}}});
+    await clientLoad;
+    assert.match(clients.wrapper.find('.cn-client-table').content, /Cliente 1/);
+    assert.ok(!balance.content.includes('<table'), 'opening a summary does not add another table to the form');
+    assert.equal(JSON.stringify(frm.doc), before, 'consultations cannot alter the import');
     const old = context.loadAccountingClientSummary(frm);
     frm.doc = {...doc, name:'OTHER', rows:[{...source, client_name:'Cliente nuevo'}]};
     const current = context.loadAccountingClientSummary(frm);
@@ -91,7 +116,20 @@ function wrapper() {
     const failed = context.loadAccountingClientSummary(frm);
     requests.shift().reject(new Error('Unavailable totals')); await failed;
     assert.match(balance.content, /No se pudieron consultar los saldos/);
-    assert.match(balance.content, /Cliente nuevo/);
-    assert.match(balance.content, /Qué falta para conciliar/, 'a balance failure must preserve known diagnostics');
-    console.log('OK: import blockers, row/source numbers, saved links, corrections, navigation, unknowns, bounded table, escaping and stale requests.');
+    assert.match(balance.content, /Reintentar/);
+    context.showAccountingImportIssues(frm);
+    pending = dialogs.at(-1);
+    assert.match(pending.wrapper.find('.cn-import-issues-content').content, /Cliente nuevo/,
+        'saved diagnostics remain accessible when the financial query fails');
+
+    let message;
+    context.frappe.msgprint = text => {message = text;};
+    frm.is_dirty = () => true;
+    const count = dialogs.length;
+    context.showAccountingClientSummary(frm);
+    assert.equal(dialogs.length, count);
+    assert.match(message, /Guarde la importación/);
+    context.showAccountingImportIssues(frm);
+    assert.match(dialogs.at(-1).wrapper.find('.cn-import-issues-content').content, /cambios sin guardar/);
+    console.log('OK: one embedded grid, optional client/pending modals, row navigation, saved data, filters, retry and stale responses.');
 })().catch(error => {console.error(error); process.exitCode = 1;});

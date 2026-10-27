@@ -19,9 +19,7 @@ frappe.ui.form.on("CN Accounting Import", {
             query: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import.get_company_portfolio_snapshots",
             filters: {employer: frm.doc.employer},
         }));
-        frm.set_df_property("rows", "label", __("Aplicaciones de pago por cliente"));
         updateImportExceptionNotice(frm);
-        renderAccountingImportIssues(frm);
         loadAccountingClientSummary(frm);
         showAccountingRecovery(frm);
         if (frm.is_new()) return;
@@ -30,7 +28,9 @@ frappe.ui.form.on("CN Accounting Import", {
             frm.add_custom_button(__("Crear período"), () => createAccountingPeriod(frm));
         }
 
-        frm.add_custom_button(__("3. Cargar movimientos contables"), () => loadAccountingMovements(frm));
+        frm.add_custom_button(__("Cargar movimientos contables"), () => loadAccountingMovements(frm));
+        frm.add_custom_button(__("Saldos por cliente"), () => showAccountingClientSummary(frm), __("Consultas"));
+        frm.add_custom_button(__("Revisar pendientes"), () => showAccountingImportIssues(frm), __("Consultas"));
 
         if (frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Conciliar período predeterminado"), () => reconcileCompany(frm));
@@ -169,33 +169,47 @@ function accountingBalanceSummary(totals) {
     </div><p class="text-muted" style="margin:12px 0 0">${esc(__("Solo aplicaciones efectivas. Depósitos y partidas reflejan la cobertura atribuible a esta importación; el saldo suma pendientes sin compensar sobrantes entre créditos. «—» indica que una distribución compartida no permite determinar el importe sin duplicarlo."))}</p>`;
 }
 
-async function loadAccountingClientSummary(frm) {
-    const wrapper = frm.fields_dict?.client_summary_html?.$wrapper;
-    if (!wrapper) return;
+function showAccountingClientSummary(frm) {
+    if (frm.is_new() || frm.is_dirty()) {
+        frappe.msgprint(__("Guarde la importación antes de consultar los saldos por cliente."));
+        return;
+    }
+    const dialog = new frappe.ui.Dialog({title: __("Saldos por cliente"), size: "extra-large",
+        fields: [{fieldname: "client_summary", fieldtype: "HTML"}],
+        primary_action_label: __("Cerrar"), primary_action: () => dialog.hide()});
+    dialog.show();
+    return loadAccountingClientSummary(frm, dialog.get_field("client_summary").$wrapper);
+}
+
+async function loadAccountingClientSummary(frm, wrapper = null) {
     const balanceWrapper = frm.fields_dict?.balance_summary_html?.$wrapper;
+    if (!wrapper && !balanceWrapper) return;
     const showBalance = html => { if (balanceWrapper) balanceWrapper.html(html); };
+    const showClients = html => { if (wrapper) wrapper.html(html); };
     const request = frm._client_summary_request = (frm._client_summary_request || 0) + 1;
     const name = frm.doc.name;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
-    wrapper.off(".cnClientSummary");
+    wrapper?.off(".cnClientSummary");
+    balanceWrapper?.off(".cnAccountingBalance");
     if (frm.is_new() || frm.is_dirty()) {
-        wrapper.html(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos por cliente."))}</p>`);
+        showClients(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos por cliente."))}</p>`);
         showBalance(`<p class="text-muted">${esc(__("Guarde el documento para consultar los saldos."))}</p>`);
         return;
     }
-    wrapper.html(`<p class="text-muted">${esc(__("Consultando saldos por cliente..."))}</p>`);
+    showClients(`<p class="text-muted">${esc(__("Consultando saldos por cliente..."))}</p>`);
     showBalance(`<p class="text-muted">${esc(__("Consultando saldos..."))}</p>`);
     const current = () => frm._client_summary_request === request && frm.doc.name === name;
     try {
         const response = await frappe.call({method: "credinomina_reconciliation.accounting_client_summary.get_client_summary", args: {import_name: name}});
         if (!current()) return;
         if (frm.is_dirty()) {
-            wrapper.html(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
+            showClients(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
             showBalance(`<p class="text-muted">${esc(__("Hay cambios sin guardar. Guarde para actualizar los saldos."))}</p>`);
             return;
         }
         const rows = response.message.rows || [];
         showBalance(accountingBalanceSummary(response.message.totals));
+        if (!wrapper) return;
         const filters = frm._client_summary_filters?.name === name
             ? frm._client_summary_filters : {name, query: "", onlyPending: false};
         frm._client_summary_filters = filters;
@@ -223,16 +237,18 @@ async function loadAccountingClientSummary(frm) {
         wrapper.on("change.cnClientSummary", ".cn-client-pending", event => { filters.onlyPending = event.target.checked; page = 0; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-prev", () => { page--; render(); });
         wrapper.on("click.cnClientSummary", ".cn-client-next", () => { page++; render(); });
-        wrapper.on("click.cnClientSummary", ".cn-client-refresh", () => loadAccountingClientSummary(frm));
+        wrapper.on("click.cnClientSummary", ".cn-client-refresh", () => loadAccountingClientSummary(frm, wrapper));
         wrapper.on("click.cnClientSummary", ".cn-client-related", function () {
             showAccountingRelatedRecords(frm, this.dataset.sourceRow, $(this));
         });
         render();
     } catch (error) {
         if (!current()) return;
-        wrapper.html(`<p class="text-danger">${esc(__("No se pudo consultar el resumen. Revise sus permisos o vuelva a intentar."))}</p><button type="button" class="btn btn-default btn-sm cn-client-retry">${esc(__("Reintentar"))}</button>`);
-        showBalance(`<p class="text-danger">${esc(__("No se pudieron consultar los saldos. Revise sus permisos o vuelva a intentar."))}</p>`);
-        wrapper.on("click.cnClientSummary", ".cn-client-retry", () => loadAccountingClientSummary(frm));
+        const retry = `<button type="button" class="btn btn-default btn-sm cn-client-retry">${esc(__("Reintentar"))}</button>`;
+        showClients(`<p class="text-danger">${esc(__("No se pudo consultar el resumen. Revise sus permisos o vuelva a intentar."))}</p>${retry}`);
+        showBalance(`<p class="text-danger">${esc(__("No se pudieron consultar los saldos. Revise sus permisos o vuelva a intentar."))}</p>${retry}`);
+        wrapper?.on("click.cnClientSummary", ".cn-client-retry", () => loadAccountingClientSummary(frm, wrapper));
+        balanceWrapper?.on("click.cnAccountingBalance", ".cn-client-retry", () => loadAccountingClientSummary(frm, wrapper));
     }
 }
 
@@ -420,7 +436,7 @@ function accountingImportIssuesHtml(doc, dirty = false, filters = {}) {
                 ${row.name && row.event_type === "Aplicacion" && Number(row.effective) && row.match_status !== "Ignorado"
                     ? `<button type="button" class="btn btn-default btn-xs" style="margin-top:6px" data-cn-import-related="${esc(row.name)}">${esc(__("Ver registros relacionados"))}</button>` : ""}</td></tr>`;
     }).join("");
-    return `<section class="cn-accounting-issues" style="margin-top:16px"><strong>${esc(__("Qué falta para conciliar"))}</strong>
+    return `<section class="cn-accounting-issues"><strong>${esc(__("Pendientes de conciliación"))}</strong>
         ${notices.length ? `<ul>${notices.map(text => `<li>${esc(text)}</li>`).join("")}</ul>` : ""}
         ${allExceptions.length ? `<p class="small" role="status">${esc(__("Filas filtradas: {0} de {1}. Cada motivo señala qué revisar; los registros enlazados conservan sus permisos de acceso.", [exceptions.length, allExceptions.length]))}</p>
         <div class="table-responsive" style="max-height:65vh;overflow:auto"><table class="table table-bordered" style="font-size:var(--text-base,14px);min-width:760px"><thead style="position:sticky;top:0;background:var(--card-bg);z-index:1"><tr>
@@ -431,13 +447,20 @@ function accountingImportIssuesHtml(doc, dirty = false, filters = {}) {
                 <span>${esc(__("Página {0} de {1} · Mostrando {2}–{3} de {4}", [page + 1, pages, page * 25 + 1, Math.min((page + 1) * 25, exceptions.length), exceptions.length]))}</span>
                 <button type="button" class="btn btn-default btn-sm" data-cn-import-issues-page="${page + 1}" ${page === pages - 1 ? "disabled" : ""}>${esc(__("Siguiente"))}</button>
             </div>`}
-            <button type="button" class="btn btn-default btn-sm" data-cn-import-all-issues>${esc(__("Ver todos los pendientes detectados"))}</button>
+            <button type="button" class="btn btn-default btn-sm" data-cn-import-all-issues>${esc(__("Filtrar por estado, etapa o importe"))}</button>
             ` : ""}
         <p class="small text-muted" style="margin-top:10px">${esc(__("Motivos de los datos guardados, según la última conciliación. Una aplicación puede tener pendiente de depósito aunque ya esté vinculada al período."))}</p></section>`;
 }
 
-function renderAccountingImportIssues(frm) {
-    const wrapper = frm.fields_dict?.pending_diagnostics_html?.$wrapper;
+function showAccountingImportIssues(frm) {
+    const dialog = new frappe.ui.Dialog({title: __("Pendientes de conciliación"), size: "extra-large",
+        fields: [{fieldname: "pending_diagnostics", fieldtype: "HTML"}],
+        primary_action_label: __("Cerrar"), primary_action: () => dialog.hide()});
+    renderAccountingImportIssues(frm, dialog.get_field("pending_diagnostics").$wrapper, () => dialog.hide());
+    dialog.show();
+}
+
+function renderAccountingImportIssues(frm, wrapper, beforeNavigate = () => {}) {
     if (!wrapper) return;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const state = frm._accounting_issues_state?.name === frm.doc.name
@@ -452,13 +475,13 @@ function renderAccountingImportIssues(frm) {
         wrapper.find(".cn-import-issues-content").html(html || `<p class="text-muted">${esc(frm.doc.docstatus === 2
             ? __("La importación está cancelada.") : __("No hay pendientes en las filas actuales según la última conciliación."))}</p>`);
     };
-    bindAccountingImportIssues(frm, render);
+    bindAccountingImportIssues(frm, wrapper, render, beforeNavigate);
     render();
 }
 
-function bindAccountingImportIssues(frm, render = () => renderAccountingImportIssues(frm)) {
-    const wrapper = frm.fields_dict?.pending_diagnostics_html?.$wrapper;
+function bindAccountingImportIssues(frm, wrapper, render, beforeNavigate = () => {}) {
     if (!wrapper) return;
+    const name = frm.doc.name;
     wrapper.off(".cnImportIssues");
     wrapper.on("input.cnImportIssues", ".cn-import-issues-search", event => {
         frm._accounting_issues_state.query = event.target.value;
@@ -475,7 +498,9 @@ function bindAccountingImportIssues(frm, render = () => renderAccountingImportIs
         showAccountingRelatedRecords(frm, this.dataset.cnImportRelated, $(this));
     });
     wrapper.on("click.cnImportIssues", "[data-cn-import-issue-row]", async event => {
+        if (frm.doc.name !== name) { beforeNavigate(); return; }
         const input = event.currentTarget;
+        beforeNavigate();
         if (["employer", "historical_period"].includes(input.dataset.cnImportIssueField)) {
             await frm.scroll_to_field(input.dataset.cnImportIssueField);
             return;
@@ -497,9 +522,8 @@ function updateImportExceptionNotice(frm) {
         return;
     }
     frm.set_intro(exceptions.length
-        ? __("Esta carga tiene {0} filas con pendientes detectados. Use «Ver pendientes detectados» para conocer los motivos. Una aplicación sin depósito no es un error de importación ni una excepción documentada.", [exceptions.length])
+        ? __("Esta carga tiene {0} filas con pendientes detectados. Use Consultas → Revisar pendientes para conocer los motivos. Una aplicación sin depósito no es un error de importación ni una excepción documentada.", [exceptions.length])
         : __("La carga conserva el estado «Importado con excepciones», pero las filas actuales no muestran pendientes. Revise el detalle y use «Conciliar período predeterminado» para actualizar el resultado."), "orange");
-    frm.add_custom_button(__("Ver pendientes detectados"), () => showImportExceptions(frm));
 }
 
 function importExceptionAmounts(row, doc) {

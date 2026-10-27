@@ -695,3 +695,37 @@ puede resolverlo, mantiene el contexto de origen y muestra su nombre y número.
   modifican los documentos. Todo se revierte al terminar y se comprueban conteos.
 
 Esta corrección no agrega campos ni requiere un parche de datos.
+
+## Organización del formulario de importación contable — 27 de octubre de 2026
+
+El formulario presenta tres pasos: Importación para archivo, moneda, período y
+cartera; Conciliación para las tarjetas de cobertura y la tabla Filas; e Historial
+para estado, procedencia, recuperación y un resumen desplegable de la carga.
+Filas conserva su nombre, controles y datos y es la única tabla integrada.
+
+Saldos por cliente y Revisar pendientes se abren bajo Consultas en ventanas
+independientes. Conservan búsquedas, páginas, saldos indeterminados y acceso a
+registros relacionados. Revisar fila cierra el diagnóstico antes de activar la
+pestaña y abrir el detalle original. La consulta avanzada por estado, etapa e
+importe sigue accesible desde el diagnóstico. El aviso superior comunica el
+número de filas pendientes sin añadir otra tabla ni otro botón repetido.
+
+- 20 pruebas aprobadas en Frappe 15.117.0 y 16.52.0: orden único de campos,
+  ubicación de cada grupo, una sola tabla, archivo no copiable, carga y cálculo
+  de saldos existentes. La fixture de carga sustituye el índice de clientes que
+  no utiliza porque su enriquecimiento ya está simulado.
+- Seis ensayos JavaScript aprobados: diagnóstico, resumen por cliente,
+  conciliación del período, creación de período y dos de carga masiva. Cubren
+  acceso por Consultas, consultas sin guardar, búsqueda/paginación, navegación a
+  filas, reintento, respuestas obsoletas y ausencia de cambios financieros.
+- La recarga del DocType en `cn-reconciliation-test.local` comprueba los tres
+  tabs y Filas como única tabla, sin los HTML integrados anteriores. Después
+  pasa `smoke_workbench_scope.run` con documentos y SQL reales, conservando
+  movimientos y consultas por empresa/cliente. Sus fixtures se revierten y se
+  verifican los conteos iniciales.
+
+Los campos monetarios utilizados por la lista conservan `in_list_view` y sus
+filtros; se ocultan solo en el formulario mediante `depends_on`, para presentar
+los importes una sola vez en las tarjetas. No hay cambios en el cálculo ni en
+los vínculos financieros. Aplicar `bench --site <sitio> migrate` al desplegar
+para actualizar la distribución del formulario.
