@@ -66,7 +66,7 @@ class CompanyStatementTests(unittest.TestCase):
         with patch.object(report, 'load_detail', return_value=data) as load, \
                 patch.object(report, 'load_core_detail', return_value=[]):
             result = report.execute({'employer': 'REPSA'})
-            load.assert_called_once_with({'employer': 'REPSA', '_include_deposit_details': True})
+            load.assert_called_once_with({'employer': 'REPSA'})
             self.assertEqual(len(result[1]), 1)
             self.assertEqual(result[1][0]['core_balance_usd'], 0)
             self.assertEqual(result[1][0]['client_credit_usd'], -154.28)

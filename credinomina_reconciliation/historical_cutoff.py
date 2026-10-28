@@ -284,9 +284,6 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
             warnings.append(f"{deposit['name']}: la distribución requiere una partida posterior al corte; efectivo conservado sin asignar, sin inventar distribución por cliente.")
             entries, assigned = [], money(0)
         deposit['allocated_usd'] = money_float(assigned)
-        if '_statement_detail_rows' in deposit:
-            from credinomina_reconciliation.deposit_detail_classification import prepare_details
-            deposit['_deposit_detail_classification'] = prepare_details(deposit, [entry for entry, _key in entries], credits)
         for entry, key in entries:
             amount, kind = money(entry.get('importe_usd')), entry['tipo']
             if kind == 'Partida complementaria':
@@ -382,9 +379,6 @@ def load_cutoff(filters, *, include_bridge=False):
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
             'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'difference_reason',
             *(['deposit_currency', 'deposit_amount', 'fx_rate', 'deposit_voucher'] if include_bridge else [])]))
-        if filters.get('_include_deposit_details'):
-            from credinomina_reconciliation.deposit_detail_classification import attach_details
-            attach_details(deposits)
         # Current cash journals are discarded by reconstruct(). Read only the
         # links/capacities needed to audit them; replay cash from dated deposits.
         context = load_application_context(include_current_settlements=False)
