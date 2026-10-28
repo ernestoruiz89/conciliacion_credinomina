@@ -165,7 +165,8 @@ def matches(row, filters):
         if row.get('statement_scope') != MANAGEMENT:
             return False
         # An unknown amount must remain available for review, not silently vanish.
-        if component == 'management_pending_usd' and (row.get('_component') in DOCUMENTED_CREDITS | {'deposit_pending_usd'}
+        if component == 'management_pending_usd' and (row.get('_component') in DOCUMENTED_CREDITS
+                or (row.get('_component') == 'deposit_pending_usd' and not row.get('_deposit_classification_residual'))
                 or (amount is not None and money(amount) <= 0)):
             return False
         if component == 'other_credit_usd' and (row.get('_component') in DOCUMENTED_CREDITS
