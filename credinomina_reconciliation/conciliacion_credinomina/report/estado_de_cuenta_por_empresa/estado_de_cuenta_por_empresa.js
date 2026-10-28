@@ -2,7 +2,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
     bridge_reset() {
         return {statement_scope:"Todos", from_date:"", to_date:"", source_account:"", source_currency:"",
             component:"", accounting_queue:0, status:"", origin_type:"", category:"", reason_type:"", subcategory:"",
-            accounting_status:"", management_status:"", treatment_status:"", search:""};
+            accounting_status:"", management_status:"", treatment_status:"", difference_treatment:"", search:""};
     },
     filters: [
         {fieldname: "view_mode", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle\nConciliación", default: "Resumen", reqd: 1,
@@ -56,6 +56,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         {fieldname: "category", label: __("Concepto"), fieldtype: "Autocomplete", options: ["Por clasificar", "Ajuste de conciliación", "Ajuste de aplicación", "Compensación entre partidas", "Otros ingresos", "Cobranza administrativa", "Saldo a favor del cliente", "Saldo a favor de la empresa"]},
         {fieldname: "reason_type", label: __("Motivo"), fieldtype: "Autocomplete", options: ["Error de la empresa", "Pago adicional no informado", "Por refinanciamiento", "Por cancelación", "Otro por aclarar"]},
         {fieldname: "subcategory", label: __("Subcategoría"), fieldtype: "Link", options: "CN Complementary Subcategory"},
+        {fieldname: "difference_treatment", label: __("Tratamiento de diferencia"), fieldtype: "Select", options: "\nA Favor Cliente\nA Favor Empresa"},
         {fieldname: "accounting_status", label: __("Registro contable"), fieldtype: "Select", options: "\nPendiente de registro\nAsiento informado\nImportada del core\nRegistrada\nNo requiere registro"},
         {fieldname: "management_status", label: __("Gestión externa"), fieldtype: "Autocomplete", options: ["Pendiente", "Parcialmente resuelto", "Resuelto", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros"]},
         {fieldname: "treatment_status", label: __("Tratamiento"), fieldtype: "Autocomplete", options: ["Documentado", "Vigente", "Registro contable verificado", "Por aclarar (no conciliatoria)", "Pendiente de confirmar", "Conciliada", "Parcial", "Pendiente", "Revisar distribución"]},
@@ -67,7 +68,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         .cn-company-statement .dt-row-header .dt-cell__content {
             white-space:normal;line-height:1.2;overflow:visible;padding:4px 8px;
         }`, "cn-company-statement-style");
-        const advanced = ["cutoff_date", "source_account", "source_currency", "origin_type", "category", "reason_type", "subcategory", "accounting_status", "management_status", "treatment_status", "search"];
+        const advanced = ["cutoff_date", "source_account", "source_currency", "origin_type", "category", "reason_type", "subcategory", "difference_treatment", "accounting_status", "management_status", "treatment_status", "search"];
         let expanded = false;
         const display = () => {
             const bridge = report.get_filter_value("view_mode") === "Conciliación";

@@ -94,11 +94,11 @@ def load_core_detail(filters):
     items = list(records('CN Complementary Item', filters={**company, 'accounting_source_key': ['is', 'set']},
         fields=list(dict.fromkeys(['name', 'employer', 'docstatus', 'posting_date', 'category',
             'client_name', 'client_number', 'loan_number', 'description', 'voucher', 'accounting_status',
-            'credit_management_status', 'reason_type', 'subcategory', 'review_status', 'origin_deposit',
+            'credit_management_status', 'reason_type', 'subcategory', 'review_status', 'origin_deposit', 'difference_reason',
             *[field for field in EVIDENCE_FIELDS if field != 'source_loan_number']]))))
     deposits = list(records('CN Remittance Allocation', filters=company, fields=list(dict.fromkeys([
         'name', 'employer', 'docstatus', 'bank_account', 'deposit_date', 'cash_identity_status',
-        'consolidated_deposit', *EVIDENCE_FIELDS]))))
+        'consolidated_deposit', 'difference_reason', *EVIDENCE_FIELDS]))))
     attach_sources(deposits)
     visible = {row['name'] for row in deposits}
     for deposit in deposits:
@@ -154,6 +154,11 @@ def management_detail(rows):
 
 
 def matches(row, filters):
+    if filters.get('component') in MANAGEMENT_FIELDS and row.get('_component') != filters['component']:
+        return False
+    treatment = filters.get('difference_treatment')
+    if treatment and treatment not in str(row.get('difference_treatment') or '').split(' · '):
+        return False
     component = filters.get('component')
     amount = row.get('management_amount_usd')
     if component in POSITION_FIELDS:

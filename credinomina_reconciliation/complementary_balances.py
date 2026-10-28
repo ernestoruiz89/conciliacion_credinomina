@@ -9,7 +9,7 @@ from credinomina_reconciliation.rounding import money, money_float
 
 CREDIT_CATEGORIES = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Cobro de CxC"}
-FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description",
+FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description", "difference_reason",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
           "application_adjustment_history", "reclassification_allocations",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",

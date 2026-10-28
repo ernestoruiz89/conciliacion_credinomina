@@ -272,7 +272,7 @@ def load_detail(filters):
         from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, deposit_credits
         readable_deposits = {row.name for row in records('CN Remittance Allocation', filters={'docstatus': 1}, fields=['name'])}
         parents = list(records('CN Complementary Item', filters={'docstatus': 1,
-            RECLASS_FIELD: ['not in', ['', '[]']]}, fields=['name', RECLASS_FIELD, 'accounting_source_key'],
+            RECLASS_FIELD: ['not in', ['', '[]']]}, fields=['name', RECLASS_FIELD, 'accounting_source_key', 'difference_reason'],
             journal_deposits=readable_deposits))
         # A readable deposit may have a portion originating in a restricted
         # item. Refuse an incomplete total without revealing that item.
@@ -288,12 +288,12 @@ def load_detail(filters):
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',
-                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit'])) if wanted('deposit_pending_usd') else []
+                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit', 'difference_reason'])) if wanted('deposit_pending_usd') else []
     accounting_items = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,
         'accounting_source_key': ['is', 'not set'], 'accounting_status': ['in', sorted(PENDING_REGISTRATION)]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'accounting_status',
                 'posting_date', 'category', 'client_name', 'client_number', 'loan_number',
-                'period', 'reference', 'voucher', 'description', 'reason_type', 'subcategory'])) if component not in FIELDS else []
+                'period', 'reference', 'voucher', 'description', 'reason_type', 'subcategory', 'difference_reason'])) if component not in FIELDS else []
     return build_detail(applications, core, credits, deposits, filters,
                         adjustment_receivables=load_receivables(employer=filters.get('employer')) if wanted('company_receivable_usd') or wanted('employee_receivable_usd') else [],
                         accounting_items=accounting_items)

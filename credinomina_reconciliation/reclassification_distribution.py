@@ -123,6 +123,7 @@ def deposit_credits(items, deposits, *, cutoff=None):
                 registered_deposit=entry["parent_document"], credit_detail_row=entry["target"],
                 credit_client=entry.get("client") if entry["kind"] == DEPOSIT else None, client_number=entry.get("client_number"),
                 client_name=entry.get("client_name"), loan_number=entry.get("loan_number"),
+                difference_reason=item.get("difference_reason") or "",
                 employer=entry.get("employer"), amount_usd=entry["amount_usd"],
                 credit_pending_usd=float(pending), credit_resolved_usd=float(resolved),
                 credit_management_status="Resuelto" if not pending else "Parcialmente resuelto" if resolved else "Pendiente",

@@ -5,9 +5,11 @@
   "autoname": "field:reason_name",
   "allow_rename": 1,
   "engine": "InnoDB",
-  "field_order": ["reason_name", "description"],
+  "field_order": ["reason_name", "treatment", "description"],
   "fields": [
     {"fieldname": "reason_name", "fieldtype": "Data", "label": "Razón de la diferencia", "reqd": 1, "unique": 1, "in_list_view": 1},
+    {"fieldname": "treatment", "fieldtype": "Select", "label": "Tratamiento", "options": "\nA Favor Cliente\nA Favor Empresa", "default": "", "in_list_view": 1, "in_standard_filter": 1,
+     "description": "Clasificación para Estado de Cuenta por Empresa. Se aplica a las partidas con esta razón de diferencia; no modifica sus importes ni su conciliación."},
     {"fieldname": "description", "fieldtype": "Small Text", "label": "Descripción", "in_list_view": 1}
   ],
   "permissions": [
