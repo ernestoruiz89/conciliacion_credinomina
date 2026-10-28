@@ -31,6 +31,38 @@ def get_detail_credits(remittance_name, detail_row_name):
     return load(remittance_name, detail_row_name)
 
 
+@frappe.whitelist()
+def get_linked_complementary_items(remittance_name):
+    """Return only readable items explicitly linked to this saved deposit."""
+    from credinomina_reconciliation.report_records import PAGE_SIZE, records
+
+    document = frappe.get_doc("CN Remittance Allocation", remittance_name)
+    document.check_permission("read")
+    if not frappe.has_permission("CN Complementary Item", "read"):
+        frappe.throw(_("No tiene permiso para consultar partidas complementarias."), frappe.PermissionError)
+
+    names = {row.get("complementary_item") for row in document.get("targets") or []}
+    names.update(row.get("difference_core_item") for row in document.get("detail_rows") or [])
+    try:
+        allocation = json.loads(document.get("allocation_detail") or "[]")
+    except (TypeError, ValueError):
+        frappe.throw(_("No se puede consultar las partidas: el detalle de conciliación no es válido."))
+    if not isinstance(allocation, list):
+        frappe.throw(_("No se puede consultar las partidas: el detalle de conciliación no es válido."))
+    names.update(entry.get("partida") for entry in allocation if isinstance(entry, dict)
+                 and entry.get("tipo") == "Partida complementaria")
+    names.discard(None)
+    names.discard("")
+
+    visible = {row.name for row in records("CN Complementary Item", fields=["name"],
+        or_filters={"registered_deposit": document.name, "origin_deposit": document.name})}
+    ordered = sorted(names)
+    for offset in range(0, len(ordered), PAGE_SIZE):
+        visible.update(row.name for row in records("CN Complementary Item", fields=["name"],
+            filters={"name": ["in", ordered[offset:offset + PAGE_SIZE]]}))
+    return sorted(visible)
+
+
 @frappe.whitelist(methods=["POST"])
 def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modified):
     from credinomina_reconciliation.remittance_credit_selection import set_detail_credit as assign
