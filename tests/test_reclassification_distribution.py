@@ -137,6 +137,19 @@ class SplitReclassificationTests(unittest.TestCase):
         self.assertEqual(current['management_pending_usd'], .02)
         self.assertEqual(current['management_status'], 'Pendiente')
 
+    def test_management_missing_reference_returns_validation_without_changing_history(self):
+        from credinomina_reconciliation.reclassification_distribution import record_credit_management
+        entry = dict(management_history=[])
+        args = dict(item_name='CORE', operation_id='P', modified='v1', treatment='Devolución',
+                    amount_usd=.01, event_date='2025-12-01')
+        with patch('credinomina_reconciliation.reclassification_distribution._credit_management_item',
+                   return_value=(None, [entry], entry)), patch.object(frappe.db, 'set_value') as write:
+            for reference in ({}, {'reference': None}, {'reference': ''}, {'reference': '   '}):
+                with self.subTest(reference=reference), self.assertRaisesRegex(frappe.ValidationError, 'referencia del comprobante'):
+                    record_credit_management(**args, **reference)
+            write.assert_not_called()
+        self.assertEqual(entry['management_history'], [])
+
     def test_reconciled_customer_credit_still_requires_refund_management(self):
         entry = dict(operation_id='P', kind=DEPOSIT, target='R', parent_document='DEP', employer='E', client='5471',
                      credit_origin_date='2025-11-12', effective_date='2025-12-31', amount_usd=25.22)
