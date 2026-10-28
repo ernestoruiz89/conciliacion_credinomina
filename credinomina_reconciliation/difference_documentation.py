@@ -54,16 +54,27 @@ def document_difference(doctype, name, modified, difference_reason, difference_n
     notes = str(difference_notes or "").strip()
     if not notes and row.doctype != "CN Remittance Detail":
         frappe.throw(_("Documente el motivo y el soporte de la diferencia."))
-    before = {field: row.get(field) or "" for field in ("difference_reason", "difference_notes")}
     after = {"difference_reason": difference_reason, "difference_notes": notes}
+    if _store_documentation(document, row, after):
+        _touch_documentation(document)
+    return after
+
+
+def _store_documentation(document, row, after):
+    before = {field: row.get(field) or "" for field in ("difference_reason", "difference_notes")}
     if before == after:
-        return after
+        return False
     # Whitelisted fields only; saving the parent would run financial hooks.
     frappe.db.set_value(row.doctype, row.name, after, update_modified=False)
-    frappe.db.set_value(document.doctype, document.name,
-                        {"modified": now_datetime(), "modified_by": frappe.session.user}, update_modified=False)
     from frappe.utils import escape_html
     document.add_comment("Comment", _("Diferencia documentada en {0}. Antes: {1}. Después: {2}. Sin modificación de saldos.").format(
         escape_html(row.name), escape_html(frappe.as_json(before)), escape_html(frappe.as_json(after))))
+    return True
+
+
+def _touch_documentation(document):
+    modified = now_datetime()
+    frappe.db.set_value(document.doctype, document.name,
+                        {"modified": modified, "modified_by": frappe.session.user}, update_modified=False)
     frappe.clear_document_cache(document.doctype, document.name)
-    return after
+    return str(modified)

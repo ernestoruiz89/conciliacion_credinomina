@@ -68,6 +68,37 @@ def run():
                 assert deposit.detail_rows[2].difference_core_pending_usd == .02
                 assert parent.rows[0].historical_balance_usd == 0
                 assert get_balance(item.name)['management_pending_usd'] == 25.22
-            return dict(applied=2783.58, client_credit=25.22, difference=.02, repeated_safely=True, rolled_back=True)
+            # The helper must edit classifications even with a closed period,
+            # without saving the financial document or replaying reconciliation.
+            from credinomina_reconciliation.deposit_difference_helper import load, save
+            frappe.db.set_value(period.doctype, period.name, 'status', 'Cerrado')
+            def business_state(doc):
+                data = doc.reload().as_dict()
+                for field in ('modified', 'modified_by', '_comments'):
+                    data.pop(field, None)
+                for row in data.get('detail_rows') or []:
+                    row.pop('difference_reason', None); row.pop('difference_notes', None)
+                return data
+            before = business_state(deposit)
+            applications = business_state(parent)
+            closed = business_state(period)
+            snapshot = load(deposit.name)
+            assert len(snapshot['rows']) == 2
+            with patch.object(type(deposit), 'save', side_effect=AssertionError('No guardar el documento financiero')), \
+                    patch('credinomina_reconciliation.deposit_reconciliation.reconcile_deposit',
+                          side_effect=AssertionError('No volver a conciliar')):
+                changes = [dict(row_name=row['row_name'], difference_reason=reason.name,
+                                difference_notes='Clasificación desde el helper') for row in snapshot['rows']]
+                saved = save(deposit.name, snapshot['modified'], changes)
+                assert saved['updated'] == 2
+                edited = save(deposit.name, saved['modified'], [dict(row_name=snapshot['rows'][0]['row_name'],
+                    difference_reason=reason.name, difference_notes='')])
+                assert edited['updated'] == 1
+            assert business_state(deposit) == before
+            assert business_state(parent) == applications
+            assert business_state(period) == closed
+            assert get_balance(item.name)['management_pending_usd'] == 25.22
+            return dict(applied=2783.58, client_credit=25.22, difference=.02, repeated_safely=True,
+                        helper_saved_without_reconciliation=True, closed_period_preserved=True, rolled_back=True)
     finally:
         frappe.db.rollback()
