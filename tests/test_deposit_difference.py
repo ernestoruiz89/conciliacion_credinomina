@@ -25,12 +25,16 @@ class DepositDifferenceTests(unittest.TestCase):
         if core:
             self.claims.append(dict(id="X:CORE", kind="X", amount_usd=delta, group="EMP", accounting_source_key="KEY"))
 
-    def reconcile(self, manual=()):
+    def reconcile(self, manual=(), credits=()):
         deposits = [dict(id="DEP", amount_usd=self.doc.amount_usd, group="EMP", currency="USD", bank_currency="USD")]
         with patch.object(frappe, "get_all", return_value=self.rows), \
-                patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]):
+                patch("credinomina_reconciliation.client_credit.load_credits", return_value=list(credits)):
             context = engine._prepare_remittance_details([self.doc], {"DEP": "DEP"}, deposits, self.claims, list(manual), {})
-        result = allocate_cash(deposits, self.claims, [*manual, *context["instructions"]], context["blocked_deposits"])
+        reservations = context.get('client_credit_reservations', {})
+        available = [{**deposit, 'amount_usd': float(difference.money(deposit['amount_usd']) - difference.money(reservations.get(deposit['id'])))} for deposit in deposits]
+        result = allocate_cash(available, self.claims, [*manual, *context["instructions"]], context["blocked_deposits"])
+        for name, amount in reservations.items():
+            result['deposit_remaining'][name] = float(difference.money(result['deposit_remaining'][name]) + difference.money(amount))
         with patch.object(frappe, "db", Mock()) as db, patch(
                 "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={}):
             statuses = engine._sync_remittance_details(context, result, self.claims)
@@ -60,6 +64,38 @@ class DepositDifferenceTests(unittest.TestCase):
         self.assertEqual(result["deposit_remaining"]["DEP"], .03)
         self.assertEqual(sum(r["amount_usd"] for r in result["allocations"]), 100)
         self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .03)
+
+    def test_documented_difference_coexists_with_reserved_customer_or_company_credit(self):
+        for category in ('Saldo a favor del cliente', 'Saldo a favor de la empresa'):
+            with self.subTest(category=category):
+                self.setup_case(.02)
+                self.doc.amount_usd = 125.24
+                self.rows.insert(2, frappe._dict(name='CREDIT', parent='DEP', employer='EMP', client='5471',
+                    client_number='5471', loan_number='109587-1', client_name='SIRIO', deducted_usd=25.22, amount_usd=25.22))
+                self.diff.difference_basis = difference.basis(self.doc, self.rows)
+                credit = frappe._dict(name='CN-COMP-2026-00515', registered_deposit='DEP', credit_detail_row='CREDIT',
+                    category=category, amount_usd=25.22, credit_client='5471', client_number='5471', employer='EMP')
+                result, statuses, rows = self.reconcile(credits=[credit])
+                self.assertEqual(statuses['DEP'], difference.SETTLED)
+                self.assertEqual(rows['R0']['match_status'], 'Conciliada')
+                self.assertEqual(rows['R1']['match_status'], 'Conciliada')
+                self.assertEqual(rows['CREDIT']['match_status'], 'Conciliada')
+                self.assertEqual(rows['CREDIT']['pending_usd'], 0)
+                self.assertEqual(rows['CREDIT']['linked_usd'], 0)
+                self.assertEqual(rows['DIFF']['difference_core_pending_usd'], .02)
+                self.assertEqual(sum(e['amount_usd'] for e in result['allocations']), 100)
+                self.assertEqual(result['deposit_remaining']['DEP'], 25.24)
+
+    def test_reserved_credit_never_covers_shortage_in_other_customer_rows(self):
+        self.setup_case(-.03)
+        self.doc.amount_usd = 125.19
+        self.rows.insert(2, frappe._dict(name='CREDIT', parent='DEP', employer='EMP', client_number='2',
+            deducted_usd=25.22, amount_usd=25.22))
+        self.diff.difference_basis = difference.basis(self.doc, self.rows)
+        credit = frappe._dict(name='C', registered_deposit='DEP', credit_detail_row='CREDIT',
+            category='Saldo a favor de la empresa', amount_usd=25.22, employer='EMP')
+        with self.assertRaisesRegex(frappe.ValidationError, 'no se repartirá'):
+            self.reconcile(credits=[credit])
 
     def test_future_core_settles_same_row_for_both_signs_without_double_count(self):
         for delta in (-.03, .03):
