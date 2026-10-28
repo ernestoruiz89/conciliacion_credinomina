@@ -1705,8 +1705,6 @@ def _prepare_remittance_details(
                 "client_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name] if credit.category == CLIENT_CREDIT)),
                 "company_credit_usd": money_float(sum_money(credit.amount_usd for credit in credits_by_row[row.name] if credit.category == COMPANY_CREDIT)),
             })
-        if difference and any(plan["client_credits"] for plan in plans):
-            difference["error"] = "Revise los saldos a favor existentes antes de documentar la diferencia de empresa"
         # Administrative collections and other signed complements belong to
         # targets, not to fictitious client detail rows. Linked complements
         # are already included in their row's net; count only separate ones.
