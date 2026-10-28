@@ -1,7 +1,7 @@
 import copy
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import frappe
 
@@ -14,6 +14,37 @@ IMPORT = "CN Accounting Import"
 
 
 class DifferenceDocumentationTests(unittest.TestCase):
+    def test_deposit_detail_comments_can_be_omitted_or_cleared_without_financial_writes(self):
+        row = frappe._dict(name='DETAIL', doctype='CN Remittance Detail', difference_reason='', difference_notes='Anterior')
+        document = Mock(doctype='CN Remittance Allocation', docstatus=1, modified='v1')
+        document.name = 'DEP'
+        document.get.return_value = [row]
+        reason = Mock()
+        with patch.object(frappe, 'get_doc', side_effect=lambda doctype, name: reason if doctype == 'CN Difference Reason' else document), \
+                patch.object(frappe.db, 'exists', return_value=True), \
+                patch.object(frappe.db, 'get_value'), patch.object(frappe.db, 'set_value') as write, \
+                patch.object(frappe, 'clear_document_cache'):
+            for comments in ({}, {'difference_notes': None}, {'difference_notes': ''}, {'difference_notes': '   '}):
+                with self.subTest(comments=comments):
+                    result = module.document_difference('CN Remittance Allocation', 'DEP', 'v1', 'Motivo',
+                        parentfield='detail_rows', row_name='DETAIL', **comments)
+                    self.assertEqual(result, {'difference_reason': 'Motivo', 'difference_notes': ''})
+                    self.assertEqual(write.call_args_list[-2].args,
+                        ('CN Remittance Detail', 'DETAIL', {'difference_reason': 'Motivo', 'difference_notes': ''}))
+            document.save.assert_not_called()
+        self.assertEqual(row.difference_notes, 'Anterior')
+
+    def test_comments_stay_required_outside_deposit_detail(self):
+        row = frappe._dict(name='SOURCE', doctype='CN Source Row')
+        document = Mock(doctype='CN Accounting Import', docstatus=0, modified='v1')
+        document.get.return_value = [row]
+        with patch.object(frappe, 'get_doc', return_value=document), \
+                patch.object(frappe.db, 'exists', return_value=True), patch.object(frappe.db, 'get_value'), \
+                patch.object(frappe.db, 'set_value') as write:
+            with self.assertRaisesRegex(frappe.ValidationError, 'Documente el motivo'):
+                module.document_difference('CN Accounting Import', 'IMP', 'v1', 'Motivo', parentfield='rows', row_name='SOURCE')
+            write.assert_not_called()
+
     def test_target_requires_exact_parent_and_child(self):
         row = frappe._dict(name="R", doctype="CN Source Row")
         doc = frappe._dict(doctype=IMPORT, rows=[row])

@@ -43,8 +43,9 @@ def run():
                     for i, client in enumerate(clients)])).insert()
             deposit.submit(); deposit.reload()
             reason = frappe.get_doc(dict(doctype='CN Difference Reason', reason_name=marker)).insert()
-            record(deposit.name, str(deposit.modified), reason.name, 'Diferencia de dos centavos documentada')
+            record(deposit.name, str(deposit.modified), reason.name)
             deposit.reload(); reconcile_deposit(deposit); deposit.reload()
+            assert deposit.detail_rows[2].difference_notes == ''
             with imported_item(marker):
                 item = frappe.get_doc(dict(doctype='CN Complementary Item', employer=company.name,
                     category='Por clasificar', review_action='Pendiente de revisión', client_name=clients[1].client_name,

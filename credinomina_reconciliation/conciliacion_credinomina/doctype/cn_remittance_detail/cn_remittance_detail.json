@@ -26,7 +26,7 @@
     {"fieldname": "difference_recorded_on", "fieldtype": "Datetime", "label": "Fecha de documentación", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
     {"fieldname": "difference_basis", "fieldtype": "Data", "label": "Base de la diferencia", "hidden": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind === 'Diferencia documentada'"},
 
-    {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Documentación de la diferencia", "allow_on_submit": 1, "no_copy": 1},
+    {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Comentarios de la diferencia", "allow_on_submit": 1, "no_copy": 1},
     {"fieldname": "payment_tab", "fieldtype": "Tab Break", "label": "1. Pago y conciliación"},
     {"fieldname": "evidence_tab", "fieldtype": "Tab Break", "label": "2. Identificación y evidencia"},
     {"fieldname": "detail_identity_section", "fieldtype": "Section Break", "label": "Cliente y crédito"},

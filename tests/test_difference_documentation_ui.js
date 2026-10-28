@@ -19,6 +19,7 @@ vm.runInContext(fs.readFileSync("credinomina_reconciliation/public/js/difference
     await context.credinomina.document_difference({doctype: "CN Accounting Import", name: "I", parentfield: "rows", row_name: "R", on_saved: () => {saved++;}});
     assert.ok(dialog.shown);
     assert.equal(dialog.options.fields.find(field => field.fieldname === "difference_notes").default, "Anterior");
+    assert.equal(dialog.options.fields.find(field => field.fieldname === "difference_notes").reqd, 1);
     assert.equal(dialog.options.fields.some(field => field.fieldname === "amount"), false);
     const values = {difference_reason: "Diferencia de importe", difference_notes: "Soporte revisado", amount: 0, name: "OTHER", doctype: "CN Complementary Item"};
     const pending = dialog.options.primary_action(values);
@@ -30,6 +31,14 @@ vm.runInContext(fs.readFileSync("credinomina_reconciliation/public/js/difference
     });
     finish({message: {}}); await pending;
     assert.equal(saved, 1); assert.equal(dialog.disabled, false); assert.equal(dialog.hidden, true);
+    await context.credinomina.document_difference({doctype: "CN Remittance Allocation", name: "D", parentfield: "detail_rows", row_name: "DETAIL"});
+    const comments = dialog.options.fields.find(field => field.fieldname === "difference_notes");
+    assert.equal(comments.label, 'Comentarios de la diferencia');
+    assert.equal(comments.reqd, 0);
+    const withoutComments = dialog.options.primary_action({difference_reason: 'Diferencia de importe'});
+    assert.equal(calls.at(-1).args.difference_notes, '');
+    assert.equal(calls.at(-1).args.row_name, 'DETAIL');
+    finish({message: {}}); await withoutComments;
     await context.credinomina.document_difference({doctype: "CN Remittance Allocation", name: "D"});
     rejectSave = true;
     await assert.rejects(dialog.options.primary_action(values), /network/);

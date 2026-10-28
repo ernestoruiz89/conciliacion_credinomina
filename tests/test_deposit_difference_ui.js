@@ -22,14 +22,17 @@ vm.runInContext(fs.readFileSync("credinomina_reconciliation/conciliacion_credino
     await context.createRemittanceComplementary(frm, {fromDetailDifference: true});
     assert.ok(dialog.shown);
     assert.equal(dialog.options.fields.find(field => field.fieldname === "amount_usd").read_only, 1);
+    const comments = dialog.options.fields.find(field => field.fieldname === "difference_notes");
+    assert.equal(comments.label, 'Comentarios de la diferencia');
+    assert.ok(!comments.reqd);
     assert.equal(context.remittanceDetailDifference(frm.doc).difference, -.03, "Company row does not change source total");
     assert.equal(context.canSelectDetailPendingTargets(frm, frm.doc.detail_rows[1]), false);
-    const values = {difference_reason: "Inmaterial", difference_notes: "Verificado", core_item: "CORE", amount_usd: -999};
+    const values = {difference_reason: "Inmaterial", core_item: "CORE", amount_usd: -999};
     const pending = dialog.options.primary_action(values);
     await dialog.options.primary_action(values);
     assert.equal(requests.length, 2);
     assert.deepEqual(JSON.parse(JSON.stringify(requests[1].args)), {name: "DEP", modified: "STAMP",
-        difference_reason: "Inmaterial", difference_notes: "Verificado", core_item: "CORE"});
+        difference_reason: "Inmaterial", difference_notes: "", core_item: "CORE"});
     finish({message: {}}); await pending;
     assert.equal(reloads, 1);
     await context.createRemittanceComplementary(frm, {detailRowName: "D"});

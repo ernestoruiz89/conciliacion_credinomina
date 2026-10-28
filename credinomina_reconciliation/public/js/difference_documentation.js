@@ -4,6 +4,7 @@ credinomina.document_difference = async function (options) {
     const api = "credinomina_reconciliation.difference_documentation.";
     const scope = {doctype: options.doctype, name: options.name,
         parentfield: options.parentfield || "", row_name: options.row_name || ""};
+    const detailRow = scope.doctype === "CN Remittance Allocation" && scope.parentfield === "detail_rows";
     const response = await frappe.call({method: api + "get_documentation", args: scope});
     const saved = response.message;
     let busy = false;
@@ -13,8 +14,8 @@ credinomina.document_difference = async function (options) {
             {fieldtype: "HTML", options: `<p>${frappe.utils.escape_html(__("Documentar conserva los importes y el estado de conciliación. Puede adjuntar soportes al documento de origen."))}</p>`},
             {fieldname: "difference_reason", label: __("Razón de la diferencia"), fieldtype: "Link",
                 options: "CN Difference Reason", reqd: 1, default: saved.difference_reason},
-            {fieldname: "difference_notes", label: __("Documentación / soporte"), fieldtype: "Small Text",
-                reqd: 1, default: saved.difference_notes},
+            {fieldname: "difference_notes", label: __(detailRow ? "Comentarios de la diferencia" : "Documentación / soporte"), fieldtype: "Small Text",
+                reqd: detailRow ? 0 : 1, default: saved.difference_notes},
         ],
         primary_action_label: __("Guardar documentación"),
         async primary_action(values) {
@@ -23,7 +24,7 @@ credinomina.document_difference = async function (options) {
             dialog.disable_primary_action();
             try {
                 await frappe.call({method: api + "document_difference", args: {...scope,
-                    difference_reason: values.difference_reason, difference_notes: values.difference_notes,
+                    difference_reason: values.difference_reason, difference_notes: values.difference_notes || "",
                     modified: saved.modified}});
                 dialog.hide();
                 frappe.show_alert({message: __("Diferencia documentada. Los saldos se conservan."), indicator: "green"});
