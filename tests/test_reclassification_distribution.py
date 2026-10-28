@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import frappe
 
-from credinomina_reconciliation.reclassification_distribution import APPLICATION, DEPOSIT, COMPANY_CREDIT, INCOME, OTHER, validate_portion, guard_journal, application_links, deposit_credits, preview_destination
+from credinomina_reconciliation.reclassification_distribution import APPLICATION, DEPOSIT, COMPANY_CREDIT, INCOME, OTHER, validate_portion, guard_journal, application_links, deposit_credits, preview_destination, unique_credit_updates, apply_unique_credit_updates
 from credinomina_reconciliation.complementary_balances import financial_balance
 
 
@@ -23,6 +23,49 @@ class SplitReclassificationTests(unittest.TestCase):
         self.assertEqual(result["remaining_usd"], 0)
         with self.assertRaises(frappe.ValidationError):
             validate_portion(self.item, target, DEPOSIT, .01, existing, override=True, reason="Ajuste")
+
+    def test_full_distribution_to_one_credit_fills_only_empty_fields(self):
+        item = dict(amount_usd=10, loan_number='', client_number='', reference='', client_name='PERSONA')
+        rows = [dict(kind=DEPOSIT, parent_document='DEP', employer='E', loan_number='001234-1',
+                     client_number='0042', client_name='PERSONA', amount_usd=4),
+                dict(kind=DEPOSIT, parent_document='DEP', employer='E', loan_number='1234-1',
+                     client_number='42', client_name='PERSONA', amount_usd=6)]
+        self.assertEqual(unique_credit_updates(item, rows[:1], {'DEP': 'BANCO'}), {})
+        self.assertEqual(unique_credit_updates(item, rows, {'DEP': 'BANCO'}),
+                         {'loan_number': '001234-1', 'client_number': '0042', 'reference': 'BANCO'})
+        self.assertEqual(unique_credit_updates(dict(item, loan_number='1234-1', client_number='42', reference='ORIGINAL'),
+                                               rows, {'DEP': 'BANCO'}), {})
+        self.assertEqual(unique_credit_updates(item, [rows[0], dict(rows[1], loan_number='987-1')], {'DEP': 'BANCO'}), {})
+        self.assertEqual(unique_credit_updates(item, [rows[0], dict(rows[1], employer='OTRA')], {'DEP': 'BANCO'}), {})
+        self.assertEqual(unique_credit_updates(item, [rows[0], dict(rows[1], client_number='999')], {'DEP': 'BANCO'}), {})
+
+    def test_reference_only_when_deposit_reference_is_unambiguous(self):
+        item = dict(amount_usd=10, loan_number='', client_number='', reference='')
+        base = dict(kind=DEPOSIT, employer='E', loan_number='10-1', client_number='42', client_name='C')
+        rows = [dict(base, parent_document='D1', amount_usd=5), dict(base, parent_document='D2', amount_usd=5)]
+        self.assertNotIn('reference', unique_credit_updates(item, rows, {'D1': 'A', 'D2': 'B'}))
+        self.assertNotIn('reference', unique_credit_updates(item, rows, {'D1': 'A', 'D2': ''}))
+        self.assertEqual(unique_credit_updates(item, rows, {'D1': 'A', 'D2': 'A'})['reference'], 'A')
+        applications = [dict(base, kind=APPLICATION, parent_document='I', amount_usd=10)]
+        self.assertNotIn('reference', unique_credit_updates(item, applications, {'I': 'VOUCHER'}))
+
+    def test_hidden_destination_never_populates_source_fields(self):
+        item = frappe._dict(doctype='CN Complementary Item', name='CORE', amount_usd=1)
+        rows = [dict(kind=DEPOSIT, parent_document='D', employer='E', loan_number='10-1', amount_usd=1)]
+        with patch.object(frappe.db, 'exists', return_value=True), patch.object(frappe, 'has_permission', return_value=False), \
+                patch.object(frappe.db, 'set_value') as write:
+            self.assertEqual(apply_unique_credit_updates(item, rows), {})
+        write.assert_not_called()
+
+    def test_legacy_installment_migration_preserves_existing_values(self):
+        from credinomina_reconciliation.patches.v1_0.preserve_complementary_legacy_installment import execute
+        with patch.object(frappe.db, 'has_column', return_value=True), patch.object(frappe.db, 'sql') as sql:
+            execute()
+        self.assertIn("SET legacy_installment_number = installment_number", sql.call_args.args[0])
+        self.assertIn("COALESCE(legacy_installment_number, '') = ''", sql.call_args.args[0])
+        with patch.object(frappe.db, 'has_column', return_value=False), patch.object(frappe.db, 'sql') as sql:
+            execute()
+        sql.assert_not_called()
 
     def test_exception_needs_explicit_check_and_reason(self):
         target = dict(employer="OTRA", client_name="OTRO", available_usd=.10)

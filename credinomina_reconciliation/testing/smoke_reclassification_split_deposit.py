@@ -186,6 +186,33 @@ def run():
                 else:
                     raise AssertionError("No se debe revelar una distribución con destino restringido")
             frappe.set_user("Administrator")
+            with imported_item(marker + "-IDENTITY"):
+                unique = frappe.get_doc(dict(doctype="CN Complementary Item", category="Por clasificar",
+                    review_action="Pendiente de revisión", employer=third_company.name, client_name=other_client.client_name,
+                    posting_date="2025-11-21", currency="USD", amount=.02, source_date="2025-11-21",
+                    source_currency="USD", source_debit=.02, source_credit=0, accounting_source_key=marker + "-IDENTITY",
+                    source_voucher=marker + "-IDENTITY", voucher=marker + "-IDENTITY",
+                    voucher_line=marker + "-IDENTITY", description="Reclasificación de un crédito único")).insert()
+            frappe.db.set_value(unique.doctype, unique.name, dict(docstatus=1, category="Compensación entre partidas",
+                review_action="Compensación entre partidas", compensation_status="Sin compensar",
+                compensation_pending_usd=.02), update_modified=False)
+            unique.reload(); other_deposit.reload()
+            for index in range(2):
+                link_deposit(unique.name, other_deposit.name, other_deposit.detail_rows[0].name,
+                    str(unique.modified), str(other_deposit.modified), .01, reason="Crédito único verificado")
+                unique.reload(); other_deposit.reload()
+                if index == 0:
+                    assert not unique.loan_number and not unique.client_number and not unique.reference
+            assert unique.loan_number == marker + "-2"
+            assert unique.client_number == other_client.client_number
+            assert unique.reference == other_deposit.deposit_reference
+            if frappe.db.has_column(unique.doctype, "installment_number"):
+                frappe.db.sql("UPDATE `tabCN Complementary Item` SET installment_number=%s WHERE name=%s", ("7", unique.name))
+                from credinomina_reconciliation.patches.v1_0.preserve_complementary_legacy_installment import execute
+                execute()
+                preserved = frappe.get_all(unique.doctype, filters={"name": unique.name},
+                    fields=["legacy_installment_number as installment_number"])
+                assert preserved[0].installment_number == "7"
             return dict(client_credit=.03, company_credit=.02, income_and_other=.03,
                         detail_pending=.94, original_remaining=.02, rolled_back=True)
     finally:

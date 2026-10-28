@@ -211,6 +211,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         if (targetNotes) targetNotes.formatter = targetFormatter;
         frm.fields_dict.targets?.grid?.update_docfield_property?.("notes", "formatter", targetFormatter);
         setupRemittanceClientAlias(frm);
+        setupRemittanceLinkedTotal(frm);
         renderRemittanceOverview(frm);
         renderRemittanceAllocations(frm);
         renderRemittanceDistribution(frm);
@@ -1404,6 +1405,15 @@ function remittanceMoney(value) {
     return Number.isFinite(amount) ? amount.toLocaleString("es-NI", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 }
 
+function setupRemittanceLinkedTotal(frm) {
+    const grid = frm.fields_dict.detail_rows?.grid;
+    const formatter = (value, df, options, row) => frappe.format(row?.linked_total_usd ?? 0,
+        {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null, {...row, usd_currency: "USD"});
+    const field = frappe.meta?.get_docfield?.("CN Remittance Detail", "linked_total_usd");
+    if (field) field.formatter = formatter;
+    grid?.update_docfield_property?.("linked_total_usd", "formatter", formatter);
+}
+
 function updateDetailPendingAmounts(frm) {
     const manual = new Map();
     for (const target of frm.doc.targets || []) {
@@ -1416,17 +1426,24 @@ function updateDetailPendingAmounts(frm) {
     const cents = value => Math.round((Number(value || 0) + Number.EPSILON) * 100);
     let changed = false;
     for (const row of frm.doc.detail_rows || []) {
-        if (row.row_kind === "Diferencia documentada") continue;
-        let matched = [];
-        try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
-        const entries = manual.get(row.name) || (Array.isArray(matched) ? matched.filter(entry => entry && !entry.instruction_id) : []);
-        const linked = entries.reduce((sum, entry) => sum + cents(entry.amount_usd), 0);
-        const pending = cents(row.amount_usd) - linked - cents(row.client_credit_usd) - cents(row.company_credit_usd);
-        if (row.linked_usd !== linked / 100 || row.pending_usd !== pending / 100) {
-            row.linked_usd = linked / 100;
-            row.pending_usd = pending / 100;
-            changed = true;
+        if (row.row_kind !== "Diferencia documentada") {
+            let matched = [];
+            try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
+            const known = Array.isArray(matched) ? matched.filter(entry => entry && typeof entry === "object") : [];
+            const internal = known.filter(entry => String(entry.instruction_id || "").startsWith("RECLASS:"));
+            const entries = (manual.get(row.name) || known.filter(entry => !entry.instruction_id)).concat(internal);
+            const linked = entries.reduce((sum, entry) => sum + cents(entry.amount_usd), 0);
+            const pending = cents(row.amount_usd) - linked - cents(row.client_credit_usd) - cents(row.company_credit_usd);
+            if (row.linked_usd !== linked / 100 || row.pending_usd !== pending / 100) {
+                row.linked_usd = linked / 100;
+                row.pending_usd = pending / 100;
+                changed = true;
+            }
         }
+        // Virtual presentation only. The underlying destination and credit
+        // amounts remain separate so a balance is never paid or counted twice.
+        row.linked_total_usd = (cents(row.linked_usd) + cents(row.client_credit_usd) + cents(row.company_credit_usd)) / 100;
+        frm.fields_dict?.detail_rows?.grid?.grid_rows_by_docname?.[row.name]?.refresh_field?.("linked_total_usd");
     }
     if (changed && frm.refresh_field) frm.refresh_field("detail_rows");
 }

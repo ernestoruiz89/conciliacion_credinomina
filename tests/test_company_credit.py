@@ -19,6 +19,9 @@ class CompanyCreditTests(unittest.TestCase):
         patcher = patch.object(client_credit, "lock_credit_deposit", side_effect=lambda name: credit.frappe.get_doc("CN Remittance Allocation", name))
         patcher.start()
         self.addCleanup(patcher.stop)
+        virtual = patch('credinomina_reconciliation.reclassification_distribution.load_deposit_credits', return_value=[])
+        virtual.start()
+        self.addCleanup(virtual.stop)
 
     def document(self, **values):
         return Row({"amount_usd": 10, "registered_deposit": "DEP", "employer": "EMP",
@@ -45,7 +48,7 @@ class CompanyCreditTests(unittest.TestCase):
 
     def test_invalid_credit_rejected(self):
         for values in ({"amount_usd": 0}, {"amount_usd": -10}, {"client_number": "123"},
-                       {"loan_number": "123-1"}, {"installment_number": "1"},
+                       {"loan_number": "123-1"}, {"legacy_installment_number": "1"},
                        {"registered_deposit": None}, {"reason_type": ""}, {"description": "  "},
                        {"credit_client": "CLIENT"},
                        {"credit_assigned_to": ""}, {"credit_commitment_date": ""}, {"credit_treatment": ""}):

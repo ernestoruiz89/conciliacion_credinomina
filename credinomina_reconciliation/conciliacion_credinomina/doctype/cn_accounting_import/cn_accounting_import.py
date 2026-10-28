@@ -953,7 +953,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
         filters={"docstatus": 1, "origin_deposit": ["is", "not set"], "category": ["not in", [COMPANY_CREDIT, CLIENT_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]], **company_filters},
         fields=[
             "name", "reference", "amount_usd", "employer", "period",
-            "client_number", "loan_number", "installment_number",
+            "client_number", "loan_number", "legacy_installment_number as installment_number",
             "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key",
         ],
     )
@@ -2142,7 +2142,7 @@ def _distribute_deposits(
              "accounting_source_key": item.get("accounting_source_key"),
              "period_closed": item.period in closed_periods,
              "loan_number": item.loan_number,
-             "installment_number": item.installment_number,
+             "installment_number": item.get("installment_number"),
              "references": [clean_text(item.reference)], "hints": {},
             "group": item.employer or employer_by_period.get(item.period),
              "period": item.period,

@@ -45,6 +45,44 @@ async function cn_render_complementary_balance(frm) {
     }
 }
 
+async function cn_render_reclassification_details(frm) {
+    const wrapper = frm.fields_dict?.reclassification_details?.$wrapper;
+    if (!wrapper) return;
+    const sequence = frm.cn_reclassification_detail_sequence = (frm.cn_reclassification_detail_sequence || 0) + 1;
+    if (frm.is_new() || !frm.doc.__onload?.has_reclassification_distributions) {
+        wrapper.empty();
+        return;
+    }
+    const itemName = frm.doc.name;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    wrapper.html(`<p class="text-muted">${esc(__("Consultando vínculos de la partida…"))}</p>`);
+    try {
+        const {message} = await frappe.call({method: "credinomina_reconciliation.reclassification_distribution.distribution_history",
+            args: {item_name: itemName}});
+        if (frm.doc.name !== itemName || sequence !== frm.cn_reclassification_detail_sequence) return;
+        const rows = (message.entries || []).map(entry => {
+            const application = entry.kind === "Pago pendiente contra aplicación";
+            const credit = ["Saldo a favor contra depósito", "Saldo a favor de la empresa contra depósito"].includes(entry.kind);
+            const route = application ? "cn-accounting-import" : "cn-remittance-allocation";
+            const label = application ? __("Importación contable") : __("Depósito");
+            const treatment = entry.kind === "Saldo a favor contra depósito" ? __("Saldo a favor del cliente") : __(entry.kind);
+            const resolved = (entry.management_history || []).reduce((sum, row) => sum + Number(row.importe_usd || 0), 0);
+            const pending = credit ? format_currency(Math.round((Number(entry.amount_usd || 0) - resolved) * 100) / 100, "USD", 2) : "—";
+            const person = [entry.employer, entry.client_name, entry.loan_number && `${__("Crédito")} ${entry.loan_number}`].filter(Boolean).join(" · ");
+            return `<tr><td><span class="text-muted">${esc(label)}</span><br><a href="/app/${route}/${encodeURIComponent(entry.parent_document)}">${esc(entry.parent_document)}</a></td>
+                <td>${esc(person || "—")}</td><td>${esc(treatment)}</td><td>${esc(format_currency(entry.amount_usd, "USD", 2))}</td>
+                <td>${esc(entry.effective_date || "—")}</td><td>${esc(pending)}</td></tr>`;
+        }).join("");
+        wrapper.html(`<div class="mt-3"><strong>${esc(__("Distribución del movimiento"))}</strong>
+            <p class="text-muted">${esc(__("Cada fila muestra el destino y el importe conciliado. Un saldo a favor permanece pendiente de gestión hasta documentar su devolución o aplicación."))}</p>
+            <div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>${esc(__("Destino"))}</th><th>${esc(__("Empresa / cliente / crédito"))}</th><th>${esc(__("Tratamiento"))}</th><th>${esc(__("Importe US$"))}</th><th>${esc(__("Fecha de conciliación"))}</th><th>${esc(__("Pendiente de gestión"))}</th></tr></thead><tbody>${rows}</tbody></table></div></div>`);
+    } catch (_) {
+        if (frm.doc.name === itemName && sequence === frm.cn_reclassification_detail_sequence) {
+            wrapper.html(`<p class="text-warning">${esc(__("No se puede mostrar el detalle de los vínculos; revise el acceso a sus documentos relacionados."))}</p>`);
+        }
+    }
+}
+
 function cn_add_cancel_action(frm) {
     frm.remove_custom_button?.(__("Cancelar partida"));
     if (frm.is_new() || frm.doc.docstatus !== 1 || frm.doc.origin_deposit || frm.doc.receivable_origin
@@ -363,7 +401,7 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.set_value("review_action", "Partida de depósito");
         }
         // Keep invalid prefilled identities visible so the user can clear them.
-        ["client_number", "loan_number", "installment_number"].forEach(f => frm.toggle_display(f, (!credit && !frm.doc.generic_distribution) || !!frm.doc[f]));
+        ["client_number", "loan_number"].forEach(f => frm.toggle_display(f, (!credit && !frm.doc.generic_distribution) || !!frm.doc[f]));
         frm.set_df_property("reference", "read_only", credit || clientCredit);
     },
     generic_distribution(frm) {
@@ -436,6 +474,7 @@ frappe.ui.form.on("CN Complementary Item", {
             __("CxC con seguimiento incompleto: verifique responsable, compromiso de gestión y vencimiento financiero. No reprograma ni liquida la deuda."), "orange");
         cn_complementary_amount_help(frm);
         cn_render_complementary_balance(frm);
+        cn_render_reclassification_details(frm);
         cn_render_credit_detail(frm);
         cn_comp_add_exception_button(frm);
         if (frm.doc.docstatus === 1 && ["CxC a la empresa", "CxC al Empleado"].includes(frm.doc.subcategory_effect) && frm.get_perm(0, "write") && frm.get_perm(0, "submit")) {
