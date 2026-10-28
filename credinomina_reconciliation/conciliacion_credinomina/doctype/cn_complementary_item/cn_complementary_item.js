@@ -1111,9 +1111,9 @@ async function cn_manage_split_credit(frm) {
                 dialog.set_df_property("reversal", "options", ["", ...reversals.keys()]);
             }},
         {fieldtype: "Select", fieldname: "action", label: __("Acción"), options: ["Documentar gestión", "Revertir gestión"], reqd: 1},
-        {fieldtype: "Select", fieldname: "treatment", label: __("Tratamiento"), options: ["Devolución", "Aplicación futura"], depends_on: "eval:doc.action=='Documentar gestión'"},
-        {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe US$"), precision: 2, depends_on: "eval:doc.action=='Documentar gestión'"},
-        {fieldtype: "Data", fieldname: "reference", label: __("Referencia del comprobante"), depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Select", fieldname: "treatment", label: __("Tratamiento"), options: ["Devolución", "Aplicación futura"], depends_on: "eval:doc.action=='Documentar gestión'", mandatory_depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe US$"), precision: 2, depends_on: "eval:doc.action=='Documentar gestión'", mandatory_depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Data", fieldname: "reference", label: __("Referencia del comprobante"), depends_on: "eval:doc.action=='Documentar gestión'", mandatory_depends_on: "eval:doc.action=='Documentar gestión'"},
         {fieldtype: "Select", fieldname: "reversal", label: __("Gestión a revertir"), options: [], depends_on: "eval:doc.action=='Revertir gestión'"},
         {fieldtype: "Date", fieldname: "event_date", label: __("Fecha"), default: frappe.datetime.get_today(), reqd: 1},
         {fieldtype: "Small Text", fieldname: "notes", label: __("Motivo o notas"), reqd: 1},
@@ -1123,11 +1123,12 @@ async function cn_manage_split_credit(frm) {
         const reversing = values.action === "Revertir gestión";
         const entryId = reversals.get(values.reversal);
         if (reversing && !entryId) return frappe.msgprint(__("Seleccione la gestión que desea revertir."));
+        if (!reversing && !String(values.reference || "").trim()) return frappe.msgprint(__("Indique la referencia del comprobante."));
         busy = true; dialog.get_primary_btn().prop("disabled", true);
         try {
             const common = {item_name: frm.doc.name, operation_id: entry.operation_id, modified: history.modified, event_date: values.event_date};
             const args = reversing ? {...common, entry_id: entryId, reason: values.notes} :
-                {...common, treatment: values.treatment, amount_usd: values.amount_usd, reference: values.reference, notes: values.notes};
+                {...common, treatment: values.treatment, amount_usd: values.amount_usd, reference: String(values.reference).trim(), notes: values.notes};
             await frappe.call({method: method + (reversing ? "reverse_credit_management" : "record_credit_management"), args, freeze: true});
             dialog.hide(); await frm.reload_doc(); frappe.show_alert({message: __("Gestión registrada."), indicator: "green"});
         } finally {busy = false; dialog.get_primary_btn().prop("disabled", false);}

@@ -211,7 +211,7 @@ def _credit_management_item(item_name, operation_id, modified):
 
 @frappe.whitelist(methods=["POST"])
 def record_credit_management(item_name, operation_id, modified, treatment, amount_usd,
-                             event_date, reference, support_file="", notes=""):
+                             event_date, reference="", support_file="", notes=""):
     """Record external resolution of one customer or company credit portion."""
     from html import escape
     from uuid import uuid4
