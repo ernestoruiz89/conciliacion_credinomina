@@ -228,7 +228,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
         if (!frm.is_new()) {
             frm.add_custom_button(__("Historial de conciliación"), () => showReconciliationHistory(frm), __("Conciliación"));
             frm.add_custom_button(__("Ver Partidas Complementarias"),
-                () => frappe.set_route("List", "CN Complementary Item"), __("Conciliación"));
+                () => showRemittanceComplementaryItems(frm), __("Conciliación"));
         }
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Confirmar depósito"), async () => {
@@ -1220,6 +1220,14 @@ async function importRemittanceDetail(frm) {
         freeze_message: __("Cargando detalle del depósito…"),
     });
     await frm.reload_doc();
+}
+
+function showRemittanceComplementaryItems(frm) {
+    if (!frm.doc.employer) {
+        frappe.msgprint(__("Seleccione la empresa del depósito para consultar sus partidas complementarias."));
+        return;
+    }
+    frappe.set_route("List", "CN Complementary Item", {employer: frm.doc.employer});
 }
 
 async function refreshRemittanceCreditStatus(frm) {
