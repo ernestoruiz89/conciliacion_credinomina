@@ -198,6 +198,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
             frm.add_custom_button(__("Revisar origen del depósito"), () => reviewDepositOrigin(frm), __("Más opciones"));
             if ((frm.doc.detail_rows || []).length) {
                 frm.add_custom_button(__("Actualizar estado del crédito"), () => refreshRemittanceCreditStatus(frm), __("Más opciones"));
+                frm.add_custom_button(__("Documentar diferencias del detalle"), () => reviewRemittanceDifferences(frm), __("Más opciones"));
             }
         }
         frm.toggle_display("link_accounting_origins", !frm.is_new() && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
@@ -953,6 +954,100 @@ async function createRemittanceComplementary(frm, options = {}) {
     return credinomina.document_difference({doctype: frm.doc.doctype, name: frm.doc.name,
         parentfield: options.detailRowName ? "detail_rows" : "", row_name: options.detailRowName || "",
         on_saved: () => frm.reload_doc()});
+}
+
+async function reviewRemittanceDifferences(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue el depósito antes de documentar sus diferencias."));
+    const existing = frm._cn_difference_helper;
+    if (existing) {
+        if (existing.deposit_name !== frm.doc.name) return frappe.msgprint(__("Cierre el helper del depósito anterior antes de abrir otro."));
+        if (existing.is_minimized) existing.toggle_minimize();
+        else if (!existing.display) existing.show();
+        return existing;
+    }
+    if (frm._cn_difference_helper_loading) return;
+    const name = frm.doc.name, method = "credinomina_reconciliation.deposit_difference_helper.";
+    frm._cn_difference_helper_loading = true;
+    try {
+        const {message: data} = await frappe.call({method: method + "load", args: {name}});
+        if (frm.doc.name !== name || frm.is_dirty()) return frappe.msgprint(__("El formulario cambió. Abra nuevamente el helper."));
+        if (String(frm.doc.modified) !== data.modified) return frappe.msgprint(__("El depósito tiene cambios más recientes. Recárguelo antes de abrir el helper."));
+        if (!data.rows.length) return frappe.msgprint(__("No hay filas con diferencias, saldos a favor o documentación previa."));
+        let modified = data.modified, busy = false;
+        const baseline = new Map(data.rows.map(row => [row.row_name, {
+            difference_reason: row.difference_reason || "", difference_notes: row.difference_notes || "",
+        }]));
+        const dialog = new frappe.ui.Dialog({
+            title: __("Documentar diferencias del detalle"), size: "extra-large", static: true, minimizable: true,
+            on_minimize_toggle(minimized) {
+                const label = minimized ? __("Restaurar diferencias del detalle") : __("Minimizar diferencias del detalle");
+                this.get_minimize_btn().attr({title: label, "aria-label": label});
+            },
+            onhide() { if (frm._cn_difference_helper === this) frm._cn_difference_helper = null; },
+            fields: [
+                {fieldtype: "HTML", options: `<p>${__("Edite la razón y los comentarios de las filas con pendiente, saldo a favor o documentación previa. Los comentarios son opcionales. Guardar conserva los importes, vínculos y estados de conciliación; no necesita volver a conciliar.")}</p>`},
+                {fieldname: "rows", fieldtype: "Table", label: __("Diferencias del detalle"),
+                    cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+                    data: data.rows.map(row => ({...row})), fields: [
+                        {fieldname: "row_name", fieldtype: "Data", hidden: 1, read_only: 1},
+                        {fieldname: "source_row", fieldtype: "Int", label: __("Fila de origen"), read_only: 1},
+                        {fieldname: "client_name", fieldtype: "Data", label: __("Cliente / empresa"), read_only: 1, in_list_view: 1, columns: 2},
+                        {fieldname: "loan_number", fieldtype: "Data", label: __("Crédito"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "employer", fieldtype: "Data", label: __("Empresa"), read_only: 1},
+                        {fieldname: "row_kind", fieldtype: "Data", label: __("Tipo de fila"), read_only: 1},
+                        {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe US$"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "linked_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Vinculado US$"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "pending_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Pendiente US$"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de diferencia"), in_list_view: 1, columns: 2},
+                        {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Comentarios de la diferencia"), in_list_view: 1, columns: 2},
+                        {fieldname: "match_status", fieldtype: "Data", label: __("Estado"), read_only: 1},
+                        {fieldname: "match_reason", fieldtype: "Small Text", label: __("Motivo de conciliación"), read_only: 1},
+                    ]},
+            ],
+            primary_action_label: __("Guardar diferencias"),
+            async primary_action() {
+                if (busy) return;
+                if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue los cambios del depósito antes de guardar el helper. Sus ediciones permanecen aquí."));
+                const changes = dialog.fields_dict.rows.grid.get_data().map(row => ({row_name: row.row_name,
+                    difference_reason: String(row.difference_reason || "").trim(), difference_notes: String(row.difference_notes || "").trim(),
+                })).filter(row => {
+                    const saved = baseline.get(row.row_name);
+                    return saved && (row.difference_reason !== saved.difference_reason || row.difference_notes !== saved.difference_notes);
+                });
+                if (!changes.length) return frappe.show_alert({message: __("No hay cambios para guardar."), indicator: "blue"});
+                if (changes.some(row => !row.difference_reason)) return frappe.msgprint(__("Seleccione una razón de diferencia para cada fila modificada."));
+                busy = true; dialog.disable_primary_action(); dialog.get_close_btn().prop("disabled", true);
+                try {
+                    const requestVersion = modified;
+                    const response = (await frappe.call({method: method + "save", args: {name, modified, rows: changes}})).message;
+                    modified = response.modified;
+                    for (const row of response.rows) baseline.set(row.row_name, {
+                        difference_reason: row.difference_reason || "", difference_notes: row.difference_notes || "",
+                    });
+                    if (frm.doc.name === name && !frm.is_dirty() && String(frm.doc.modified) === requestVersion) {
+                        for (const saved of response.rows) {
+                            const row = (frm.doc.detail_rows || []).find(item => item.name === saved.row_name);
+                            if (!row) continue;
+                            row.difference_reason = saved.difference_reason; row.difference_notes = saved.difference_notes;
+                            const gridRow = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[row.name];
+                            gridRow?.refresh_field("difference_reason"); gridRow?.refresh_field("difference_notes");
+                        }
+                        frm.doc.modified = response.modified;
+                    }
+                    dialog.set_alert(__("Diferencias guardadas. Puede seguir editando o cerrar; la conciliación se conserva."), "success");
+                } finally {busy = false; dialog.enable_primary_action(); dialog.get_close_btn().prop("disabled", false);}
+            },
+            secondary_action_label: __("Cerrar"), secondary_action() { if (!busy) dialog.hide(); },
+        });
+        dialog.deposit_name = name;
+        // Static dialogs disable outside-click and Escape dismissal. Restore
+        // the explicit X that Frappe normally hides for static dialogs.
+        dialog.get_close_btn().show();
+        dialog.get_minimize_btn().attr({title: __("Minimizar diferencias del detalle"), "aria-label": __("Minimizar diferencias del detalle")});
+        frm._cn_difference_helper = dialog;
+        dialog.show();
+        return dialog;
+    } finally {frm._cn_difference_helper_loading = false;}
 }
 
 async function documentRemittanceCompanyDifference(frm) {
