@@ -11,7 +11,8 @@ const context = {__: translate, format_currency: value => `US$ ${Number(value).t
         get_field() {return {$wrapper: this.wrapper};}
         show() {this.visible = true;} hide() {this.visible = false;}
     }}, utils: {escape_html: esc},
-        format: (value, df, options, doc) => `${doc.usd_currency} ${Number(value).toFixed(df.precision)}`,
+        format: (value, df, options, doc) => df.formatter ? df.formatter(value, df, options, doc)
+            : `${doc.usd_currency} ${Number(value).toFixed(df.precision)}`,
         call: args => new Promise((resolve, reject) => requests.push({args, resolve, reject}))}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js', 'utf8'), context);
@@ -90,6 +91,8 @@ function wrapper() {
     assert.ok(refreshed.includes('row_applied_usd') && refreshed.includes('row_balance_usd'));
     assert.equal(formatters.row_applied_usd(0, {}, {}, source), 'USD 73.68');
     assert.equal(formatters.row_balance_usd(0, {}, {}, source), 'USD 26.32');
+    assert.equal(context.frappe.format(0, {formatter: formatters.row_balance_usd}, {}, source), 'USD 26.32',
+        'opening the accounting row must not recursively dispatch its own formatter');
     const zero = {_cn_row_amounts:{applied_usd:0, balance_usd:0, issue:'<review>'}};
     assert.match(formatters.row_applied_usd(0, {}, {}, zero), /USD 0.00/);
     assert.match(formatters.row_balance_usd(0, {}, {}, zero), /&lt;review&gt;/);

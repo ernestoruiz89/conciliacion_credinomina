@@ -38,12 +38,16 @@ assert.equal(sirio.linked_usd, 0, "The client credit remains separate from payme
 assert.equal(sirio.linked_total_usd, 25.22);
 assert.equal(sirio.pending_usd, 0);
 const formats = {};
-context.frappe.format = (value) => `US$ ${Number(value).toFixed(2)}`;
+context.frappe.format = (value, df, options, doc) => df.formatter
+    ? df.formatter(value, df, options, doc) : `US$ ${Number(value).toFixed(2)}`;
 context.frappe.meta = {get_docfield: () => ({})};
 context.setupRemittanceLinkedTotal({fields_dict: {detail_rows: {grid: {
     update_docfield_property: (name, property, formatter) => {formats[name] = formatter;}
 }}}});
 assert.equal(formats.linked_total_usd(0, {}, {}, sirio), 'US$ 25.22');
+const gridField = {fieldname: 'linked_total_usd', formatter: formats.linked_total_usd};
+assert.equal(context.frappe.format(25.22, gridField, {}, sirio), 'US$ 25.22', 'Opening a row must use the currency formatter without recursion');
+assert.equal(gridField.formatter, formats.linked_total_usd, 'Do not remove the formatter from shared metadata');
 sirio.client_credit_usd = 10; sirio.company_credit_usd = 5;
 context.updateDetailPendingAmounts(sirioForm);
 assert.equal(sirio.linked_total_usd, 15);

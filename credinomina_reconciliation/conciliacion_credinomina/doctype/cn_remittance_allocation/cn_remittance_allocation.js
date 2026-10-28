@@ -1408,7 +1408,7 @@ function remittanceMoney(value) {
 function setupRemittanceLinkedTotal(frm) {
     const grid = frm.fields_dict.detail_rows?.grid;
     const formatter = (value, df, options, row) => frappe.format(row?.linked_total_usd ?? 0,
-        {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null, {...row, usd_currency: "USD"});
+        {fieldtype: "Currency", options: "usd_currency", precision: 2}, null, {...row, usd_currency: "USD"});
     const field = frappe.meta?.get_docfield?.("CN Remittance Detail", "linked_total_usd");
     if (field) field.formatter = formatter;
     grid?.update_docfield_property?.("linked_total_usd", "formatter", formatter);
