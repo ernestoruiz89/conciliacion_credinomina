@@ -148,10 +148,7 @@ def run():
             report = frappe.get_doc("Report", "Revision de Partidas Manuales")
             _columns, summary, _message = report.execute_module({"item": item.name, "include_tolerance": 1})
             assert len(summary) == 1 and summary[0]["item"] == item.name, summary
-            _columns, rows, _message = report.execute_module({"item": item.name, "include_tolerance": 1, "show_details": 1})
-            assert any(row.get("related_document") == deposit.name for row in rows), rows
-            assert any(row.get("related_document") == imported.name for row in rows), rows
-            assert any(row.get("related_document") == period.name and row.get("related_status") == "Cerrado" for row in rows), rows
+            assert not any(column["fieldname"] in {"relation", "details", "link_count"} for column in _columns)
             assert snapshot(deposit.doctype, deposit.name) == report_before
             assert snapshot(period.doctype, period.name) == closed_before
             try:
@@ -164,7 +161,7 @@ def run():
             check_no_new_tolerances(marker)
             return dict(documentation_does_not_change_financial_fields=True, legacy_links_preserved=True,
                         positive_and_negative_cent_not_absorbed=True, legacy_tolerance_reprocessing_preserved=True,
-                        patch_idempotent=True, real_report_links=True, manual_creation_blocked=True, rolled_back=True)
+                        patch_idempotent=True, report_inventory_only=True, manual_creation_blocked=True, rolled_back=True)
     finally:
         frappe.db.rollback()
         assert counts == {name: frappe.db.count(name) for name in tables}

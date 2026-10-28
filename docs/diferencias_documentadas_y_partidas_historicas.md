@@ -18,11 +18,7 @@ Los antiguos botones de creación por diferencia y saldo a favor llevan a docume
 
 Abra **Partida Complementaria → Revisión de Partidas Manuales**. Puede filtrar empresa, partida, fechas e incluir tolerancias históricas. El reporte incluye partidas sin `accounting_source_key`, también borradores y canceladas, para conservar el alcance de auditoría.
 
-Muestra importe original, aplicado y pendiente guardados; cliente y crédito; concepto, referencia, comprobante y documentación. Detalla enlaces directos, destinos y asignaciones registradas, ajustes de aplicaciones, compensaciones, historial de créditos, períodos y su estado, depósitos y sus `accounting_sources`, comprobantes, archivos y filas contables. Cada relación permite abrir el documento relacionado.
-
-Las coincidencias por referencia o comprobante son **Candidato; requiere revisión**. No prueban que una partida manual tenga respaldo y nunca se vinculan automáticamente. Los historiales ilegibles y vínculos no disponibles se señalan. Se respetan los permisos: la vista puede ser parcial, y no encontrar un vínculo visible no demuestra su inexistencia.
-
-La vista principal muestra **una fila por partida**, con sus importes guardados y la cantidad de vínculos y candidatos adicionales. **Ver vínculos** abre un modal amplio con los datos de la partida y sus relaciones, sin cambiar los filtros ni recargar el resumen. Los documentos relacionados se abren en otra pestaña. La opción **Mostrar detalle de vínculos** sigue disponible para consultar o exportar el detalle en el reporte. El detalle tiene una fila por relación: allí los importes de la partida se repiten y **no deben sumarse**. Compartir un período, una importación o un depósito no convierte por sí solo a los demás movimientos de ese documento en vínculos de la partida. El importe del vínculo solo se presenta cuando consta expresamente en esa evidencia; puede ser un registro histórico o una reversión, no necesariamente un uso vigente. Consultar o exportar no recalcula saldos.
+Muestra una fila por partida, con importe original, aplicado y pendiente guardados; cliente y crédito; concepto, referencia, comprobante y documentación. El identificador abre la partida para revisarla. El reporte consulta únicamente partidas accesibles para el usuario: no busca ni relaciona vínculos, y no recalcula saldos.
 
 ## Diferencia entre el depósito y el detalle
 

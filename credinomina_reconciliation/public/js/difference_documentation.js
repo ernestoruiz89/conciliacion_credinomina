@@ -50,7 +50,7 @@ for (const doctype of ["CN Remittance Allocation", "CN Complementary Item"]) {
             });
             if (doctype === "CN Complementary Item" && frm.doc.legacy_manual_review) {
                 frm.dashboard.set_headline_alert(__("Partida histórica conservada para revisión. Sus importes y vínculos no se modificaron en la migración."), "orange");
-                frm.add_custom_button(__("Revisar vínculos históricos"), () => frappe.set_route("query-report", "Revision de Partidas Manuales", {item: frm.doc.name, include_tolerance: 1}));
+                frm.add_custom_button(__("Revisar partida histórica"), () => frappe.set_route("query-report", "Revision de Partidas Manuales", {item: frm.doc.name, include_tolerance: 1}));
             }
         },
     });
