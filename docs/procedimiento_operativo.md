@@ -830,6 +830,10 @@ Los importes deben ser positivos y respetar el pendiente de cada fila y el efect
 
 ### Vincular un saldo a favor con su reclasificación del core
 
+Si el depósito contiene una fila sin aplicación y el core ya importó una reclasificación individual, no cree una segunda partida manual. Abra el débito del core confirmado en **Compensación entre partidas** y use **Conciliar reclasificación con depósito**. Seleccione el depósito, la fila coincidente, la fecha compromiso y documente el motivo. La acción comprueba el débito original, empresa, cliente, crédito, importe, efectivo disponible y permisos; después concilia la fila y reutiliza la misma partida importada como saldo a favor del cliente.
+
+La fecha del saldo a favor es la del depósito. La fecha de conciliación es la posterior entre ese depósito y la reclasificación del core; la fecha contable y el débito originales no cambian. La fila y la partida quedan conciliadas, mientras el saldo del cliente continúa pendiente de devolución o aplicación. La conciliación no acredita por sí misma una gestión ni crea un pago al crédito. Al actualizar la aplicación ejecute `bench --site credinomina migrate` para incorporar las fechas nuevas.
+
 Use **Compensar con otra partida** cuando un saldo a favor documentado tenga una contrapartida contable importada. No cree otro ingreso ni otra distribución del mismo depósito para hacer desaparecer el saldo.
 
 1. Identifique el saldo a favor confirmado y el movimiento original del core. Deben corresponder a la misma empresa identificada y, para saldos de cliente, a la misma persona por número, crédito o nombre completo verificable.

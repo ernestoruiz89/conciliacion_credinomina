@@ -29,6 +29,14 @@ class ReclassificationDepositValidationTests(unittest.TestCase):
     def test_rejects_wrong_direction_and_contradictory_evidence(self):
         for field, value in [("source_debit", 0), ("source_credit", 1), ("employer", "OTRA"),
                              ("client_name", "OTRA PERSONA"), ("loan_number", "109586-2"),
-                             ("amount_usd", 19.26), ("registered_deposit", "OTRO")]:
+                             ("amount_usd", 19.26), ("registered_deposit", "OTRO"),
+                             ("accounting_classification", "Aplicación de pago")]:
             with self.subTest(field=field), self.assertRaises(frappe.ValidationError):
                 validate_pair(dict(self.item, **{field: value}), self.deposit, self.row)
+
+    def test_date_fields_are_not_settable_outside_link_action(self):
+        from credinomina_reconciliation.client_credit import guard_credit_category
+        before = frappe._dict(category="Saldo a favor del cliente", docstatus=1)
+        after = frappe._dict(before, credit_origin_date="2025-08-07")
+        with self.assertRaises(frappe.ValidationError):
+            guard_credit_category(after, before)

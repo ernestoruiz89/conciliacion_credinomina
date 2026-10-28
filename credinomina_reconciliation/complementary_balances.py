@@ -13,7 +13,7 @@ FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
           "application_adjustment_history",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
-          "credit_pending_usd", "credit_management_status", "credit_usage_issue", "credit_assigned_to", "credit_commitment_date",
+          "credit_pending_usd", "credit_management_status", "credit_usage_issue", "credit_assigned_to", "credit_commitment_date", "credit_origin_date", "reclassification_date",
           "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
           "accounting_source_key", "source_debit", "source_credit", "source_currency", "source_fx_rate", "origin_deposit"]
 _read_scope = ContextVar('cn_complementary_balance_read_scope', default=None)

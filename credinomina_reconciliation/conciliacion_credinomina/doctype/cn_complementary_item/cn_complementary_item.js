@@ -471,6 +471,11 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         const compensated = (frm.doc.compensations || []).length > 0;
         const betweenItems = frm.doc.category === "Compensación entre partidas";
+        if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
+                && frm.doc.accounting_source_key && Number(frm.doc.source_debit) > 0
+                && !Number(frm.doc.source_credit) && frm.get_perm(0, "write") && frm.get_perm(0, "submit")) {
+            frm.add_custom_button(__("Conciliar reclasificación con depósito"), () => cn_reconcile_reclassification(frm));
+        }
         if (cn_can_link_deposit(frm)) {
             frm.add_custom_button(__("Vincular a depósito"), () => cn_link_deposit(frm));
         }
@@ -896,6 +901,51 @@ async function cn_comp_create_exception(frm) {
     } finally {
         frm._cn_creating_exception = false;
     }
+}
+
+function cn_reconcile_reclassification(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de continuar."));
+    const itemName = frm.doc.name;
+    let preview = null, previewDeposit = "", choices = new Map();
+    const method = "credinomina_reconciliation.reclassification_deposit.";
+    const dialog = new frappe.ui.Dialog({title: __("Conciliar reclasificación con depósito"), size: "large", fields: [
+        {fieldtype: "HTML", options: `<p>${__("Se vincula el débito del core con una fila del depósito del mismo cliente y crédito. El saldo a favor continúa pendiente de gestión; no se crea otra partida ni un pago al crédito.")}</p>`},
+        {fieldtype: "Link", fieldname: "deposit", label: __("Depósito"), options: "CN Remittance Allocation", reqd: 1,
+            get_query: () => ({query: method + "deposit_query", filters: {item_name: itemName}}),
+            async onchange() {
+                const deposit = dialog.get_value("deposit");
+                preview = null; previewDeposit = ""; choices = new Map();
+                dialog.set_df_property("detail_row", "options", []);
+                await dialog.set_value("detail_row", "");
+                if (!deposit) return;
+                const result = (await frappe.call({method: method + "preview", args: {item_name: itemName, deposit_name: deposit}})).message;
+                if (dialog.get_value("deposit") !== deposit || frm.doc.name !== itemName) return;
+                preview = result; previewDeposit = deposit;
+                for (const row of result.rows || []) choices.set(`${__("Fila")} ${row.source_row || row.name} · ${row.client_name} · ${row.loan_number} · US$ ${Number(row.amount_usd).toFixed(2)}`, row.name);
+                dialog.set_df_property("detail_row", "options", ["", ...choices.keys()]);
+                dialog.fields_dict.dates.$wrapper.text(__("Saldo a favor desde {0}; conciliación desde {1}.", [result.credit_origin_date, result.reconciliation_date]));
+                if (!choices.size) frappe.msgprint(__("No hay una fila que coincida en cliente, crédito, empresa e importe."));
+            }},
+        {fieldtype: "Select", fieldname: "detail_row", label: __("Fila del depósito"), reqd: 1, options: []},
+        {fieldtype: "HTML", fieldname: "dates"},
+        {fieldtype: "Date", fieldname: "commitment_date", label: __("Fecha compromiso de seguimiento"), reqd: 1, default: frappe.datetime.now_date()},
+        {fieldtype: "Small Text", fieldname: "reason", label: __("Motivo y evidencia del vínculo"), reqd: 1},
+    ], primary_action_label: __("Conciliar y documentar saldo"), async primary_action(values) {
+        if (!preview || previewDeposit !== values.deposit || !choices.has(values.detail_row)
+                || frm.doc.name !== itemName || frm.is_dirty()) return;
+        dialog.disable_primary_action();
+        try {
+            const result = (await frappe.call({method: method + "link", args: {item_name: itemName,
+                deposit_name: values.deposit, detail_row: choices.get(values.detail_row),
+                item_modified: preview.item_modified, deposit_modified: preview.deposit_modified,
+                commitment_date: values.commitment_date, reason: values.reason}, freeze: true,
+                freeze_message: __("Conciliando reclasificación y depósito…")})).message;
+            dialog.hide();
+            await frm.reload_doc();
+            frappe.show_alert({message: __("Conciliado. Saldo a favor pendiente: US$ {0}.", [result.credit_pending_usd]), indicator: "green"});
+        } finally {dialog.enable_primary_action();}
+    }});
+    dialog.show();
 }
 
 async function cn_compensate_items_dialog(frm) {

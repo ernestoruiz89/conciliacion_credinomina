@@ -79,8 +79,24 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         histories[row['parent']].append(row)
 
     projected_items = {}
+    pending_reclassification_core = []
     for name, item in live_items.items():
-        if _day(item.get('source_date') or item.get('posting_date')) > cutoff:
+        reclassified = bool(item.get('reclassification_date') and item.get('credit_origin_date')
+                            and item.get('category') in CREDIT_CATEGORIES)
+        source_day = _day(item.get('source_date') or item.get('posting_date'))
+        if reclassified:
+            if source_day <= cutoff < _day(item['reclassification_date']):
+                original = deepcopy(item)
+                original.update(category='Compensación entre partidas', result='', compensated_usd=0,
+                                review_action='Compensación entre partidas')
+                original['_balance'] = financial_balance(original)
+                original['_signed_pending_usd'] = signed_pending(original, original['_balance'])
+                pending_reclassification_core.append(original)
+            if _day(item['credit_origin_date']) > cutoff:
+                continue
+            item['posting_date'] = item['credit_origin_date']
+            item['_reclassification_pending'] = cutoff < _day(item['reclassification_date'])
+        elif source_day > cutoff:
             continue
         effective = _day(item.get('posting_date')) <= cutoff
         ledger = histories[name]
@@ -286,9 +302,11 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         source['match_status'] = 'Conciliado'
 
     balances = {name: financial_balance(item, distributions[name]) for name, item in projected_items.items()}
-    core = []
+    core = list(pending_reclassification_core)
     for name, item in projected_items.items():
-        if item.get('accounting_source_key'):
+        if item.get('reclassification_date') and item.get('credit_origin_date'):
+            item['_signed_pending_usd'] = 0.0
+        if item.get('accounting_source_key') and not (item.get('reclassification_date') and item.get('credit_origin_date')):
             item['_balance'] = balances[name]
             item['_signed_pending_usd'] = signed_pending(item, balances[name])
             core.append(item)
@@ -304,7 +322,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     if include_bridge:
         # Reuse the exact effective-date projection. Do not read today's totals
         # or the unfiltered allocation journal to explain a historical balance.
-        result['bridge_context'] = dict(items=list(projected_items.values()),
+        result['bridge_context'] = dict(items=[*projected_items.values(), *pending_reclassification_core],
             deposits=projected_deposits, distributions=dict(distributions),
             offsets=[row for row in offsets if _day(row.get('compensation_date')) <= cutoff],
             sources=[dict(row, bridge_applied_usd=converted_amount(row, 'USD'),

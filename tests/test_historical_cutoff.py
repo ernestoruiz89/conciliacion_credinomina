@@ -111,6 +111,26 @@ class HistoricalCutoffTests(unittest.TestCase):
         result = self.cut(deposits=[deposit], items=[item])['summary'][0]
         self.assertEqual((result['deposit_pending_usd'], result['company_credit_usd']), (-20, 0))
 
+    def test_core_reclassification_separates_credit_origin_and_reconciliation_dates(self):
+        empty_context = ([], {}, {}, {}, {})
+        deposit = self.deposit(amount_usd=20, deposit_date='2025-04-30', allocation_detail=[])
+        item = self.item(category='Saldo a favor del cliente', result='Saldo a favor documentado',
+            posting_date='2025-06-01', source_date='2025-06-01', credit_origin_date='2025-04-30',
+            reclassification_date='2025-06-01', registered_deposit='D', credit_resolved_usd=0, credit_history='[]')
+        before = self.cut('2025-04-30', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((before['client_credit_usd'], before['core_pending_usd'], before['deposit_pending_usd']), (-20, 0, 0))
+        before_detail = self.cut('2025-04-30', [deposit], [item], context=empty_context)['detail']
+        self.assertEqual(next(row['status'] for row in before_detail if row['source_document'] == 'C'), 'Pendiente de reclasificación')
+        after = self.cut('2025-06-01', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((after['client_credit_usd'], after['core_pending_usd'], after['deposit_pending_usd']), (-20, 0, 0))
+
+        item.update(posting_date='2025-04-01', source_date='2025-04-01', credit_origin_date='2025-04-30',
+                    reclassification_date='2025-04-30')
+        before = self.cut('2025-04-15', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((before['client_credit_usd'], before['core_pending_usd']), (0, 20))
+        after = self.cut('2025-04-30', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((after['client_credit_usd'], after['core_pending_usd']), (-20, 0))
+
     def test_credit_application_plus_corrected_compensation_exhausts_balance_at_cutoff(self):
         deposit = self.deposit(amount_usd=32.63, deposit_date='2025-04-30', allocation_detail=[])
         item = self.item(category='Saldo a favor del cliente', result='Saldo a favor documentado',

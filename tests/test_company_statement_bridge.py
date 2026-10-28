@@ -123,6 +123,19 @@ def test_documentary_link_does_not_consume_refund_twice():
         assert rows[-1]['unexplained_usd'] == 0
 
 
+def test_reclassification_of_original_debit_preserves_dated_credit_and_bridge():
+    credit = item('CORE', category='Saldo a favor del cliente', result='Saldo a favor documentado',
+        amount_usd=19.25, registered_deposit='D', credit_origin_date='2025-04-30',
+        reclassification_date='2025-06-01', posting_date='2025-06-01', source_date='2025-06-01',
+        accounting_source_key='K', source_debit=19.25, credit_resolved_usd=0, credit_history='[]')
+    for day in ('2025-04-30', '2025-06-01'):
+        snapshot = project([], [deposit(19.25, allocation_detail=[])], [credit], cutoff=day)
+        core = [ledger(-19.25, 'deposit', 'D')] + ([ledger(19.25, 'item', 'CORE')] if day >= '2025-06-01' else [])
+        rows = explain(core, snapshot)
+        assert rows[-1]['statement_amount_usd'] == -19.25
+        assert rows[-1]['unexplained_usd'] == 0
+
+
 def test_unattributed_difference_and_missing_conversion_are_never_balancing_entries():
     snapshot = project()
     snapshot['detail'] = [dict(employer='E', balance_usd=12.34)]
