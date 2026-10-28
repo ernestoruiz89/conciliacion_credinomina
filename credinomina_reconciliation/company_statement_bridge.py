@@ -18,7 +18,7 @@ from credinomina_reconciliation.deposit_difference_report import load as load_de
 BRIDGE = 'Conciliación'
 SCOPED_FILTERS = ('from_date', 'to_date', 'source_account', 'source_currency', 'component',
     'status', 'origin_type', 'category', 'reason_type', 'subcategory', 'accounting_status',
-    'management_status', 'treatment_status', 'search')
+    'management_status', 'treatment_status', 'difference_treatment', 'search')
 
 
 def _total(values):
@@ -46,6 +46,8 @@ def execute(filters):
             bridge_concept=_('Diferencia de depósito; control de registro en core'),
             bridge_registration=difference['status'], statement_amount_usd=0.0,
             management_amount_usd=None, cutoff_date=str(scope['cutoff_date'])))
+    from credinomina_reconciliation.difference_reasons import attach_treatments
+    attach_treatments(rows)
     message = _('Saldo contable + diferencias identificadas + diferencia sin explicar = saldo de gestión. '
         'El saldo de gestión suma aplicaciones pendientes y CxC, y resta saldos a favor y depósitos sin asignar. '
         'Se calcula de forma independiente: las diferencias de esta comparación no se suman nuevamente al saldo de gestión '
@@ -210,6 +212,7 @@ def _explanation(company, members, nodes, ledger, context):
         event_date=source.get('deposit_date') or source.get('posting_date') or source.get('event_date'),
         related_documents=', '.join(documents), related_deposits=', '.join(sorted({entry['deposit'] for entry in uses})),
         accounting_status=source.get('accounting_status') or '', client_name=source.get('client_name') or '',
+        difference_reason=source.get('difference_reason') or '',
         reference=source.get('deposit_voucher') or source.get('source_voucher') or source.get('voucher') or source.get('reference') or '',
         observation=source.get('description') or source.get('source_description') or '',
         bridge_registration=_('Verificar vínculo'), bridge_concept=_('Diferencia entre origen y gestión'))
@@ -272,6 +275,7 @@ def get_columns(filters):
         dict(fieldname='statement_amount_usd', label=_('Importe US$'), fieldtype='Currency', options='usd_currency', width=140, precision=2),
         dict(fieldname='pending_core_difference_usd', label=_('Diferencia depósito pendiente en core US$'), fieldtype='Currency', options='usd_currency', width=200, precision=2),
         dict(fieldname='source_document', label=_('Documento de origen'), fieldtype='Dynamic Link', options='source_doctype', width=200),
+        dict(fieldname='difference_treatment', label=_('Tratamiento de diferencia'), fieldtype='Data', width=185),
         dict(fieldname='bridge_registration', label=_('Acción / registro'), fieldtype='Data', width=220),
         dict(fieldname='event_date', label=_('Fecha de origen'), fieldtype='Date', width=110),
         dict(fieldname='related_deposits', label=_('Depósitos relacionados'), fieldtype='Data', width=200),

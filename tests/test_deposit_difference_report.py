@@ -81,7 +81,9 @@ def test_company_report_shows_control_once_without_changing_client_pending():
     management = build_detail(applications, [], [], [])
     with patch.object(statement_report, 'load_core_detail', return_value=[]), \
             patch.object(statement_report, 'load_detail', return_value=management), \
-            patch.object(statement_report, 'load_deposit_differences', return_value=control):
+            patch.object(statement_report, 'load_deposit_differences', return_value=control), \
+            patch('credinomina_reconciliation.report_records.records', return_value=[
+                dict(name='Diferencia de importe', treatment='A Favor Empresa')]):
         summary = statement_report.execute({'employer': 'ACEREAL'})[1][0]
         rows = statement_report.execute({'view_mode': 'Detalle', 'employer': 'ACEREAL'})[1]
     assert summary['management_net_usd'] == 9.32
@@ -100,7 +102,9 @@ def test_bridge_control_never_changes_the_running_balance():
             patch.object(bridge, 'load_cutoff', return_value={}), \
             patch.object(bridge, 'build_bridge', return_value=[closing]), \
             patch.object(bridge, 'cutoff_message', return_value='Corte'), \
-            patch.object(bridge, 'load_deposit_differences', return_value=control):
+            patch.object(bridge, 'load_deposit_differences', return_value=control), \
+            patch('credinomina_reconciliation.report_records.records', return_value=[
+                dict(name='Diferencia de importe', treatment='A Favor Empresa')]):
         _, rows, _ = bridge.execute({'employer': 'ACEREAL'})
     assert rows[0] == closing
     assert rows[1]['bridge_row_type'] == 'documentary'

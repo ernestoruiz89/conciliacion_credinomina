@@ -6,6 +6,7 @@ from credinomina_reconciliation.rounding import decimal_value
 
 
 DOCTYPE = "CN Difference Reason"
+CREDIT_COMPONENTS = {"core_pending_usd", "deposit_pending_usd", "client_credit_usd", "company_credit_usd"}
 DEFAULTS = (
     ("Liquidación pendiente de cobro", "La aplicación o liquidación está registrada, pero falta acreditar el cobro."),
     ("Saldo a favor", "Posible excedente por verificar; esta etiqueta no documenta ni crea un saldo a favor."),
@@ -14,6 +15,39 @@ DEFAULTS = (
     ("Diferencia de importe", "Los importes de las fuentes no coinciden; falta revisar el soporte."),
     ("Otro por aclarar", "Diferencia pendiente de identificar con su soporte."),
 )
+
+
+def attach_treatments(rows, *, classify_credits=False):
+    """Classify report rows from the readable catalog in one batched lookup.
+
+    Grouped applications can carry several reason labels. Preserve each
+    classification without inventing an allocation of the grouped amount.
+    """
+    from credinomina_reconciliation.report_records import records
+    from credinomina_reconciliation.rounding import money, money_float
+
+    if not any(row.get("difference_reason") for row in rows):
+        return
+    treatments = {reason["name"]: reason.get("treatment") or ""
+                  for reason in records(DOCTYPE, fields=["name", "treatment"])}
+    order = ("A Favor Cliente", "A Favor Empresa")
+    for row in rows:
+        reason = row.get("difference_reason") or ""
+        if not reason:
+            continue
+        names = [reason] if reason in treatments else reason.split(" · ")
+        selected = {treatments.get(name) for name in names}
+        row["difference_treatment"] = " · ".join(value for value in order if value in selected)
+        # Classification changes the report bucket, never the signed balance.
+        # Mixed/unclassified grouped reasons cannot classify the entire amount.
+        field = {"A Favor Cliente": "client_credit_usd", "A Favor Empresa": "company_credit_usd"}.get(
+            next(iter(selected)) if len(selected) == 1 else None)
+        amount, previous = row.get("management_amount_usd"), row.get("_component")
+        if (classify_credits and field and previous in CREDIT_COMPONENTS and row.get("statement_scope") == "Gestión"
+                and amount is not None and money(amount) < 0 and previous != field):
+            row[previous] = 0.0
+            row[field] = money_float(amount)
+            row["_component"] = field
 
 
 def seed_reasons():

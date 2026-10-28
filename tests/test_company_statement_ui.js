@@ -13,6 +13,8 @@ assert.ok(report.filters.some(f => f.fieldname === 'accounting_queue' && f.field
 assert.ok(report.filters.some(f => f.fieldname === 'origin_type'));
 assert.ok(report.filters.some(f => f.fieldname === 'statement_scope' && f.options.includes('Contabilidad del core')));
 assert.ok(report.filters.some(f => f.fieldname === 'source_account'));
+assert.equal(report.filters.find(f => f.fieldname === 'difference_treatment').options, '\nA Favor Cliente\nA Favor Empresa');
+assert.equal(report.bridge_reset().difference_treatment, '');
 const col = {fieldname: 'balance_usd', fieldtype: 'Currency'}, base = v => `formatted:${v}`;
 assert.match(report.formatter(null, null, col, {balance_usd: null}, base), /—/);
 assert.equal(report.formatter(0, null, col, {balance_usd: 0}, base), 'formatted:0');

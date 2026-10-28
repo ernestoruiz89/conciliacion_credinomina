@@ -6,6 +6,7 @@ from credinomina_reconciliation.rounding import money, money_float
 
 from credinomina_reconciliation.company_statement import load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
+from credinomina_reconciliation.difference_reasons import CREDIT_COMPONENTS, attach_treatments
 from credinomina_reconciliation.company_accounting_statement import (
     CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS, POSITION_METRICS, POSITION_FIELDS,
     load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
@@ -19,6 +20,10 @@ def execute(filters=None):
         return bridge(filters)
     validate_dates(filters)
     scope = {key: value for key, value in filters.items() if key != 'status'}
+    # Classifications can move a pending credit between components. Filter
+    # after classification so the drill-down uses the same rows as the summary.
+    if filters.get('component') in CREDIT_COMPONENTS:
+        scope.pop('component', None)
     section = selected_scope(filters)
     detail, cutoff = [], None
     if section != MANAGEMENT:
@@ -34,6 +39,7 @@ def execute(filters=None):
         if str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
             differences = [row for row in differences if row['accounting_pending']]
         detail.extend(differences)
+    attach_treatments(detail, classify_credits=True)
     data = _presentation(detail, filters)
     message = (_('Saldo contable del core = débitos originales − créditos originales. ')
         if section == CORE else _('Saldo = pendientes − saldos a favor − otros créditos pendientes. '
@@ -44,6 +50,7 @@ def execute(filters=None):
             if section == CORE else _('El detalle muestra cada pendiente o crédito una sola vez y su saldo neto al pie. '))
         message += _comparison_message(detail, filters)
     message += _('La vista Conciliación explica cualquier diferencia con el saldo contable e identifica el registro pendiente. ')
+    message += _('Tratamiento de diferencia usa la clasificación actual de la razón asignada, también en cortes históricos. ')
     if section != CORE:
         message += _('Diferencia de depósito pendiente en core es un control informativo separado: no se suma al saldo de gestión ni elimina pendientes de clientes. En cortes anteriores, su estado puede no ser determinable por falta de historial de vínculos. ')
     message += '<details><summary>' + _('Cómo comparar con el Excel') + '</summary>' + _(
@@ -175,6 +182,7 @@ def get_columns(filters=None):
             {'fieldname': 'period', 'label': _('Período'), 'fieldtype': 'Link', 'options': 'CN Reconciliation Period', 'width': 170},
             *[{'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
               for field, label, width in [('status', 'Estado de conciliación', 190), ('category', 'Concepto', 170), ('subcategory', 'Subcategoría', 170), ('reason_type', 'Motivo', 165), ('difference_reason', 'Razón de la diferencia', 190),
+                  ('difference_treatment', 'Tratamiento de diferencia', 185),
                   ('related_deposits', 'Depósitos relacionados', 195), ('treatment_status', 'Tratamiento', 200),
                   ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                   ('reference', 'Referencia / asiento', 155), ('source_rows', 'Filas de origen', 120),
@@ -211,7 +219,7 @@ def get_columns(filters=None):
         if (filters or {}).get('view_mode') == 'Detalle':
             visible = ('employer', 'event_date', 'client_name', 'statement_scope', 'position_type',
                        'statement_amount_usd', 'pending_core_difference_usd',
-                       'status', 'origin_type', 'accounting_status', 'source_document')
+                       'status', 'difference_treatment', 'origin_type', 'accounting_status', 'source_document')
             by_field = {column['fieldname']: column for column in columns}
             columns = [by_field[field] for field in visible] + [column for column in columns if column['fieldname'] not in visible]
             for column in columns:
