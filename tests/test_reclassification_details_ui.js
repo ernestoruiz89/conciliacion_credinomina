@@ -15,6 +15,13 @@ const wrapper = {html(value) {html = value;}, empty() {html = '';}};
 const frm = {doc: {name: 'CN-COMP-2026-00515', __onload: {has_reclassification_distributions: true}},
     is_new: () => false, fields_dict: {reclassification_details: {$wrapper: wrapper}}};
 (async () => {
+    const removed = [];
+    const settled = {doc: {docstatus: 1, category: 'Compensación entre partidas', pending_usd: 0}, remove_custom_button: label => removed.push(label)};
+    assert.equal(ctx.cn_has_available_balance(settled), false);
+    ctx.cn_hide_exhausted_actions(settled, {pending_usd: 0});
+    assert.ok(removed.includes('Distribuir a Depósito') && removed.includes('Compensar con otra partida'));
+    assert.ok(!removed.includes('Eliminar distribución'));
+    assert.equal(ctx.cn_has_available_balance({...settled, doc: {...settled.doc, pending_usd: .01}}), true);
     await ctx.cn_render_reclassification_details(frm);
     assert.match(html, /DEP-11-2025-0021/);
     assert.match(html, /cn-remittance-allocation\/DEP-11-2025-0021/);

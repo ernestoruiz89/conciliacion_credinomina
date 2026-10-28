@@ -61,6 +61,8 @@ def allocations(item):
 def guard_journal(item, previous=None):
     if _writer.get():
         return
+    if (item.get('reclassification_deletions') or '') != ((previous or {}).get('reclassification_deletions') or ''):
+        frappe.throw(_("La auditoría de distribuciones eliminadas no se puede editar."))
     current, old = allocations(item), allocations(previous or {})
     if current != old:
         frappe.throw(_("Use la acción de distribución para modificar el diario de reclasificación."))

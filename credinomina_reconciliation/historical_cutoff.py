@@ -86,6 +86,9 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     for name, item in live_items.items():
         from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, allocations
         item[RECLASS_FIELD] = [entry for entry in allocations(item) if _day(entry['effective_date']) <= cutoff]
+        for entry in item[RECLASS_FIELD]:
+            if entry.get('management_history'):
+                entry['management_history'] = [row for row in entry['management_history'] if _day(row['fecha']) <= cutoff]
         reclassified = bool(item.get('reclassification_date') and item.get('credit_origin_date')
                             and item.get('category') in CREDIT_CATEGORIES)
         source_day = _day(item.get('source_date') or item.get('posting_date'))

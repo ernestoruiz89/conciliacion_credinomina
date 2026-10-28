@@ -13,7 +13,7 @@
     "loan_number", "legacy_installment_number", "support_section", "description", "support_column", "support_file",
     "tratamiento_tab", "review_section", "review_status", "origin_deposit", "review_action", "application_adjustment_usd",
     "amount_reviewed", "review_notes", "review_column", "related_import", "related_application", "adjustment_periods",
-    "adjustment_collection_rows", "application_links_preview", "application_adjustment_history", "reclassification_allocations", "compensation_section", "compensation_status", "compensated_usd",
+    "adjustment_collection_rows", "application_links_preview", "application_adjustment_history", "reclassification_allocations", "reclassification_deletions", "compensation_section", "compensation_status", "compensated_usd",
     "compensation_column", "compensation_pending_usd", "compensation_history_section", "compensations", "credit_section", "registered_deposit",
     "reason_type", "credit_column", "result", "deposit_voucher", "legacy_surplus_id", "legacy_surplus_snapshot",
     "client_credit_section", "credit_client", "credit_detail_row", "credit_origin_date", "reclassification_date", "credit_detail_preview", "select_credit_detail", "credit_treatment",
@@ -33,6 +33,7 @@
   "fields": [
     {"fieldname": "difference_documentation_section", "fieldtype": "Section Break", "label": "Documentación de diferencias"},
     {"fieldname": "reclassification_allocations", "fieldtype": "Code", "options": "JSON", "label": "Distribución de reclasificación", "permlevel": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "hidden": 1, "description": "Diario de porciones de un movimiento del core; se modifica mediante la acción autorizada."},
+    {"fieldname": "reclassification_deletions", "fieldtype": "Code", "options": "JSON", "label": "Auditoría de distribuciones eliminadas", "permlevel": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "hidden": 1},
     {"fieldname": "credit_origin_date", "fieldtype": "Date", "label": "Fecha de origen del saldo a favor", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "reclassification_date", "description": "Fecha del depósito donde se recibió el saldo a favor."},
     {"fieldname": "reclassification_date", "fieldtype": "Date", "label": "Fecha de conciliación de la reclasificación", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "reclassification_date", "description": "La fecha posterior entre el depósito y la reclasificación importada del core."},
     {"fieldname": "difference_reason", "read_only": 1, "fieldtype": "Link", "options": "CN Difference Reason", "label": "Razón de la diferencia", "allow_on_submit": 1, "no_copy": 1, "description": "Clasificación documental; no cambia saldos ni concilia."},

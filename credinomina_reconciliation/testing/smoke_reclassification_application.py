@@ -88,6 +88,21 @@ def run():
                     assert not unique.loan_number and not unique.client_number and not unique.reference
             assert (unique.loan_number, unique.client_number) == ("124-1", "556")
             assert not unique.reference  # A voucher is not a deposit reference.
+            from credinomina_reconciliation.reclassification_distribution import allocations
+            from credinomina_reconciliation.reclassification_removal import preview, remove
+            operation = allocations(unique)[0]['operation_id']
+            checked = preview(unique.name, operation)
+            assert checked['remaining_usd'] == .01
+            try:
+                remove(unique.name, operation, checked['token'] + '-stale', 'Prueba de concurrencia')
+            except frappe.ValidationError:
+                pass
+            else:
+                raise AssertionError('Una vista previa inválida no puede eliminar distribuciones')
+            remove(unique.name, operation, checked['token'], 'Corrección del vínculo')
+            unique.reload(); other_parent.reload()
+            assert len(allocations(unique)) == 1
+            assert other_parent.rows[0].application_adjustment_usd == .03
             return dict(application_adjustment=.03, original_remaining=.07,
                         different_company_authorized=True, rolled_back=True)
     finally:

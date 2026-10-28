@@ -20,6 +20,7 @@ async function cn_render_complementary_balance(frm) {
         const {message: value} = await frappe.call({method: "credinomina_reconciliation.complementary_balances.get_balance", args: {item_name: name}});
         if (frm.doc.name !== name || sequence !== frm.cn_balance_sequence) return;
         frm.doc.__onload.cn_balance = {...value, state: value.reconciliation_state || value.financial_status};
+        cn_hide_exhausted_actions(frm, value);
         frm.toolbar?.set_indicator?.();
         const cells = [["Importe original US$", value.original_usd], [value.used_label + " US$", value.used_usd], ["Pendiente de conciliar US$", value.pending_usd]];
         const receivableSum = field => value.receivable_companies.some(row => row[field] == null) ? "N/D"
@@ -42,6 +43,22 @@ async function cn_render_complementary_balance(frm) {
             frm.toolbar?.set_indicator?.();
             wrapper.html(`<p class="text-danger">${__("No se pudo consultar el saldo. Recargue el formulario; no lo interprete como saldo cero.")}</p>`);
         }
+    }
+}
+
+function cn_has_available_balance(frm, balance = null) {
+    const credit = ['Saldo a favor del cliente', 'Saldo a favor de la empresa'].includes(frm.doc.category);
+    const value = balance ? (credit ? balance.management_pending_usd : balance.pending_usd)
+        : frm.doc.docstatus === 0 ? Math.abs(Number(frm.doc.amount_usd || 0))
+        : credit ? frm.doc.credit_pending_usd : frm.doc.pending_usd;
+    return value != null && Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function cn_hide_exhausted_actions(frm, balance) {
+    if (cn_has_available_balance(frm, balance)) return;
+    for (const label of ['Compensar con otra partida', 'Distribuir a Depósito', 'Conciliar reclasificación con depósito',
+        'Vincular a depósito', 'Distribuir entre aplicaciones', 'Vincular a aplicación', 'Aplicar a aplicación contable']) {
+        frm.remove_custom_button?.(__(label));
     }
 }
 
@@ -517,21 +534,23 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.add_custom_button(__("Clasificar pendiente"), () => cn_classify_pending(frm));
         }
         const compensated = (frm.doc.compensations || []).length > 0;
+        const hasAvailable = cn_has_available_balance(frm);
         const betweenItems = frm.doc.category === "Compensación entre partidas";
         if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
                 && frm.doc.accounting_source_key && frm.get_perm(0, "write") && frm.get_perm(0, "submit")
                 && ((Number(frm.doc.source_debit) > 0 && !Number(frm.doc.source_credit))
                     || (Number(frm.doc.source_credit) > 0 && !Number(frm.doc.source_debit)))) {
-            frm.add_custom_button(__("Distribuir a Depósito"), () => cn_distribute_core_item(frm));
+            if (hasAvailable) frm.add_custom_button(__("Distribuir a Depósito"), () => cn_distribute_core_item(frm));
             frm.add_custom_button(__("Gestionar saldo de distribución"), () => cn_manage_split_credit(frm), __("Más acciones"));
+            if (frm.doc.__onload?.has_reclassification_distributions) frm.add_custom_button(__("Eliminar distribución"), () => cn_remove_split_distribution(frm), __("Más acciones"));
         }
         if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
-                && !frm.doc.__onload?.has_reclassification_distributions
+                && hasAvailable && !frm.doc.__onload?.has_reclassification_distributions
                 && frm.doc.accounting_source_key && Number(frm.doc.source_debit) > 0
                 && !Number(frm.doc.source_credit) && frm.get_perm(0, "write") && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Conciliar reclasificación con depósito"), () => cn_reconcile_reclassification(frm));
         }
-        if (cn_can_link_deposit(frm)) {
+        if (hasAvailable && cn_can_link_deposit(frm)) {
             frm.add_custom_button(__("Vincular a depósito"), () => cn_link_deposit(frm));
         }
         const documentedCredit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category)
@@ -563,12 +582,12 @@ frappe.ui.form.on("CN Complementary Item", {
             && !frm.doc.credit_usage_issue
             && (documentedCredit ? (frm.doc.credit_pending_usd > 0 || (frm.doc.credit_history && frm.doc.credit_history !== "[]"
                 && (!compensated || frm.doc.compensation_pending_usd > 0))) : (!compensated || frm.doc.compensation_pending_usd > 0))) {
-            frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
+            if (hasAvailable) frm.add_custom_button(__("Compensar con otra partida"), () => cn_compensate_items_dialog(frm));
         }
         if (!frm.is_new() && frm.get_perm(0, "write") && !betweenItems && !compensated
                 && ((frm.doc.docstatus === 0 && !["Saldo a favor del cliente", "Saldo a favor de la empresa", "Diferencia por tolerancia"].includes(frm.doc.category))
                     || (frm.doc.docstatus === 1 && frm.doc.category === "Ajuste de aplicación" && frm.get_perm(0, "submit")))) {
-            frm.add_custom_button(__("Distribuir entre aplicaciones"), () => cn_distribute_applications(frm));
+            if (hasAvailable) frm.add_custom_button(__("Distribuir entre aplicaciones"), () => cn_distribute_applications(frm));
         }
         cn_render_application_links(frm);
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
@@ -606,8 +625,9 @@ frappe.ui.form.on("CN Complementary Item", {
             return;
         }
         if (betweenItems) {
-            frm.dashboard.set_headline_alert(__("{0}. Use Compensar con otra partida para confirmar nuevas compensaciones. No registra depósitos ni modifica aplicaciones. El historial conserva ambas partidas.",
-                [frm.doc.compensation_status || __("Sin compensar")]), frm.doc.compensation_pending_usd === 0 && compensated ? "green" : "orange");
+            frm.dashboard.set_headline_alert(hasAvailable
+                ? __("Hay saldo disponible para nuevas distribuciones o compensaciones. Consulte el detalle de los vínculos realizados.")
+                : __("La partida no tiene saldo disponible para nuevas distribuciones o compensaciones. Consulte sus vínculos y la gestión de los saldos a favor."), hasAvailable ? "orange" : "green");
             return;
         }
         if (frm.doc.accounting_source_key && frm.doc.docstatus === 0) {
@@ -1024,6 +1044,46 @@ async function cn_distribute_core_item(frm) {
         }
         dialog.set_df_property("target", "options", ["", ...choices.keys()]);
         if (!choices.size) frappe.msgprint(__("No hay filas disponibles para seleccionar en este documento."));
+    }
+    dialog.show();
+}
+
+async function cn_remove_split_distribution(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de continuar."));
+    const itemName = frm.doc.name;
+    const {message: history} = await frappe.call({method: 'credinomina_reconciliation.reclassification_distribution.distribution_history', args: {item_name: itemName}});
+    const choices = new Map((history.entries || []).map(entry => [
+        `${entry.kind} · ${entry.parent_document} · ${entry.client_name || entry.employer} · US$ ${Number(entry.amount_usd).toFixed(2)} · ${entry.operation_id}`, entry.operation_id]));
+    if (!choices.size) return frappe.msgprint(__("No hay distribuciones para eliminar."));
+    let checked = null, busy = false;
+    const esc = value => frappe.utils.escape_html(String(value ?? ''));
+    const method = 'credinomina_reconciliation.reclassification_removal.';
+    const dialog = new frappe.ui.Dialog({title: __("Eliminar distribución"), size: 'large', fields: [
+        {fieldtype: 'Select', fieldname: 'operation', label: __("Distribución realizada"), options: ['', ...choices.keys()], reqd: 1,
+            onchange() {checked = null; dialog.fields_dict.result.$wrapper.empty(); dialog.set_primary_action(__("Comprobar eliminación"), submit);}},
+        {fieldtype: 'Small Text', fieldname: 'reason', label: __("Motivo de eliminación"), reqd: 1},
+        {fieldtype: 'HTML', fieldname: 'result'},
+    ], primary_action_label: __("Comprobar eliminación"), primary_action: submit});
+    async function submit(values) {
+        values ||= dialog.get_values();
+        if (!values || busy || frm.doc.name !== itemName || frm.is_dirty()) return;
+        const operation = choices.get(values.operation);
+        if (!operation) return;
+        busy = true; dialog.get_primary_btn().prop('disabled', true);
+        try {
+            if (!checked || checked.operation !== operation) {
+                const {message} = await frappe.call({method: method + 'preview', args: {item_name: itemName, operation_id: operation}});
+                if (choices.get(dialog.get_value('operation')) !== operation) return;
+                checked = {operation, ...message};
+                dialog.fields_dict.result.$wrapper.html(`<p>${esc(__("Destino"))}: ${esc(message.destination)} · ${esc(__("Importe a retirar"))}: ${esc(format_currency(message.amount_usd, 'USD', 2))}</p><p>${esc(__("Saldo disponible de la partida después de eliminar"))}: ${esc(format_currency(message.remaining_usd, 'USD', 2))}</p><p>${esc(__("La eliminación recalcula el destino y los cortes históricos. La fila del depósito quedará pendiente de selección manual."))}</p>`);
+                dialog.set_primary_action(__("Eliminar y recalcular"), submit);
+                return;
+            }
+            await frappe.call({method: method + 'remove', args: {item_name: itemName, operation_id: operation, token: checked.token, reason: values.reason}, freeze: true});
+            dialog.hide(); await frm.reload_doc();
+            frappe.show_alert({message: __("Distribución eliminada y saldos recalculados."), indicator: 'green'});
+        } catch (error) {checked = null; throw error;}
+        finally {busy = false; dialog.get_primary_btn().prop('disabled', false);}
     }
     dialog.show();
 }
