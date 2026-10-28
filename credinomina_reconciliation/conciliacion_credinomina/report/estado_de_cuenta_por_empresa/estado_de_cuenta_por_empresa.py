@@ -5,6 +5,7 @@ from frappe import _
 from credinomina_reconciliation.rounding import money, money_float
 
 from credinomina_reconciliation.company_statement import load_detail
+from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.company_accounting_statement import (
     CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS, POSITION_METRICS, POSITION_FIELDS,
     load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
@@ -28,6 +29,11 @@ def execute(filters=None):
         detail.extend(management_detail(cutoff['detail']))
     elif section != CORE:
         detail.extend(management_detail(load_detail(scope)))
+    if section != CORE and not filters.get('component'):
+        differences = load_deposit_differences(scope)
+        if str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
+            differences = [row for row in differences if row['accounting_pending']]
+        detail.extend(differences)
     data = _presentation(detail, filters)
     message = (_('Saldo contable del core = débitos originales − créditos originales. ')
         if section == CORE else _('Saldo = pendientes − saldos a favor − otros créditos pendientes. '
@@ -38,6 +44,8 @@ def execute(filters=None):
             if section == CORE else _('El detalle muestra cada pendiente o crédito una sola vez y su saldo neto al pie. '))
         message += _comparison_message(detail, filters)
     message += _('La vista Conciliación explica cualquier diferencia con el saldo contable e identifica el registro pendiente. ')
+    if section != CORE:
+        message += _('Diferencia de depósito pendiente en core es un control informativo separado: no se suma al saldo de gestión ni elimina pendientes de clientes. En cortes anteriores, su estado puede no ser determinable por falta de historial de vínculos. ')
     message += '<details><summary>' + _('Cómo comparar con el Excel') + '</summary>' + _(
         'Seleccione Contabilidad del core y use la misma empresa, cuenta, moneda y fechas del Excel. '
         'Se incluyen los movimientos originales importados, aunque estén conciliados, ignorados o cancelados dentro de la app; '
@@ -55,7 +63,7 @@ def execute(filters=None):
         'por conciliar y los depósitos sin asignar. Pendientes agrupa los importes positivos antes de descontar los créditos. '
         'En Detalle se consulta una base por vez: pendientes o movimientos contables completos. '
         'El saldo contable se compara con el saldo de pendientes; nunca se suma a él. '
-        'Sin registro cuenta complementarias manuales pendientes de asiento, incluso si su gestión ya terminó. '
+        'Sin registro incluye complementarias manuales y diferencias de depósito pendientes en el core. '
         'El reporte incluye evidencia importada visible para su usuario; las líneas ausentes del sistema deben identificarse al cotejar el Excel.') + '</details>'
     if cutoff:
         message += '<br>' + cutoff_message(cutoff)
@@ -141,6 +149,8 @@ def get_columns(filters=None):
     columns += [{'fieldname': field, 'label': _(label), 'fieldtype': 'Currency',
                  'options': 'nio_currency' if field.endswith('_nio') else 'usd_currency', 'precision': 2, 'width': 180}
                 for field, label in (*CORE_METRICS, *MANAGEMENT_METRICS)]
+    columns.append({'fieldname': 'pending_core_difference_usd', 'label': _('Diferencia depósito pendiente en core US$'),
+                    'fieldtype': 'Currency', 'options': 'usd_currency', 'precision': 2, 'width': 205})
     if (filters or {}).get('view_mode') == 'Detalle':
         for column in columns:
             if column['fieldname'] in {'core_balance_usd', 'core_balance_nio'}:
@@ -177,7 +187,7 @@ def get_columns(filters=None):
         ]
         # The compact view keeps a single amount; expanded columns retain the audit detail.
         leading = ('employer', 'event_date', 'client_name', 'client_number', 'loan_number',
-                   'statement_scope', 'position_type', 'statement_amount_usd', 'origin_type', 'accounting_status', 'source_document')
+                   'statement_scope', 'position_type', 'statement_amount_usd', 'pending_core_difference_usd', 'origin_type', 'accounting_status', 'source_document')
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
@@ -185,11 +195,11 @@ def get_columns(filters=None):
             for field, label in (*POSITION_METRICS, ('reconciliation_difference_usd', 'Diferencia saldo − core US$'))]
         columns.insert(1, {'fieldname': 'core_movement_count', 'label': _('Movimientos del core'), 'fieldtype': 'Int', 'width': 140})
         columns.insert(1, {'fieldname': 'pending_count', 'label': _('Partidas pendientes'), 'fieldtype': 'Int', 'width': 130})
-        columns.insert(2, {'fieldname': 'accounting_pending_count', 'label': _('Complementarias sin registro'),
+        columns.insert(2, {'fieldname': 'accounting_pending_count', 'label': _('Pendientes de registro'),
                            'fieldtype': 'Int', 'width': 180})
         leading = (('employer', 'core_debit_usd', 'core_credit_usd', 'core_balance_usd', 'core_movement_count') if section == CORE else
             ('employer', 'management_pending_usd', 'client_credit_usd', 'company_credit_usd', 'other_credit_usd',
-             'management_net_usd', 'core_balance_usd', 'reconciliation_difference_usd', 'pending_count', 'accounting_pending_count'))
+             'management_net_usd', 'core_balance_usd', 'reconciliation_difference_usd', 'pending_core_difference_usd', 'pending_count', 'accounting_pending_count'))
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     if (filters or {}).get('cutoff_date'):
@@ -200,7 +210,7 @@ def get_columns(filters=None):
     if str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
         if (filters or {}).get('view_mode') == 'Detalle':
             visible = ('employer', 'event_date', 'client_name', 'statement_scope', 'position_type',
-                       'statement_amount_usd',
+                       'statement_amount_usd', 'pending_core_difference_usd',
                        'status', 'origin_type', 'accounting_status', 'source_document')
             by_field = {column['fieldname']: column for column in columns}
             columns = [by_field[field] for field in visible] + [column for column in columns if column['fieldname'] not in visible]
@@ -247,7 +257,7 @@ def get_columns(filters=None):
                 column['hidden'] = 1
     if section == CORE:
         excluded = {*MANAGEMENT_FIELDS, 'management_amount_usd', 'pending_count', 'accounting_pending_count',
-                    *POSITION_FIELDS, 'reconciliation_difference_usd'}
+                    *POSITION_FIELDS, 'reconciliation_difference_usd', 'pending_core_difference_usd'}
     elif section == MANAGEMENT:
         excluded = {*CORE_FIELDS, 'core_movement_count', 'statement_amount_nio', 'reconciliation_difference_usd'}
     else:

@@ -149,12 +149,13 @@ def test_entry_point_is_dated_and_preserves_report_data_for_export():
     snapshot = project()
     with patch.object(bridge, 'load_core_detail', return_value=[]) as core, \
             patch.object(bridge, 'load_cutoff', return_value=snapshot) as cut, \
+            patch.object(bridge, 'load_deposit_differences', return_value=[]), \
             patch.object(bridge, 'cutoff_message', return_value='Corte efectivo 31/05/2025'), \
             patch.object(bridge, 'nowdate', return_value='2025-05-31'):
         columns, rows, message = report.execute(dict(view_mode='Conciliación', employer='E', compact_view=1))
     core.assert_called_once_with(dict(employer='E', cutoff_date='2025-05-31'))
     cut.assert_called_once_with(dict(employer='E', cutoff_date='2025-05-31'), include_bridge=True)
-    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd']
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd', 'pending_core_difference_usd']
     assert rows[-1]['bridge_concept'] == 'Saldo de gestión'
     assert 'no representa por sí solo un asiento' in message
     def reject(message):

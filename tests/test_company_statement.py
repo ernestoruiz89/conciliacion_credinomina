@@ -4,11 +4,17 @@ from pathlib import Path
 from unittest.mock import patch
 
 import frappe
+import pytest
 
 from credinomina_reconciliation import company_statement as statement
 from credinomina_reconciliation.complementary_balances import financial_balance
 from credinomina_reconciliation.core_item_position import signed_pending
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as report
+
+
+@pytest.fixture(autouse=True)
+def no_documented_deposit_differences(monkeypatch):
+    monkeypatch.setattr(report, 'load_deposit_differences', lambda filters: [])
 
 
 class CompanyStatementTests(unittest.TestCase):
@@ -52,7 +58,7 @@ class CompanyStatementTests(unittest.TestCase):
         compact = [c for c in report.get_columns() if c['fieldtype'] == 'Currency'
                    and c['fieldname'] in statement.FIELDS]
         expanded = [c for c in report.get_columns({'view_mode': 'Detalle'}) if c['fieldtype'] == 'Currency'
-                    and c['fieldname'] not in {'management_amount_usd', 'statement_amount_usd', 'statement_amount_nio'}]
+                    and c['fieldname'] not in {'management_amount_usd', 'statement_amount_usd', 'statement_amount_nio', 'pending_core_difference_usd'}]
         self.assertEqual({c['fieldname'] for c in compact}, {c['fieldname'] for c in expanded})
 
     def test_summary_default_detail_uses_identical_source_and_filters(self):

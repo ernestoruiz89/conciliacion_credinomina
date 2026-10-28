@@ -775,3 +775,41 @@ residuales de ±US$0.01 sin partidas automáticas.
 Pruebas focalizadas: `tests/test_difference_documentation.py`,
 `tests/test_rounding.py`, `tests/test_difference_documentation_ui.js`,
 `tests/test_period_pending_ui.js` y pruebas de clientes/empresas/CxC actualizadas.
+
+### Desconciliación por fila del depósito — 27 de octubre de 2026
+
+El parche `add_manual_detail_reconciliation` agrega el botón y la opción
+**Solo conciliación manual** sin alterar distribuciones existentes. En el sitio
+desechable `cn-reconciliation-test.local`, ejecutar
+`credinomina_reconciliation.testing.smoke_remittance_row_reconciliation.run`
+después de sincronizar el DocType `CN Remittance Detail`.
+
+El ensayo revierte sus documentos. Comprueba selección exacta y FIFO, bloqueo
+de períodos cerrados, liberación de una sola fila, conservación de otra fila y
+de otro depósito que paga la misma aplicación, actualización de saldos,
+ausencia de reasignación automática, nueva selección manual y reapertura del
+saldo de una partida importada sin cancelar su movimiento original.
+
+En Frappe 16.52.0 / Python 3.14.6 pasan 22 pruebas focalizadas y 2 subpruebas de
+`test_deposit_difference.py` y `test_remittance_row_reconciliation.py`, además
+de las pruebas JavaScript de desconciliación por fila, alias y diferencia
+documentada. En la comprobación ampliada pasaron 74 pruebas y 38 subpruebas; cuatro
+fallos de fixtures/expectativas antiguas en `test_remittance_fifo.py` y
+`test_deposit_reconciliation.py` se reprodujeron también en `98015b5`.
+
+### Diferencia de empresa pendiente en el core
+
+El estado de cuenta presenta un control informativo por depósito en la columna
+**Diferencia depósito pendiente en core US$**. No altera los saldos ni los
+movimientos originales del core. Un vínculo al core pendiente de conciliación
+no se clasifica como registro faltante; duplicados o evidencias inconsistentes
+se presentan para revisión. Para cortes históricos anteriores no se inventa la
+fecha de vinculación al core: el estado y el importe se muestran no determinables.
+
+El parche `rename_partial_difference_status` cambia únicamente la etiqueta de
+filas confirmadas: pendiente cero a **Conciliada**, pendiente positivo a
+**Cobertura parcial; diferencia de empresa**, e importe inválido a **Revisar**.
+No modifica importes, fechas, ni vínculos. El ensayo de migración con base de
+datos se ejecutó en el sitio desechable y revierte sus documentos; las pruebas
+focalizadas comprueban además que el control se muestra una sola vez y no suma
+el pendiente dos veces.

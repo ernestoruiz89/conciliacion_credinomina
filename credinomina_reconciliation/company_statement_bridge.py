@@ -13,6 +13,7 @@ from credinomina_reconciliation.company_accounting_statement import load_core_de
 from credinomina_reconciliation.credit_application import journal_allocations
 from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
 from credinomina_reconciliation.rounding import money, money_float, decimal_value
+from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 
 BRIDGE = 'Conciliación'
 SCOPED_FILTERS = ('from_date', 'to_date', 'source_account', 'source_currency', 'component',
@@ -40,6 +41,11 @@ def execute(filters):
     core = load_core_detail(scope)
     snapshot = load_cutoff(scope, include_bridge=True)
     rows = build_bridge(core, snapshot, scope.get('employer'))
+    for difference in load_deposit_differences(scope):
+        rows.append(dict(difference, bridge_row_type='documentary',
+            bridge_concept=_('Diferencia de depósito; control de registro en core'),
+            bridge_registration=difference['status'], statement_amount_usd=0.0,
+            management_amount_usd=None, cutoff_date=str(scope['cutoff_date'])))
     message = _('Saldo contable + diferencias identificadas + diferencia sin explicar = saldo de gestión. '
         'El saldo de gestión suma aplicaciones pendientes y CxC, y resta saldos a favor y depósitos sin asignar. '
         'Se calcula de forma independiente: las diferencias de esta comparación no se suman nuevamente al saldo de gestión '
@@ -47,7 +53,9 @@ def execute(filters):
         'Cada importe de diferencia conserva su signo; no representa por sí solo un asiento a registrar. '
         'Verificar contrapartida no significa que falte registro. El redondeo de conversión no requiere asiento. '
         'Pendiente de registro corresponde al estado actual de la partida en la app; Contabilidad debe comprobar el mayor completo. '
-        'Los vínculos sin efecto neto se compensan dentro de la explicación y no se vuelven a sumar. ')
+        'Los vínculos sin efecto neto se compensan dentro de la explicación y no se vuelven a sumar. '
+        'Las diferencias de depósito pendientes en el core se muestran aparte como control informativo; '
+        'no se suman al saldo ni al acumulado de conciliación. ')
     message += '<br>' + cutoff_message(snapshot)
     return get_columns(filters), rows, message
 
@@ -256,6 +264,7 @@ def get_columns(filters):
     columns = [dict(fieldname='employer', label=_('Empresa'), fieldtype='Link', options='CN Employer', width=150),
         dict(fieldname='bridge_concept', label=_('Concepto de conciliación'), fieldtype='Data', width=290),
         dict(fieldname='statement_amount_usd', label=_('Importe US$'), fieldtype='Currency', options='usd_currency', width=140, precision=2),
+        dict(fieldname='pending_core_difference_usd', label=_('Diferencia depósito pendiente en core US$'), fieldtype='Currency', options='usd_currency', width=200, precision=2),
         dict(fieldname='source_document', label=_('Documento de origen'), fieldtype='Dynamic Link', options='source_doctype', width=200),
         dict(fieldname='bridge_registration', label=_('Acción / registro'), fieldtype='Data', width=220),
         dict(fieldname='event_date', label=_('Fecha de origen'), fieldtype='Date', width=110),

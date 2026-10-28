@@ -2,11 +2,17 @@ from copy import deepcopy
 from unittest.mock import patch
 
 import frappe
+import pytest
 
 from credinomina_reconciliation import company_accounting_statement as statement
 from credinomina_reconciliation.accounting_control import build_rows
 from credinomina_reconciliation.company_statement import build_detail
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as report
+
+
+@pytest.fixture(autouse=True)
+def no_documented_deposit_differences(monkeypatch):
+    monkeypatch.setattr(report, 'load_deposit_differences', lambda filters: [])
 
 
 def evidence(name, debit=0, credit=0, **changes):
@@ -148,7 +154,7 @@ def test_compact_detail_has_one_signed_amount_and_one_pending_balance():
     original = deepcopy((core, management))
     with patch.object(report, 'load_core_detail', return_value=core), patch.object(report, 'load_detail', return_value=management):
         columns, rows, _ = report.execute({'view_mode': 'Detalle', 'compact_view': 1})
-    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd']
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd', 'pending_core_difference_usd']
     amounts = {row['source_document']: row['statement_amount_usd'] for row in rows if not row.get('_is_statement_total')}
     assert amounts == {'CREDIT': -60.26, 'ADJUSTMENT': 10}
     totals = {row['_total_component']: row['statement_amount_usd'] for row in rows if row.get('_is_statement_total')}

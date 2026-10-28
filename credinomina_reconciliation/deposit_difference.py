@@ -92,7 +92,11 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
     doc.check_permission("write")
     if doc.docstatus == 2 or str(doc.modified) != str(modified):
         frappe.throw(_("El depósito cambió o está cancelado. Recargue antes de documentar."))
-    doc._assert_can_reverse_distribution()
+    # This edits documentary evidence, not the deposit or its client credits.
+    # Normal save hooks still protect every original credit/detail identity.
+    doc._assert_open_related_periods()
+    for target in doc.targets:
+        doc._check_open_target(target)
     if cint(remove):
         removed = [row.as_dict() for row in doc.detail_rows if is_difference(row)]
         doc.set("detail_rows", [row for row in doc.detail_rows if not is_difference(row)])
@@ -155,8 +159,12 @@ def prepare(document, rows, claims, instructions):
             or not row.get("difference_reason") or not row.get("difference_notes")
             or state["amount"] != detail_difference(document, rows)):
         state["error"] = "La diferencia documentada cambió; vuelva a clasificar / documentar antes de conciliar"
-    elif instructions:
-        state["error"] = "Revise los destinos manuales: la diferencia de empresa requiere distribución por detalle sin destinos duplicados"
+    elif any(entry.get("detail_row") not in {r.name for r in rows if not is_difference(r)}
+             or not (str(entry.get("claim_id") or "").startswith(("H:", "C:"))
+                     or any(claim["id"] == entry.get("claim_id") and claim.get("kind") == "X"
+                            and claim.get("accounting_source_key") for claim in claims))
+             or money(entry.get("amount_usd")) <= 0 for entry in instructions):
+        state["error"] = "Revise los destinos manuales: vincule cada aplicación a su fila del detalle y revise las partidas complementarias antes de conciliar la diferencia"
     elif row.get("difference_core_item"):
         claim = next((claim for claim in claims if claim["id"] == "X:" + row["difference_core_item"]), None)
         if (not claim or not claim.get("accounting_source_key") or claim.get("group") != document.employer
@@ -168,16 +176,22 @@ def prepare(document, rows, claims, instructions):
     return state
 
 
-def cash_budgets(plans, difference):
-    """Largest remainders, in cents: preserve total cash without favoring the last client."""
+def cash_budgets(plans, difference, fixed_rows=()):
+    """Keep explicit row allocations; apportion a shortage only over other rows."""
     amounts = [int(money(plan["amount_usd"]) * 100) for plan in plans]
     total = sum(amounts)
     shortage = -int(money(difference) * 100)
     if not total or shortage <= 0:
         return [money_float(money(plan["amount_usd"])) for plan in plans]
-    available = max(total - shortage, 0)
-    cents = [amount * available // total for amount in amounts]
-    order = sorted(range(len(plans)), key=lambda i: (-(amounts[i] * available % total), str(plans[i]["row"].name)))
-    for index in order[:available - sum(cents)]:
+    flexible = [i for i, plan in enumerate(plans) if plan["row"].name not in fixed_rows]
+    flexible_total = sum(amounts[i] for i in flexible)
+    if shortage > flexible_total:
+        raise ValueError("El faltante supera el efectivo de las filas sin vínculos manuales; revise los importes sin cambiar automáticamente sus destinos")
+    available = flexible_total - shortage
+    cents = list(amounts)
+    for i in flexible:
+        cents[i] = amounts[i] * available // flexible_total if flexible_total else 0
+    order = sorted(flexible, key=lambda i: (-(amounts[i] * available % flexible_total), str(plans[i]["row"].name)))
+    for index in order[:available - sum(cents[i] for i in flexible)]:
         cents[index] += 1
     return [value / 100 for value in cents]
