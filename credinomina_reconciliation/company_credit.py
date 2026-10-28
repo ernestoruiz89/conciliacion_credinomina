@@ -58,7 +58,7 @@ def validate_company_credit(doc):
         return  # Follow-up does not mutate the original cash or closed periods.
     if money(doc.amount_usd) <= 0:
         frappe.throw(_("El saldo a favor de la empresa debe ser positivo."))
-    if doc.client_number or doc.loan_number or doc.installment_number or doc.get("credit_client"):
+    if doc.client_number or doc.loan_number or doc.get("legacy_installment_number") or doc.get("credit_client"):
         frappe.throw(_("El saldo a favor pertenece a la empresa, no a un cliente o crédito."))
     if not doc.registered_deposit:
         if doc.docstatus == 1:

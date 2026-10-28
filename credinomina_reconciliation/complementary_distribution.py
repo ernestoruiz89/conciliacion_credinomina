@@ -47,7 +47,7 @@ def validate_distribution(item):
         frappe.throw(_("La distribución genérica solo admite partidas de depósito, no ajustes de aplicación, compensaciones ni saldos a favor."))
     if not item.employer:
         frappe.throw(_("Indique la empresa de origen de la partida genérica."))
-    if any(item.get(field) for field in ("client_number", "loan_number", "installment_number")):
+    if any(item.get(field) for field in ("client_number", "loan_number", "legacy_installment_number")):
         frappe.throw(_("Una partida genérica no debe identificar un solo cliente o crédito; detalle su reparto en los destinos del depósito."))
     if any(not company or company == item.employer for company in companies) or len(companies) != len(set(companies)):
         frappe.throw(_("No repita empresas de distribución ni la empresa de origen, que ya está incluida."))

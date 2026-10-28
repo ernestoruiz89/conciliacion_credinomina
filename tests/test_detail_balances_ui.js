@@ -29,5 +29,35 @@ row.client_credit_usd = 10;
 context.updateDetailPendingAmounts(frm);
 assert.equal(row.linked_usd, 165.16, "Client credit is not an application");
 assert.equal(row.pending_usd, 0, "Documented credit explains the excess on initial form refresh");
+assert.equal(row.linked_total_usd, 175.16, "The linked total includes the credit exactly once");
+const sirio = {name: 'S', amount_usd: 25.22, linked_usd: 0, client_credit_usd: 25.22,
+    company_credit_usd: 0, pending_usd: 0, matched_targets: '[]'};
+const sirioForm = {doc: {detail_rows: [sirio], targets: []}, refresh_field() {}};
+context.updateDetailPendingAmounts(sirioForm);
+assert.equal(sirio.linked_usd, 0, "The client credit remains separate from payments");
+assert.equal(sirio.linked_total_usd, 25.22);
+assert.equal(sirio.pending_usd, 0);
+const formats = {};
+context.frappe.format = (value) => `US$ ${Number(value).toFixed(2)}`;
+context.frappe.meta = {get_docfield: () => ({})};
+context.setupRemittanceLinkedTotal({fields_dict: {detail_rows: {grid: {
+    update_docfield_property: (name, property, formatter) => {formats[name] = formatter;}
+}}}});
+assert.equal(formats.linked_total_usd(0, {}, {}, sirio), 'US$ 25.22');
+sirio.client_credit_usd = 10; sirio.company_credit_usd = 5;
+context.updateDetailPendingAmounts(sirioForm);
+assert.equal(sirio.linked_total_usd, 15);
+assert.equal(sirio.pending_usd, 10.22);
+const partial = {name: 'P', amount_usd: 10, client_credit_usd: 1, company_credit_usd: 0,
+    matched_targets: '[{"instruction_id":"RECLASS:abc","amount_usd":2},{"instruction_id":"old","amount_usd":7}]'};
+const partialForm = {doc: {detail_rows: [partial], targets: [{detail_row: 'P', amount_usd: 3}]}, refresh_field() {}};
+context.updateDetailPendingAmounts(partialForm);
+assert.equal(partial.linked_usd, 5, 'Keep the core link while editing other manual targets');
+assert.equal(partial.linked_total_usd, 6);
+assert.equal(partial.pending_usd, 4);
+partialForm.doc.targets = [];
+context.updateDetailPendingAmounts(partialForm);
+assert.equal(partial.linked_usd, 2, 'Removing a manual target cannot remove a core link');
+assert.equal(partial.linked_total_usd, 3);
 assert.ok(refreshed > 0);
 console.log("OK: partial manual coverage, no double count, removed links, signed pending and automatic destinations.");

@@ -55,6 +55,8 @@ class CNComplementaryItem(Document):
         from credinomina_reconciliation.manual_complementary_policy import guard_new_item
         guard_new_item(self)
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        if clean_text(self.get("legacy_installment_number")) != clean_text((previous or {}).get("legacy_installment_number")):
+            frappe.throw(_("La cuota histórica es solo evidencia de conciliaciones anteriores y no se puede modificar."))
         from credinomina_reconciliation.reclassification_distribution import guard_journal
         guard_journal(self, previous)
         from credinomina_reconciliation.application_adjustment_links import guard

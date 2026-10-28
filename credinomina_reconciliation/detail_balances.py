@@ -15,8 +15,17 @@ def linked_balance(amount, manual, matched):
     # must not be resurrected from the last reconciliation's JSON.
     if not isinstance(matched, list):
         matched = []
-    entries = manual if manual else [entry for entry in matched
-                                    if isinstance(entry, dict) and not entry.get("instruction_id")]
+    # Core reclassification instructions are not editable manual targets.
+    # Keep them when the user edits other targets, but never count the same
+    # instruction twice when the reconciliation engine already supplied it.
+    internal = [entry for entry in matched if isinstance(entry, dict)
+                and str(entry.get("instruction_id") or "").startswith("RECLASS:")]
+    if manual:
+        ids = {entry.get("id") or entry.get("instruction_id") for entry in manual}
+        entries = list(manual) + [entry for entry in internal if entry.get("instruction_id") not in ids]
+    else:
+        entries = [entry for entry in matched if isinstance(entry, dict)
+                   and (not entry.get("instruction_id") or entry in internal)]
     linked = sum_money(entry.get("amount_usd") for entry in entries)
     return {"linked_usd": money_float(linked), "pending_usd": money_float(money(amount) - linked)}
 

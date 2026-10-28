@@ -69,6 +69,25 @@ def run():
                 raise AssertionError("La suma de porciones no puede superar el importe del core")
             item.reload(); other_parent.reload()
             assert other_parent.rows[0].application_adjustment_usd == .02
+            with imported_item(marker + "-IDENTITY"):
+                unique = frappe.get_doc(dict(doctype="CN Complementary Item", category="Por clasificar",
+                    review_action="Pendiente de revisión", employer=other_company.name, client_name="Otro cliente",
+                    posting_date="2025-07-01", currency="USD", amount=.02, source_date="2025-07-01",
+                    source_currency="USD", source_debit=0, source_credit=.02, accounting_source_key=marker + "-IDENTITY",
+                    source_voucher=marker + "-IDENTITY", voucher=marker + "-IDENTITY", voucher_line=marker + "-IDENTITY",
+                    description="Ajuste de un crédito único")).insert()
+            frappe.db.set_value(unique.doctype, unique.name, dict(docstatus=1, category="Compensación entre partidas",
+                review_action="Compensación entre partidas", compensation_status="Sin compensar", compensation_pending_usd=.02),
+                update_modified=False)
+            unique.reload()
+            for index in range(2):
+                link_application(unique.name, other_parent.rows[0].name, str(unique.modified), .01,
+                                 reason="Aplicación verificada")
+                unique.reload(); other_parent.reload()
+                if index == 0:
+                    assert not unique.loan_number and not unique.client_number and not unique.reference
+            assert (unique.loan_number, unique.client_number) == ("124-1", "556")
+            assert not unique.reference  # A voucher is not a deposit reference.
             return dict(application_adjustment=.03, original_remaining=.07,
                         different_company_authorized=True, rolled_back=True)
     finally:

@@ -203,7 +203,7 @@ def rebuild_destination(period):
             'category': ['not in', [*CREDIT_CATEGORIES, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT,
                                    'Compensación entre partidas', 'Vinculado a depósito']]},
             fields=['name', 'reference', 'amount_usd', 'employer', 'period', 'client_number', 'loan_number',
-                    'installment_number', 'generic_distribution', 'receivable_origin', 'category',
+                    'legacy_installment_number as installment_number', 'generic_distribution', 'receivable_origin', 'category',
                     'subcategory_effect', 'docstatus', 'accounting_source_key'], limit_page_length=0)
         evidence_periods = engine._load_open_periods(['in', reconciliation_companies(period.employer)])
         mapping = engine._allocate_complementary_items(complements, evidence_periods)

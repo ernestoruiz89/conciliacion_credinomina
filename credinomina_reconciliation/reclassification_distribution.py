@@ -327,6 +327,66 @@ def identity_exception(item, target):
     return bool(different_company or different_client or unknown_client)
 
 
+def unique_credit_updates(item, entries, deposit_references):
+    """Derive missing identity only from a fully distributed, unique credit."""
+    from credinomina_reconciliation.parsers import clean_text
+
+    if not entries or sum_money(row.get("amount_usd") for row in entries) != abs(money(item.get("amount_usd"))):
+        return {}
+    loans = [canonical_credit_number(row.get("loan_number")) for row in entries]
+    employers = {clean_text(row.get("employer")) for row in entries}
+    if not all(loans) or len(set(loans)) != 1 or len(employers) != 1 or "" in employers:
+        return {}
+    numbers = {canonical_identifier(row.get("client_number")) for row in entries if clean_text(row.get("client_number"))}
+    if len(numbers) > 1:
+        return {}
+    names = {name_key(row.get("client_name")) for row in entries if name_key(row.get("client_name"))}
+    if not numbers and len(names) > 1:
+        return {}
+    existing_loan = canonical_credit_number(item.get("loan_number"))
+    existing_number = canonical_identifier(item.get("client_number"))
+    if ((existing_loan and existing_loan != loans[0]) or
+            (existing_number and numbers and existing_number not in numbers)):
+        return {}
+    existing_name = name_key(item.get("client_name"))
+    if not existing_number and existing_name not in ("", "0", "n/a", "na") and names and existing_name not in names:
+        return {}
+    changes = {}
+    if not clean_text(item.get("loan_number")):
+        changes["loan_number"] = clean_text(entries[0].get("loan_number"))
+    if not clean_text(item.get("client_number")) and numbers:
+        changes["client_number"] = next(clean_text(row.get("client_number")) for row in entries if clean_text(row.get("client_number")))
+    # Reference is the bank deposit reference, not the application voucher.
+    # Several deposits are safe only when all have the same nonempty reference.
+    if not clean_text(item.get("reference")) and all(row.get("kind") in DEPOSIT_KINDS for row in entries):
+        references = [clean_text(deposit_references.get(row.get("parent_document"))) for row in entries]
+        if all(references) and len(set(references)) == 1:
+            changes["reference"] = references[0]
+    return changes
+
+
+def apply_unique_credit_updates(item, entries):
+    """Read only authorized destinations and persist the derived fields atomically."""
+    if sum_money(row.get("amount_usd") for row in entries) != abs(money(item.get("amount_usd"))):
+        return {}
+    references = {}
+    for entry in entries:
+        doctype = "CN Accounting Import" if entry["kind"] == APPLICATION else "CN Remittance Allocation"
+        name = entry["parent_document"]
+        if not frappe.db.exists(doctype, name) or not frappe.has_permission(doctype, "read", doc=name):
+            return {}  # Never infer fields from destinations the user cannot read.
+        if entry.get("client") and not frappe.has_permission("CN Client", "read", doc=entry["client"]):
+            return {}
+        if doctype == "CN Remittance Allocation" and name not in references:
+            references[name] = frappe.db.get_value(doctype, name, "deposit_reference")
+    changes = unique_credit_updates(item, entries, references)
+    if changes:
+        frappe.db.set_value(item.doctype, item.name, changes)
+        item.update(changes)
+        item.add_comment("Info", _("Se completaron datos vacíos a partir de una distribución íntegra a un crédito único."))
+    return changes
+
+
 @frappe.whitelist()
 def preview_destination(item_name, document_name, destination, override=0):
     """Read a selected target only after checking the parent document."""
@@ -494,9 +554,14 @@ def link_application(item_name, application_name, modified, amount_usd, *, overr
     effective = max(getdate(origin_date), getdate(source.event_date))
     if effective > getdate():
         frappe.throw(_("La fecha efectiva no puede ser futura."))
+    client_number = source.client_number or ""
+    client_id = source.get("client") or source.get("portfolio_client")
+    if (not client_number and client_id and frappe.db.exists("CN Client", client_id)
+            and frappe.has_permission("CN Client", "read", doc=client_id)):
+        client_number = frappe.db.get_value("CN Client", client_id, "client_number") or ""
     entry = dict(operation_id=uuid4().hex, kind=APPLICATION, target=source.name,
         parent_document=parent.name, period=period.name, employer=company,
-        client_number=source.client_number or "", client_name=source.client_name or "",
+        client_number=client_number, client_name=source.client_name or "",
         loan_number=source.loan_number or "", amount_usd=money_float(proposed["amount_usd"]),
         effective_date=str(effective), identity_exception=int(proposed["identity_exception"]),
         reason=str(reason or "").strip(), recorded_by=frappe.session.user, recorded_on=str(now_datetime()))
@@ -507,6 +572,7 @@ def link_application(item_name, application_name, modified, amount_usd, *, overr
         mark([item.name])
         rebuild_destination(period)
         application_adjustments.assert_cash_preserved(coverage["snapshots"])
+        apply_unique_credit_updates(item, [*existing, entry])
         # A source can be visible to users who cannot read the target company.
         # Keep target identity and user-entered reasons in the restricted journal.
         item.add_comment("Comment", _("Se registró una distribución de la partida del core."))
@@ -564,7 +630,8 @@ def link_deposit(item_name, deposit_name, detail_name, modified, deposit_modifie
     if (not row or not row.client or not row.employer or row.employer not in allowed_employers(payer)
             or str(row.get("identity_reason") or "").startswith(("Conflicto", "Nombre ambiguo"))):
         frappe.throw(_("Seleccione una fila de cliente identificada y autorizada para el depósito."))
-    frappe.get_doc("CN Client", row.client).check_permission("read")
+    client = frappe.get_doc("CN Client", row.client)
+    client.check_permission("read")
     deposit._assert_open_related_periods()
     credits = load_credits([deposit.name])
     reserved = sum_money(credit.amount_usd for credit in credits)
@@ -582,7 +649,7 @@ def link_deposit(item_name, deposit_name, detail_name, modified, deposit_modifie
     if effective > getdate():
         frappe.throw(_("La fecha efectiva no puede ser futura."))
     entry = dict(operation_id=uuid4().hex, kind=kind, target=row.name, parent_document=deposit.name,
-        employer=row.employer, client=row.client, client_number=row.client_number or "",
+        employer=row.employer, client=row.client, client_number=row.client_number or client.client_number or "",
         client_name=row.client_name or "", loan_number=row.loan_number or "",
         amount_usd=money_float(proposed["amount_usd"]), credit_origin_date=str(getdate(deposit.deposit_date)),
         effective_date=str(effective), identity_exception=int(proposed["identity_exception"]),
@@ -599,6 +666,7 @@ def link_deposit(item_name, deposit_name, detail_name, modified, deposit_modifie
         row.reload()
         if money(row.get(field)) != before_credit + proposed["amount_usd"] or money(row.pending_usd) < 0:
             frappe.throw(_("La porción no pudo registrarse sin alterar el saldo de la fila."))
+        apply_unique_credit_updates(item, [*existing, entry])
         item.add_comment("Comment", _("Se registró una distribución de la partida del core."))
         deposit.add_comment("Comment", _("Se registró una distribución en el detalle del depósito."))
         return {"operation_id": entry["operation_id"], "remaining_usd": money_float(proposed["remaining_usd"]),

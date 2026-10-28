@@ -171,7 +171,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         "docstatus": 1, "employer": scope,
         "origin_deposit": ["is", "not set"],
         "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]],
-    }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key"], limit_page_length=0)
+    }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "legacy_installment_number as installment_number", "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key"], limit_page_length=0)
     complementary_by_target = engine._allocate_complementary_items(complements, periods)
     from credinomina_reconciliation.reclassification_distribution import load_cash_claims
     complements.extend(load_cash_claims([document.name]))

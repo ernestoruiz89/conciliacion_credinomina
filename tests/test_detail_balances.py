@@ -14,13 +14,14 @@ class DetailBalancesTests(unittest.TestCase):
     def test_grid_displays_amounts_and_allows_submitted_updates(self):
         schema = json.loads((Path(__file__).resolve().parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_detail/cn_remittance_detail.json").read_text(encoding="utf-8"))
         fields = {field["fieldname"]: field for field in schema["fields"]}
-        names = ["client_name", "loan_number", "amount_usd", "linked_usd", "pending_usd", "match_status"]
+        names = ["client_name", "loan_number", "amount_usd", "linked_total_usd", "pending_usd", "match_status"]
         self.assertEqual([name for name in schema["field_order"] if name in names], names)
         self.assertTrue(fields["client_credit_usd"]["read_only"] and fields["client_credit_usd"]["allow_on_submit"])
         self.assertTrue(fields["company_credit_usd"]["read_only"] and fields["company_credit_usd"]["allow_on_submit"])
         self.assertEqual(sum(fields[name]["columns"] for name in names), 10)
-        for name in ("linked_usd", "pending_usd"):
-            self.assertTrue(fields[name]["read_only"] and fields[name]["allow_on_submit"] and fields[name]["in_list_view"])
+        self.assertTrue(fields["linked_total_usd"]["read_only"] and fields["linked_total_usd"]["is_virtual"] and fields["linked_total_usd"]["in_list_view"])
+        self.assertTrue(fields["pending_usd"]["read_only"] and fields["pending_usd"]["allow_on_submit"] and fields["pending_usd"]["in_list_view"])
+        self.assertTrue(fields["linked_usd"]["read_only"] and fields["linked_usd"]["allow_on_submit"])
 
     def test_partial_manual_is_visible_without_becoming_settled(self):
         row = frappe._dict(name="R", amount_usd=165.16, matched_targets="[]", match_status="Revisar")
@@ -35,6 +36,13 @@ class DetailBalancesTests(unittest.TestCase):
         self.assertEqual(linked_balance(100, [{"amount_usd":100}], old)["pending_usd"], 0)
         self.assertEqual(linked_balance(100, [], old)["pending_usd"], 100)
         self.assertEqual(linked_balance(100, [], '[{"amount_usd":100}]')["pending_usd"], 0)
+
+    def test_reclassification_links_survive_manual_edits_without_double_counting(self):
+        history = '[{"instruction_id":"RECLASS:one", "amount_usd":2}, {"instruction_id":"old", "amount_usd":7}]'
+        self.assertEqual(linked_balance(10, [], history), {'linked_usd': 2, 'pending_usd': 8})
+        self.assertEqual(linked_balance(10, [{'amount_usd': 3}], history), {'linked_usd': 5, 'pending_usd': 5})
+        self.assertEqual(linked_balance(10, [{'id': 'RECLASS:one', 'amount_usd': 2}], history),
+                         {'linked_usd': 2, 'pending_usd': 8})
 
     def test_signed_complements_overlink_and_cents(self):
         self.assertEqual(linked_balance(90, [{"amount_usd":100}, {"amount_usd":-10}], [])["pending_usd"], 0)
