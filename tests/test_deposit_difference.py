@@ -39,15 +39,17 @@ class DepositDifferenceTests(unittest.TestCase):
 
     def test_negative_documented_difference_never_invents_cash_or_erases_claims(self):
         self.setup_case()
+        self.claims[1]['amount_usd'] = 39
         before = copy.deepcopy(self.rows)
         result, statuses, rows = self.reconcile()
-        self.assertEqual(statuses["DEP"], difference.SETTLED)
-        self.assertEqual([r["amount_usd"] for r in result["allocations"]], [59.98, 39.99])
-        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
-        self.assertEqual(result["claim_remaining"], {"H:0": .02, "H:1": .01})
+        self.assertEqual(statuses["DEP"], 'Revisar filas')
+        self.assertEqual([r["amount_usd"] for r in result["allocations"]], [60])
+        self.assertEqual(result["deposit_remaining"]["DEP"], 39.97)
+        self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": 39})
         self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .03)
-        self.assertEqual(rows["R0"]["pending_usd"], .02)
-        self.assertEqual(rows["R0"]["match_status"], "Cobertura parcial; diferencia de empresa")
+        self.assertEqual(rows["R0"]["pending_usd"], 0)
+        self.assertEqual(rows["R0"]["match_status"], "Conciliada")
+        self.assertEqual(rows["R1"]["pending_usd"], 40)
         self.assertEqual(before, self.rows)
         self.assertEqual(result, self.reconcile()[0])
 
@@ -113,14 +115,14 @@ class DepositDifferenceTests(unittest.TestCase):
             modified.detail_rows[-1].difference_core_item = "FORGED"
             with self.assertRaises(ValueError): difference.guard_rows(modified, current)
 
-    def test_cash_budget_is_deterministic_and_conserves_cents(self):
+    def test_insufficient_cash_blocks_before_allocating_any_customer(self):
         self.setup_case()
-        plans = [dict(row=row, amount_usd=row.amount_usd) for row in self.rows[:-1]]
-        self.assertEqual(difference.cash_budgets(plans, -.03), [59.98, 39.99])
-        self.assertEqual(difference.cash_budgets(list(reversed(plans)), -.03), [39.99, 59.98])
+        with self.assertRaisesRegex(frappe.ValidationError, 'no se repartirá'):
+            self.reconcile()
 
     def test_difference_preserves_manual_split_and_prior_period_destinations(self):
         self.setup_case()
+        self.claims[1]['amount_usd'] = 39
         self.doc.allow_manual_other_periods = 1
         self.claims[0:1] = [dict(id="H:OLD", kind="H", amount_usd=10, group="EMP", client_number="0", period="OLD"),
                             dict(id="H:SECOND", kind="H", amount_usd=50, group="EMP", client_number="0", period="SECOND")]
@@ -128,33 +130,35 @@ class DepositDifferenceTests(unittest.TestCase):
                   dict(id="M2", deposit_id="DEP", claim_id="H:SECOND", amount_usd=50, detail_row="R0", origin="Manual")]
         original = copy.deepcopy(manual)
         result, statuses, rows = self.reconcile(manual)
-        self.assertEqual(statuses["DEP"], difference.SETTLED)
+        self.assertEqual(statuses["DEP"], 'Revisar filas')
         self.assertEqual(manual, original)
         self.assertEqual(result["instruction_results"]["M1"], "Aplicada")
         self.assertEqual(result["instruction_results"]["M2"], "Aplicada")
         self.assertEqual(rows["R0"]["pending_usd"], 0)
         self.assertEqual(rows["R0"]["match_status"], "Conciliada")
-        self.assertEqual(rows["R1"]["pending_usd"], .03)
-        self.assertEqual(rows["R1"]["match_status"], "Cobertura parcial; diferencia de empresa")
-        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
-        self.assertEqual(sum(r["amount_usd"] for r in result["allocations"]), 99.97)
+        self.assertEqual(rows["R1"]["pending_usd"], 40)
+        self.assertEqual(rows["R1"]["match_status"], "Revisar")
+        self.assertEqual(result["deposit_remaining"]["DEP"], 39.97)
+        self.assertEqual(sum(r["amount_usd"] for r in result["allocations"]), 60)
 
     def test_shortage_cannot_reduce_explicit_manual_amounts(self):
         self.setup_case()
-        plans = [dict(row=row, amount_usd=row.amount_usd) for row in self.rows[:-1]]
-        self.assertEqual(difference.cash_budgets(plans, -.03, {"R0"}), [60, 39.97])
-        with self.assertRaisesRegex(ValueError, "vínculos manuales"):
-            difference.cash_budgets(plans, -.03, {"R0", "R1"})
+        manual=[dict(id='M',deposit_id='DEP',claim_id='H:0',amount_usd=60,detail_row='R0',origin='Manual')]
+        before=copy.deepcopy(manual)
+        with self.assertRaisesRegex(frappe.ValidationError, 'no se repartirá'):
+            self.reconcile(manual)
+        self.assertEqual(manual,before)
 
     def test_difference_preserves_positive_imported_complement_link(self):
         self.setup_case()
+        self.claims[1]['amount_usd'] = 39
         self.claims[0].update(id='X:IMPORTED',kind='X',accounting_source_key='CORE')
         manual=[dict(id='MX',deposit_id='DEP',claim_id='X:IMPORTED',amount_usd=60,detail_row='R0',origin='Manual')]
         result,statuses,rows=self.reconcile(manual)
-        self.assertEqual(statuses['DEP'],difference.SETTLED)
+        self.assertEqual(statuses['DEP'],'Revisar filas')
         self.assertEqual(result['instruction_results']['MX'],'Aplicada')
         self.assertEqual(rows['R0']['pending_usd'],0)
-        self.assertEqual(rows['R1']['pending_usd'],.03)
+        self.assertEqual(rows['R1']['pending_usd'],40)
         self.claims[0]['accounting_source_key']=''
         self.assertTrue(difference.prepare(self.doc,self.rows,self.claims,manual)['error'])
 
@@ -192,13 +196,8 @@ class DepositDifferenceTests(unittest.TestCase):
         for row, claim, amount in zip(self.rows, self.claims, (.01, .02)):
             row.deducted_usd = row.amount_usd = claim["amount_usd"] = amount
         self.diff.difference_basis = difference.basis(self.doc, self.rows)
-        result, statuses, rows = self.reconcile()
-        self.assertEqual(statuses["DEP"], difference.SETTLED)
-        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
-        self.assertEqual(rows["R0"]["linked_usd"], 0)
-        self.assertEqual(rows["R0"]["pending_usd"], .01)
-        self.claims.pop(0)
-        self.assertEqual(self.reconcile()[1]["DEP"], "Revisar filas")
+        with self.assertRaisesRegex(frappe.ValidationError, 'no se repartirá'):
+            self.reconcile()
 
     def test_rpc_requires_write_permission_before_locking_or_writing(self):
         with patch.object(frappe, "get_doc") as get_doc, \

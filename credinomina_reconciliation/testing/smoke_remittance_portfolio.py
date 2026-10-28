@@ -1,7 +1,9 @@
 """Load detail and refresh portfolio evidence on drafts and submitted deposits."""
 import frappe
+from unittest.mock import patch
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import _apply_remittance_detail
+from credinomina_reconciliation.remittance_portfolio import FIELDS, refresh_credit_status
 
 
 def run():
@@ -70,8 +72,40 @@ def run():
         assert deposit.detail_rows[2].portfolio_credit_status == "SANEADO"
         assert deposit.detail_rows[2].portfolio_snapshot_used == cuts[0].name
         assert deposit.detail_rows[0].portfolio_credit_status == "No Identificado"
+        # A manual refresh changes portfolio evidence only, even on a confirmed deposit.
+        for row in deposit.detail_rows:
+            frappe.db.set_value("CN Remittance Detail", row.name,
+                {"portfolio_credit_status": "DESACTUALIZADO"}, update_modified=False)
+        deposit.reload()
+        before_rows = [row.as_dict() for row in deposit.detail_rows]
+        before_total = (deposit.deposit_amount, deposit.allocated_usd, deposit.docstatus)
+        with patch.object(frappe, "publish_realtime"):
+            result = refresh_credit_status(deposit.name, str(deposit.modified))
+        deposit.reload()
+        assert result["updated"] == 4 and result["unidentified"] == 3
+        assert deposit.detail_rows[2].portfolio_credit_status == "SANEADO"
+        assert deposit.detail_rows[0].portfolio_credit_status == "No Identificado"
+        assert (deposit.deposit_amount, deposit.allocated_usd, deposit.docstatus) == before_total
+        for before, row in zip(before_rows, deposit.detail_rows):
+            after = row.as_dict()
+            assert all(after.get(key) == value for key, value in before.items() if key not in FIELDS)
+        try:
+            refresh_credit_status(deposit.name, "an outdated timestamp")
+            raise AssertionError("Se aceptó una versión desactualizada")
+        except frappe.ValidationError:
+            pass
+        before = [row.as_dict() for row in deposit.detail_rows]
+        with patch("credinomina_reconciliation.remittance_portfolio.load_cuts", return_value=[]):
+            try:
+                refresh_credit_status(deposit.name, str(deposit.modified))
+                raise AssertionError("Se aceptó una actualización sin corte de cartera")
+            except frappe.ValidationError:
+                pass
+        deposit.reload()
+        assert [row.as_dict() for row in deposit.detail_rows] == before
         return {"loaded_detail_enriched": True, "latest_period_used": True,
                 "unselected_previous_cut_used": True, "older_cut_not_searched": True,
-                "submitted_credit_and_period_changes_refreshed": True, "rolled_back": True}
+                "submitted_credit_and_period_changes_refreshed": True,
+                "manual_refresh_preserves_financial_data": True, "rolled_back": True}
     finally:
         frappe.db.rollback()

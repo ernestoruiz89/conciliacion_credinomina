@@ -813,3 +813,10 @@ No modifica importes, fechas, ni vínculos. El ensayo de migración con base de
 datos se ejecutó en el sitio desechable y revierte sus documentos; las pruebas
 focalizadas comprueban además que el control se muestra una sola vez y no suma
 el pendiente dos veces.
+
+La conciliación ya no prorratea una diferencia documentada entre los clientes.
+Las aplicaciones identificadas se usan por sus importes reales; si su total
+excede el efectivo disponible, se detiene la operación antes de guardar y se
+solicita revisar o vincular el movimiento del core. El ensayo con una diferencia
+negativa comprueba que no se crean pagos ni se cambian destinos manuales cuando
+el efectivo no alcanza; al vincular la partida del core se concilia normalmente.

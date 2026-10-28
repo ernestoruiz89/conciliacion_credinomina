@@ -1595,7 +1595,7 @@ def _prepare_remittance_details(
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
     from credinomina_reconciliation.remittance_detail import manual_detail_targets
-    from credinomina_reconciliation.deposit_difference import is_difference, prepare, cash_budgets
+    from credinomina_reconciliation.deposit_difference import is_difference, prepare
     from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
     from credinomina_reconciliation.paying_employers import allowed_employers, load_payer_map
     # The company engine uses lightweight parent records; the individual engine
@@ -1703,16 +1703,6 @@ def _prepare_remittance_details(
             })
         if difference and any(plan["client_credits"] for plan in plans):
             difference["error"] = "Revise los saldos a favor existentes antes de documentar la diferencia de empresa"
-        if difference and not difference["error"] and not difference["core"]:
-            fixed_rows = {entry.get("detail_row") for entry in prior_instructions if entry["deposit_id"] == deposit_id}
-            try:
-                budgets = cash_budgets(plans, difference["amount"], fixed_rows=fixed_rows)
-            except ValueError as error:
-                difference["error"] = str(error)
-            else:
-                for plan, budget in zip(plans, budgets):
-                    plan["cash_budget_usd"] = budget
-                    plan["cash_difference_usd"] = money_float(money(plan["amount_usd"]) - money(budget))
         # Administrative collections and other signed complements belong to
         # targets, not to fictitious client detail rows. Linked complements
         # are already included in their row's net; count only separate ones.
@@ -1740,7 +1730,6 @@ def _prepare_remittance_details(
                 plan["status"], plan["reason"] = "Revisar", difference["error"]
                 continue
             amount = money_float(money(plan["amount_usd"]) - money(plan["client_credit_usd"]) - money(plan["company_credit_usd"]))
-            amount = plan.get("cash_budget_usd", amount)
             person_credits = [credit for credit in plan["client_credits"] if credit.category == CLIENT_CREDIT]
             if person_credits:
                 people = {credit.credit_client for credit in person_credits}
@@ -1773,15 +1762,6 @@ def _prepare_remittance_details(
             if not amount and plan["client_credits"] and not manual:
                 plan["status"] = "Conciliada"
                 plan["reason"] = "Importe documentado íntegramente como saldo a favor; no aplicado al crédito"
-                continue
-            if not amount and plan.get("cash_difference_usd"):
-                candidates, reason = suggest_detail_targets(
-                    plan["row"], claims, plan["amount_usd"], item.employer, selected_periods(item),
-                    allowed_groups=allowed_groups, apply_fifo=apply_fifo, reserved_amounts=reserved_amounts)
-                identified = sum_money(target["amount_usd"] for target in candidates) == money(plan["amount_usd"])
-                plan["status"] = "Cobertura parcial; diferencia de empresa" if identified else "Revisar"
-                plan["reason"] = ("Sin efectivo asignado por el prorrateo; importe íntegro pendiente de cobertura, explicado en la fila de empresa"
-                                  if identified else reason)
                 continue
             if not amount:
                 plan["status"] = (
@@ -1847,6 +1827,18 @@ def _prepare_remittance_details(
             instructions.append({"id": instruction_id, "deposit_id": deposit_id,
                 "claim_id": difference["core"]["id"], "amount_usd": money_float(difference["amount"]),
                 "origin": MANUAL, "detail_row": difference["row"].name, "group": item.employer})
+        if difference and not difference["error"]:
+            # Do not distribute a company-level shortage across customers.
+            # Reject the whole operation before writing if the identified
+            # applications and any signed core counterpart exceed actual cash.
+            required = sum_money(entry["amount_usd"] for entry in [*prior_instructions, *instructions]
+                                 if entry["deposit_id"] == deposit_id)
+            reserved_cash = sum_money(credit.amount_usd for credit in client_credits
+                if registered_ids.get(credit.registered_deposit) == deposit_id)
+            available = max(money(deposit["amount_usd"]) - reserved_cash, money(0))
+            if required > available + decimal_value(CASH_EPSILON):
+                frappe.throw(_("Las aplicaciones identificadas requieren US$ {0:.2f}, pero el depósito dispone de US$ {1:.2f}. "
+                    "Revise los destinos o vincule la partida del core; la diferencia de empresa no se repartirá entre clientes.").format(required, available))
         if one_to_one_candidate and sum(
             bool(plan["targets"]) for plan in plans
         ) == 1:
@@ -1925,11 +1917,6 @@ def _sync_remittance_details(context, allocation, claims=()):
                     # Applying every FIFO instruction does not settle a row
                     # whose amount exceeds the available application balance.
                     plan["status"] = updates["match_status"] = "Revisar"
-                if (plan.get("cash_difference_usd") and targets
-                        and all(value == "Aplicada" for value in results)
-                        and money(updates["pending_usd"]) == money(plan["cash_difference_usd"])):
-                    plan["status"] = updates["match_status"] = "Cobertura parcial; diferencia de empresa"
-                    updates["match_reason"] += "; efectivo proporcional; US$ {:.2f} pendientes de cobertura, explicados en la fila de empresa".format(plan["cash_difference_usd"])
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
