@@ -44,6 +44,17 @@ class HistoricalCutoffTests(unittest.TestCase):
         self.assertEqual(self.cut('2025-05-15')['summary'], [])
         self.assertEqual(self.context, before)
 
+    def test_deposit_period_selection_does_not_hide_real_payment_of_an_older_application(self):
+        self.context[2]['MAY'] = dict(name='MAY', employer='E', payroll_month='2025-05-01', reconciliation_mode='Historica')
+        deposit = self.deposit(detail_periods=[dict(period='MAY')])
+        # The stored link actually pays April's application, outside the May
+        # periods selected for searching new destinations on the deposit.
+        before = self.cut('2025-04-30', deposits=[deposit])
+        after = self.cut('2025-05-15', deposits=[deposit])
+        self.assertEqual(before['summary'][0]['application_pending_usd'], 100)
+        self.assertEqual(after['summary'], [])
+        self.assertEqual(after['applications'][0]['paid_usd'], 100)
+
     def test_partial_deposits_by_date_and_advance_unassigned_until_application(self):
         deposits = [self.deposit(name='D1', amount_usd=30, deposit_date='2025-04-20',
             allocation_detail=[dict(tipo='Aplicacion historica', aplicacion_id='A', importe_usd=30)]),
