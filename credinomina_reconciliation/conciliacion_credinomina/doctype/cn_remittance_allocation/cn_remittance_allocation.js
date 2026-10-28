@@ -1222,12 +1222,24 @@ async function importRemittanceDetail(frm) {
     await frm.reload_doc();
 }
 
-function showRemittanceComplementaryItems(frm) {
-    if (!frm.doc.employer) {
-        frappe.msgprint(__("Seleccione la empresa del depósito para consultar sus partidas complementarias."));
+async function showRemittanceComplementaryItems(frm) {
+    if (frm.is_dirty()) {
+        frappe.msgprint(__("Guarde o recargue el depósito antes de consultar sus partidas complementarias."));
         return;
     }
-    frappe.set_route("List", "CN Complementary Item", {employer: frm.doc.employer});
+    const name = frm.doc.name;
+    const {message: items} = await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.get_linked_complementary_items",
+        args: {remittance_name: name},
+        freeze: true,
+        freeze_message: __("Consultando partidas vinculadas al depósito…"),
+    });
+    if (frm.doc.name !== name) return;
+    if (!items?.length) {
+        frappe.msgprint(__("Este depósito no tiene partidas complementarias vinculadas que pueda consultar."));
+        return;
+    }
+    frappe.set_route("List", "CN Complementary Item", {name: ["in", items]});
 }
 
 async function refreshRemittanceCreditStatus(frm) {
