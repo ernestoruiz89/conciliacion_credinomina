@@ -163,7 +163,7 @@ def apply_credit_states(details, cuts, portfolio_rows, allowed):
             break
 
 
-def update_detail_portfolio(document, *, force=False):
+def update_detail_portfolio(document, *, force=False, require_cuts=False):
     details = document.get("detail_rows") or []
     if not details:
         return
@@ -182,6 +182,8 @@ def update_detail_portfolio(document, *, force=False):
         return
     allowed = allowed_employers(document.employer)
     cuts = load_cuts(document, allowed, complete=force)
+    if require_cuts and not cuts:
+        frappe.throw(frappe._("No hay un corte de cartera importado para los períodos seleccionados. Revise las aplicaciones y su corte de cartera."))
     loans = sorted({credit_key(row.get("loan_number")) for row in details if row.get("loan_number")})
     rows = []
     if cuts:
@@ -192,3 +194,30 @@ def update_detail_portfolio(document, *, force=False):
                 fields=["parent", "credit_number", "credit_status", "employer", "matched_client"],
                 loan_field="credit_number", loans=loans[offset:offset + 500]))
     apply_credit_states(details, cuts, rows, allowed)
+    return cuts
+
+
+@frappe.whitelist(methods=["POST"])
+def refresh_credit_status(remittance_name, modified):
+    """Refresh only portfolio evidence, without saving or reconciling the deposit."""
+    from credinomina_reconciliation.deposit_accounting_sources import assert_usable_cash
+    from credinomina_reconciliation.portfolio_refresh import _locked_document, _persist_evidence
+
+    doc = _locked_document("CN Remittance Allocation", remittance_name)
+    assert_usable_cash(doc)
+    if doc.docstatus == 2 or str(doc.modified) != str(modified):
+        frappe.throw(frappe._("El depósito cambió o está cancelado. Recargue antes de actualizar."))
+    if not doc.detail_rows:
+        frappe.throw(frappe._("El depósito no tiene filas de detalle para actualizar."))
+    if not selected_periods(doc):
+        frappe.throw(frappe._("Seleccione al menos un período del detalle antes de actualizar los estados de crédito."))
+    before = [frappe._dict(row.as_dict()) for row in doc.detail_rows]
+    cuts = update_detail_portfolio(doc, force=True, require_cuts=True)
+    values = [row.as_dict() for row in doc.detail_rows]
+    cuts[0].file_hash = frappe.db.get_value("CN Credit Portfolio Snapshot", cuts[0].name, "file_hash")
+    changed = _persist_evidence(doc, before, values, FIELDS, cuts[0])
+    customers = [row for row in doc.detail_rows if row.get("row_kind") != "Diferencia documentada"]
+    unidentified = sum(row.get("portfolio_credit_status") == "No Identificado" for row in customers)
+    return {"deposit": doc.name, "updated": changed, "customers": len(customers),
+            "unidentified": unidentified, "cut": cuts[0].name,
+            "previous_cut": cuts[1].name if len(cuts) > 1 else None}

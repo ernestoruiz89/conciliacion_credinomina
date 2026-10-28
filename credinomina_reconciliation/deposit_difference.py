@@ -174,24 +174,3 @@ def prepare(document, rows, claims, instructions):
         else:
             state["core"] = claim
     return state
-
-
-def cash_budgets(plans, difference, fixed_rows=()):
-    """Keep explicit row allocations; apportion a shortage only over other rows."""
-    amounts = [int(money(plan["amount_usd"]) * 100) for plan in plans]
-    total = sum(amounts)
-    shortage = -int(money(difference) * 100)
-    if not total or shortage <= 0:
-        return [money_float(money(plan["amount_usd"])) for plan in plans]
-    flexible = [i for i, plan in enumerate(plans) if plan["row"].name not in fixed_rows]
-    flexible_total = sum(amounts[i] for i in flexible)
-    if shortage > flexible_total:
-        raise ValueError("El faltante supera el efectivo de las filas sin vínculos manuales; revise los importes sin cambiar automáticamente sus destinos")
-    available = flexible_total - shortage
-    cents = list(amounts)
-    for i in flexible:
-        cents[i] = amounts[i] * available // flexible_total if flexible_total else 0
-    order = sorted(flexible, key=lambda i: (-(amounts[i] * available % flexible_total), str(plans[i]["row"].name)))
-    for index in order[:available - sum(cents[i] for i in flexible)]:
-        cents[index] += 1
-    return [value / 100 for value in cents]

@@ -42,17 +42,29 @@ def run():
                 diff = next(row for row in deposit.detail_rows if row.row_kind == KIND)
                 diff_name = diff.name
                 assert money(diff.difference_amount_usd) == money(delta)
-                reconcile_deposit(deposit)
-                deposit.reload(); imported.reload()
-                assert deposit.result == SETTLED, (deposit.result, deposit.detail_status, [r.as_dict() for r in deposit.detail_rows])
-                assert money(deposit.allocated_usd) == min(money(100), money(100 + delta))
-                assert money(deposit.unallocated_usd) == max(money(delta), money(0))
-                assert money(imported.rows[0].historical_balance_usd) == max(-money(delta), money(0))
+                if delta < 0:
+                    try:
+                        reconcile_deposit(deposit)
+                    except frappe.ValidationError as error:
+                        assert 'no se repartirá' in str(error), str(error)
+                    else:
+                        raise AssertionError('No debe repartir entre clientes un faltante de efectivo')
+                    deposit.reload(); imported.reload()
+                    assert money(deposit.allocated_usd) == 0
+                    assert money(imported.rows[0].historical_balance_usd) == 100
+                else:
+                    reconcile_deposit(deposit)
+                    deposit.reload(); imported.reload()
+                    assert deposit.result == SETTLED, (deposit.result, deposit.detail_status, [r.as_dict() for r in deposit.detail_rows])
+                    assert money(deposit.allocated_usd) == money(100)
+                    assert money(deposit.unallocated_usd) == money(delta)
+                    assert money(imported.rows[0].historical_balance_usd) == 0
                 diff = next(row for row in deposit.detail_rows if row.row_kind == KIND)
                 assert money(diff.difference_core_pending_usd) == abs(money(delta))
-                _reconcile_sources(company.name, preserve_deposits=False)
-                deposit.reload()
-                assert deposit.result == SETTLED, deposit.as_dict()
+                if delta > 0:
+                    _reconcile_sources(company.name, preserve_deposits=False)
+                    deposit.reload()
+                    assert deposit.result == SETTLED, deposit.as_dict()
                 # Later the core supplies the signed counterpart. This fixture
                 # inserts imported evidence directly; no manual creation API.
                 core = frappe.get_doc(dict(doctype="CN Complementary Item", name=label, docstatus=1,

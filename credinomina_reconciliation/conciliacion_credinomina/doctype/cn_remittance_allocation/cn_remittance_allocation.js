@@ -196,6 +196,9 @@ frappe.ui.form.on("CN Remittance Allocation", {
         }
         if (!frm.is_new() && frm.doc.docstatus !== 2 && frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Revisar origen del depósito"), () => reviewDepositOrigin(frm), __("Más opciones"));
+            if ((frm.doc.detail_rows || []).length) {
+                frm.add_custom_button(__("Actualizar estado del crédito"), () => refreshRemittanceCreditStatus(frm), __("Más opciones"));
+            }
         }
         frm.toggle_display("link_accounting_origins", !frm.is_new() && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         loadPayingCompanies(frm);
@@ -704,18 +707,12 @@ function unreconcileRemittanceDetail(frm, cdt, cdn) {
 function setupRemittanceClientAlias(frm) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const formatter = (value, df, options, row) => `${esc(value)}${row?.parent === frm.doc.name && canCreateRemittanceClientAlias(frm, row)
-        ? `<br><a href="#" data-create-client-alias="${esc(row.name)}">${__("Crear alias")}</a>` : ""}${row?.parent === frm.doc.name && canUnreconcileRemittanceDetail(frm, row)
-        ? `<br><button type="button" class="btn btn-xs btn-link" data-unreconcile-detail="${esc(row.name)}">${__("Desconciliar")}</button>` : ""}`;
+        ? `<br><a href="#" data-create-client-alias="${esc(row.name)}">${__("Crear alias")}</a>` : ""}`;
     const field = frappe.meta?.get_docfield?.("CN Remittance Detail", "client_name");
     if (field) field.formatter = formatter;
     frm.fields_dict.detail_rows?.grid?.update_docfield_property?.("client_name", "formatter", formatter);
     const wrapper = frm.fields_dict.detail_rows?.$wrapper;
     if (wrapper?.off && wrapper?.on) {
-        wrapper.off("click.cnUnreconcileRow", "[data-unreconcile-detail]").on("click.cnUnreconcileRow", "[data-unreconcile-detail]", event => {
-            event.preventDefault();
-            event.stopPropagation();
-            unreconcileRemittanceDetail(frm, "CN Remittance Detail", event.currentTarget.dataset.unreconcileDetail);
-        });
         wrapper.off("click.cnClientAlias", "[data-create-client-alias]").on("click.cnClientAlias", "[data-create-client-alias]", event => {
             event.preventDefault();
             event.stopPropagation();
@@ -1226,6 +1223,29 @@ async function importRemittanceDetail(frm) {
         freeze_message: __("Cargando detalle del depósito…"),
     });
     await frm.reload_doc();
+}
+
+async function refreshRemittanceCreditStatus(frm) {
+    if (frm.is_dirty()) {
+        frappe.msgprint(__("Guarde o recargue el depósito antes de actualizar los estados de crédito."));
+        return;
+    }
+    if (frm._cnRefreshingCreditStatus) return;
+    const name = frm.doc.name, modified = frm.doc.modified;
+    frm._cnRefreshingCreditStatus = true;
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.remittance_portfolio.refresh_credit_status",
+            args: {remittance_name: name, modified}, freeze: true,
+            freeze_message: __("Actualizando estados del crédito desde cartera…"),
+        });
+        if (frm.doc.name === name) await frm.reload_doc();
+        const result = response.message || {};
+        frappe.show_alert({message: __("Estados actualizados: {0}. Sin identificar: {1}.",
+            [result.updated || 0, result.unidentified || 0]), indicator: result.unidentified ? "orange" : "green"});
+    } finally {
+        frm._cnRefreshingCreditStatus = false;
+    }
 }
 
 function remittanceCashAmounts(doc) {
