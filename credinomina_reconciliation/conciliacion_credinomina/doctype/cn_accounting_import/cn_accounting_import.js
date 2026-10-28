@@ -177,7 +177,7 @@ function setupAccountingRowAmounts(frm) {
         grid.update_docfield_property(fieldname, "formatter", (value, df, options, row) => {
             const balance = row?._cn_row_amounts, amount = balance?.[key];
             if (amount == null) return `<span title="${frappe.utils.escape_html(__("Importe no determinado o no aplicable a esta fila"))}">—</span>`;
-            const formatted = frappe.format(amount, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2},
+            const formatted = frappe.format(amount, {fieldtype: "Currency", options: "usd_currency", precision: 2},
                 null, {...row, usd_currency: "USD"});
             return balance.issue ? `<span title="${frappe.utils.escape_html(balance.issue)}">${formatted}</span>` : formatted;
         });

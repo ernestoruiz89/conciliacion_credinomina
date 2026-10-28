@@ -113,7 +113,7 @@ function cnComplementaryListAmount(doc, key, df) {
         const label = doc._cn_balance_error ? __("Saldo no disponible") : __("Consultando conciliación");
         return `<span title="${frappe.utils.escape_html(label)}">—</span>`;
     }
-    return frappe.format(value, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
+    return frappe.format(value, {fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
         {...doc, usd_currency: "USD"});
 }
 
@@ -121,7 +121,7 @@ function cnComplementaryStoredAmount(value, df, doc) {
     if (doc.reconciliation_status === "Saldo no disponible" || value == null || !Number.isFinite(Number(value))) {
         return `<span title="${frappe.utils.escape_html(__("Saldo no disponible"))}">—</span>`;
     }
-    return frappe.format(value, {...df, fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
+    return frappe.format(value, {fieldtype: "Currency", options: "usd_currency", precision: 2}, null,
         {...doc, usd_currency: "USD"});
 }
 
