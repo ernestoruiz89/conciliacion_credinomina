@@ -297,7 +297,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         finally:
             engine._source_reconcile_verified.reset(token)
     document.reload()
-    matched = sum(row.match_status in {"Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"}
+    matched = sum(row.match_status in {"Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada", "Diferencia documentada"}
                   for row in document.detail_rows)
     report(100, _("Conciliación del depósito finalizada."))
     return {"deposit": document.name, "result": document.result, "periods": sorted(affected),

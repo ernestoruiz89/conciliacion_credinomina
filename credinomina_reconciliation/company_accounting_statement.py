@@ -183,12 +183,16 @@ def summarize(detail):
         key = row.get('employer') or ''
         group = groups.setdefault(key, dict(employer=key or None, usd_currency='USD', nio_currency='NIO',
             core_movement_count=0, pending_count=0, _accounting_documents=set(),
-            management_pending_usd=money(0), other_credit_usd=money(0),
+            management_pending_usd=money(0), other_credit_usd=money(0), pending_core_difference_usd=money(0),
             **{field: money(0) for field in FIELDS}))
         if row['statement_scope'] == CORE:
             group['core_movement_count'] += 1
         else:
             group['pending_count'] += int(bool(row.get('_component', True)))
+            if 'pending_core_difference_usd' in row:
+                value = row['pending_core_difference_usd']
+                group['pending_core_difference_usd'] = (None if value is None or group['pending_core_difference_usd'] is None
+                    else group['pending_core_difference_usd'] + money(value))
             if row.get('accounting_pending'):
                 group['_accounting_documents'].add(row['source_document'])
             # Split individual positions before summing: a core debit and credit
@@ -211,7 +215,7 @@ def summarize(detail):
     for key in sorted(groups):
         group = groups[key]
         group['accounting_pending_count'] = len(group.pop('_accounting_documents'))
-        for field in (*FIELDS, 'management_pending_usd', 'other_credit_usd'):
+        for field in (*FIELDS, 'management_pending_usd', 'other_credit_usd', 'pending_core_difference_usd'):
             if group[field] is not None:
                 group[field] = money_float(group[field])
         group['management_net_usd'] = (None if any(group[field] is None for field in MANAGEMENT_FIELDS) else money_float(

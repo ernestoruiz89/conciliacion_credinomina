@@ -50,6 +50,10 @@ const queueLink = report.formatter(2, null, {fieldname:'accounting_pending_count
     {employer:'Alfa', accounting_pending_count:2}, base);
 assert.match(queueLink, /cn-statement-detail/);
 assert.match(queueLink, /accounting_queue/);
+const differenceLink = report.formatter(-9.32, null, {fieldname:'pending_core_difference_usd', fieldtype:'Currency'},
+    {employer:'Alfa', pending_core_difference_usd:-9.32}, base);
+assert.match(differenceLink, /accounting_queue/);
+assert.doesNotMatch(differenceLink, /component&quot;:&quot;pending_core_difference_usd/);
 drill.call({'data-detail':JSON.stringify({employer:'Alfa', component:'', accounting_queue:1})}, {preventDefault(){}});
 assert.equal(filterValues.accounting_queue, 1);
 assert.equal(filterValues.component, '');

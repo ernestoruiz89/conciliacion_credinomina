@@ -637,6 +637,7 @@ async function useApplicationsAsDetail(frm, source = "applications") {
 }
 
 frappe.ui.form.on("CN Remittance Detail", {
+    unreconcile_detail: unreconcileRemittanceDetail,
     create_client_alias: createRemittanceClientAlias,
     view_related_pending: showRemittanceRelatedPending,
     create_client_credit: createClientCreditFromDetail,
@@ -644,6 +645,8 @@ frappe.ui.form.on("CN Remittance Detail", {
     select_pending_targets: selectPendingTargetsForDetail,
     form_render(frm, cdt, cdn) {
         const row = (frm.doc.detail_rows || []).find(row => row.name === cdn);
+        const undoControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.unreconcile_detail;
+        undoControl?.$wrapper.toggle(canUnreconcileRemittanceDetail(frm, row));
         const aliasControl = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_alias;
         aliasControl?.$wrapper.toggle(canCreateRemittanceClientAlias(frm, row));
         const control = frm.fields_dict.detail_rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.create_client_credit;
@@ -671,15 +674,48 @@ function canCreateRemittanceClientAlias(frm, row) {
         [row.loan_number, row.client_number, row.employee_number].some(value => String(value || "").trim());
 }
 
+function canUnreconcileRemittanceDetail(frm, row) {
+    return !frm.is_new() && frm.doc.docstatus === 1 && !!frm.get_perm(0, "write") && !!row?.name
+        && row.row_kind !== "Diferencia documentada" && !frm.doc.consolidated_deposit
+        && frm.doc.cash_identity_status !== "Origen vinculado";
+}
+
+function unreconcileRemittanceDetail(frm, cdt, cdn) {
+    const row = (frm.doc.detail_rows || []).find(item => item.name === cdn);
+    if (!canUnreconcileRemittanceDetail(frm, row) || frm._cnUnreconcilingRow) return;
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue el depósito antes de desconciliar una fila."));
+    const name = frm.doc.name, modified = frm.doc.modified;
+    frm._cnUnreconcilingRow = cdn;
+    return frappe.confirm(__("¿Desconciliar la fila {0}? Sus destinos se retirarán y quedará pendiente de selección manual. Las demás filas conservarán su conciliación.", [row.source_row || row.idx]),
+        async () => {
+            try {
+                if (frm.doc.name !== name || frm.doc.modified !== modified || frm.is_dirty()) {
+                    return frappe.msgprint(__("El depósito cambió. Recargue antes de desconciliar."));
+                }
+                await frappe.call({method: "credinomina_reconciliation.remittance_row_reconciliation.unreconcile_row",
+                    args: {remittance_name: name, detail_row_name: cdn, modified}, freeze: true,
+                    freeze_message: __("Desconciliando la fila y actualizando saldos…")});
+                if (frm.doc.name === name) await frm.reload_doc();
+                frappe.show_alert({message: __("Fila pendiente de selección manual. Use Seleccionar partidas pendientes."), indicator: "orange"});
+            } finally {frm._cnUnreconcilingRow = null;}
+        }, () => {frm._cnUnreconcilingRow = null;});
+}
+
 function setupRemittanceClientAlias(frm) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const formatter = (value, df, options, row) => `${esc(value)}${row?.parent === frm.doc.name && canCreateRemittanceClientAlias(frm, row)
-        ? `<br><a href="#" data-create-client-alias="${esc(row.name)}">${__("Crear alias")}</a>` : ""}`;
+        ? `<br><a href="#" data-create-client-alias="${esc(row.name)}">${__("Crear alias")}</a>` : ""}${row?.parent === frm.doc.name && canUnreconcileRemittanceDetail(frm, row)
+        ? `<br><button type="button" class="btn btn-xs btn-link" data-unreconcile-detail="${esc(row.name)}">${__("Desconciliar")}</button>` : ""}`;
     const field = frappe.meta?.get_docfield?.("CN Remittance Detail", "client_name");
     if (field) field.formatter = formatter;
     frm.fields_dict.detail_rows?.grid?.update_docfield_property?.("client_name", "formatter", formatter);
     const wrapper = frm.fields_dict.detail_rows?.$wrapper;
     if (wrapper?.off && wrapper?.on) {
+        wrapper.off("click.cnUnreconcileRow", "[data-unreconcile-detail]").on("click.cnUnreconcileRow", "[data-unreconcile-detail]", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            unreconcileRemittanceDetail(frm, "CN Remittance Detail", event.currentTarget.dataset.unreconcileDetail);
+        });
         wrapper.off("click.cnClientAlias", "[data-create-client-alias]").on("click.cnClientAlias", "[data-create-client-alias]", event => {
             event.preventDefault();
             event.stopPropagation();
@@ -1370,7 +1406,7 @@ function remittanceIssues(doc, dirty = false) {
         add("FIFO necesita al menos un período seleccionado en Períodos a conciliar.", "detail_periods");
     }
     for (const row of rows) {
-        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
+        if (["Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
         const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
             row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);

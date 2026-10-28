@@ -3,10 +3,16 @@ import unittest
 from unittest.mock import patch
 
 import frappe
+import pytest
 
 from credinomina_reconciliation.historical_cutoff import reconstruct, load_cutoff
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as statement
 from credinomina_reconciliation.conciliacion_credinomina.report.antiguedad_de_saldos import antiguedad_de_saldos as aging
+
+
+@pytest.fixture(autouse=True)
+def no_documented_deposit_differences(monkeypatch):
+    monkeypatch.setattr(statement, 'load_deposit_differences', lambda filters: [])
 
 
 class HistoricalCutoffTests(unittest.TestCase):

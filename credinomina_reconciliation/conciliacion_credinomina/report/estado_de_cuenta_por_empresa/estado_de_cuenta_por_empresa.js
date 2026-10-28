@@ -48,11 +48,11 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
                 .map(([value, label]) => ({value, label: __(label)}))]},
-        {fieldname: "accounting_queue", label: __("Solo complementarias sin registro"), fieldtype: "Check", default: 0,
-            description: __("Muestra las partidas complementarias manuales cuyo asiento aún no está confirmado en el core, tengan o no saldo en este reporte.")},
+        {fieldname: "accounting_queue", label: __("Solo pendientes de registro"), fieldtype: "Check", default: 0,
+            description: __("Muestra partidas manuales y diferencias de depósito pendientes de registro en el core.")},
         {fieldname: "status", label: __("Estado de conciliación"), fieldtype: "Autocomplete", options: ["Conciliado", "Pendiente", "Parcial", "Revisar distribución", "Sin conversión US$", "Importado del core; sin confirmar", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros", "Solo control contable"],
             description: __("Las sugerencias se actualizan con los estados de las partidas de esta consulta.")},
-        {fieldname: "origin_type", label: __("Origen"), fieldtype: "Select", options: "\nCore\nComplementaria manual\nDepósito manual\nPeríodo"},
+        {fieldname: "origin_type", label: __("Origen"), fieldtype: "Select", options: "\nCore\nComplementaria manual\nDepósito manual\nDiferencia de depósito\nPeríodo"},
         {fieldname: "category", label: __("Concepto"), fieldtype: "Autocomplete", options: ["Por clasificar", "Ajuste de conciliación", "Ajuste de aplicación", "Compensación entre partidas", "Otros ingresos", "Cobranza administrativa", "Saldo a favor del cliente", "Saldo a favor de la empresa"]},
         {fieldname: "reason_type", label: __("Motivo"), fieldtype: "Autocomplete", options: ["Error de la empresa", "Pago adicional no informado", "Por refinanciamiento", "Por cancelación", "Otro por aclarar"]},
         {fieldname: "subcategory", label: __("Subcategoría"), fieldtype: "Link", options: "CN Complementary Subcategory"},
@@ -137,9 +137,9 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                  (column.fieldname === "accounting_pending_count" && Number(value)))) {
             const accounting = ["core_debit_usd", "core_credit_usd", "core_balance_usd", "core_debit_nio", "core_credit_nio", "core_balance_nio", "core_movement_count"].includes(column.fieldname);
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
-                component: column.fieldtype === "Currency" && column.fieldname !== "management_net_usd" ? column.fieldname : "",
+                component: column.fieldtype === "Currency" && !["management_net_usd", "pending_core_difference_usd"].includes(column.fieldname) ? column.fieldname : "",
                 statement_scope: accounting ? "Contabilidad del core" : column.fieldname === "management_net_usd" ? "Todos" : "Gestión",
-                accounting_queue: column.fieldname === "accounting_pending_count" ? 1 : 0}));
+                accounting_queue: ["accounting_pending_count", "pending_core_difference_usd"].includes(column.fieldname) ? 1 : 0}));
             return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__(accounting ? "Ver movimientos originales del core" : "Ver partidas por gestionar")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
         }
         return html;

@@ -1624,6 +1624,7 @@ def _prepare_remittance_details(
             "amount_usd", "match_status", "match_reason", "matched_targets",
             "row_kind", "difference_amount_usd", "difference_basis", "difference_core_item",
             "difference_reason", "difference_notes",
+            "manual_reconciliation_required",
         ],
         order_by="parent asc, idx asc", limit_page_length=100000,
     ) if names else []
@@ -1703,9 +1704,15 @@ def _prepare_remittance_details(
         if difference and any(plan["client_credits"] for plan in plans):
             difference["error"] = "Revise los saldos a favor existentes antes de documentar la diferencia de empresa"
         if difference and not difference["error"] and not difference["core"]:
-            for plan, budget in zip(plans, cash_budgets(plans, difference["amount"])):
-                plan["cash_budget_usd"] = budget
-                plan["cash_difference_usd"] = money_float(money(plan["amount_usd"]) - money(budget))
+            fixed_rows = {entry.get("detail_row") for entry in prior_instructions if entry["deposit_id"] == deposit_id}
+            try:
+                budgets = cash_budgets(plans, difference["amount"], fixed_rows=fixed_rows)
+            except ValueError as error:
+                difference["error"] = str(error)
+            else:
+                for plan, budget in zip(plans, budgets):
+                    plan["cash_budget_usd"] = budget
+                    plan["cash_difference_usd"] = money_float(money(plan["amount_usd"]) - money(budget))
         # Administrative collections and other signed complements belong to
         # targets, not to fictitious client detail rows. Linked complements
         # are already included in their row's net; count only separate ones.
@@ -1748,6 +1755,10 @@ def _prepare_remittance_details(
                       if entry["deposit_id"] == deposit_id
                       and entry.get("detail_row") == plan["row"].name]
             plan["manual_targets"] = manual
+            if plan["row"].get("manual_reconciliation_required") and not manual:
+                plan["status"] = "Pendiente manual"
+                plan["reason"] = "Seleccione destinos manuales; la conciliación automática está desactivada para esta fila"
+                continue
             identity_reason = clean_text(plan["row"].identity_reason)
             if identity_reason.startswith("Conflicto") or (
                 identity_reason.startswith("Nombre ambiguo") and not clean_text(plan["row"].loan_number)
@@ -1768,7 +1779,7 @@ def _prepare_remittance_details(
                     plan["row"], claims, plan["amount_usd"], item.employer, selected_periods(item),
                     allowed_groups=allowed_groups, apply_fifo=apply_fifo, reserved_amounts=reserved_amounts)
                 identified = sum_money(target["amount_usd"] for target in candidates) == money(plan["amount_usd"])
-                plan["status"] = "Conciliada con diferencia documentada" if identified else "Revisar"
+                plan["status"] = "Cobertura parcial; diferencia de empresa" if identified else "Revisar"
                 plan["reason"] = ("Sin efectivo asignado por el prorrateo; importe íntegro pendiente de cobertura, explicado en la fila de empresa"
                                   if identified else reason)
                 continue
@@ -1917,7 +1928,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 if (plan.get("cash_difference_usd") and targets
                         and all(value == "Aplicada" for value in results)
                         and money(updates["pending_usd"]) == money(plan["cash_difference_usd"])):
-                    plan["status"] = updates["match_status"] = "Conciliada con diferencia documentada"
+                    plan["status"] = updates["match_status"] = "Cobertura parcial; diferencia de empresa"
                     updates["match_reason"] += "; efectivo proporcional; US$ {:.2f} pendientes de cobertura, explicados en la fila de empresa".format(plan["cash_difference_usd"])
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
@@ -1941,7 +1952,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     if allocation["instruction_results"].get(entry["id"]) == "Aplicada"
                 )
                 if any(
-                    plan["status"] not in {"Conciliada", "No deducido", "Conciliada con diferencia documentada"}
+                    plan["status"] not in {"Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada"}
                     for plan in state["rows"]
                 ) or not outside_applied:
                     state["status"] = "Revisar filas"
