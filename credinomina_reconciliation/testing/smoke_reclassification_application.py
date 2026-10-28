@@ -4,7 +4,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation.manual_complementary_policy import imported_item
-from credinomina_reconciliation.reclassification_distribution import link_application
+from credinomina_reconciliation.reclassification_distribution import link_application, preview_destination
 
 
 def run():
@@ -34,12 +34,15 @@ def run():
                 review_action="Compensación entre partidas", compensation_status="Sin compensar",
                 compensation_pending_usd=.10), update_modified=False)
             item.reload(); parent.reload()
+            assert preview_destination(item.name, parent.name, 'application')['rows'] == []
+            assert preview_destination(item.name, parent.name, 'application', override=1)['rows'][0]['pending_usd'] == 1
             result = link_application(item.name, parent.rows[0].name, str(item.modified), .01,
                                       override=True, reason="Ajuste global verificado")
             item.reload(); parent.reload()
             assert result["remaining_usd"] == .09
             assert parent.rows[0].application_adjustment_usd == .01, parent.rows[0].as_dict()
             assert parent.rows[0].net_applied_usd == .99
+            assert preview_destination(item.name, parent.name, 'application', override=1)['rows'][0]['pending_usd'] == .99
             assert item.source_credit == .10 and item.amount_usd == .10
             other_company = frappe.get_doc(dict(doctype="CN Employer", employer_name=marker + "-C",
                 employer_code=marker + "-C")).insert()
