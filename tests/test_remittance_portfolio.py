@@ -85,3 +85,16 @@ class RemittancePortfolioTests(unittest.TestCase):
     def test_without_selected_periods_no_global_latest_is_assumed(self, query):
         self.assertEqual(load_cuts(frappe._dict(detail_periods=[]), {"A"}), [])
         query.assert_not_called()
+
+    @patch("frappe.has_permission", return_value=True)
+    @patch("frappe.get_all", return_value=[])
+    @patch("frappe.get_list")
+    def test_disabled_selected_cut_explains_why_it_cannot_be_used(self, get_list, _sources, _permission):
+        get_list.side_effect = [
+            [frappe._dict(name="P", employer="A", payroll_month="2025-06-01")],
+            [frappe._dict(name="IMPORT", portfolio_snapshot="CARTERA DESACTIVADA")],
+            [],
+            [frappe._dict(name="CARTERA DESACTIVADA", disabled=1, status="Importado con alertas")],
+        ]
+        with self.assertRaisesRegex(frappe.ValidationError, "CARTERA DESACTIVADA"):
+            load_cuts(frappe._dict(detail_periods=[{"period": "P"}]), {"A"}, explain_empty=True)

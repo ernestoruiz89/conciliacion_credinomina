@@ -1,5 +1,6 @@
 """Informational credit status from the latest selected period's portfolio."""
 from collections import defaultdict
+from html import escape
 
 import frappe
 
@@ -20,7 +21,7 @@ def period_date(period):
                or period.get("cutoff_date") or period.get("payroll_month") or "")
 
 
-def load_cuts(document, allowed, *, complete=False):
+def load_cuts(document, allowed, *, complete=False, explain_empty=False):
     periods = selected_periods(document)
     if not periods:
         return []
@@ -68,6 +69,16 @@ def load_cuts(document, allowed, *, complete=False):
     cuts = readable("CN Credit Portfolio Snapshot", filters={
         "disabled": 0, "name": ["in", sorted(names)], "status": ["in", IMPORTED]},
         fields=["name", "report_date"], order_by="report_date desc, name desc", limit_page_length=1)
+    if not cuts and explain_empty:
+        selected = readable("CN Credit Portfolio Snapshot", filters={"name": ["in", sorted(names)]},
+            fields=["name", "disabled", "status"], limit_page_length=0)
+        disabled = sorted(row.name for row in selected if row.disabled)
+        if disabled:
+            frappe.throw(frappe._(
+                "Los cortes de cartera seleccionados incluyen cortes desactivados: {0}. "
+                "Seleccione un corte importado y activo en el movimiento contable del período; "
+                "si necesita usar uno desactivado, revise primero cuál corte debe estar activo."
+            ).format(", ".join(escape(name) for name in disabled)))
     if not cuts or not cuts[0].report_date:
         return []
     previous = readable("CN Credit Portfolio Snapshot", filters={
@@ -181,7 +192,7 @@ def update_detail_portfolio(document, *, force=False, require_cuts=False):
             row.update({field: old.get(field) for field in FIELDS})
         return
     allowed = allowed_employers(document.employer)
-    cuts = load_cuts(document, allowed, complete=force)
+    cuts = load_cuts(document, allowed, complete=force, explain_empty=require_cuts)
     if require_cuts and not cuts:
         frappe.throw(frappe._("No hay un corte de cartera importado para los períodos seleccionados. Revise las aplicaciones y su corte de cartera."))
     loans = sorted({credit_key(row.get("loan_number")) for row in details if row.get("loan_number")})

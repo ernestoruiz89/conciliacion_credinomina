@@ -79,7 +79,7 @@ class PortfolioRefreshTests(unittest.TestCase):
         with patch('credinomina_reconciliation.remittance_portfolio.allowed_employers', return_value={'E'}), \
              patch('credinomina_reconciliation.remittance_portfolio.load_cuts', return_value=[]) as cuts:
             update_detail_portfolio(current, force=True)
-        cuts.assert_called_once_with(current, {'E'}, complete=True)
+            cuts.assert_called_once_with(current, {'E'}, complete=True, explain_empty=False)
         self.assertEqual(current.detail_rows[0].portfolio_credit_status, 'No Identificado')
 
     def test_hidden_dependency_aborts_forced_refresh(self):

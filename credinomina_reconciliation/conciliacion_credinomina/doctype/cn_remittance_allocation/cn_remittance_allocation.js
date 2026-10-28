@@ -227,11 +227,8 @@ frappe.ui.form.on("CN Remittance Allocation", {
         frm.add_custom_button(__("Plantilla de detalle del depósito"), () => downloadRemittanceTemplate(frm), __("Plantillas"));
         if (!frm.is_new()) {
             frm.add_custom_button(__("Historial de conciliación"), () => showReconciliationHistory(frm), __("Conciliación"));
-        }
-        if (!frm.is_new() && Number(frm.doc.justified_surplus_usd) > 0) {
-            frm.add_custom_button(__("Ver saldos a favor"), () => frappe.set_route("List", "CN Complementary Item", {
-                registered_deposit: frm.doc.name, category: ["in", ["Saldo a favor de la empresa", "Saldo a favor del cliente"]], docstatus: 1,
-            }), __("Conciliación"));
+            frm.add_custom_button(__("Ver Partidas Complementarias"),
+                () => frappe.set_route("List", "CN Complementary Item"), __("Conciliación"));
         }
         if (!frm.is_new() && frm.doc.docstatus === 0 && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Confirmar depósito"), async () => {
