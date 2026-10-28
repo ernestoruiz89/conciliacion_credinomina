@@ -20,6 +20,7 @@ def execute(filters=None):
         return bridge(filters)
     validate_dates(filters)
     scope = {key: value for key, value in filters.items() if key != 'status'}
+    scope['_include_deposit_details'] = True
     # Classifications can move a pending credit between components. Filter
     # after classification so the drill-down uses the same rows as the summary.
     if filters.get('component') in CREDIT_COMPONENTS:
