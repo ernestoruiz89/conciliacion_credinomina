@@ -26,13 +26,10 @@ def attach_treatments(rows, *, classify_credits=False):
     from credinomina_reconciliation.report_records import records
     from credinomina_reconciliation.rounding import money, money_float
 
-    if not any(row.get("difference_reason") or (row.get('_deposit_detail_classification') or {}).get('rows') for row in rows):
+    if not any(row.get("difference_reason") for row in rows):
         return
     treatments = {reason["name"]: reason.get("treatment") or ""
                   for reason in records(DOCTYPE, fields=["name", "treatment"])}
-    if classify_credits:
-        from credinomina_reconciliation.deposit_detail_classification import expand
-        rows[:] = expand(rows, treatments)
     order = ("A Favor Cliente", "A Favor Empresa")
     for row in rows:
         reason = row.get("difference_reason") or ""

@@ -1,13 +1,12 @@
 import json
 from html import escape
 
-from frappe import _, throw
+from frappe import _
 from credinomina_reconciliation.rounding import money, money_float
 
 from credinomina_reconciliation.company_statement import load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.difference_reasons import CREDIT_COMPONENTS, attach_treatments
-from credinomina_reconciliation.statement_deposit_adjustments import ADJUSTMENT_FIELD, CALCULATED_FIELD, CONTROL_FIELDS, project as deposit_adjustments
 from credinomina_reconciliation.company_accounting_statement import (
     CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS, POSITION_METRICS, POSITION_FIELDS,
     load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
@@ -20,20 +19,15 @@ def execute(filters=None):
         from credinomina_reconciliation.company_statement_bridge import execute as bridge
         return bridge(filters)
     validate_dates(filters)
-    if filters.get('component') in CONTROL_FIELDS and not _comparison_available(filters):
-        throw(_('Los ajustes de depósito y el saldo calculado requieren el alcance completo por empresa y corte. '
-            'Quite los filtros de detalle, cuenta, moneda y pendientes de registro.'))
     scope = {key: value for key, value in filters.items() if key != 'status'}
-    scope['_include_deposit_details'] = True
     # Classifications can move a pending credit between components. Filter
     # after classification so the drill-down uses the same rows as the summary.
     if filters.get('component') in CREDIT_COMPONENTS:
         scope.pop('component', None)
     section = selected_scope(filters)
-    detail, cutoff, core = [], None, []
+    detail, cutoff = [], None
     if section != MANAGEMENT:
-        core = load_core_detail(scope)
-        detail.extend(core)
+        detail.extend(load_core_detail(scope))
     if filters.get('cutoff_date') and section != CORE:
         from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
         cutoff = load_cutoff(scope)
@@ -45,8 +39,6 @@ def execute(filters=None):
         if str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
             differences = [row for row in differences if row['accounting_pending']]
         detail.extend(differences)
-    if _comparison_available(filters):
-        detail.extend(deposit_adjustments(core, filters.get('cutoff_date')))
     attach_treatments(detail, classify_credits=True)
     data = _presentation(detail, filters)
     message = (_('Saldo contable del core = débitos originales − créditos originales. ')
@@ -59,12 +51,6 @@ def execute(filters=None):
         message += _comparison_message(detail, filters)
     message += _('La vista Conciliación explica cualquier diferencia con el saldo contable e identifica el registro pendiente. ')
     message += _('Tratamiento de diferencia usa la clasificación actual de la razón asignada, también en cortes históricos. ')
-    message += _('Los remanentes clasificados del detalle se desglosan por cliente o empresa sin duplicar el depósito. '
-        'Cuando el detalle supera el depósito y la diferencia está documentada, la línea de empresa conserva el saldo original; no crea una CxC. ')
-    if _comparison_available(filters):
-        message += _('Saldo calculado = saldo + ajustes identificados entre importe bancario y origen contable. '
-            'Diferencia saldo − core compara el saldo calculado con el core. Los ajustes se muestran aparte, '
-            'con su signo y depósito de origen; no crean partidas ni CxC. Los redondeos de conversión no requieren asiento. ')
     if section != CORE:
         message += _('Diferencia de depósito pendiente en core es un control informativo separado: no se suma al saldo de gestión ni elimina pendientes de clientes. En cortes anteriores, su estado puede no ser determinable por falta de historial de vínculos. ')
     message += '<details><summary>' + _('Cómo comparar con el Excel') + '</summary>' + _(
@@ -122,18 +108,6 @@ def _detail_presentation(selected, filters):
         values = [row.get(field) for row in rows]
         return None if any(value is None for value in values) else money_float(sum((money(value) for value in values), money(0)))
 
-    component = filters.get('component')
-    if component in CONTROL_FIELDS:
-        for row in data:
-            if row.get('_is_deposit_adjustment'):
-                row['statement_amount_usd'] = row.get(ADJUSTMENT_FIELD)
-        if data:
-            amount = total(data, 'statement_amount_usd')
-            data.append(dict(_is_statement_total=True, _total_component=component, statement_scope=MANAGEMENT,
-                client_name=_('Saldo calculado') if component == CALCULATED_FIELD else _('Total ajustes de depósito'),
-                usd_currency='USD', statement_amount_usd=amount, **{component: amount}))
-        return data
-
     if section == CORE and rows:
         amounts = {field: total(rows, field) for field in CORE_FIELDS}
         data.append(dict(_is_statement_total=True, _total_component='core_balance_usd', statement_scope=CORE,
@@ -153,8 +127,7 @@ def _detail_presentation(selected, filters):
 
 def _comparison_available(filters):
     from credinomina_reconciliation.company_statement_bridge import SCOPED_FILTERS
-    return selected_scope(filters) == 'Todos' and not any(filters.get(field) for field in SCOPED_FILTERS
-        if field != 'component' or filters.get('component') not in CONTROL_FIELDS)
+    return selected_scope(filters) == 'Todos' and not any(filters.get(field) for field in SCOPED_FILTERS)
 
 
 def _comparison_message(detail, filters):
@@ -168,8 +141,6 @@ def _comparison_message(detail, filters):
     return ('<div class="my-2"><strong>' + _('Comparación con el core') + '</strong>: '
         + _('Saldo contable') + ' ' + display('core_balance_usd') + ' · '
         + _('Saldo de pendientes') + ' ' + display('management_net_usd') + ' · '
-        + _('Ajustes de depósito') + ' ' + display(ADJUSTMENT_FIELD) + ' · '
-        + _('Saldo calculado') + ' ' + display(CALCULATED_FIELD) + ' · '
         + _('Diferencia') + ' ' + display('reconciliation_difference_usd') + ' '
         + f'<button type="button" class="btn btn-xs btn-default cn-statement-detail" data-detail="{args}">'
         + _('Ver diferencias y registro pendiente') + '</button></div>')
@@ -229,15 +200,14 @@ def get_columns(filters=None):
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
         columns += [dict(fieldname=field, label=_(label), fieldtype='Currency', options='usd_currency', precision=2, width=180)
-            for field, label in (*POSITION_METRICS, (ADJUSTMENT_FIELD, 'Ajustes de depósito por documentar US$'),
-                (CALCULATED_FIELD, 'Saldo calculado US$'), ('reconciliation_difference_usd', 'Diferencia saldo calculado − core US$'))]
+            for field, label in (*POSITION_METRICS, ('reconciliation_difference_usd', 'Diferencia saldo − core US$'))]
         columns.insert(1, {'fieldname': 'core_movement_count', 'label': _('Movimientos del core'), 'fieldtype': 'Int', 'width': 140})
         columns.insert(1, {'fieldname': 'pending_count', 'label': _('Partidas pendientes'), 'fieldtype': 'Int', 'width': 130})
         columns.insert(2, {'fieldname': 'accounting_pending_count', 'label': _('Pendientes de registro'),
                            'fieldtype': 'Int', 'width': 180})
         leading = (('employer', 'core_debit_usd', 'core_credit_usd', 'core_balance_usd', 'core_movement_count') if section == CORE else
             ('employer', 'management_pending_usd', 'client_credit_usd', 'company_credit_usd', 'other_credit_usd',
-             'management_net_usd', ADJUSTMENT_FIELD, CALCULATED_FIELD, 'core_balance_usd', 'reconciliation_difference_usd', 'pending_core_difference_usd', 'pending_count', 'accounting_pending_count'))
+             'management_net_usd', 'core_balance_usd', 'reconciliation_difference_usd', 'pending_core_difference_usd', 'pending_count', 'accounting_pending_count'))
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     if (filters or {}).get('cutoff_date'):
@@ -305,9 +275,6 @@ def get_columns(filters=None):
     # A partial ledger cannot be compared with the full management population.
     from credinomina_reconciliation.company_statement_bridge import SCOPED_FILTERS
     if any((filters or {}).get(field) for field in SCOPED_FILTERS):
-        if not _comparison_available(filters or {}):
-            excluded.add('reconciliation_difference_usd')
-    if not _comparison_available(filters or {}):
-        excluded.update(CONTROL_FIELDS)
+        excluded.add('reconciliation_difference_usd')
     columns = [column for column in columns if column['fieldname'] not in excluded]
     return columns

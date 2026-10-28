@@ -109,14 +109,6 @@ const netLink = report.formatter(75, null, {fieldname:'management_net_usd',field
     {employer:'ACEREAL',management_net_usd:75}, base);
 assert.match(netLink, /Todos/, 'The net balance drill retains the comparison with accounting');
 assert.doesNotMatch(netLink, /component":"management_net_usd/);
-const adjustmentsLink = report.formatter(88.95, null, {fieldname:'deposit_documentation_adjustment_usd',fieldtype:'Currency'},
-    {employer:'ACEREAL',deposit_documentation_adjustment_usd:88.95}, base);
-assert.match(adjustmentsLink, /deposit_documentation_adjustment_usd/);
-assert.match(adjustmentsLink, /Todos/);
-const calculatedLink = report.formatter(686.32, null, {fieldname:'calculated_balance_usd',fieldtype:'Currency'},
-    {employer:'ACEREAL',calculated_balance_usd:686.32}, base);
-assert.match(calculatedLink, /calculated_balance_usd/);
-assert.match(calculatedLink, /Todos/);
 assert.equal(report.formatter(75, null, amount,
     {_is_statement_total:true,statement_amount_usd:75,_total_component:'management_net_usd'}, base), '<strong>formatted:75</strong>');
 console.log('OK: company statement summary/detail, monetary formatting and original filter restoration.');
