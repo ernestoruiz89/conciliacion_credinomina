@@ -310,38 +310,87 @@ def distribution_history(item_name):
             "entries": entries}
 
 
+def identity_exception(item, target):
+    """Use the same company and identity rules for the picker and the write."""
+    different_company = not item.get("employer") or item.get("employer") != target.get("employer")
+    item_number, target_number = (canonical_identifier(value) for value in
+                                   (item.get("client_number"), target.get("client_number")))
+    item_loan, target_loan = (canonical_credit_number(value) for value in
+                              (item.get("loan_number"), target.get("loan_number")))
+    item_name, target_name = name_key(item.get("client_name")), name_key(target.get("client_name"))
+    different_client = bool((item_number and target_number and item_number != target_number)
+                            or (item_loan and target_loan and item_loan != target_loan)
+                            or (item_name and target_name and item_name != target_name))
+    unknown_client = not ((item_number and target_number and item_number == target_number)
+                          or (item_loan and target_loan and item_loan == target_loan)
+                          or (item_name and target_name and item_name == target_name))
+    return bool(different_company or different_client or unknown_client)
+
+
 @frappe.whitelist()
-def preview_destination(item_name, document_name, destination):
+def preview_destination(item_name, document_name, destination, override=0):
     """Read a selected target only after checking the parent document."""
     from credinomina_reconciliation.paying_employers import allowed_employers
     item = frappe.get_doc("CN Complementary Item", item_name)
     item.check_permission("read")
     if destination == "deposit":
+        from credinomina_reconciliation.client_credit import load_credits
         doc = frappe.get_doc("CN Remittance Allocation", document_name)
         doc.check_permission("read")
         if doc.docstatus != 1:
             frappe.throw(_("Seleccione un depósito confirmado."))
         allowed = allowed_employers(doc.employer)
+        credits = load_credits([doc.name])
+        reserved = sum_money(credit.get("amount_usd") for credit in credits)
+        cash_available = money(doc.amount_usd) - money(doc.allocated_usd) - reserved
+        by_row = {}
+        for credit in credits:
+            key = credit.get("credit_detail_row")
+            by_row[key] = by_row.get(key, money(0)) + money(credit.get("amount_usd"))
         rows = []
         for row in doc.detail_rows or []:
             if (not row.client or row.employer not in allowed or
                     str(row.get("identity_reason") or "").startswith(("Conflicto", "Nombre ambiguo")) or
                     not frappe.has_permission("CN Client", "read", doc=row.client)):
                 continue
+            available = min(money(row.pending_usd), money(row.amount_usd) - money(row.linked_usd)
+                            - by_row.get(row.name, money(0)), cash_available)
+            if available <= 0 or (not cint(override) and identity_exception(item, row)):
+                continue
             rows.append(dict(name=row.name, employer=row.employer, client_name=row.client_name,
                 client_number=row.client_number, loan_number=row.loan_number, source_row=row.source_row,
-                amount_usd=row.amount_usd, pending_usd=row.pending_usd))
+                amount_usd=row.amount_usd, pending_usd=float(available)))
         return dict(modified=str(doc.modified), rows=rows, date=str(doc.deposit_date))
     if destination == "application":
+        from collections import defaultdict
+        from credinomina_reconciliation.application_adjustment_links import confirmed
+        from credinomina_reconciliation.application_adjustments import cash_coverage
+        from credinomina_reconciliation.application_candidate_context import CandidateContext
         doc = frappe.get_doc("CN Accounting Import", document_name)
         doc.check_permission("read")
         if doc.docstatus == 2 or doc.status not in {"Importado", "Importado con excepciones"}:
             frappe.throw(_("Seleccione una importación contable vigente."))
-        rows = [dict(name=row.name, employer=doc.employer, client_name=row.client_name,
-                     client_number=row.client_number, loan_number=row.loan_number, source_row=row.source_row,
-                     amount_usd=row.amount_usd, pending_usd=row.historical_balance_usd,
-                     period=row.historical_period or row.collection_period)
-                for row in doc.rows or [] if row.event_type == "Aplicacion" and row.effective and row.currency == "USD"]
+        candidates = [row for row in doc.rows or [] if row.event_type == "Aplicacion" and row.effective
+                      and row.currency == "USD" and (cint(override) or not identity_exception(item, {
+                          "employer": doc.employer, "client_number": row.client_number,
+                          "client_name": row.client_name, "loan_number": row.loan_number}))]
+        if not candidates:
+            return dict(modified=str(doc.modified), rows=[])
+        context = CandidateContext(candidates, doc, item)
+        totals = defaultdict(lambda: money(0))
+        for link in confirmed([row.name for row in candidates], employer=doc.employer):
+            totals[link.related_application] += money(link.application_adjustment_usd)
+        rows = []
+        for source in candidates:
+            row = frappe._dict(source.as_dict())
+            row.application_adjustment_usd = float(totals[row.name])
+            available = money(cash_coverage(row, context=context)["adjustable_usd"])
+            if available <= 0:
+                continue
+            rows.append(dict(name=row.name, employer=doc.employer, client_name=row.client_name,
+                client_number=row.client_number, loan_number=row.loan_number, source_row=row.source_row,
+                amount_usd=row.amount_usd, pending_usd=float(available),
+                period=row.historical_period or row.collection_period))
         return dict(modified=str(doc.modified), rows=rows)
     frappe.throw(_("Seleccione un destino válido."))
 
@@ -373,23 +422,12 @@ def validate_portion(item, target, kind, amount_usd, existing, *, override=False
     if amount > money(target.get("available_usd")):
         frappe.throw(_("El importe supera el saldo disponible del destino."))
 
-    different_company = not item.get("employer") or item.get("employer") != target.get("employer")
-    item_number, target_number = (canonical_identifier(value) for value in
-                                   (item.get("client_number"), target.get("client_number")))
-    item_loan, target_loan = (canonical_credit_number(value) for value in
-                              (item.get("loan_number"), target.get("loan_number")))
-    item_name, target_name = name_key(item.get("client_name")), name_key(target.get("client_name"))
-    different_client = bool((item_number and target_number and item_number != target_number)
-                            or (item_loan and target_loan and item_loan != target_loan)
-                            or (item_name and target_name and item_name != target_name))
-    unknown_client = not ((item_number and target_number and item_number == target_number)
-                          or (item_loan and target_loan and item_loan == target_loan)
-                          or (item_name and target_name and item_name == target_name))
-    if different_company or different_client or unknown_client:
+    exception = identity_exception(item, target)
+    if exception:
         if not cint(override) or not str(reason or "").strip():
             frappe.throw(_("La empresa o el cliente no coincide. Marque la excepción y documente el motivo."))
     return {"amount_usd": money(amount), "remaining_usd": money(original - already - amount),
-            "identity_exception": bool(different_company or different_client or unknown_client)}
+            "identity_exception": exception}
 
 
 @frappe.whitelist(methods=["POST"])

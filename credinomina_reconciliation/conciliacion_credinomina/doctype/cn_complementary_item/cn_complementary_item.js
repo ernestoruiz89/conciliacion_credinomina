@@ -483,7 +483,7 @@ frappe.ui.form.on("CN Complementary Item", {
                 && frm.doc.accounting_source_key && frm.get_perm(0, "write") && frm.get_perm(0, "submit")
                 && ((Number(frm.doc.source_debit) > 0 && !Number(frm.doc.source_credit))
                     || (Number(frm.doc.source_credit) > 0 && !Number(frm.doc.source_debit)))) {
-            frm.add_custom_button(__("Distribuir movimiento del core"), () => cn_distribute_core_item(frm));
+            frm.add_custom_button(__("Distribuir a Depósito"), () => cn_distribute_core_item(frm));
             frm.add_custom_button(__("Gestionar saldo de distribución"), () => cn_manage_split_credit(frm), __("Más acciones"));
         }
         if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
@@ -932,14 +932,15 @@ async function cn_distribute_core_item(frm) {
         ["Otro sin saldo a favor ni cuenta por cobrar", "Otro sin cuenta por cobrar contra depósito"],
     ]) : new Map([["Pago pendiente contra aplicación contable", "Pago pendiente contra aplicación"]]);
     const kinds = [...kindOptions.keys()];
-    let targetPreview = null, selectedDocument = "", choices = new Map(), busy = false;
+    let targetPreview = null, selectedDocument = "", choices = new Map(), busy = false, previewSequence = 0;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const detail = (history.entries || []).map(entry => `<li>${esc(entry.kind)} · ${esc(entry.parent_document)} · ${esc(entry.client_name || entry.employer)} · US$ ${Number(entry.amount_usd).toFixed(2)} · ${esc(entry.effective_date)}</li>`).join("");
-    const dialog = new frappe.ui.Dialog({title: __("Distribuir movimiento del core"), size: "extra-large", fields: [
+    const dialog = new frappe.ui.Dialog({title: __("Distribuir a Depósito"), size: "extra-large", fields: [
         {fieldtype: "HTML", options: `<p>${__("Distribuya el movimiento en una o varias porciones. El importe original se conserva. El saldo a favor de la empresa queda pendiente de gestión; ingreso y otro no crean saldo a favor ni cuenta por cobrar.")}</p><p>${__("Disponible")} US$ ${Number(history.remaining_usd).toFixed(2)}</p>${detail ? `<ul>${detail}</ul>` : ""}`},
         {fieldtype: "Select", fieldname: "kind", label: __("Tratamiento"), options: kinds, default: kinds[0], reqd: 1},
         {fieldtype: "Check", fieldname: "override", label: __("Permitir empresa o cliente diferente"),
-            description: __("Solo para un ajuste global o una excepción verificada. Debe documentar el motivo.")},
+            description: __("Solo para un ajuste global o una excepción verificada. Debe documentar el motivo."),
+            onchange: () => refreshDestination(isDebit ? "deposit" : "application")},
         {fieldtype: "Link", fieldname: "deposit", label: __("Depósito"), options: "CN Remittance Allocation", depends_on: isDebit ? "eval:true" : "eval:false",
             get_query: () => dialog.get_value("override") ? {filters: {docstatus: 1}} :
                 {query: "credinomina_reconciliation.reclassification_deposit.deposit_query", filters: {item_name: itemName}},
@@ -968,15 +969,17 @@ async function cn_distribute_core_item(frm) {
     }});
     async function refreshDestination(type) {
         const documentName = dialog.get_value(type === "deposit" ? "deposit" : "import_name");
+        const sequence = ++previewSequence;
+        const override = Number(!!dialog.get_value("override"));
         targetPreview = null; selectedDocument = ""; choices = new Map();
         dialog.set_df_property("target", "options", []); await dialog.set_value("target", "");
         if (!documentName) return;
         const result = (await frappe.call({method: method + "preview_destination", args: {item_name: itemName,
-            document_name: documentName, destination: type}})).message;
-        if (dialog.get_value(type === "deposit" ? "deposit" : "import_name") !== documentName) return;
+            document_name: documentName, destination: type, override}})).message;
+        if (sequence !== previewSequence || dialog.get_value(type === "deposit" ? "deposit" : "import_name") !== documentName) return;
         targetPreview = result; selectedDocument = documentName;
         for (const row of result.rows || []) {
-            const pending = type === "deposit" && row.pending_usd != null ? ` · ${__("Pendiente registrado")} US$ ${Number(row.pending_usd).toFixed(2)}` : "";
+            const pending = row.pending_usd != null ? ` · ${__("Pendiente disponible")} US$ ${Number(row.pending_usd).toFixed(2)}` : "";
             const label = `${__("Fila")} ${row.source_row || row.name} · ${row.employer || ""} · ${row.client_name || ""} · ${row.loan_number || ""} · US$ ${Number(row.amount_usd || 0).toFixed(2)}${pending} · ${row.name}`;
             choices.set(label, row.name);
         }

@@ -7,7 +7,7 @@ from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.manual_complementary_policy import imported_item
 from credinomina_reconciliation.reclassification_distribution import (
     link_deposit, COMPANY_CREDIT, INCOME, OTHER, allocations, deposit_credits,
-    record_credit_management, reverse_credit_management,
+    record_credit_management, reverse_credit_management, preview_destination,
 )
 
 
@@ -46,12 +46,15 @@ def run():
                 review_action="Compensación entre partidas", compensation_status="Sin compensar",
                 compensation_pending_usd=.10), update_modified=False)
             item.reload(); deposit.reload()
+            assert preview_destination(item.name, deposit.name, 'deposit')['rows'] == []
+            assert preview_destination(item.name, deposit.name, 'deposit', override=1)['rows'][0]['pending_usd'] == 1
             result = link_deposit(item.name, deposit.name, deposit.detail_rows[0].name, str(item.modified),
                                   str(deposit.modified), .01, override=True, reason="Ajuste global verificado")
             item.reload(); deposit.reload()
             assert result["remaining_usd"] == .09
             assert deposit.detail_rows[0].client_credit_usd == .01
             assert deposit.detail_rows[0].pending_usd == .99
+            assert preview_destination(item.name, deposit.name, 'deposit', override=1)['rows'][0]['pending_usd'] == .99
             assert deposit.justified_surplus_usd == .01
             assert item.source_debit == .10 and item.amount_usd == .10
             second = link_deposit(item.name, deposit.name, deposit.detail_rows[0].name, str(item.modified),

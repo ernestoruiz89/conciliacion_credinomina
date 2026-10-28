@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import frappe
 
-from credinomina_reconciliation.reclassification_distribution import APPLICATION, DEPOSIT, COMPANY_CREDIT, INCOME, OTHER, validate_portion, guard_journal, application_links, deposit_credits
+from credinomina_reconciliation.reclassification_distribution import APPLICATION, DEPOSIT, COMPANY_CREDIT, INCOME, OTHER, validate_portion, guard_journal, application_links, deposit_credits, preview_destination
 from credinomina_reconciliation.complementary_balances import financial_balance
 
 
@@ -105,3 +105,53 @@ class SplitReclassificationTests(unittest.TestCase):
             self.assertEqual(load_deposit_credits({'DEP-123'}), [])
         self.assertEqual(query.call_args.kwargs['or_filters'],
                          [['reclassification_allocations', 'like', '%"DEP-123"%']])
+
+    def test_deposit_picker_filters_identity_and_zero_available_with_or_without_override(self):
+        class Doc(frappe._dict):
+            def check_permission(self, permission):
+                pass
+        item = Doc(employer='E', client_name='SIRIO JUNIOR LEIVA OBANDO', loan_number='', client_number='')
+        def row(name, client, pending, linked=0):
+            return frappe._dict(name=name, client=name, employer='E', client_name=client, client_number='', loan_number='',
+                                source_row=1, amount_usd=10, linked_usd=linked, pending_usd=pending, identity_reason='')
+        deposit = Doc(name='DEP', employer='E', docstatus=1, modified='v1', deposit_date='2025-04-01',
+                      amount_usd=40, allocated_usd=10, detail_rows=[
+                          row('matching', 'SIRIO JUNIOR LEIVA OBANDO', 5),
+                          row('other', 'OTRO CLIENTE', 5),
+                          row('settled', 'SIRIO JUNIOR LEIVA OBANDO', 0, 10),
+                          row('reserved', 'SIRIO JUNIOR LEIVA OBANDO', 5)])
+        credit = frappe._dict(credit_detail_row='reserved', amount_usd=10)
+        with patch.object(frappe, 'get_doc', side_effect=lambda doctype, name: item if doctype == 'CN Complementary Item' else deposit), \
+                patch.object(frappe, 'has_permission', return_value=True), \
+                patch('credinomina_reconciliation.paying_employers.allowed_employers', return_value={'E'}), \
+                patch('credinomina_reconciliation.client_credit.load_credits', return_value=[credit]):
+            normal = preview_destination('CORE', 'DEP', 'deposit')
+            exception = preview_destination('CORE', 'DEP', 'deposit', override=1)
+        self.assertEqual([r['name'] for r in normal['rows']], ['matching'])
+        self.assertEqual([r['name'] for r in exception['rows']], ['matching', 'other'])
+        self.assertEqual(normal['rows'][0]['pending_usd'], 5)
+
+    def test_application_picker_uses_actual_uncovered_balance(self):
+        class Doc(frappe._dict):
+            def check_permission(self, permission):
+                pass
+            def as_dict(self):
+                return dict(self)
+        item = Doc(employer='E', client_name='SIRIO', client_number='', loan_number='')
+        def row(name, client):
+            return Doc(name=name, event_type='Aplicacion', effective=1, currency='USD', client_name=client,
+                       client_number='', loan_number='', source_row=1, amount_usd=10,
+                       historical_period='P', collection_period='')
+        document = Doc(employer='E', docstatus=0, status='Importado', modified='v1',
+                       rows=[row('open', 'SIRIO'), row('paid', 'SIRIO'), row('other', 'OTRO')])
+        def coverage(source, context=None):
+            return {'adjustable_usd': 0 if source.name == 'paid' else 4}
+        with patch.object(frappe, 'get_doc', side_effect=lambda doctype, name: item if doctype == 'CN Complementary Item' else document), \
+                patch('credinomina_reconciliation.application_adjustment_links.confirmed', return_value=[]), \
+                patch('credinomina_reconciliation.application_candidate_context.CandidateContext'), \
+                patch('credinomina_reconciliation.application_adjustments.cash_coverage', side_effect=coverage):
+            normal = preview_destination('CORE', 'IMPORT', 'application')
+            exception = preview_destination('CORE', 'IMPORT', 'application', override=1)
+        self.assertEqual([r['name'] for r in normal['rows']], ['open'])
+        self.assertEqual([r['name'] for r in exception['rows']], ['open', 'other'])
+        self.assertEqual(normal['rows'][0]['pending_usd'], 4)
