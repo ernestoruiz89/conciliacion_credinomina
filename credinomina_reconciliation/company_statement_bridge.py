@@ -130,6 +130,12 @@ def build_bridge(core, snapshot, employer=None):
             # Use the actual payer: cross-company funding cannot disappear in a net.
             deposit = deposits.get(entry.get('deposit'), {})
             add(node(deposit.get('employer'), 'item', item['name'], item), entry.get('amount_usd'))
+    # Portion credits retain their own management history and may belong to a
+    # different company than the imported movement. Only dated resolutions
+    # affect the bridge; the original deposit remains accounted for once.
+    for credit in context.get('reclassification_credits', []):
+        add(node(credit.get('employer'), 'item', credit['name'], items.get(credit['name']) or credit),
+            credit.get('credit_resolved_usd'))
     for row in snapshot['receivables']:
         add(node(row.get('employer'), 'item', row['name'], items.get(row['name'])), row.get('receivable_usd'))
 

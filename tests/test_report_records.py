@@ -50,6 +50,26 @@ class ReportRecordsTests(unittest.TestCase):
             self.assertEqual(len(list(paging.records('Parent', fields=['name']))), 500)
             self.assertEqual(query.call_count, 2)
 
+    def test_scoped_journal_omits_other_deposits_and_checks_target_permissions(self):
+        from credinomina_reconciliation.reclassification_distribution import COMPANY_CREDIT
+        entries = [dict(operation_id=dep, kind=COMPANY_CREDIT, target='ROW', parent_document=dep,
+                        employer='E', credit_origin_date='2025-04-01', effective_date='2025-05-01', amount_usd=.01)
+                   for dep in ('D1', 'SECRET')]
+        parent = frappe._dict(name='CORE', category='Compensación entre partidas')
+        with patch.object(frappe, 'get_list', return_value=[parent]), \
+                patch.object(frappe, 'get_all', return_value=[frappe._dict(name='CORE', reclassification_allocations=entries)]), \
+                patch.object(frappe, 'has_permission', side_effect=lambda doctype, ptype, doc: doc == 'D1'):
+            rows = list(paging.records('CN Complementary Item', fields=['name', 'category', 'reclassification_allocations'],
+                                       journal_deposits={'D1'}))
+        self.assertEqual([entry['parent_document'] for entry in rows[0].reclassification_allocations], ['D1'])
+        with patch.object(frappe, 'get_list', return_value=[parent]), \
+                patch.object(frappe, 'get_all', return_value=[frappe._dict(name='CORE', reclassification_allocations=entries)]), \
+                patch.object(frappe, 'has_permission', return_value=False):
+            with self.assertRaises(frappe.PermissionError) as error:
+                list(paging.records('CN Complementary Item', fields=['name', 'category', 'reclassification_allocations'],
+                                    journal_deposits={'D1'}))
+        self.assertNotIn('SECRET', str(error.exception))
+
     def test_summary_includes_period_after_old_ten_thousand_limit(self):
         from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion import resumen_de_conciliacion as report
         def query(doctype, **kwargs):

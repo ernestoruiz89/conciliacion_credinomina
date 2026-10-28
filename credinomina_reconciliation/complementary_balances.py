@@ -11,7 +11,7 @@ CREDIT_CATEGORIES = {"Saldo a favor del cliente", "Saldo a favor de la empresa"}
 CASH_CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación", "Cobro de CxC"}
 FIELDS = ["name", "category", "docstatus", "employer", "period", "posting_date", "amount_usd", "description",
           "accounting_status", "review_status", "review_action", "related_application", "application_adjustment_usd",
-          "application_adjustment_history",
+          "application_adjustment_history", "reclassification_allocations",
           "compensated_usd", "compensation_pending_usd", "compensation_status", "status", "result",
           "credit_pending_usd", "credit_management_status", "credit_usage_issue", "credit_assigned_to", "credit_commitment_date", "credit_origin_date", "reclassification_date",
           "registration_exception", "subcategory_effect", "receivable_origin", "receivable_due_date", "receivable_due_origin", "receivable_setup_pending",
@@ -62,7 +62,9 @@ def financial_balance(item, distributions=()):
         management = money(item.get("credit_pending_usd") if item.get("credit_management_status") else original)
     elif category == "Compensación entre partidas":
         kind = "Compensado"
-        used = money(item.get("compensated_usd"))
+        from credinomina_reconciliation.reclassification_distribution import allocations
+        from credinomina_reconciliation.rounding import sum_money
+        used = money(item.get("compensated_usd")) + sum_money(row["amount_usd"] for row in allocations(item))
         pending = abs(original) - used
         state = "Conciliada" if not pending else "Parcial" if used else "Pendiente"
         if item.get('receivable_origin'):

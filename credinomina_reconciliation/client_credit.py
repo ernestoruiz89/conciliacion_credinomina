@@ -91,11 +91,13 @@ def load_credits(deposit_names):
     """
     if not deposit_names:
         return []
-    return frappe.get_all("CN Complementary Item", filters={
+    credits = frappe.get_all("CN Complementary Item", filters={
         "docstatus": 1, "category": ["in", CREDIT_CATEGORIES], "registered_deposit": ["in", list(deposit_names)],
     }, fields=["name", "category", "registered_deposit", "credit_detail_row", "credit_client",
                "client_name", "client_number", "loan_number", "employer", "period", "amount_usd",
-               "result", "credit_pending_usd", "credit_management_status"], order_by="creation asc", limit_page_length=0)
+               "result", "credit_pending_usd", "credit_management_status", "reference", "deposit_voucher"], order_by="creation asc", limit_page_length=0)
+    from credinomina_reconciliation.reclassification_distribution import load_deposit_credits
+    return credits + load_deposit_credits(deposit_names)
 
 
 def lock_credit_deposit(deposit_name):
@@ -114,11 +116,13 @@ def lock_credit_deposit(deposit_name):
 def other_reservations(deposit_name, item_name):
     # A concurrent confirmation may have committed after this transaction's
     # first read. FOR UPDATE avoids a stale repeatable-read capacity check.
-    return frappe.db.sql("""select name, amount_usd, credit_detail_row
+    reservations = frappe.db.sql("""select name, amount_usd, credit_detail_row
         from `tabCN Complementary Item`
         where registered_deposit=%s and docstatus=1 and name!=%s
         and category in ('Saldo a favor del cliente', 'Saldo a favor de la empresa')
         for update""", (deposit_name, item_name or ""), as_dict=True)
+    from credinomina_reconciliation.reclassification_distribution import load_deposit_credits
+    return reservations + load_deposit_credits([deposit_name])
 
 
 def validate_client_credit(doc, previous=None):

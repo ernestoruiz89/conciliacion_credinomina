@@ -34,6 +34,11 @@ def get_distribution(remittance_name):
             "category": ["in", [CLIENT_CREDIT, COMPANY_CREDIT]],
             "result": "Saldo a favor documentado",
         }, fields=fields, order_by="creation asc, name asc", limit_page_length=0)
+        from credinomina_reconciliation.reclassification_distribution import FIELD, deposit_credits
+        from credinomina_reconciliation.report_records import records
+        parents = records("CN Complementary Item", filters={"docstatus": 1, FIELD: ["not in", ["", "[]"]]},
+                          fields=["name", FIELD, "accounting_source_key"], journal_deposits={deposit.name})
+        balances.extend(deposit_credits(parents, {deposit.name}))
 
     period_ids = {e.get("periodo") for e in entries} | {
         item.get("period") for item in [*items.values(), *balances]
@@ -75,7 +80,8 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
         employer = employer or item.get("employer") or visible_period.get("employer") or ""
         # Do not combine unknown credit customers into an invented identity.
         identity = person.get("identity") if not client_name and not client_number else ""
-        key = (category, record_type, record, employer, client_name, client_number, loan, identity, state)
+        key = (category, record_type, record, employer, client_name, client_number, loan, identity, state,
+               item.get("reclassification_operation_id") or "")
         row = rows.setdefault(key, {"category": category, "client_name": client_name,
             "client_number": client_number, "loan_number": loan, "employer": employer,
             "period": visible_period.get("name") or "", "record_doctype": record_type,
@@ -96,10 +102,13 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
             add("Pago a crédito", amount, person=person, period=period)
         elif entry.get("tipo") == "Partida complementaria":
             item = items.get(entry.get("partida"), {})
+            from credinomina_reconciliation.reclassification_distribution import INCOME, OTHER
+            treatment = entry.get("reclassification_treatment") if item else ""
+            category = {INCOME: "Ingreso", OTHER: "Otro sin saldo a favor ni cuenta por cobrar"}.get(treatment)
             # Allocation JSON is not authority to reveal another document's identity.
             person = ({"client_name": entry.get("cliente"), "client_number": entry.get("nro_cliente"),
                        "loan_number": entry.get("credito")} if item and entry.get("fila_detalle") else {})
-            add(item.get("category") or "Partida complementaria (detalle no disponible)", amount,
+            add(category or item.get("category") or "Partida complementaria (detalle no disponible)", amount,
                 person=person, employer=entry.get("empresa") if item else "", period=period,
                 item=item, description=item.get("description") or "")
         elif entry.get("tipo") == "Movimiento de conciliación":
@@ -117,12 +126,13 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
     credit_total = money(0)
     used_balances = set()
     for item in balances:
-        if (item.get("name") in used_balances or item.get("docstatus", 1) != 1
+        identity = item.get("reclassification_operation_id") or item.get("name")
+        if (identity in used_balances or item.get("docstatus", 1) != 1
                 or item.get("registered_deposit") != deposit["name"]
                 or item.get("category") not in {CLIENT_CREDIT, COMPANY_CREDIT}
                 or item.get("result") != "Saldo a favor documentado"):
             continue
-        used_balances.add(item.get("name"))
+        used_balances.add(identity)
         credit_total += money(item.get("amount_usd"))
         add(item["category"], item.get("amount_usd"), item=item, period=item.get("period"),
             state="Documentado",

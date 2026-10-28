@@ -981,6 +981,8 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
             ],
             order_by="creation asc",
         )
+    from credinomina_reconciliation.reclassification_distribution import load_cash_claims
+    complementary_items.extend(load_cash_claims([row.name for row in manual_allocations]))
     closed_operative_links = _operative_links(
         periods, original_source_rows, manual_allocations, complementary_items,
         closed_operative_state,
@@ -994,6 +996,8 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
         ],
         order_by="creation asc",
     )
+    from credinomina_reconciliation.reclassification_distribution import load_deposit_credits
+    surplus_items.extend(load_deposit_credits([row.name for row in manual_allocations]))
     deposit_pairs, registered_ids = _registered_deposit_pairs(all_rows, manual_allocations)
     report(30, _("Conciliando aplicaciones de pago…"))
     # Reloading with an empty parent period explicitly removes row assignments.
@@ -1913,7 +1917,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     updates["matched_targets_summary"] += "\n{0}: US$ {1} — {2}. No aplicado al crédito.".format(category, plan[field], summary)
                 if len(target_loans) == 1 and not unidentified_application:
                     updates["loan_number"] = next(iter(target_loans))
-                if money(updates["pending_usd"]) > 0 and any(target.get("fifo_applications") for target in targets):
+                if money(updates["pending_usd"]) > 0 and targets:
                     # Applying every FIFO instruction does not settle a row
                     # whose amount exceeds the available application balance.
                     plan["status"] = updates["match_status"] = "Revisar"
@@ -2280,6 +2284,19 @@ def _distribute_deposits(
              **({"group": item.get("employer")} if claims_by_id.get(claim_id, {}).get("manual_only") and item.get("employer") else {})}
         )
 
+    for item in complementary_items:
+        for entry in item.get("_reclassification_entries") or []:
+            if entry.get("parent_document") not in registered_names:
+                continue
+            deposit_id = registered_ids.get(entry["parent_document"])
+            candidates = deposits_by_id.get(deposit_id, [])
+            claim_id = "X:" + item.name
+            if len(candidates) != 1 or not permits_claim(candidates[0], claims_by_id.get(claim_id, {}), entry.get("employer")):
+                frappe.throw(_("Una porción del core no tiene un depósito y empresa autorizados para conciliar."))
+            instructions.append({"id": "RECLASS:" + entry["operation_id"], "deposit_id": deposit_id,
+                "claim_id": claim_id, "amount_usd": flt(entry["amount_usd"]), "origin": MANUAL,
+                "detail_row": entry["target"], "group": entry["employer"], "allow_partial": True})
+
     detail_context = _prepare_remittance_details(
         manual_allocations, registered_ids, deposits, claims, instructions,
         tolerance_by_employer, client_catalog=client_catalog,
@@ -2362,6 +2379,8 @@ def _distribute_deposits(
 
     assigned_by_deposit = defaultdict(float)
     detail_by_deposit = defaultdict(list)
+    reclassification_by_id = {entry["operation_id"]: entry for item in complementary_items
+                              for entry in (item.get("_reclassification_entries") or [])}
     for entry in result["allocations"]:
         assigned_by_deposit[entry["deposit_id"]] += entry["amount_usd"]
         claim_id = entry["claim_id"]
@@ -2390,6 +2409,9 @@ def _distribute_deposits(
         detail_by_deposit[entry["deposit_id"]].append(
             {**destination, "empresa": entry.get("group") or claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
              "origen": entry["origin"],
+             **({"reclassification_operation_id": entry["reclassification_operation_id"],
+                 "reclassification_treatment": reclassification_by_id[entry["reclassification_operation_id"]]["kind"]}
+                if entry.get("reclassification_operation_id") in reclassification_by_id else {}),
              **({"fila_detalle": entry.get("detail_row"),
                  "aplicaciones_fifo": entry["fifo_applications"]} if entry.get("fifo_applications") else {})}
         )
@@ -2480,7 +2502,9 @@ def _classify_surplus(allocation, surplus_items):
                 if client_credit:
                     client_justified[deposit_id] += flt(item.amount_usd)
                 status = "Saldo a favor documentado"
-        if item.result != status:
+        if item.get("reclassification_operation_id") and status != "Saldo a favor documentado":
+            frappe.throw(_("La porción del core ya no cabe en el depósito; revise su efectivo y destinos."))
+        if not item.get("reclassification_operation_id") and item.result != status:
             frappe.db.set_value(
                 "CN Complementary Item", item.name, "result", status,
                 update_modified=False,

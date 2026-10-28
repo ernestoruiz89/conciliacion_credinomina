@@ -11,11 +11,12 @@ CATEGORIES = {"Cobranza administrativa", "Otros ingresos", "Ajuste de conciliaci
 
 def _check_item(item):
     item.check_permission("write")
+    from credinomina_reconciliation.reclassification_distribution import allocations
     if (item.docstatus not in (0, 1) or item.category not in CATEGORIES | {"Por clasificar"}
             or item.get("origin_deposit") or item.get("registered_deposit")
             or item.get("registration_exception") or item.get("receivable_origin")
             or item.get("related_application") or item.get("compensations")
-            or item.get("generic_distribution")
+            or item.get("generic_distribution") or allocations(item)
             or item.docstatus == 1 and item.review_action == "No conciliatoria"):
         frappe.throw(_("Esta partida tiene otro tratamiento o vínculo. Revíselo antes de vincularla a un depósito."))
     if not item.employer or not money(item.amount_usd):

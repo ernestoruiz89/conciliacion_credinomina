@@ -48,11 +48,15 @@ class CNComplementaryItem(Document):
     def onload(self):
         # Display names for existing imports without saving or recalculating balances.
         _complete_client_name(self)
+        from credinomina_reconciliation.reclassification_distribution import allocations
+        self.set_onload("has_reclassification_distributions", bool(allocations(self)))
 
     def validate(self):
         from credinomina_reconciliation.manual_complementary_policy import guard_new_item
         guard_new_item(self)
         previous = self.get_doc_before_save() if hasattr(self, "get_doc_before_save") else None
+        from credinomina_reconciliation.reclassification_distribution import guard_journal
+        guard_journal(self, previous)
         from credinomina_reconciliation.application_adjustment_links import guard
         guard(self, previous)
         from credinomina_reconciliation.manual_origin_link import guard_item
@@ -165,6 +169,8 @@ class CNComplementaryItem(Document):
             self._reconcile()
 
     def before_cancel(self):
+        from credinomina_reconciliation.reclassification_distribution import guard_removal
+        guard_removal(self)
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
         guard_imported_removal(self, "cancelar")
         from credinomina_reconciliation.receivable_recovery import guard_origin
@@ -197,6 +203,8 @@ class CNComplementaryItem(Document):
             ensure_related_periods_open(self)
 
     def on_trash(self):
+        from credinomina_reconciliation.reclassification_distribution import guard_removal
+        guard_removal(self)
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
         guard_imported_removal(self, "eliminar")
         from credinomina_reconciliation.receivable_recovery import guard_origin
@@ -226,6 +234,8 @@ class CNComplementaryItem(Document):
         self.flags.cancellation_result = reconcile_cancellation(self, self.flags.cancellation_scope)
 
     def before_rename(self, old, new, merge=False):
+        from credinomina_reconciliation.reclassification_distribution import guard_removal
+        guard_removal(self)
         from credinomina_reconciliation.manual_origin_link import guard_removal
         guard_removal(self)
         from credinomina_reconciliation.receivable_recovery import guard_origin

@@ -229,7 +229,9 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(empty["rows"], [])
         self.assertEqual(empty["summary"][0]["value"], 105)
         self.assertEqual(empty["totals"], dict(original_usd=0, assigned_usd=0, surplus_usd=0, pending_usd=0))
-        children.assert_not_called()
+        self.assertTrue(all(call.args[0] == "CN Remittance Detail" and
+                            call.kwargs['fields'] == ['parent', 'difference_reason']
+                            for call in children.call_args_list))
 
     def test_detail_never_exposes_shared_operative_cash_as_individual_cash(self):
         parent = frappe._dict(name="I", employer="A", status="Importado")

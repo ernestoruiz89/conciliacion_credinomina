@@ -56,6 +56,11 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
                 "category": ["in", ["Saldo a favor del cliente", "Saldo a favor de la empresa"]], "result": "Saldo a favor documentado",
             }, fields=["name", "category", "registered_deposit", "employer", "client_name", "client_number", "loan_number", "amount_usd",
                        "credit_pending_usd", "credit_management_status"], limit_page_length=0))
+        from credinomina_reconciliation.reclassification_distribution import FIELD, deposit_credits
+        from credinomina_reconciliation.report_records import records
+        parents = records("CN Complementary Item", filters={"docstatus": 1, FIELD: ["not in", ["", "[]"]]},
+                          fields=["name", FIELD, "accounting_source_key"], journal_deposits=set(names))
+        client_credits.extend(deposit_credits(parents, set(names)))
         for offset in range(0, len(item_ids), 500):
             for item in frappe.get_list(
                 "CN Complementary Item", filters={"name": ["in", item_ids[offset:offset + 500]], "docstatus": 1},
@@ -161,7 +166,8 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                 other += amount
                 kind = "Partida complementaria"
                 item = items.get(entry.get("partida"), {})
-                label = " · ".join(filter(None, [item.get("name"), item.get("category")])) or "Partida complementaria (detalle no disponible)"
+                treatment = entry.get("reclassification_treatment") if item else ""
+                label = " · ".join(filter(None, [item.get("name"), treatment or item.get("category")])) or "Partida complementaria (detalle no disponible)"
                 if entry.get("fila_detalle") and entry.get("empresa"):
                     label += " · " + entry["empresa"]
             elif entry.get("tipo") == "Movimiento de conciliación":

@@ -84,7 +84,22 @@ def confirmed(names, exclude="", lock=False, employer=None):
             or_filters=[["related_application", "in", names], *([[FIELD, "like", pattern] for pattern in patterns] if patterns
                 else [[FIELD, "not in", ["", "[]"]]])], fields=fields, limit_page_length=0)
     wanted = set(names)
-    return [row for parent in parents for row in links(parent) if row.related_application in wanted]
+    result = [row for parent in parents for row in links(parent) if row.related_application in wanted]
+    # Global core adjustments are scoped by each destination's company, not
+    # by the originating item's company. The diary is server-controlled.
+    from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, application_links
+    if lock:
+        condition = " or ".join(f"{RECLASS_FIELD} like %s" for _ in patterns) if patterns else "1=1"
+        global_items = frappe.db.sql(f"""select name, {RECLASS_FIELD} from `tabCN Complementary Item`
+            where docstatus=1 and name!=%s and coalesce({RECLASS_FIELD}, '') not in ('', '[]')
+            and ({condition}) for update""", (exclude, *patterns), as_dict=True)
+    else:
+        global_items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "name": ["!=", exclude],
+            RECLASS_FIELD: ["not in", ["", "[]"]]},
+            or_filters=[[RECLASS_FIELD, "like", pattern] for pattern in patterns] if patterns else None,
+            fields=["name", RECLASS_FIELD], limit_page_length=0)
+    result.extend(application_links(global_items, wanted, employer=employer))
+    return result
 
 
 def linked_names(names):
@@ -95,6 +110,10 @@ def linked_names(names):
                                 pluck="related_application", limit_page_length=0))
     for item in frappe.get_all("CN Complementary Item", filters={FIELD: ["not in", ["", "[]"]]}, fields=[FIELD], limit_page_length=0):
         result.update(row["related_application"] for row in additional(item) if row["related_application"] in wanted)
+    from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, application_links
+    global_items = frappe.get_all("CN Complementary Item", filters={RECLASS_FIELD: ["not in", ["", "[]"]]},
+                                  fields=["name", RECLASS_FIELD], limit_page_length=0)
+    result.update(row.related_application for row in application_links(global_items, wanted))
     return result
 
 

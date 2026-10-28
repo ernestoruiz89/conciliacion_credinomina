@@ -43,9 +43,65 @@ def require_complete_evidence(doctype, readable_names, *, filters, fields=(), re
                 frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
 
 
-def records(doctype, *, fields, filters=None, order_by="name asc", **kwargs):
-    yield from _pages(frappe.get_list, doctype, fields=fields, filters=filters,
-                      order_by=order_by, **kwargs)
+def records(doctype, *, fields, filters=None, order_by="name asc", journal_deposits=None, **kwargs):
+    # The split journal is a restricted field. Its evidence is read internally
+    # only after checking both the origin and every referenced destination.
+    journal = "reclassification_allocations"
+    if doctype != "CN Complementary Item" or journal not in fields:
+        yield from _pages(frappe.get_list, doctype, fields=fields, filters=filters,
+                          order_by=order_by, **kwargs)
+        return
+    public_fields = [field for field in fields if field != journal]
+    if "name" not in public_fields:
+        public_fields.append("name")
+    scope = dict(filters or {})
+    journal_filter = scope.pop(journal, None)
+    if journal_filter and journal_filter != ["not in", ["", "[]"]]:
+        raise ValueError("Unsupported restricted-journal filter")
+    batch = []
+    for row in _pages(frappe.get_list, doctype, fields=public_fields, filters=scope,
+                      order_by=order_by, **kwargs):
+        batch.append(frappe._dict(row))
+        if len(batch) == PAGE_SIZE:
+            yield from _hydrate_reclassification_journals(batch, journal_filter, journal_deposits)
+            batch = []
+    if batch:
+        yield from _hydrate_reclassification_journals(batch, journal_filter, journal_deposits)
+
+
+def _hydrate_reclassification_journals(batch, journal_filter, journal_deposits):
+    journal = "reclassification_allocations"
+    candidates = [row.name for row in batch if not row.get("category") or row.category == "Compensación entre partidas"]
+    evidence = {row.get('name'): row.get(journal) for row in frappe.get_all("CN Complementary Item",
+        filters={"name": ["in", candidates]}, fields=["name", journal], limit_page_length=0)} if candidates else {}
+    for row in batch:
+        raw = evidence.get(row.name)
+        if journal_filter and (not raw or raw == "[]"):
+            continue
+        row[journal] = raw
+        if raw and raw != "[]":
+            if journal_deposits is not None:
+                from credinomina_reconciliation.reclassification_distribution import DEPOSIT_KINDS, allocations
+                selected = [entry for entry in allocations(row)
+                            if entry["kind"] in DEPOSIT_KINDS and entry["parent_document"] in journal_deposits]
+                if not selected:
+                    continue
+                row[journal] = selected
+            _require_reclassification_targets(row)
+        yield row
+
+
+def _require_reclassification_targets(item):
+    """Never reveal a target of a readable source without target permission."""
+    from credinomina_reconciliation.reclassification_distribution import APPLICATION, allocations
+    for entry in allocations(item):
+        doctype = "CN Accounting Import" if entry["kind"] == APPLICATION else "CN Remittance Allocation"
+        if not frappe.has_permission(doctype, "read", doc=entry["parent_document"]):
+            frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+        if entry["kind"] == APPLICATION and frappe.db.get_value("CN Source Row", entry["target"], "parent") != entry["parent_document"]:
+            frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
+        if entry.get("client") and not frappe.has_permission("CN Client", "read", doc=entry["client"]):
+            frappe.throw(frappe._(INCOMPLETE_EVIDENCE), frappe.PermissionError)
 
 
 def _pages(query, doctype, *, fields, filters=None, order_by="name asc", **kwargs):

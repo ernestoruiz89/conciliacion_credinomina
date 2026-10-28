@@ -6,6 +6,7 @@ def company_scope(item):
     companies = {clean_text(item.get("employer"))} - {""}
     if item.get("generic_distribution"):
         companies.update(clean_text(row.get("employer")) for row in item.get("distribution_companies") or [])
+        companies.update(clean_text(value) for value in item.get("_reclassification_companies") or [])
     return companies - {""}
 
 

@@ -268,6 +268,23 @@ def load_detail(filters):
                 'credit_pending_usd', 'credit_management_status', 'credit_usage_issue', 'client_name', 'client_number',
                 'loan_number', 'period', 'reference', 'description', 'reason_type', 'subcategory', 'accounting_status'])))) if (
                     wanted('company_credit_usd') or wanted('client_credit_usd')) else []
+    if wanted('client_credit_usd') or wanted('company_credit_usd'):
+        from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, deposit_credits
+        readable_deposits = {row.name for row in records('CN Remittance Allocation', filters={'docstatus': 1}, fields=['name'])}
+        parents = list(records('CN Complementary Item', filters={'docstatus': 1,
+            RECLASS_FIELD: ['not in', ['', '[]']]}, fields=['name', RECLASS_FIELD, 'accounting_source_key'],
+            journal_deposits=readable_deposits))
+        # A readable deposit may have a portion originating in a restricted
+        # item. Refuse an incomplete total without revealing that item.
+        from credinomina_reconciliation.report_records import require_complete_evidence
+        from credinomina_reconciliation.reclassification_distribution import CREDIT_KINDS, allocations
+        if readable_deposits:
+            require_complete_evidence('CN Complementary Item', {row.name for row in parents},
+                filters={'docstatus': 1, RECLASS_FIELD: ['not in', ['', '[]']]}, fields=[RECLASS_FIELD],
+                relevant=lambda item: any(entry['kind'] in CREDIT_KINDS and entry['parent_document'] in readable_deposits
+                                          for entry in allocations(item)))
+        credits.extend(row for row in deposit_credits(parents, readable_deposits)
+                       if not filters.get('employer') or row.employer == filters['employer'])
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',

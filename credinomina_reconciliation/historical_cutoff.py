@@ -53,6 +53,9 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     all_sources = {row['name']: row for row in sources}
     live_items = {row['name']: row for row in items if row.get('docstatus') != 2}
     visible_deposits = {row['name']: row for row in deposits if row.get('docstatus') != 2}
+    from credinomina_reconciliation.reclassification_distribution import deposit_credits
+    virtual_credits = deposit_credits(live_items.values(),
+        {name for name, doc in visible_deposits.items() if doc.get('docstatus') == 1}, cutoff=cutoff)
     warnings = []
     # Audit the ORIGINAL links before projecting dates. A cut must not repair
     # over-allocation, negatives or shared capacity errors merely by clipping.
@@ -81,6 +84,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     projected_items = {}
     pending_reclassification_core = []
     for name, item in live_items.items():
+        from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, allocations
+        item[RECLASS_FIELD] = [entry for entry in allocations(item) if _day(entry['effective_date']) <= cutoff]
         reclassified = bool(item.get('reclassification_date') and item.get('credit_origin_date')
                             and item.get('category') in CREDIT_CATEGORIES)
         source_day = _day(item.get('source_date') or item.get('posting_date'))
@@ -145,6 +150,9 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                 and item.get('related_application')):
             for link in links(item):
                 adjustments[link.related_application] += money(link.application_adjustment_usd)
+    from credinomina_reconciliation.reclassification_distribution import application_links
+    for link in application_links(projected_items.values(), set(all_sources), cutoff=cutoff):
+        adjustments[link.related_application] += money(link.application_adjustment_usd)
     eligible_sources = {}
     future_collections = set()
     collection_sources = defaultdict(set)
@@ -198,6 +206,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         if (item.get('docstatus') == 1 and item.get('category') in CREDIT_CATEGORIES
                 and item.get('result') == 'Saldo a favor documentado'):
             credits_by_deposit[item.get('registered_deposit')].append(item)
+    for credit in virtual_credits:
+        credits_by_deposit[credit.registered_deposit].append(credit)
     projected_deposits, distributions = [], defaultdict(list)
     for deposit in deposits:
         if deposit.get('docstatus') == 2 or not (deposit.get('docstatus') == 1 or deposit.get('accounting_source_key')):
@@ -314,7 +324,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                                         employers, cutoff, include_settled=True)
     receivables = build_receivables(list(projected_items.values()), balances,
         settlements=list(projected_items.values()), settlement_balances=balances)
-    detail = build_detail(applications, core, projected_items.values(), projected_deposits, filters,
+    detail = build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits, filters,
                           adjustment_receivables=receivables, accounting_items=projected_items.values())
     result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
                 applications=applications, receivables=receivables, periods=periods,
@@ -324,6 +334,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         # or the unfiltered allocation journal to explain a historical balance.
         result['bridge_context'] = dict(items=[*projected_items.values(), *pending_reclassification_core],
             deposits=projected_deposits, distributions=dict(distributions),
+            reclassification_credits=virtual_credits,
             offsets=[row for row in offsets if _day(row.get('compensation_date')) <= cutoff],
             sources=[dict(row, bridge_applied_usd=converted_amount(row, 'USD'),
                 employer=(periods.get(row.get('historical_period') or imports.get(row.get('parent'), {}).get('historical_period')) or {}).get('employer')

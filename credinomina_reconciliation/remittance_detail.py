@@ -194,10 +194,13 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         targets.append({"claim_id": claim["id"], "amount_usd": money_float(instruction["amount_usd"]),
                         "instruction_id": instruction["id"],
                         **({"group": instruction["group"]} if generic else {})})
-    if sum_money(target["amount_usd"] for target in targets) != money(amount_usd):
-        assigned = sum_money(target['amount_usd'] for target in targets)
+    assigned = sum_money(target['amount_usd'] for target in targets)
+    if assigned != money(amount_usd) and not (0 < assigned < money(amount_usd)
+            and any(instruction.get("allow_partial") for instruction in instructions)):
         return [], f"Los destinos vinculados suman US$ {assigned:.2f}; la fila requiere US$ {money(amount_usd):.2f}. Ajuste los importes vinculados (diferencia US$ {money(amount_usd) - assigned:.2f})."
     reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
+    if assigned < money(amount_usd):
+        reason += f"; pendiente de distribuir US$ {money(amount_usd) - assigned:.2f}"
     if different_references:
         reason += "; referencias distintas aceptadas con cliente, crédito y empresa coincidentes: " + ", ".join(
             dict.fromkeys(different_references)

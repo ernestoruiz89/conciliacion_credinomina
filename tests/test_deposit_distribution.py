@@ -104,6 +104,8 @@ class DepositDistributionTests(unittest.TestCase):
             calls.append((doctype, kwargs))
             if doctype == "CN Reconciliation Period":
                 return [dict(name="P1", employer="E")]
+            if doctype == "CN Complementary Item" and kwargs.get('fields') == ['name', 'accounting_source_key']:
+                return []
             if "registered_deposit" in kwargs["filters"]:
                 return [balance("S1", view.CLIENT_CREDIT, 30, client_name="Ana")]
             return [dict(name="X1", category="Otros ingresos")]
@@ -112,7 +114,7 @@ class DepositDistributionTests(unittest.TestCase):
                 patch.object(view.frappe, "get_list", side_effect=query), \
                 patch.object(view, "_load_credit_people", return_value={}) as people:
             data = view.get_distribution("DEP-1")
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 4)
         self.assertEqual(calls[0][1]["filters"], {"name": ["in", ["X1"]], "docstatus": 1})
         self.assertEqual(calls[1][1]["filters"]["registered_deposit"], "DEP-1")
         self.assertEqual(calls[1][1]["filters"]["category"], ["in", [view.CLIENT_CREDIT, view.COMPANY_CREDIT]])

@@ -40,10 +40,11 @@ def execute(filters=None):
                 "source_description", "description", "source_fx_rate", "manual_fx_rate", "fx_rate", "accounting_source_key", "source_key",
                 "complementary_item", "remittance_allocation", "source_row", "client_name", "client_number", "loan_number", "portfolio_client_name", "portfolio_employer",
                 "voucher", "tmov", "tdoc", "accounting_reference", "event_type", "accounting_classification", "match_status", "deposit_match_status", "difference_reason", "application_adjustment_status"], limit_page_length=0))
-    items = frappe.get_list("CN Complementary Item", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
+    from credinomina_reconciliation.report_records import records
+    items = list(records("CN Complementary Item", filters={"accounting_source_key": ["is", "set"], "source_date": ["between", dates]},
         fields=list(dict.fromkeys([*FIELDS, "name", "docstatus", "source_date", "posting_date", "source_account", "source_currency", "source_debit", "source_credit", "source_description",
             "description", "source_fx_rate", "accounting_source_key", "source_row", "source_client_name", "client_number", "loan_number", "employer", "source_voucher", "credit_management_status",
-            "voucher", "tmov", "tdoc", "accounting_reference", "category", "subcategory", "reason_type", "amount_usd", "accounting_classification", "review_status", "compensation_status", "result", "source_file", "source_file_hash", "registration_exception"])), limit_page_length=0)
+            "voucher", "tmov", "tdoc", "accounting_reference", "category", "subcategory", "reason_type", "amount_usd", "accounting_classification", "review_status", "compensation_status", "result", "source_file", "source_file_hash", "registration_exception"]))))
     if items and frappe.has_permission("CN Remittance Allocation", "read"):
         balances = load_balances(items)
         for item in items:
