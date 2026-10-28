@@ -47,6 +47,7 @@ def financial_balance(item, distributions=()):
     used, pending = money(0), abs(original)
     state, kind = "Pendiente", "Por clasificar"
     management = None
+    management_status = ""
     confirmed = item.get("docstatus") == 1
     category = item.get("category")
     if item.get("docstatus") == 2:
@@ -62,11 +63,18 @@ def financial_balance(item, distributions=()):
         management = money(item.get("credit_pending_usd") if item.get("credit_management_status") else original)
     elif category == "Compensación entre partidas":
         kind = "Compensado"
-        from credinomina_reconciliation.reclassification_distribution import allocations
+        from credinomina_reconciliation.reclassification_distribution import allocations, deposit_credits, CREDIT_KINDS
         from credinomina_reconciliation.rounding import sum_money
         used = money(item.get("compensated_usd")) + sum_money(row["amount_usd"] for row in allocations(item))
         pending = abs(original) - used
         state = "Conciliada" if not pending else "Parcial" if used else "Pendiente"
+        portions = allocations(item)
+        credit_portions = [row for row in portions if row['kind'] in CREDIT_KINDS]
+        if confirmed and credit_portions:
+            credits = deposit_credits([item], {row['parent_document'] for row in credit_portions})
+            management = sum_money(row.credit_pending_usd for row in credits)
+            resolved = sum_money(row.credit_resolved_usd for row in credits)
+            management_status = 'Resuelto' if not management else 'Parcialmente resuelto' if resolved else 'Pendiente'
         if item.get('receivable_origin'):
             # A reversed recovery reopens the ORIGINAL receivable; its receipt
             # is historical evidence, not another obligation of the same amount.
@@ -101,7 +109,7 @@ def financial_balance(item, distributions=()):
             "pending_usd": money_float(pending), "financial_status": state, "used_label": kind,
             "accounting_status": item.get("accounting_status") or "Pendiente de registro",
             "management_pending_usd": money_float(management) if management is not None else None,
-            "management_status": item.get("credit_management_status") or "Pendiente" if management is not None else "",
+            "management_status": (management_status or item.get("credit_management_status") or "Pendiente") if management is not None else "",
             "amount_issue": credit_issue or ("El importe difiere de la evidencia contable original" if amount_issue else ""),
             "distributions": list(distributions)}
 

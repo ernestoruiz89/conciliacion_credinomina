@@ -93,6 +93,8 @@ class SplitReclassificationTests(unittest.TestCase):
             guard_journal(dict(previous, reclassification_allocations="[]"), previous)
         with self.assertRaises(frappe.ValidationError):
             guard_journal(dict(previous, employer="OTRA"), previous)
+        with self.assertRaises(frappe.ValidationError):
+            guard_journal(dict(previous, reclassification_deletions='[{"forged":true}]'), previous)
 
     def test_application_portions_use_target_company_and_effective_date(self):
         entries = [dict(operation_id="A", kind=APPLICATION, target="SRC", parent_document="IMPORT", employer="OTRA",
@@ -131,6 +133,23 @@ class SplitReclassificationTests(unittest.TestCase):
         self.assertEqual(balance("2025-06-15").credit_pending_usd, .01)
         self.assertEqual(balance("2025-07-15").credit_pending_usd, .02)
         self.assertEqual(balance("2025-04-15").category, "Saldo a favor de la empresa")
+        current = financial_balance(dict(item, docstatus=1, category='Compensación entre partidas', amount_usd=.02))
+        self.assertEqual(current['management_pending_usd'], .02)
+        self.assertEqual(current['management_status'], 'Pendiente')
+
+    def test_reconciled_customer_credit_still_requires_refund_management(self):
+        entry = dict(operation_id='P', kind=DEPOSIT, target='R', parent_document='DEP', employer='E', client='5471',
+                     credit_origin_date='2025-11-12', effective_date='2025-12-31', amount_usd=25.22)
+        item = dict(name='CN-COMP-2026-00515', docstatus=1, category='Compensación entre partidas', amount_usd=25.22,
+                    reclassification_allocations=json.dumps([entry]))
+        result = financial_balance(item)
+        self.assertEqual((result['pending_usd'], result['management_pending_usd'], result['management_status']), (0, 25.22, 'Pendiente'))
+        entry['management_history'] = [dict(fecha='2026-01-01', importe_usd=5)]
+        item['reclassification_allocations'] = json.dumps([entry])
+        self.assertEqual(financial_balance(item)['management_pending_usd'], 20.22)
+        entry['management_history'].append(dict(fecha='2026-02-01', importe_usd=20.22))
+        item['reclassification_allocations'] = json.dumps([entry])
+        self.assertEqual(financial_balance(item)['management_status'], 'Resuelto')
 
     def test_journal_rejects_hidden_destination_without_exposing_its_name(self):
         from credinomina_reconciliation.report_records import _require_reclassification_targets

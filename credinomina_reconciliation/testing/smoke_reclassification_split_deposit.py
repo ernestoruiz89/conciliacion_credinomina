@@ -90,6 +90,13 @@ def run():
                 "Devolución", .01, "2025-12-01", "DEV-EMPRESA")
             assert management["pending_usd"] == 0
             item.reload()
+            from credinomina_reconciliation.reclassification_removal import preview, remove
+            try:
+                preview(item.name, company_credit['operation_id'])
+            except frappe.ValidationError:
+                pass
+            else:
+                raise AssertionError('Una devolución documentada debe revertirse antes de retirar su distribución')
             company_entry = next(entry for entry in allocations(item) if entry["operation_id"] == company_credit["operation_id"])
             management_id = company_entry["management_history"][0]["operation_id"]
             before = deposit_credits([item], {deposit.name}, cutoff="2025-11-30")
@@ -206,6 +213,18 @@ def run():
             assert unique.loan_number == marker + "-2"
             assert unique.client_number == other_client.client_number
             assert unique.reference == other_deposit.deposit_reference
+            checked = preview(unique.name, allocations(unique)[0]['operation_id'])
+            previous_pending = other_deposit.detail_rows[0].pending_usd
+            remove(unique.name, allocations(unique)[0]['operation_id'], checked['token'], 'Vínculo retirado para revisión')
+            unique.reload(); other_deposit.reload()
+            assert len(allocations(unique)) == 1
+            assert abs(other_deposit.detail_rows[0].pending_usd - previous_pending - .01) < .00001
+            assert other_deposit.detail_rows[0].manual_reconciliation_required == 1
+            checked = preview(item.name, income['operation_id'])
+            remove(item.name, income['operation_id'], checked['token'], 'Ingreso vinculado por error')
+            item.reload(); deposit.reload()
+            assert all(e['operation_id'] != income['operation_id'] for e in allocations(item))
+            assert deposit.detail_rows[0].linked_usd == .01
             if frappe.db.has_column(unique.doctype, "installment_number"):
                 frappe.db.sql("UPDATE `tabCN Complementary Item` SET installment_number=%s WHERE name=%s", ("7", unique.name))
                 from credinomina_reconciliation.patches.v1_0.preserve_complementary_legacy_installment import execute
