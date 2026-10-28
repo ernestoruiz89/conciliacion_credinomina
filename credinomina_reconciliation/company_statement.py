@@ -161,6 +161,7 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
         result.append(_row(deposit, 'Depósito', 'CN Remittance Allocation', deposit['name'],
             deposit.get('deposit_date'), 'deposit_pending_usd', None if amount is None else -amount,
             status=status, observed_usd=observed,
+            _deposit_detail_classification=deposit.get('_deposit_detail_classification'),
             reference=deposit.get('deposit_reference'), observation=observation))
     for item in adjustment_receivables:
         result.append(_row(item, 'CxC por ajuste de depósito', 'CN Complementary Item', item['name'],
@@ -288,7 +289,13 @@ def load_detail(filters):
     deposits = list(records('CN Remittance Allocation', filters={**scope, 'docstatus': ['!=', 2]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
                 'amount_usd', 'allocated_usd', 'justified_surplus_usd', 'unclassified_usd', 'detail_status', 'result', 'notes',
-                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit', 'difference_reason'])) if wanted('deposit_pending_usd') else []
+                'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'linked_core_deposit', 'difference_reason',
+                *(['allocation_detail'] if filters.get('_include_deposit_details') else [])])) if wanted('deposit_pending_usd') else []
+    if filters.get('_include_deposit_details'):
+        from credinomina_reconciliation.deposit_detail_classification import attach_details, prepare_details
+        attach_details(deposits)
+        for deposit in deposits:
+            deposit['_deposit_detail_classification'] = prepare_details(deposit)
     accounting_items = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,
         'accounting_source_key': ['is', 'not set'], 'accounting_status': ['in', sorted(PENDING_REGISTRATION)]},
         fields=['name', 'employer', 'docstatus', 'accounting_source_key', 'accounting_status',

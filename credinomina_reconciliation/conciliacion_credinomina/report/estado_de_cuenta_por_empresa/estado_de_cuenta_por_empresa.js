@@ -22,7 +22,8 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             on_change(report) {
                 const section = report.get_filter_value("statement_scope");
                 const component = report.get_filter_value("component") || "";
-                const componentSection = component.startsWith("core_") && component !== "core_pending_usd" ? "Contabilidad del core" : "Gestión";
+                const componentSection = ["deposit_documentation_adjustment_usd", "calculated_balance_usd"].includes(component) ? "Todos"
+                    : component.startsWith("core_") && component !== "core_pending_usd" ? "Contabilidad del core" : "Gestión";
                 if ((component && section !== componentSection) || (report.get_filter_value("accounting_queue") && section !== "Gestión")) {
                     return report.set_filter_value({component: "", accounting_queue: 0});
                 }
@@ -44,6 +45,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 ["core_credit_usd", "Créditos originales del core"], ["core_balance_nio", "Saldo contable original C$"],
                 ["core_debit_nio", "Débitos originales C$"], ["core_credit_nio", "Créditos originales C$"],
                 ["management_pending_usd", "Pendientes positivos"], ["other_credit_usd", "Otros créditos pendientes"],
+                ["deposit_documentation_adjustment_usd", "Ajustes de depósito por documentar"], ["calculated_balance_usd", "Saldo calculado"],
                 ["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
@@ -139,7 +141,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             const accounting = ["core_debit_usd", "core_credit_usd", "core_balance_usd", "core_debit_nio", "core_credit_nio", "core_balance_nio", "core_movement_count"].includes(column.fieldname);
             const args = frappe.utils.escape_html(JSON.stringify({employer: data.employer,
                 component: column.fieldtype === "Currency" && !["management_net_usd", "pending_core_difference_usd"].includes(column.fieldname) ? column.fieldname : "",
-                statement_scope: accounting ? "Contabilidad del core" : column.fieldname === "management_net_usd" ? "Todos" : "Gestión",
+                statement_scope: accounting ? "Contabilidad del core" : ["management_net_usd", "deposit_documentation_adjustment_usd", "calculated_balance_usd"].includes(column.fieldname) ? "Todos" : "Gestión",
                 accounting_queue: ["accounting_pending_count", "pending_core_difference_usd"].includes(column.fieldname) ? 1 : 0}));
             return `<button type="button" class="cn-statement-detail" data-detail="${args}" title="${__(accounting ? "Ver movimientos originales del core" : "Ver partidas por gestionar")}" style="border:0;background:transparent;color:var(--text-color);font:inherit;text-decoration:underline;cursor:pointer">${html}</button>`;
         }
