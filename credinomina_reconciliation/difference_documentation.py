@@ -35,7 +35,7 @@ def get_documentation(doctype, name, parentfield="", row_name=""):
 
 
 @frappe.whitelist(methods=["POST"])
-def document_difference(doctype, name, modified, difference_reason, difference_notes,
+def document_difference(doctype, name, modified, difference_reason, difference_notes="",
                         parentfield="", row_name=""):
     if doctype not in SCOPES:
         frappe.throw(_("El origen de la diferencia no es válido."))
@@ -52,7 +52,7 @@ def document_difference(doctype, name, modified, difference_reason, difference_n
         frappe.throw(_("Seleccione una razón de la diferencia válida."))
     frappe.get_doc("CN Difference Reason", difference_reason).check_permission("read")
     notes = str(difference_notes or "").strip()
-    if not notes:
+    if not notes and row.doctype != "CN Remittance Detail":
         frappe.throw(_("Documente el motivo y el soporte de la diferencia."))
     before = {field: row.get(field) or "" for field in ("difference_reason", "difference_notes")}
     after = {"difference_reason": difference_reason, "difference_notes": notes}

@@ -113,8 +113,8 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
     amount = detail_difference(doc)
     if not amount:
         frappe.throw(_("El depósito y el detalle ya coinciden; no hay diferencia que registrar."))
-    if not difference_reason or not str(difference_notes or "").strip():
-        frappe.throw(_("Indique la razón y la documentación de la diferencia."))
+    if not difference_reason:
+        frappe.throw(_("Indique la razón de la diferencia."))
     frappe.get_doc("CN Difference Reason", difference_reason).check_permission("read")
     if core_item:
         validate_core(frappe.get_doc("CN Complementary Item", core_item), doc.employer, amount)
@@ -127,7 +127,7 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
                     client="", client_number="", loan_number="", employee_number="", national_id="",
                     deducted_usd=0, deducted_nio=0, difference_amount_usd=money_float(amount),
                     amount_usd=money_float(amount), linked_usd=0, pending_usd=money_float(amount),
-                    difference_reason=difference_reason, difference_notes=str(difference_notes).strip(),
+                    difference_reason=difference_reason, difference_notes=str(difference_notes or "").strip(),
                     difference_core_item=core_item or "", difference_core_pending_usd=abs(money_float(amount)),
                     difference_recorded_by=frappe.session.user, difference_recorded_on=now_datetime(),
                     difference_core_status="Vinculada; pendiente de conciliar" if core_item else "Pendiente de respaldo del core",
@@ -156,7 +156,7 @@ def prepare(document, rows, claims, instructions):
     row = differences[0]
     state = dict(row=row, amount=money(row.get("difference_amount_usd")), error="", core=None)
     if (len(differences) != 1 or row.get("difference_basis") != basis(document, rows)
-            or not row.get("difference_reason") or not row.get("difference_notes")
+            or not row.get("difference_reason")
             or state["amount"] != detail_difference(document, rows)):
         state["error"] = "La diferencia documentada cambió; vuelva a clasificar / documentar antes de conciliar"
     elif any(entry.get("detail_row") not in {r.name for r in rows if not is_difference(r)}

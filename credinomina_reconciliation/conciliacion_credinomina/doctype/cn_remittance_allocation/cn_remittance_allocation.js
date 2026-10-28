@@ -969,7 +969,7 @@ async function documentRemittanceCompanyDifference(frm) {
             {fieldname: "employer", fieldtype: "Data", label: __("Empresa"), read_only: 1, default: preview.employer},
             {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", label: __("Diferencia (depósito − detalle) US$"), read_only: 1, default: preview.amount_usd},
             {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), reqd: 1, default: preview.difference_reason},
-            {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Documentación"), reqd: 1, default: preview.difference_notes},
+            {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Comentarios de la diferencia"), default: preview.difference_notes},
             {fieldname: "core_item", fieldtype: "Link", options: "CN Complementary Item", label: __("Partida del core (opcional)"), default: preview.core_item,
                 get_query: () => ({filters: {docstatus: 1, employer: preview.employer, accounting_source_key: ["is", "set"], amount_usd: preview.amount_usd}})},
         ],
@@ -988,7 +988,7 @@ async function documentRemittanceCompanyDifference(frm) {
             saving = true; dialog.disable_primary_action();
             try {
                 await frappe.call({method: method + "record", args: {name: frm.doc.name, modified: preview.modified,
-                    difference_reason: values.difference_reason, difference_notes: values.difference_notes,
+                    difference_reason: values.difference_reason, difference_notes: values.difference_notes || "",
                     core_item: values.core_item || ""}});
                 dialog.hide();
                 await frm.reload_doc();

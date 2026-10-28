@@ -65,6 +65,14 @@ class DepositDifferenceTests(unittest.TestCase):
         self.assertEqual(sum(r["amount_usd"] for r in result["allocations"]), 100)
         self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .03)
 
+    def test_company_difference_with_no_comments_remains_valid_for_reconciliation(self):
+        self.setup_case(.03)
+        self.diff.difference_notes = ''
+        result, statuses, rows = self.reconcile()
+        self.assertEqual(statuses['DEP'], difference.SETTLED)
+        self.assertEqual(sum(row['amount_usd'] for row in result['allocations']), 100)
+        self.assertEqual(rows['DIFF']['difference_core_pending_usd'], .03)
+
     def test_documented_difference_coexists_with_reserved_customer_or_company_credit(self):
         for category in ('Saldo a favor del cliente', 'Saldo a favor de la empresa'):
             with self.subTest(category=category):
