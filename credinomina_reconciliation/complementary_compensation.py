@@ -21,9 +21,13 @@ _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", 
                   "credit_client", "credit_detail_row")
 
 
+def _origin_date(doc):
+    return doc.get('credit_origin_date') if doc.category in CREDIT_CATEGORIES and doc.get('credit_origin_date') else doc.posting_date
+
+
 def balance(doc, as_of_date=None):
     cutoff = getdate(as_of_date or nowdate())
-    original = abs(money(doc.get("amount_usd"))) if getdate(doc.posting_date) <= cutoff else money(0)
+    original = abs(money(doc.get("amount_usd"))) if getdate(_origin_date(doc)) <= cutoff else money(0)
     compensated = sum_money(row.amount_usd for row in doc.get("compensations", [])
                             if getdate(row.compensation_date) <= cutoff)
     pending = original - compensated
@@ -242,7 +246,7 @@ def _available(doc):
 
 
 def _summary(doc, as_of_date=None):
-    return {"name": doc.name, "posting_date": doc.posting_date, "employer": doc.employer,
+    return {"name": doc.name, "posting_date": _origin_date(doc), "employer": doc.employer,
             "voucher": doc.voucher, "description": doc.description,
             "is_credit": doc.category in CREDIT_CATEGORIES,
             "client_name": doc.get("client_name") or doc.get("source_client_name") or "",
@@ -268,7 +272,7 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
     if not compensation_date or not reason or amount <= 0:
         frappe.throw(_("Indique fecha, motivo e importe positivo de la compensación."))
     date = getdate(compensation_date)
-    if date > getdate(nowdate()) or date < max(getdate(left.posting_date), getdate(right.posting_date)):
+    if date > getdate(nowdate()) or date < max(getdate(_origin_date(left)), getdate(_origin_date(right))):
         frappe.throw(_("La fecha no puede ser futura ni anterior a ninguno de los movimientos."))
     existing = [[row for row in doc.get("compensations", []) if row.operation_id == request_key] for doc in (left, right)]
     if any(existing):
@@ -356,7 +360,7 @@ def _validate_correction_timeline(doc, additions):
     used = money(0)
     for day, change in sorted(changes.items()):
         used += change
-        capacity = abs(money(doc.amount_usd)) if day >= getdate(doc.posting_date) else money(0)
+        capacity = abs(money(doc.amount_usd)) if day >= getdate(_origin_date(doc)) else money(0)
         if used < 0 or used > capacity:
             frappe.throw(_("La corrección deja un saldo compensado inválido en {0} al {1}. Revise las demás compensaciones.").format(doc.name, day))
 
@@ -390,7 +394,7 @@ def correct_compensation_date(item_name, operation_id, compensation_date, reason
     if not reason or not compensation_date:
         frappe.throw(_("Indique la fecha correcta y el motivo de la corrección."))
     date = getdate(compensation_date)
-    if date > getdate(nowdate()) or date < max(getdate(left.posting_date), getdate(right.posting_date)):
+    if date > getdate(nowdate()) or date < max(getdate(_origin_date(left)), getdate(_origin_date(right))):
         frappe.throw(_("La fecha no puede ser futura ni anterior a ninguno de los movimientos."))
     originals = [[row for row in doc.compensations if row.operation_id == operation_id] for doc in (left, right)]
     if not all(len(rows) == 1 for rows in originals):

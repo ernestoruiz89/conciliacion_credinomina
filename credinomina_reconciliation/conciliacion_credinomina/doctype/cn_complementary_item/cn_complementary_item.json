@@ -16,7 +16,7 @@
     "adjustment_collection_rows", "application_links_preview", "application_adjustment_history", "compensation_section", "compensation_status", "compensated_usd",
     "compensation_column", "compensation_pending_usd", "compensation_history_section", "compensations", "credit_section", "registered_deposit",
     "reason_type", "credit_column", "result", "deposit_voucher", "legacy_surplus_id", "legacy_surplus_snapshot",
-    "client_credit_section", "credit_client", "credit_detail_row", "credit_detail_preview", "select_credit_detail", "credit_treatment",
+    "client_credit_section", "credit_client", "credit_detail_row", "credit_origin_date", "reclassification_date", "credit_detail_preview", "select_credit_detail", "credit_treatment",
     "client_credit_column", "credit_assigned_to", "credit_commitment_date", "credit_management_status", "credit_usage_issue", "credit_resolved_usd",
     "credit_pending_usd", "record_credit_management", "credit_history_section", "credit_history_preview", "credit_history", "receivable_terms_section",
     "receivable_due_date", "receivable_due_origin", "receivable_setup_pending", "generic_section", "generic_distribution", "distribution_companies",
@@ -32,6 +32,8 @@
   ],
   "fields": [
     {"fieldname": "difference_documentation_section", "fieldtype": "Section Break", "label": "Documentación de diferencias"},
+    {"fieldname": "credit_origin_date", "fieldtype": "Date", "label": "Fecha de origen del saldo a favor", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "reclassification_date", "description": "Fecha del depósito donde se recibió el saldo a favor."},
+    {"fieldname": "reclassification_date", "fieldtype": "Date", "label": "Fecha de conciliación de la reclasificación", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "reclassification_date", "description": "La fecha posterior entre el depósito y la reclasificación importada del core."},
     {"fieldname": "difference_reason", "read_only": 1, "fieldtype": "Link", "options": "CN Difference Reason", "label": "Razón de la diferencia", "allow_on_submit": 1, "no_copy": 1, "description": "Clasificación documental; no cambia saldos ni concilia."},
     {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Documentación de la diferencia", "allow_on_submit": 1, "no_copy": 1},
     {"fieldname": "legacy_manual_review", "fieldtype": "Check", "label": "Partida histórica por revisar", "read_only": 1, "no_copy": 1, "in_standard_filter": 1, "description": "Se conserva su efecto y sus vínculos. Revisar en Revisión de Partidas Manuales."},

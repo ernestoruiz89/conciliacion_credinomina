@@ -39,7 +39,8 @@ def require_cutoff_evidence(context, deposits, items, cutoff):
         from credinomina_reconciliation.application_adjustment_links import links
         # A later effective classification cannot change this cut, but original
         # accounting evidence may have an earlier source date.
-        if not before(row.get('source_date') or row.get('posting_date')):
+        if not before(row.get('source_date') or row.get('posting_date')) and not (
+                row.get('credit_origin_date') and before(row.get('credit_origin_date'))):
             return False
         return (row.name in needed_items or any(link.related_application in source_ids for link in links(row))
                 or row.get('registered_deposit') in deposit_ids
@@ -48,7 +49,7 @@ def require_cutoff_evidence(context, deposits, items, cutoff):
 
     require_complete_evidence('CN Complementary Item', item_ids,
         filters={'docstatus': ['!=', 2]}, relevant=relevant_item,
-        fields=['source_date', 'posting_date', 'related_application', 'application_adjustment_history', 'registered_deposit',
+        fields=['source_date', 'posting_date', 'credit_origin_date', 'related_application', 'application_adjustment_history', 'registered_deposit',
                 'receivable_origin', 'claim_id', 'accounting_exception'])
 
     def relevant_deposit(row):

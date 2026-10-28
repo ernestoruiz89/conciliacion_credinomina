@@ -243,7 +243,7 @@ def apply(item_name, modified, application_id, amount_usd, event_date, notes='')
     amount = money(amount_usd)
     if amount <= 0 or amount > money(credit_usage.totals(item)['credit_pending_usd']):
         frappe.throw(_('Indique un importe positivo que no supere el saldo a favor disponible.'))
-    if (not event_date or getdate(event_date) < max(getdate(item.posting_date), getdate(row.event_date))
+    if (not event_date or getdate(event_date) < max(getdate(item.get('credit_origin_date') or item.posting_date), getdate(row.event_date))
             or getdate(event_date) > getdate()):
         frappe.throw(_('La fecha debe ser igual o posterior al saldo y a la aplicación, y no puede ser futura.'))
     available = money(cash_coverage(row, lock=True)['adjustable_usd'])

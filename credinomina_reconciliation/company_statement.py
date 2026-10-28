@@ -112,8 +112,9 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
             continue
         company = item['category'] == 'Saldo a favor de la empresa'
         result.append(_row(item, item['category'], 'CN Complementary Item', item['name'],
-            item.get('posting_date'), 'company_credit_usd' if company else 'client_credit_usd',
-            None if amount is None else -money(amount), status=reconciliation_state(balance), treatment_status=balance['financial_status'],
+            item.get('credit_origin_date') or item.get('posting_date'), 'company_credit_usd' if company else 'client_credit_usd',
+            None if amount is None else -money(amount), status=('Pendiente de reclasificación' if item.get('_reclassification_pending')
+                else reconciliation_state(balance)), treatment_status=balance['financial_status'],
             management_status=item.get('credit_management_status') or 'Pendiente',
             category=item['category'], reference=item.get('reference'),
             client_name='' if company else item.get('client_name'),

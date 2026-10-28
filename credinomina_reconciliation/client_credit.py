@@ -18,6 +18,7 @@ RESULT = "Saldo a favor documentado"
 FINANCIAL_FIELDS = (
     "category", "amount", "currency", "fx_rate", "amount_usd", "employer", "period",
     "registered_deposit", "credit_client", "client_number", "loan_number", "credit_detail_row", "posting_date",
+    "credit_origin_date", "reclassification_date",
 )
 MANAGED_FIELDS = ("credit_resolved_usd", "credit_pending_usd", "credit_management_status", "credit_history", "credit_usage_issue")
 
@@ -214,6 +215,10 @@ def validate_client_credit(doc, previous=None):
 
 
 def guard_credit_category(doc, previous):
+    for field in ("credit_origin_date", "reclassification_date"):
+        previous_value = previous.get(field) if previous else None
+        if str(doc.get(field) or "") != str(previous_value or ""):
+            frappe.throw(_("Las fechas de reclasificación solo pueden establecerse mediante la conciliación autorizada."))
     if previous and previous.docstatus == 1 and previous.category in CREDIT_CATEGORIES and doc.category != previous.category:
         frappe.throw(_("No puede reclasificar un saldo a favor confirmado. Cancele primero la partida sin gestiones y documente el motivo."))
     if previous and previous.category in CREDIT_CATEGORIES and previous.docstatus == 1:
@@ -275,7 +280,7 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
         frappe.throw(_("El importe de la gestión debe ser positivo y no superar el saldo pendiente."))
     if treatment not in {"Devolución", "Aplicación futura"} or not clean_text(reference) or not event_date:
         frappe.throw(_("Indique devolución o aplicación, fecha y referencia del core/comprobante."))
-    if getdate(event_date) < getdate(item.posting_date) or getdate(event_date) > getdate():
+    if getdate(event_date) < getdate(item.get('credit_origin_date') or item.posting_date) or getdate(event_date) > getdate():
         frappe.throw(_("La fecha de gestión no puede ser futura ni anterior al saldo a favor."))
     support_file = clean_text(support_file)
     if support_file:
@@ -348,7 +353,7 @@ def reverse_management(item_name, modified, entry_id, event_date, reason):
     if not original or not original["can_reverse"]:
         frappe.throw(_("La gestión no existe o ya fue revertida."))
     date = getdate(event_date)
-    earliest = max([getdate(item.posting_date), *[getdate(entry["fecha"]) for entry in entries if entry.get("fecha")]])
+    earliest = max([getdate(item.get('credit_origin_date') or item.posting_date), *[getdate(entry["fecha"]) for entry in entries if entry.get("fecha")]])
     if date < earliest or date > getdate():
         frappe.throw(_("La reversión no puede ser futura ni anterior a las gestiones registradas."))
     amount = money(original["importe_usd"])
