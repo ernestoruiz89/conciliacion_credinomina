@@ -192,6 +192,8 @@ def rebuild_destination(period):
             if row.historical_period == period.name or any(link.get('collection_row_id') in collection_ids
                                                           for link in engine._application_allocations(row)):
                 rows.append(row)
+    from credinomina_reconciliation.application_adjustments import refresh_rows
+    refresh_rows(rows, employer=period.employer)
     complements = []
     complementary_target, complementary_totals = {}, defaultdict(float)
     if period.reconciliation_mode != 'Historica':

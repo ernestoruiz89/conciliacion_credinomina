@@ -26,6 +26,7 @@ def credit_origin_date(deposit):
 
 def validate_pair(item, deposit, row):
     """Reject uncertain or contradictory evidence before any financial write."""
+    from credinomina_reconciliation.reclassification_distribution import allocations
     if (item.get("docstatus") != 1 or item.get("category") != "Compensación entre partidas"
             or not item.get("accounting_source_key") or money(item.get("source_debit")) <= 0
             or money(item.get("source_credit")) != 0
@@ -33,14 +34,16 @@ def validate_pair(item, deposit, row):
         frappe.throw(_("Seleccione una partida confirmada del core con débito y sin crédito."))
     if (item.get("origin_deposit") or item.get("registered_deposit") or item.get("related_application")
             or item.get("registration_exception") or item.get("receivable_origin")
-            or item.get("compensations") or item.get("generic_distribution")):
+            or item.get("compensations") or item.get("generic_distribution") or allocations(item)):
         frappe.throw(_("La partida ya tiene un vínculo o tratamiento incompatible."))
     if deposit.get("docstatus") != 1 or row.get("parent") != deposit.get("name"):
         frappe.throw(_("Seleccione una fila de un depósito confirmado."))
     if not row.get("client") or not item.get("employer") or item.get("employer") != row.get("employer"):
         frappe.throw(_("La empresa y el cliente identificado deben coincidir con la fila del depósito."))
+    if str(row.get("identity_reason") or "").startswith(("Conflicto", "Nombre ambiguo")):
+        frappe.throw(_("La identidad de la fila tiene un conflicto pendiente de revisión."))
     item_loan, row_loan = canonical_credit_number(item.get("loan_number")), canonical_credit_number(row.get("loan_number"))
-    if not item_loan or not row_loan or item_loan != row_loan:
+    if not row_loan or (item_loan and item_loan != row_loan):
         frappe.throw(_("El número de crédito de la partida debe coincidir con la fila del depósito."))
     item_number = canonical_identifier(item.get("client_number"))
     row_number = canonical_identifier(row.get("client_number"))
@@ -48,8 +51,34 @@ def validate_pair(item, deposit, row):
         frappe.throw(_("El número de cliente de la partida no coincide con la fila."))
     if not name_key(item.get("client_name")) or name_key(item.get("client_name")) != name_key(row.get("client_name")):
         frappe.throw(_("El nombre del cliente de la partida no coincide con la fila."))
-    if money(item.get("amount_usd")) <= 0 or money(item.get("amount_usd")) != money(row.get("amount_usd")):
-        frappe.throw(_("El importe de la partida debe coincidir con el importe de la fila del depósito."))
+    if money(item.get("amount_usd")) <= 0 or money(row.get("amount_usd")) <= 0:
+        frappe.throw(_("La partida y la fila del depósito deben tener importes positivos."))
+
+
+def matching_rows(item, deposit):
+    """Return candidates for explicit selection, never infer a missing loan."""
+    rows = []
+    plausible = 0
+    item_number = canonical_identifier(item.get("client_number"))
+    muted = frappe.flags.mute_messages
+    try:
+        frappe.flags.mute_messages = True
+        for row in deposit.get("detail_rows") or []:
+            row_number = canonical_identifier(row.get("client_number"))
+            if (row.get("employer") == item.get("employer") and name_key(item.get("client_name"))
+                    and name_key(item.get("client_name")) == name_key(row.get("client_name"))
+                    and money(item.get("amount_usd")) > 0 and money(row.get("amount_usd")) > 0
+                    and not (item_number and row_number and item_number != row_number)):
+                plausible += 1
+            try:
+                validate_pair(item, deposit, row)
+            except frappe.ValidationError:
+                continue
+            rows.append(row)
+    finally:
+        frappe.flags.mute_messages = muted
+    ambiguous = not canonical_credit_number(item.get("loan_number")) and plausible > 1
+    return rows, ambiguous
 
 
 @frappe.whitelist()
@@ -75,23 +104,14 @@ def preview(item_name, deposit_name):
     item.check_permission("read")
     deposit = frappe.get_doc("CN Remittance Allocation", deposit_name)
     deposit.check_permission("read")
-    rows = []
-    muted = frappe.flags.mute_messages
-    try:
-        frappe.flags.mute_messages = True
-        for row in deposit.get("detail_rows") or []:
-            try:
-                validate_pair(item, deposit, row)
-            except frappe.ValidationError:
-                continue
-            rows.append({"name": row.name, "source_row": row.source_row, "client_name": row.client_name,
-                         "loan_number": row.loan_number, "amount_usd": row.amount_usd,
-                         "pending_usd": row.pending_usd})
-    finally:
-        frappe.flags.mute_messages = muted
+    matches, ambiguous = matching_rows(item, deposit)
+    rows = [{"name": row.name, "source_row": row.source_row, "client_name": row.client_name,
+             "loan_number": row.loan_number, "amount_usd": row.amount_usd, "pending_usd": row.pending_usd}
+            for row in matches]
     return {"item_modified": str(item.modified), "deposit_modified": str(deposit.modified),
             "credit_origin_date": str(credit_origin_date(deposit)),
-            "reconciliation_date": str(reconciliation_date(item, deposit)), "rows": rows}
+            "reconciliation_date": str(reconciliation_date(item, deposit)), "rows": rows,
+            "missing_loan": not bool(canonical_credit_number(item.get("loan_number"))), "ambiguous": ambiguous}
 
 
 @frappe.whitelist(methods=["POST"])
@@ -113,6 +133,11 @@ def link(item_name, deposit_name, detail_row, item_modified, deposit_modified, c
     if not row:
         frappe.throw(_("La fila seleccionada ya no pertenece al depósito."))
     validate_pair(item, deposit, row)
+    matches, _ambiguous = matching_rows(item, deposit)
+    if row.name not in {candidate.name for candidate in matches}:
+        frappe.throw(_("La fila ya no coincide con la identidad de la partida."))
+    if money(item.amount_usd) != money(row.amount_usd):
+        frappe.throw(_("El importe parcial requiere registrar el remanente antes de conciliar."))
     if frappe.db.exists("CN Remittance Target", {"complementary_item": item.name, "docstatus": ["<", 2]}):
         frappe.throw(_("La partida ya está seleccionada como destino de un depósito."))
     if not str(reason or "").strip() or not commitment_date:

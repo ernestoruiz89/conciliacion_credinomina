@@ -368,6 +368,14 @@ frappe.ui.form.on("CN Complementary Item", {
     },
     generic_distribution(frm) {
         frm.trigger("category");
+        // The legacy compensation fields describe offsets between two items.
+        // A split has its own journal and balances; showing the old zeroes here
+        // would incorrectly suggest that no portion has been distributed.
+        if (frm.doc.__onload?.has_reclassification_distributions) {
+            frm.toggle_display("compensation_section", false);
+            frm.toggle_display("compensation_history_section", false);
+            frm.toggle_display("review_status", false);
+        }
         if (frm.doc.generic_distribution) frappe.show_alert({message: __("Distribuya manualmente el importe entre los destinos. La partida comparte un solo saldo entre todas las empresas y clientes autorizados."), indicator: "blue"});
     },
     async review_action(frm) {
@@ -472,6 +480,14 @@ frappe.ui.form.on("CN Complementary Item", {
         const compensated = (frm.doc.compensations || []).length > 0;
         const betweenItems = frm.doc.category === "Compensación entre partidas";
         if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
+                && frm.doc.accounting_source_key && frm.get_perm(0, "write") && frm.get_perm(0, "submit")
+                && ((Number(frm.doc.source_debit) > 0 && !Number(frm.doc.source_credit))
+                    || (Number(frm.doc.source_credit) > 0 && !Number(frm.doc.source_debit)))) {
+            frm.add_custom_button(__("Distribuir movimiento del core"), () => cn_distribute_core_item(frm));
+            frm.add_custom_button(__("Gestionar saldo de distribución"), () => cn_manage_split_credit(frm), __("Más acciones"));
+        }
+        if (!frm.is_new() && frm.doc.docstatus === 1 && betweenItems && !compensated
+                && !frm.doc.__onload?.has_reclassification_distributions
                 && frm.doc.accounting_source_key && Number(frm.doc.source_debit) > 0
                 && !Number(frm.doc.source_credit) && frm.get_perm(0, "write") && frm.get_perm(0, "submit")) {
             frm.add_custom_button(__("Conciliar reclasificación con depósito"), () => cn_reconcile_reclassification(frm));
@@ -903,6 +919,120 @@ async function cn_comp_create_exception(frm) {
     }
 }
 
+async function cn_distribute_core_item(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de continuar."));
+    const method = "credinomina_reconciliation.reclassification_distribution.";
+    const itemName = frm.doc.name;
+    const history = (await frappe.call({method: method + "distribution_history", args: {item_name: itemName}})).message;
+    const isDebit = Number(frm.doc.source_debit) > 0;
+    const kindOptions = isDebit ? new Map([
+        ["Saldo a favor del cliente", "Saldo a favor contra depósito"],
+        ["Saldo a favor de la empresa", "Saldo a favor de la empresa contra depósito"],
+        ["Ingreso", "Ingreso contra depósito"],
+        ["Otro sin saldo a favor ni cuenta por cobrar", "Otro sin cuenta por cobrar contra depósito"],
+    ]) : new Map([["Pago pendiente contra aplicación contable", "Pago pendiente contra aplicación"]]);
+    const kinds = [...kindOptions.keys()];
+    let targetPreview = null, selectedDocument = "", choices = new Map(), busy = false;
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const detail = (history.entries || []).map(entry => `<li>${esc(entry.kind)} · ${esc(entry.parent_document)} · ${esc(entry.client_name || entry.employer)} · US$ ${Number(entry.amount_usd).toFixed(2)} · ${esc(entry.effective_date)}</li>`).join("");
+    const dialog = new frappe.ui.Dialog({title: __("Distribuir movimiento del core"), size: "extra-large", fields: [
+        {fieldtype: "HTML", options: `<p>${__("Distribuya el movimiento en una o varias porciones. El importe original se conserva. El saldo a favor de la empresa queda pendiente de gestión; ingreso y otro no crean saldo a favor ni cuenta por cobrar.")}</p><p>${__("Disponible")} US$ ${Number(history.remaining_usd).toFixed(2)}</p>${detail ? `<ul>${detail}</ul>` : ""}`},
+        {fieldtype: "Select", fieldname: "kind", label: __("Tratamiento"), options: kinds, default: kinds[0], reqd: 1},
+        {fieldtype: "Check", fieldname: "override", label: __("Permitir empresa o cliente diferente"),
+            description: __("Solo para un ajuste global o una excepción verificada. Debe documentar el motivo.")},
+        {fieldtype: "Link", fieldname: "deposit", label: __("Depósito"), options: "CN Remittance Allocation", depends_on: isDebit ? "eval:true" : "eval:false",
+            get_query: () => dialog.get_value("override") ? {filters: {docstatus: 1}} :
+                {query: "credinomina_reconciliation.reclassification_deposit.deposit_query", filters: {item_name: itemName}},
+            onchange: () => refreshDestination("deposit")},
+        {fieldtype: "Link", fieldname: "import_name", label: __("Importación contable"), options: "CN Accounting Import", depends_on: isDebit ? "eval:false" : "eval:true",
+            get_query: () => ({filters: dialog.get_value("override") ? {docstatus: ["!=", 2]} : {docstatus: ["!=", 2], employer: frm.doc.employer}}),
+            onchange: () => refreshDestination("application")},
+        {fieldtype: "Select", fieldname: "target", label: isDebit ? __("Fila del depósito") : __("Aplicación contable"), options: [], reqd: 1},
+        {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe de esta porción US$"), reqd: 1, precision: 2},
+        {fieldtype: "Small Text", fieldname: "reason", label: __("Motivo y evidencia"), reqd: 1},
+    ], primary_action_label: __("Vincular porción"), async primary_action(values) {
+        const target = choices.get(values.target);
+        if (busy || !targetPreview || !target || selectedDocument !== (isDebit ? values.deposit : values.import_name)) return;
+        busy = true; dialog.get_primary_btn().prop("disabled", true);
+        try {
+            const args = isDebit ? {item_name: itemName, deposit_name: values.deposit, detail_name: target,
+                modified: history.modified, deposit_modified: targetPreview.modified, amount_usd: values.amount_usd,
+                kind: kindOptions.get(values.kind), override: values.override, reason: values.reason} :
+                {item_name: itemName, application_name: target, modified: history.modified, amount_usd: values.amount_usd,
+                    override: values.override, reason: values.reason};
+            await frappe.call({method: method + (isDebit ? "link_deposit" : "link_application"), args, freeze: true,
+                freeze_message: __("Registrando y conciliando la porción…")});
+            dialog.hide(); await frm.reload_doc();
+            frappe.show_alert({message: __("Porción vinculada. Puede distribuir el importe restante."), indicator: "green"});
+        } finally {busy = false; dialog.get_primary_btn().prop("disabled", false);}
+    }});
+    async function refreshDestination(type) {
+        const documentName = dialog.get_value(type === "deposit" ? "deposit" : "import_name");
+        targetPreview = null; selectedDocument = ""; choices = new Map();
+        dialog.set_df_property("target", "options", []); await dialog.set_value("target", "");
+        if (!documentName) return;
+        const result = (await frappe.call({method: method + "preview_destination", args: {item_name: itemName,
+            document_name: documentName, destination: type}})).message;
+        if (dialog.get_value(type === "deposit" ? "deposit" : "import_name") !== documentName) return;
+        targetPreview = result; selectedDocument = documentName;
+        for (const row of result.rows || []) {
+            const pending = type === "deposit" && row.pending_usd != null ? ` · ${__("Pendiente registrado")} US$ ${Number(row.pending_usd).toFixed(2)}` : "";
+            const label = `${__("Fila")} ${row.source_row || row.name} · ${row.employer || ""} · ${row.client_name || ""} · ${row.loan_number || ""} · US$ ${Number(row.amount_usd || 0).toFixed(2)}${pending} · ${row.name}`;
+            choices.set(label, row.name);
+        }
+        dialog.set_df_property("target", "options", ["", ...choices.keys()]);
+        if (!choices.size) frappe.msgprint(__("No hay filas disponibles para seleccionar en este documento."));
+    }
+    dialog.show();
+}
+
+async function cn_manage_split_credit(frm) {
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de continuar."));
+    const method = "credinomina_reconciliation.reclassification_distribution.";
+    const history = (await frappe.call({method: method + "distribution_history", args: {item_name: frm.doc.name}})).message;
+    const credits = (history.entries || []).filter(entry => ["Saldo a favor contra depósito", "Saldo a favor de la empresa contra depósito"].includes(entry.kind));
+    if (!credits.length) return frappe.msgprint(__("Esta partida no tiene porciones de saldo a favor para gestionar."));
+    const choices = new Map(credits.map(entry => {
+        const resolved = (entry.management_history || []).reduce((sum, row) => sum + Number(row.importe_usd || 0), 0);
+        const pending = Number(entry.amount_usd) - resolved;
+        return [`${entry.kind} · ${entry.parent_document} · ${entry.client_name || entry.employer} · ${__("Pendiente")} US$ ${pending.toFixed(2)} · ${entry.operation_id}`, entry];
+    }));
+    let reversals = new Map(), busy = false;
+    const dialog = new frappe.ui.Dialog({title: __("Gestionar saldo de distribución"), size: "large", fields: [
+        {fieldtype: "Select", fieldname: "credit", label: __("Porción"), options: ["", ...choices.keys()], reqd: 1,
+            onchange() {
+                const entry = choices.get(dialog.get_value("credit"));
+                const rows = entry?.management_history || [];
+                const reversed = new Set(rows.filter(row => row.reverses).map(row => row.reverses));
+                reversals = new Map(rows.filter(row => !row.reverses && !reversed.has(row.operation_id) && Number(row.importe_usd) > 0)
+                    .map(row => [`${row.fecha} · ${row.tratamiento} · US$ ${Number(row.importe_usd).toFixed(2)} · ${row.referencia} · ${row.operation_id}`, row.operation_id]));
+                dialog.set_df_property("reversal", "options", ["", ...reversals.keys()]);
+            }},
+        {fieldtype: "Select", fieldname: "action", label: __("Acción"), options: ["Documentar gestión", "Revertir gestión"], reqd: 1},
+        {fieldtype: "Select", fieldname: "treatment", label: __("Tratamiento"), options: ["Devolución", "Aplicación futura"], depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe US$"), precision: 2, depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Data", fieldname: "reference", label: __("Referencia del comprobante"), depends_on: "eval:doc.action=='Documentar gestión'"},
+        {fieldtype: "Select", fieldname: "reversal", label: __("Gestión a revertir"), options: [], depends_on: "eval:doc.action=='Revertir gestión'"},
+        {fieldtype: "Date", fieldname: "event_date", label: __("Fecha"), default: frappe.datetime.get_today(), reqd: 1},
+        {fieldtype: "Small Text", fieldname: "notes", label: __("Motivo o notas"), reqd: 1},
+    ], primary_action_label: __("Registrar"), async primary_action(values) {
+        const entry = choices.get(values.credit);
+        if (busy || !entry) return;
+        const reversing = values.action === "Revertir gestión";
+        const entryId = reversals.get(values.reversal);
+        if (reversing && !entryId) return frappe.msgprint(__("Seleccione la gestión que desea revertir."));
+        busy = true; dialog.get_primary_btn().prop("disabled", true);
+        try {
+            const common = {item_name: frm.doc.name, operation_id: entry.operation_id, modified: history.modified, event_date: values.event_date};
+            const args = reversing ? {...common, entry_id: entryId, reason: values.notes} :
+                {...common, treatment: values.treatment, amount_usd: values.amount_usd, reference: values.reference, notes: values.notes};
+            await frappe.call({method: method + (reversing ? "reverse_credit_management" : "record_credit_management"), args, freeze: true});
+            dialog.hide(); await frm.reload_doc(); frappe.show_alert({message: __("Gestión registrada."), indicator: "green"});
+        } finally {busy = false; dialog.get_primary_btn().prop("disabled", false);}
+    }});
+    dialog.show();
+}
+
 function cn_reconcile_reclassification(frm) {
     if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de continuar."));
     const itemName = frm.doc.name;
@@ -921,10 +1051,15 @@ function cn_reconcile_reclassification(frm) {
                 const result = (await frappe.call({method: method + "preview", args: {item_name: itemName, deposit_name: deposit}})).message;
                 if (dialog.get_value("deposit") !== deposit || frm.doc.name !== itemName) return;
                 preview = result; previewDeposit = deposit;
-                for (const row of result.rows || []) choices.set(`${__("Fila")} ${row.source_row || row.name} · ${row.client_name} · ${row.loan_number} · US$ ${Number(row.amount_usd).toFixed(2)}`, row.name);
+                for (const row of result.rows || []) choices.set(`${__("Fila")} ${row.source_row || row.name} · ${row.client_name} · ${row.loan_number} · US$ ${Number(row.amount_usd).toFixed(2)} · ${__("Pendiente")} US$ ${Number(row.pending_usd || 0).toFixed(2)}`, row.name);
                 dialog.set_df_property("detail_row", "options", ["", ...choices.keys()]);
-                dialog.fields_dict.dates.$wrapper.text(__("Saldo a favor desde {0}; conciliación desde {1}.", [result.credit_origin_date, result.reconciliation_date]));
-                if (!choices.size) frappe.msgprint(__("No hay una fila que coincida en cliente, crédito, empresa e importe."));
+                const dates = __("Saldo a favor desde {0}; conciliación desde {1}.", [result.credit_origin_date, result.reconciliation_date]);
+                dialog.fields_dict.dates.$wrapper.text(result.missing_loan ? `${dates} ${result.ambiguous
+                    ? __("La partida no indica crédito y hay varias filas posibles. Seleccione la correcta y verifíquela con el comprobante.")
+                    : __("La partida no indica crédito. Verifique el crédito de la fila con el comprobante antes de confirmar.")}` : dates);
+                if (!choices.size) frappe.msgprint(result.ambiguous
+                    ? __("La partida no indica crédito y hay varias filas compatibles. Revise la evidencia antes de vincularla.")
+                    : __("No hay una fila identificada que coincida con la empresa, el cliente y el importe de la partida."));
             }},
         {fieldtype: "Select", fieldname: "detail_row", label: __("Fila del depósito"), reqd: 1, options: []},
         {fieldtype: "HTML", fieldname: "dates"},

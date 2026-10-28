@@ -62,6 +62,18 @@ class HistoricalCutoffTests(unittest.TestCase):
         self.assertEqual(cut['applications'][0]['amount_usd'], 80)
         self.assertEqual(cut['summary'][0]['core_pending_usd'], 0)
 
+    def test_split_adjustment_against_application_uses_effective_date(self):
+        item = self.item(category='Compensación entre partidas', amount_usd=10,
+            source_credit=10, source_debit=0,
+            reclassification_allocations=[dict(operation_id='OP', kind='Pago pendiente contra aplicación',
+                target='A', parent_document='I', employer='E', amount_usd=10, effective_date='2025-05-01')])
+        before = self.cut('2025-04-30', deposits=[], items=[item])
+        self.assertEqual(before['applications'][0]['amount_usd'], 100)
+        self.assertEqual(before['summary'][0]['core_pending_usd'], -10)
+        after = self.cut('2025-05-01', deposits=[], items=[item])
+        self.assertEqual(after['applications'][0]['amount_usd'], 90)
+        self.assertEqual(after['summary'][0]['core_pending_usd'], 0)
+
     def test_one_adjustment_distributed_between_applications_is_counted_once_at_cutoff(self):
         self.source.update(amount=.17, application_adjustment_usd=.17)
         self.context[0].append(dict(self.source, name='B', amount=.47, application_adjustment_usd=.47))
@@ -130,6 +142,26 @@ class HistoricalCutoffTests(unittest.TestCase):
         self.assertEqual((before['client_credit_usd'], before['core_pending_usd']), (0, 20))
         after = self.cut('2025-04-30', [deposit], [item], context=empty_context)['summary'][0]
         self.assertEqual((after['client_credit_usd'], after['core_pending_usd']), (-20, 0))
+
+    def test_split_reclassification_keeps_customer_company_income_and_other_separate(self):
+        empty_context = ([], {}, {}, {}, {})
+        kinds = ['Saldo a favor contra depósito', 'Saldo a favor de la empresa contra depósito',
+                 'Ingreso contra depósito', 'Otro sin cuenta por cobrar contra depósito']
+        journal = [dict(operation_id=str(i), kind=kind, target=f'R{i}', parent_document='D', employer='E',
+                        client='CLIENT', client_name='Cliente', credit_origin_date='2025-04-30',
+                        effective_date='2025-06-01', amount_usd=.01) for i, kind in enumerate(kinds)]
+        item = self.item(category='Compensación entre partidas', amount_usd=.10, source_debit=.10,
+            source_currency='USD', posting_date='2025-06-01', source_date='2025-06-01',
+            reclassification_allocations=journal)
+        deposit = self.deposit(amount_usd=.04, deposit_date='2025-04-30', allocation_detail=[
+            dict(tipo='Partida complementaria', partida='C', importe_usd=.01),
+            dict(tipo='Partida complementaria', partida='C', importe_usd=.01)])
+        before = self.cut('2025-04-30', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((before['client_credit_usd'], before['company_credit_usd'], before['deposit_pending_usd']),
+                         (-.01, -.01, -.02))
+        after = self.cut('2025-06-01', [deposit], [item], context=empty_context)['summary'][0]
+        self.assertEqual((after['client_credit_usd'], after['company_credit_usd'], after['deposit_pending_usd'],
+                          after['core_pending_usd']), (-.01, -.01, 0, .06))
 
     def test_credit_application_plus_corrected_compensation_exhausts_balance_at_cutoff(self):
         deposit = self.deposit(amount_usd=32.63, deposit_date='2025-04-30', allocation_detail=[])

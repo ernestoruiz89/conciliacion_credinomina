@@ -38,7 +38,7 @@ def run():
             with imported_item(marker):
                 item = frappe.get_doc(dict(doctype="CN Complementary Item", category="Por clasificar",
                     review_action="Pendiente de revisión", employer=company.name, posting_date="2025-11-21",
-                    client_name=client.client_name, client_number=marker, loan_number=loan, currency="USD", amount=19.25,
+                    client_name=client.client_name, client_number="", loan_number="", currency="USD", amount=19.25,
                     source_date="2025-11-21", source_currency="USD", source_debit=19.25, source_credit=0,
                     accounting_source_key=marker, source_voucher=marker, voucher=marker, voucher_line=marker,
                     description="Reclasificación de saldo a favor", source_description="Reclasificación de saldo a favor")).insert()
@@ -50,7 +50,21 @@ def run():
             assert deposit.detail_rows[0].client, deposit.detail_rows[0].as_dict()
             validate_pair(item, deposit, deposit.detail_rows[0])
             context = preview(item.name, deposit.name)
-            assert len(context["rows"]) == 1, context
+            assert len(context["rows"]) == 1 and context["missing_loan"] and not context["ambiguous"], context
+            # Until partial allocations have their own journal, a mismatched amount
+            # must not create an overstated customer credit or change the core line.
+            frappe.db.savepoint("mismatched_amount")
+            frappe.db.set_value("CN Remittance Detail", deposit.detail_rows[0].name,
+                                {"amount_usd": 19.26}, update_modified=False)
+            deposit.reload()
+            try:
+                link(item.name, deposit.name, deposit.detail_rows[0].name, str(item.modified),
+                     str(deposit.modified), "2026-11-30", "Prueba de importe")
+                raise AssertionError("Se aceptó un importe parcial sin remanente")
+            except frappe.ValidationError:
+                pass
+            frappe.db.rollback(save_point="mismatched_amount")
+            item.reload(); deposit.reload()
             with patch("credinomina_reconciliation.deposit_reconciliation.reconcile_deposit",
                        side_effect=frappe.ValidationError("Conciliación rechazada")):
                 try:
@@ -70,6 +84,7 @@ def run():
             assert str(item.credit_origin_date) == "2025-08-07" and str(item.reclassification_date) == "2025-11-21"
             assert (row.pending_usd, row.client_credit_usd, row.match_status) == (0, 19.25, "Conciliada"), row.as_dict()
             assert item.result == "Saldo a favor documentado" and item.credit_pending_usd == 19.25
+            assert item.loan_number == loan and item.credit_client == client.name
             assert item.source_debit == 19.25 and item.source_credit == 0
             from credinomina_reconciliation.complementary_state import refresh
             refresh([item.as_dict()])

@@ -173,6 +173,8 @@ def reconcile_deposit(document, progress=None, undo=False):
         "category": ["not in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]],
     }, fields=["name", "reference", "amount_usd", "employer", "period", "client_number", "loan_number", "installment_number", "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key"], limit_page_length=0)
     complementary_by_target = engine._allocate_complementary_items(complements, periods)
+    from credinomina_reconciliation.reclassification_distribution import load_cash_claims
+    complements.extend(load_cash_claims([document.name]))
     others = frappe.get_all("CN Remittance Allocation", filters={
         "docstatus": 1, "employer": scope, "name": ["!=", document.name],
     }, fields=["name", "deposit_reference", "deposit_voucher", "reconciliation_identity", "deposit_date",
@@ -221,10 +223,10 @@ def reconcile_deposit(document, progress=None, undo=False):
     # Stale tolerance movements of this deposit can be reversed, others stay intact.
     engine._sync_rounding_movements(allocation["rounding_movements"], allocation, source_rows,
                                     deposit_name=document.name)
-    surplus = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],
-                             "registered_deposit": document.name},
-                             fields=["name", "period", "registered_deposit", "reference as deposit_reference",
-                                     "deposit_voucher", "amount_usd", "result", "employer", "category", "credit_detail_row", "credit_client", "client_number", "client_name"], limit_page_length=0)
+    from credinomina_reconciliation.client_credit import load_credits
+    surplus = load_credits([document.name])
+    for credit in surplus:
+        credit.deposit_reference = credit.get("reference") or ""
     engine._classify_surplus(allocation, surplus)
     # All existing cash is included in affected balances, but only this deposit
     # has been reallocated and only its detail/targets can be synchronized.

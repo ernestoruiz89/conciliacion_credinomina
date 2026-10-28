@@ -9,6 +9,9 @@ from credinomina_reconciliation.report_records import require_complete_evidence
 
 
 def require_cutoff_evidence(context, deposits, items, cutoff):
+    from credinomina_reconciliation.reclassification_distribution import (
+        APPLICATION, CREDIT_KINDS, DEPOSIT_KINDS, FIELD as RECLASS_FIELD, allocations,
+    )
     sources, imports, periods, collections, employers = context
     before = lambda value: not value or str(value)[:10] <= str(cutoff)
     source_ids = {row['name'] for row in sources if before(row.get('event_date'))}
@@ -16,6 +19,10 @@ def require_cutoff_evidence(context, deposits, items, cutoff):
     item_ids = {row['name'] for row in items}
     deposit_ids = {row['name'] for row in deposits}
     needed_deposits = {row.get('registered_deposit') for row in items} - {None, ''}
+    for item in items:
+        for entry in allocations(item):
+            if entry['kind'] in DEPOSIT_KINDS and before(entry.get('credit_origin_date') or entry.get('effective_date')):
+                needed_deposits.add(entry.get('parent_document'))
     needed_items = set(item_ids)
     claims = {'H:' + name for name in source_ids} | {'C:' + name for name in collections}
     registrations = {row.get('registration_exception') for row in items} - {None, ''}
@@ -39,17 +46,22 @@ def require_cutoff_evidence(context, deposits, items, cutoff):
         from credinomina_reconciliation.application_adjustment_links import links
         # A later effective classification cannot change this cut, but original
         # accounting evidence may have an earlier source date.
+        portions = allocations(row)
+        relevant_portion = any((entry['kind'] in CREDIT_KINDS and entry.get('parent_document') in deposit_ids
+                                and before(entry.get('credit_origin_date')))
+                               or (entry['kind'] == APPLICATION and entry.get('target') in source_ids
+                                   and before(entry.get('effective_date'))) for entry in portions)
         if not before(row.get('source_date') or row.get('posting_date')) and not (
-                row.get('credit_origin_date') and before(row.get('credit_origin_date'))):
+                row.get('credit_origin_date') and before(row.get('credit_origin_date'))) and not relevant_portion:
             return False
-        return (row.name in needed_items or any(link.related_application in source_ids for link in links(row))
+        return (relevant_portion or row.name in needed_items or any(link.related_application in source_ids for link in links(row))
                 or row.get('registered_deposit') in deposit_ids
                 or row.get('receivable_origin') in item_ids or row.get('claim_id') in claims
                 or row.get('accounting_exception') in registrations)
 
     require_complete_evidence('CN Complementary Item', item_ids,
         filters={'docstatus': ['!=', 2]}, relevant=relevant_item,
-        fields=['source_date', 'posting_date', 'credit_origin_date', 'related_application', 'application_adjustment_history', 'registered_deposit',
+        fields=['source_date', 'posting_date', 'credit_origin_date', RECLASS_FIELD, 'related_application', 'application_adjustment_history', 'registered_deposit',
                 'receivable_origin', 'claim_id', 'accounting_exception'])
 
     def relevant_deposit(row):

@@ -173,8 +173,9 @@ def load_follow_up(year=None, employer=None):
         filters = {**scope, "docstatus": ["!=", 2]}
         if year:
             filters["posting_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
-        items = frappe.get_list("CN Complementary Item", filters=filters,
-            fields=[*FIELDS, "subcategory_effect", "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit", "reason_type"], limit_page_length=0)
+        from credinomina_reconciliation.report_records import records
+        items = list(records("CN Complementary Item", filters=filters,
+            fields=[*FIELDS, "subcategory_effect", "accounting_exception", "client_name", "client_number", "loan_number", "registered_deposit", "reason_type"]))
     if frappe.has_permission("CN Reconciliation Exception", "read"):
         exceptions = frappe.get_list("CN Reconciliation Exception", filters={**scope, "status": ["in", ["Abierta", "En revision"]]},
             fields=["name", "employer", "period", "status", "exception_type", "control_area", "blocks_closure", "amount_usd", "assigned_to", "commitment_date", "next_action", "creation",

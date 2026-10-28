@@ -143,7 +143,7 @@ class ControlDepositsTests(unittest.TestCase):
         with patch.object(cash.frappe, "has_permission", return_value=True), \
                 patch.object(cash.frappe, "get_list", return_value=[]) as query:
             self.assertEqual(cash.get_cash_deposits(None, "E"), [])
-        self.assertEqual(query.call_args.kwargs["filters"], {"docstatus": 1, "employer": "E"})
+        self.assertEqual(query.call_args_list[0].kwargs["filters"], {"docstatus": 1, "employer": "E"})
 
     def test_missing_read_permission_is_not_zero_cash(self):
         with patch.object(cash.frappe, "has_permission", return_value=False), \

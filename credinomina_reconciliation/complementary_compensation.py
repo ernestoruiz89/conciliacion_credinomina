@@ -88,6 +88,9 @@ def guard_delete(doc):
 
 
 def _eligible(doc):
+    from credinomina_reconciliation.reclassification_distribution import allocations
+    if allocations(doc):
+        frappe.throw(_("La partida tiene porciones distribuidas; no puede compensarse por otra vía."))
     if doc.get('origin_deposit'):
         frappe.throw(_('La partida ya respalda el origen de un depósito y no se puede compensar también.'))
     if doc.get("registration_exception"):

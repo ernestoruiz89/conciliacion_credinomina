@@ -136,6 +136,51 @@ def test_reclassification_of_original_debit_preserves_dated_credit_and_bridge():
         assert rows[-1]['unexplained_usd'] == 0
 
 
+def test_split_company_credit_and_refund_preserve_bridge_at_each_date():
+    from credinomina_reconciliation.reclassification_distribution import COMPANY_CREDIT
+    portion = dict(operation_id='P', kind=COMPANY_CREDIT, target='ROW', parent_document='D',
+        employer='E', credit_origin_date='2025-04-30', effective_date='2025-06-01', amount_usd=.03,
+        management_history=[dict(operation_id='R', fecha='2025-07-01', importe_usd=.01)])
+    core_item = item('CORE', category='Compensación entre partidas', amount_usd=.10,
+        accounting_source_key='K', source_debit=.10, source_credit=0, source_date='2025-06-01',
+        posting_date='2025-06-01', reclassification_allocations=[portion])
+    for day in ('2025-04-30', '2025-06-01', '2025-07-01'):
+        snapshot = project([], [deposit(.10, allocation_detail=[])], [core_item], cutoff=day)
+        core = [ledger(-.10, 'deposit', 'D')] + ([ledger(.10, 'item', 'CORE')] if day >= '2025-06-01' else [])
+        rows = explain(core, snapshot)
+        assert rows[-1]['unexplained_usd'] == 0
+
+
+def test_split_credit_bridge_keeps_each_company_separate():
+    from credinomina_reconciliation.reclassification_distribution import COMPANY_CREDIT
+    portion = dict(operation_id='P', kind=COMPANY_CREDIT, target='ROW', parent_document='D',
+        employer='E', credit_origin_date='2025-04-30', effective_date='2025-06-01', amount_usd=.03,
+        management_history=[dict(operation_id='R', fecha='2025-07-01', importe_usd=.01)])
+    core_item = item('CORE', employer='OTHER', category='Compensación entre partidas', amount_usd=.10,
+        accounting_source_key='K', source_debit=.10, source_credit=0, source_date='2025-06-01',
+        posting_date='2025-06-01', reclassification_allocations=[portion])
+    for day in ('2025-04-30', '2025-06-01', '2025-07-01'):
+        snapshot = project([], [deposit(.10, allocation_detail=[])], [core_item], cutoff=day)
+        core = [ledger(-.10, 'deposit', 'D')] + ([ledger(.10, 'item', 'CORE', employer='OTHER')] if day >= '2025-06-01' else [])
+        rows = bridge.build_bridge(core, snapshot)
+        assert all(row['unexplained_usd'] == 0 for row in rows if row['bridge_row_type'] == 'closing')
+
+
+def test_split_application_adjustment_bridge_uses_effective_date():
+    from credinomina_reconciliation.reclassification_distribution import APPLICATION
+    portion = dict(operation_id='P', kind=APPLICATION, target='A', parent_document='I', employer='E',
+                   effective_date='2025-06-01', amount_usd=.03)
+    core_item = item('CORE', category='Compensación entre partidas', amount_usd=.03,
+        accounting_source_key='K', source_debit=0, source_credit=.03, source_date='2025-06-01',
+        posting_date='2025-06-01', reclassification_allocations=[portion])
+    for day in ('2025-04-30', '2025-06-01'):
+        snapshot = project([application(.10)], [], [core_item], cutoff=day)
+        assert snapshot['summary'][0]['application_pending_usd'] == (.10 if day == '2025-04-30' else .07)
+        core = [ledger(.10, 'application', 'A')] + ([ledger(-.03, 'item', 'CORE')] if day >= '2025-06-01' else [])
+        rows = explain(core, snapshot)
+        assert rows[-1]['unexplained_usd'] == 0
+
+
 def test_unattributed_difference_and_missing_conversion_are_never_balancing_entries():
     snapshot = project()
     snapshot['detail'] = [dict(employer='E', balance_usd=12.34)]

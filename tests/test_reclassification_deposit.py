@@ -2,7 +2,7 @@ import unittest
 
 import frappe
 
-from credinomina_reconciliation.reclassification_deposit import credit_origin_date, reconciliation_date, validate_pair
+from credinomina_reconciliation.reclassification_deposit import credit_origin_date, reconciliation_date, validate_pair, matching_rows
 
 
 class ReclassificationDepositValidationTests(unittest.TestCase):
@@ -17,6 +17,25 @@ class ReclassificationDepositValidationTests(unittest.TestCase):
     def test_matching_debit_and_detail(self):
         validate_pair(self.item, self.deposit, self.row)
 
+    def test_missing_core_loan_lists_identified_rows_for_explicit_selection(self):
+        item = dict(self.item, loan_number="")
+        row = frappe._dict(self.row, name="ROW")
+        deposit = frappe._dict(self.deposit, detail_rows=[row])
+        matches, ambiguous = matching_rows(item, deposit)
+        self.assertEqual([r.name for r in matches], ["ROW"])
+        self.assertFalse(ambiguous)
+        deposit.detail_rows.append(frappe._dict(row, name="OTHER", loan_number="222-1", client=""))
+        matches, ambiguous = matching_rows(item, deposit)
+        self.assertEqual([r.name for r in matches], ["ROW"])
+        self.assertTrue(ambiguous)
+
+    def test_unidentified_or_conflicting_row_is_not_a_candidate(self):
+        item = dict(self.item, loan_number="")
+        for changes in ({"client": ""}, {"identity_reason": "Conflicto: identidad"},
+                        {"loan_number": ""}, {"client_name": "OTRO"}, {"amount_usd": 0}):
+            with self.subTest(changes=changes), self.assertRaises(frappe.ValidationError):
+                validate_pair(item, self.deposit, dict(self.row, **changes))
+
     def test_effective_date_is_later_of_deposit_and_reclassification(self):
         item = dict(self.item, posting_date="2025-11-21")
         deposit = dict(self.deposit, deposit_date="2025-08-07")
@@ -29,7 +48,7 @@ class ReclassificationDepositValidationTests(unittest.TestCase):
     def test_rejects_wrong_direction_and_contradictory_evidence(self):
         for field, value in [("source_debit", 0), ("source_credit", 1), ("employer", "OTRA"),
                              ("client_name", "OTRA PERSONA"), ("loan_number", "109586-2"),
-                             ("amount_usd", 19.26), ("registered_deposit", "OTRO"),
+                             ("amount_usd", 0), ("registered_deposit", "OTRO"),
                              ("accounting_classification", "Aplicación de pago")]:
             with self.subTest(field=field), self.assertRaises(frappe.ValidationError):
                 validate_pair(dict(self.item, **{field: value}), self.deposit, self.row)

@@ -180,6 +180,11 @@ class CompanyStatementTests(unittest.TestCase):
 
     def test_loaders_use_permission_scoped_parents_and_no_date_cut_on_settlement(self):
         def read(doctype, **kwargs):
+            if 'reclassification_allocations' in kwargs['filters']:
+                self.assertEqual(doctype, 'CN Complementary Item')
+                return []  # Global source items are scoped by readable parents and destination company.
+            if doctype == 'CN Remittance Allocation' and kwargs.get('fields') == ['name']:
+                return [frappe._dict(name='D')]
             self.assertEqual(kwargs['filters']['employer'], 'REPSA')
             self.assertNotIn('deposit_date', kwargs['filters'])
             self.assertNotIn('posting_date', kwargs['filters'])
@@ -189,6 +194,7 @@ class CompanyStatementTests(unittest.TestCase):
              patch.object(statement, 'application_balances', return_value=[self.app()]), \
              patch.object(statement, 'load_core_items', return_value=[self.core()]) as core, \
              patch.object(statement, 'load_receivables', return_value=[]), \
+             patch('credinomina_reconciliation.report_records.require_complete_evidence'), \
              patch.object(statement, 'records', side_effect=read):
             data = statement.load_detail({'employer': 'REPSA', 'from_date': '2025-11-01'})
         core.assert_called_once_with(employer='REPSA')
