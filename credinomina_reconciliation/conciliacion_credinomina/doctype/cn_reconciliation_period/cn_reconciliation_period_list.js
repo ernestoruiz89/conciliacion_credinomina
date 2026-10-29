@@ -16,6 +16,9 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         },
     },
     onload(listview) {
+        if (frappe.model.can_write("CN Reconciliation Period")) {
+            listview.page.add_inner_button(__("Cerrar períodos conciliados"), () => cn_bulk_close_dialog(listview));
+        }
         if (frappe.model.can_write("CN Reconciliation Period") && frappe.model.can_write("CN Accounting Import")) {
             listview.page.add_inner_button(__("Conciliación Cobranza-Aplicacion"), () => cn_monthly_first_dialog(listview));
         }
@@ -43,6 +46,88 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         listview.render_header(true);
     },
 };
+
+async function cn_bulk_close_dialog(listview) {
+    if (listview.cn_bulk_close_dialog) {listview.cn_bulk_close_dialog.show(); return;}
+    if (listview.cn_bulk_close_loading) return;
+    listview.cn_bulk_close_loading = true;
+    const api = "credinomina_reconciliation.bulk_period_closure.";
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    try {
+        const selected = (listview.get_checked_items() || []).map(row => row.name);
+        const response = await frappe.call({method: api + "list_periods", args: {
+            filters: JSON.stringify(selected.length ? [] : listview.get_args().filters || []),
+            period_names: JSON.stringify(selected),
+        }});
+        const rows = (response.message || []).map(row => ({...row, state: "Pendiente de cierre", reason: ""}));
+        if (!rows.length) {
+            frappe.msgprint(__("No hay períodos conciliados en la selección o en los filtros actuales."));
+            return;
+        }
+        let busy = false, finished = false;
+        const dialog = new frappe.ui.Dialog({title: __("Cerrar períodos conciliados"), size: "extra-large", static: true,
+            fields: [{fieldname: "results", fieldtype: "HTML"}],
+            primary_action_label: __("Cerrar {0} períodos", [rows.length]),
+            async primary_action() {
+                if (busy || finished) return;
+                busy = true;
+                dialog.disable_primary_action();
+                wrapper.find("[data-close-dismiss]").prop("disabled", true);
+                dialog.$wrapper.find(".modal-header .btn-modal-close").hide();
+                let completed = 0, failed = 0;
+                try {
+                    for (let index = 0; index < rows.length; index++) {
+                        const row = rows[index];
+                        const element = wrapper.find(`[data-close-row="${index}"]`);
+                        element.find("[data-state]").text(__("Cerrando"));
+                        try {
+                            const result = await frappe.call({method: api + "close_reconciled_period", type: "POST",
+                                silent: true, args: {period_name: row.name}});
+                            if (result.message?.status !== "Cerrado") throw new Error(__("No se confirmó el cierre del período."));
+                            row.state = "Cerrado";
+                        } catch (error) {
+                            row.state = "No cerrado";
+                            row.reason = cn_monthly_error(error);
+                            failed++;
+                        }
+                        completed++;
+                        element.find("[data-state]").text(__(row.state));
+                        element.find("[data-reason]").text(row.reason);
+                        wrapper.find("[data-close-summary]").text(__("{0}/{1} procesados · {2} cerrados · {3} no cerrados",
+                            [completed, rows.length, completed - failed, failed]));
+                    }
+                    finished = true;
+                    wrapper.find("[data-close-notice]").text(__("Proceso finalizado. Los períodos no cerrados y sus motivos aparecen en la tabla."));
+                } finally {
+                    busy = false;
+                    wrapper.find("[data-close-dismiss]").prop("disabled", false);
+                    dialog.$wrapper.find(".modal-header .btn-modal-close").show();
+                    listview.refresh();
+                }
+            },
+            onhide() {if (!busy) delete listview.cn_bulk_close_dialog;},
+        });
+        const wrapper = dialog.fields_dict.results.$wrapper;
+        wrapper.html(`<p>${esc(selected.length
+            ? __("Se cerrarán los períodos conciliados seleccionados.")
+            : __("Se cerrarán todos los períodos conciliados que cumplen los filtros actuales, incluyendo otras páginas."))}</p>
+            <p data-close-notice>${esc(__("Se aplicarán los controles habituales de cierre. Si un período falla, el proceso continuará con el siguiente."))}</p>
+            <p data-close-summary></p><div style="max-height:60vh;overflow:auto"><table class="table table-bordered">
+            <thead><tr><th>${esc(__("Período"))}</th><th>${esc(__("Empresa"))}</th><th>${esc(__("Mes"))}</th>
+            <th>${esc(__("Resultado"))}</th><th>${esc(__("Motivo por el que no se cerró"))}</th></tr></thead><tbody>
+            ${rows.map((row, index) => `<tr data-close-row="${index}"><td><a href="/app/cn-reconciliation-period/${encodeURIComponent(row.name)}" target="_blank" rel="noopener">${esc(row.name)}</a></td>
+                <td>${esc(row.employer)}</td><td>${esc(row.payroll_month)}</td><td data-state>${esc(__(row.state))}</td><td data-reason></td></tr>`).join("")}
+            </tbody></table></div><button type="button" class="btn btn-default" data-close-dismiss>${esc(__("Cerrar"))}</button>`);
+        wrapper.on("click", "[data-close-dismiss]", () => {if (!busy) dialog.hide();});
+        listview.cn_bulk_close_dialog = dialog;
+        dialog.show();
+        // Frappe hides the X on static dialogs. Keep explicit dismissal while
+        // preventing accidental backdrop/Escape closure of the final results.
+        dialog.$wrapper.find(".modal-header .btn-modal-close").show();
+    } finally {
+        listview.cn_bulk_close_loading = false;
+    }
+}
 
 function cn_monthly_error(error) {
     try {
