@@ -1,5 +1,6 @@
 {
   "actions": [],
+  "allow_import": 1,
   "autoname": "field:client_number",
   "allow_rename": 1,
   "doctype": "DocType",
@@ -17,9 +18,9 @@
   "name": "CN Client",
   "naming_rule": "By fieldname",
   "permissions": [
-    {"create": 1, "delete": 1, "read": 1, "write": 1, "role": "System Manager"},
-    {"create": 1, "read": 1, "write": 1, "role": "Supervisor Credinomina"},
-    {"create": 1, "read": 1, "write": 1, "role": "Operador Credinomina"}
+    {"create": 1, "delete": 1, "import": 1, "read": 1, "write": 1, "role": "System Manager"},
+    {"create": 1, "import": 1, "read": 1, "write": 1, "role": "Supervisor Credinomina"},
+    {"create": 1, "import": 1, "read": 1, "write": 1, "role": "Operador Credinomina"}
   ],
   "search_fields": "client_name,client_number,employee_number,national_id",
   "sort_field": "client_name",
