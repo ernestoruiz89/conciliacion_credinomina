@@ -41,7 +41,7 @@ def _scope(employer=None, client=None, context=None):
     elif context.get('complementary_item'):
         from credinomina_reconciliation.complementary_related_client import resolve
         document = frappe.get_doc('CN Complementary Item', context['complementary_item'])
-        company, identity = resolve(document)
+        company, identity = resolve(document, context.get('client_choice'))
     else:
         if not employer or not client:
             frappe.throw(_('Seleccione empresa y cliente para consultar la mesa.'))
@@ -97,6 +97,10 @@ def _filter_client(company, identity):
 @frappe.whitelist()
 def get_data(employer=None, client=None, context=None):
     company, identity = _scope(employer, client, context)
+    return _client_data(company, identity)
+
+
+def _client_data(company, identity):
     data = related._related_pending(company, identity)
     for key in ('applications', 'rows'):
         data[key] = sorted((_decorate(row) for row in data[key]),

@@ -5,7 +5,7 @@ const field = schema.fields.find(row => row.fieldname === "view_related_pending"
 assert.equal(schema.field_order[schema.field_order.indexOf("client_name") + 1], field.fieldname);
 assert.equal(field.fieldtype, "Button");
 assert.equal(field.allow_on_submit, 1);
-for (const key of ["client_name", "client_number", "loan_number"]) {
+for (const key of ["client_name", "source_client_name", "client_number", "loan_number"]) {
     assert.equal(vm.runInNewContext(field.depends_on.slice(5), {doc: {[key]: "value"}}), true);
 }
 assert.equal(vm.runInNewContext(field.depends_on.slice(5), {doc: {client_name: "  "}}), false);
@@ -29,7 +29,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     dirty = false; fresh = true; await click(); assert.equal(calls.length, 0); fresh = false;
     let pending = click(); await click(); assert.equal(calls.length, 1);
     assert.equal(disabled, true);
-    assert.deepEqual(JSON.parse(calls[0].args.context), {complementary_item: "ITEM"});
+    assert.equal(calls[0].args.item_name, "ITEM");
     complete({message: {employer: "LALA", client: "7593", applications: [], rows: []}});
     await tick(); requireComplete(); await pending;
     assert.equal(shown.length, 1);
