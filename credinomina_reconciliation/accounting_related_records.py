@@ -73,7 +73,8 @@ def _application_rows(employer, identity):
               'client_name', 'client_number', 'national_id', 'loan_number',
               'amount_usd', 'net_applied_usd', 'application_adjustment_usd',
               'historical_period', 'historical_balance_usd', 'match_status',
-              'deposit_match_status', 'collection_period', 'difference_reason']
+              'deposit_match_status', 'collection_period', 'difference_reason',
+              'collection_row_id', 'application_allocation_detail']
     conditions = [('client_number', identity['number_values']),
                   ('client', identity['clients']),
                   ('national_id', identity['national_values']),
@@ -117,6 +118,10 @@ def _application_rows(employer, identity):
             amount_usd=money_float(net),
             pending_usd=money_float(pending) if pending is not None else None,
             status=row.deposit_match_status or 'Pendiente'))
+    from credinomina_reconciliation.application_deposit_links import load_links
+    deposits = load_links([candidates[row['row_name']] for row in result])
+    for row in result:
+        row['deposits'] = deposits.get(row['row_name'], [])
     return result
 
 
