@@ -32,9 +32,10 @@ const page = context.frappe.pages['mesa-conciliacion'], wrapper = {};
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const origin = {import_name: 'CONTA-LALA', source_row_name: 'ROW'};
 const remittance = {remittance_name: 'DEP-LALA', detail_row_name: 'DETAIL'};
+const complementary = {complementary_item: 'CN-COMP-LALA'};
 (async () => {
     // Click the real modal button, then open/reopen the real page handlers.
-    for (const serialized of [false, true]) for (const scope of [origin, remittance, null]) {
+    for (const serialized of [false, true]) for (const scope of [origin, remittance, complementary, null]) {
         context.frappe.serializeRoute = serialized;
         context.window.credinominaShowRelatedPending({employer: 'LALA', client_name: 'Josué', client_number: '7593',
             ...(scope ? {context: scope} : {client: 'CLIENT-ID'})});

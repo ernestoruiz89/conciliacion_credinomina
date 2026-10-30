@@ -366,6 +366,7 @@ function cn_complementary_amount_help(frm) {
 }
 
 frappe.ui.form.on("CN Complementary Item", {
+    view_related_pending: cn_show_related_pending,
     async subcategory(frm) {
         const name = frm.doc.subcategory;
         const result = name ? await frappe.db.get_value("CN Complementary Subcategory", name, "effect") : null;
@@ -645,6 +646,36 @@ frappe.ui.form.on("CN Complementary Item", {
         }
     },
 });
+
+async function cn_show_related_pending(frm) {
+    if (frm._cn_related_pending_loading) return;
+    if (frm.is_new() || frm.is_dirty()) {
+        frappe.msgprint(__("Guarde o recargue la partida antes de consultar sus vínculos."));
+        return;
+    }
+    const fingerprint = () => JSON.stringify([frm.doc.name, frm.doc.modified, frm.doc.employer,
+        frm.doc.client_name, frm.doc.client_number, frm.doc.loan_number]);
+    const initial = fingerprint();
+    const isCurrent = () => initial === fingerprint() && !frm.is_dirty();
+    const context = {complementary_item: frm.doc.name};
+    const button = frm.fields_dict.view_related_pending?.$input;
+    frm._cn_related_pending_loading = true;
+    button?.prop("disabled", true);
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.reconciliation_workbench.get_data",
+            args: {context: JSON.stringify(context)},
+            freeze: true, freeze_message: __("Identificando al cliente y consultando sus partidas…"),
+        });
+        if (!isCurrent()) return;
+        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
+        if (!isCurrent()) return;
+        window.credinominaShowRelatedPending({...response.message, context});
+    } finally {
+        frm._cn_related_pending_loading = false;
+        button?.prop("disabled", false);
+    }
+}
 
 function cn_comp_add_exception_button(frm) {
     if (frm.is_new() || frm.doc.docstatus === 2 || frm.doc.receivable_origin) return;

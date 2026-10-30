@@ -38,6 +38,10 @@ def _scope(employer=None, client=None, context=None):
             frappe.throw(_('La fila no pertenece a este depósito.'))
         identity = related._identity_values(detail, [detail])
         company = detail.employer or document.employer
+    elif context.get('complementary_item'):
+        from credinomina_reconciliation.complementary_related_client import resolve
+        document = frappe.get_doc('CN Complementary Item', context['complementary_item'])
+        company, identity = resolve(document)
     else:
         if not employer or not client:
             frappe.throw(_('Seleccione empresa y cliente para consultar la mesa.'))
