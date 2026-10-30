@@ -9,7 +9,7 @@
     "receivable_counterpart", "item_section", "usd_currency", "nio_currency", "naming_series", "reference",
     "category", "reconciliation_status", "subcategory", "subcategory_effect", "posting_date", "amount_column",
     "currency", "amount", "fx_rate", "amount_usd", "applied_usd", "pending_usd",
-    "allocation_section", "employer", "period", "allocation_column", "client_name", "client_number",
+    "allocation_section", "employer", "period", "allocation_column", "client_name", "view_related_pending", "client_number",
     "loan_number", "legacy_installment_number", "support_section", "description", "support_column", "support_file",
     "tratamiento_tab", "review_section", "review_status", "origin_deposit", "review_action", "application_adjustment_usd",
     "amount_reviewed", "review_notes", "review_column", "related_import", "related_application", "adjustment_periods",
@@ -31,6 +31,7 @@
     "source_file", "source_row", "source_file_hash", "accounting_source_key"
   ],
   "fields": [
+    {"fieldname": "view_related_pending", "fieldtype": "Button", "label": "Ver partidas vinculadas", "allow_on_submit": 1, "depends_on": "eval:!!((doc.client_name || '').trim() || (doc.client_number || '').trim() || (doc.loan_number || '').trim())", "description": "Identifica al cliente por nombre, número de cliente o crédito y consulta sus aplicaciones, depósitos y partidas pendientes. No modifica la partida."},
     {"fieldname": "difference_documentation_section", "fieldtype": "Section Break", "label": "Documentación de diferencias"},
     {"fieldname": "reclassification_allocations", "fieldtype": "Code", "options": "JSON", "label": "Distribución de reclasificación", "permlevel": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "hidden": 1, "description": "Diario de porciones de un movimiento del core; se modifica mediante la acción autorizada."},
     {"fieldname": "reclassification_deletions", "fieldtype": "Code", "options": "JSON", "label": "Auditoría de distribuciones eliminadas", "permlevel": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "hidden": 1},
