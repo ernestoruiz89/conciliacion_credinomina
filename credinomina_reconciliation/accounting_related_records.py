@@ -119,9 +119,13 @@ def _application_rows(employer, identity):
             pending_usd=money_float(pending) if pending is not None else None,
             status=row.deposit_match_status or 'Pendiente'))
     from credinomina_reconciliation.application_deposit_links import load_links
-    deposits = load_links([candidates[row['row_name']] for row in result])
+    from credinomina_reconciliation.application_complementary_links import load_links as load_complementary_links
+    sources = [candidates[row['row_name']] for row in result]
+    deposits = load_links(sources)
+    complementary_items = load_complementary_links(sources)
     for row in result:
         row['deposits'] = deposits.get(row['row_name'], [])
+        row['complementary_items'] = complementary_items.get(row['row_name'], [])
     return result
 
 
