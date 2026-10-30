@@ -5,6 +5,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation import application_deposit_links as links
+from credinomina_reconciliation import application_complementary_links as complementary
 from credinomina_reconciliation import accounting_related_records as related
 
 
@@ -81,9 +82,11 @@ class ApplicationDepositLinksTests(unittest.TestCase):
         assigned = [dict(document="D", date="2026-02-01", reference="REF", via_collection=False)]
         with patch.object(frappe, "get_all", return_value=[candidate]), \
              patch.object(related, "records", return_value=[frappe._dict(name="IMPORT")]), \
+             patch.object(complementary, "load_links", return_value={"APP": [dict(document="ITEM")]}), \
              patch.object(links, "load_links", return_value={"APP": assigned}) as load:
             result = related._application_rows("EMPRESA", identity)
         self.assertEqual(result[0]["deposits"], assigned)
+        self.assertEqual(result[0]["complementary_items"], [dict(document="ITEM")])
         self.assertEqual(result[0]["pending_usd"], .01)
         load.assert_called_once_with([candidate])
         with patch.object(related, "_application_rows", return_value=result), \

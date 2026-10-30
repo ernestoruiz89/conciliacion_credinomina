@@ -14,10 +14,13 @@ window.credinominaShowRelatedPending = function (result) {
                     deposit.via_collection ? __("Vinculado mediante cobranza; consulte la distribución en el depósito.") : ""].filter(Boolean).join(" · ");
                 return `<div><a href="/app/cn-remittance-allocation/${encodeURIComponent(String(deposit.document))}" target="_blank" rel="noopener noreferrer" title="${esc(title)}">${esc(deposit.document)}</a>${deposit.via_collection ? ` <span class="text-muted">(${esc(__("vía cobranza"))})</span>` : ""}</div>`;
             }).join("")}</div>` : "";
+        const items = row.type === "Aplicación" ? (row.complementary_items || []) : [];
+        const itemLinks = items.length ? `<div style="margin-top:6px"><span class="text-muted">${esc(__("Partidas complementarias vinculadas"))}:</span>
+            ${items.map(item => `<div><a href="/app/cn-complementary-item/${encodeURIComponent(String(item.document))}" target="_blank" rel="noopener noreferrer" title="${esc([item.date, item.reference].filter(Boolean).join(" · "))}">${esc(item.document)}</a></div>`).join("")}</div>` : "";
         return `<tr>
             <td><a href="${href}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>
                 <div class="text-muted">${esc(__(row.type))}${row.source_row ? ` · ${esc(__("Fila"))} ${esc(row.source_row)}` : ""}</div>
-                <div class="text-muted">${esc(row.date || "—")}${row.reference ? ` · ${esc(row.reference)}` : ""}</div>${depositLinks}</td>
+                <div class="text-muted">${esc(row.date || "—")}${row.reference ? ` · ${esc(row.reference)}` : ""}</div>${depositLinks}${itemLinks}</td>
             <td>${esc(row.loan_number || "—")}</td>
             <td class="text-right" style="white-space:nowrap">${amount(row.amount_usd)}</td>
             <td class="text-right" style="white-space:nowrap">${amount(row.pending_usd)}</td>
