@@ -654,7 +654,7 @@ async function cn_show_related_pending(frm) {
         return;
     }
     const fingerprint = () => JSON.stringify([frm.doc.name, frm.doc.modified, frm.doc.employer,
-        frm.doc.client_name, frm.doc.client_number, frm.doc.loan_number]);
+        frm.doc.client_name, frm.doc.source_client_name, frm.doc.client_number, frm.doc.loan_number]);
     const initial = fingerprint();
     const isCurrent = () => initial === fingerprint() && !frm.is_dirty();
     const context = {complementary_item: frm.doc.name};
@@ -663,18 +663,72 @@ async function cn_show_related_pending(frm) {
     button?.prop("disabled", true);
     try {
         const response = await frappe.call({
-            method: "credinomina_reconciliation.reconciliation_workbench.get_data",
-            args: {context: JSON.stringify(context)},
+            method: "credinomina_reconciliation.complementary_related_client.get_related_pending",
+            args: {item_name: frm.doc.name},
             freeze: true, freeze_message: __("Identificando al cliente y consultando sus partidas…"),
         });
         if (!isCurrent()) return;
+        let data = response.message || {};
+        if (data.needs_client_selection) {
+            if (!data.candidates?.length) {
+                const esc = value => frappe.utils.escape_html(String(value || ""));
+                frappe.msgprint(__("No se encontraron clientes sugeridos de la misma empresa. Revise el nombre, número de cliente o crédito de la partida.")
+                    + `<br>${esc(data.reason)}`);
+                return;
+            }
+            data = await cn_choose_related_client(frm.doc.name, data, isCurrent);
+            if (!data || !isCurrent()) return;
+        }
         await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
         if (!isCurrent()) return;
-        window.credinominaShowRelatedPending({...response.message, context});
+        window.credinominaShowRelatedPending({...data, context: data.context || context});
     } finally {
         frm._cn_related_pending_loading = false;
         button?.prop("disabled", false);
     }
+}
+
+function cn_choose_related_client(itemName, data, isCurrent) {
+    const esc = value => frappe.utils.escape_html(String(value || ""));
+    return new Promise(resolve => {
+        let busy = false, closed = false, result = null;
+        const dialog = new frappe.ui.Dialog({title: __("Clientes sugeridos"), fields: [
+            {fieldtype: "HTML", options: `<p><strong>${esc(data.employer)}</strong> · ${esc(data.query_name)}</p>
+                <p>${esc(__("Seleccione el cliente que corresponde. La similitud del nombre es solo una sugerencia; consultar no modifica la partida ni crea un alias."))}</p>`},
+            {fieldname: "client", fieldtype: "Select", label: __("Cliente sugerido"), reqd: 1,
+                options: [{value: "", label: __("Seleccione un cliente")}, ...data.candidates.map(row => ({
+                    value: row.client,
+                    label: `${row.client_name} · ${__("Nro. Cliente")}: ${row.client_number} · ${__("Similitud")}: ${row.similarity}%`,
+                }))]},
+        ], primary_action_label: __("Ver partidas del cliente"), async primary_action(values) {
+            if (busy || closed) return;
+            if (!data.candidates.some(row => row.client === values.client)) {
+                frappe.msgprint(__("Seleccione uno de los clientes sugeridos."));
+                return;
+            }
+            if (!isCurrent()) {
+                frappe.msgprint(__("La partida cambió. Consulte nuevamente sus vínculos."));
+                dialog.hide();
+                return;
+            }
+            busy = true;
+            dialog.disable_primary_action();
+            try {
+                const response = await frappe.call({
+                    method: "credinomina_reconciliation.complementary_related_client.get_related_pending",
+                    args: {item_name: itemName, selected_client: values.client},
+                    freeze: true, freeze_message: __("Consultando partidas del cliente seleccionado…"),
+                });
+                if (closed) return;
+                if (isCurrent()) result = response.message;
+                dialog.hide();
+            } finally {
+                busy = false;
+                dialog.enable_primary_action();
+            }
+        }, onhide() {closed = true; resolve(result);}});
+        dialog.show();
+    });
 }
 
 function cn_comp_add_exception_button(frm) {

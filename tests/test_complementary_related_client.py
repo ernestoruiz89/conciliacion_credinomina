@@ -53,6 +53,13 @@ class ComplementaryRelatedClientTests(unittest.TestCase):
         self.assertEqual(company, "LALA")
         self.assertEqual(identity["numbers"], {"7593"})
 
+    def test_imported_name_is_used_when_client_name_is_empty(self):
+        source = item(employer="IMMSA", client_name=None, source_client_name="RONALD  FLORES PEREZ")
+        company, identity = self.resolve(source, clients=[client("3253", employer="IMMSA", client_name="RONALD FLORES PEREZ")])
+        self.assertEqual(company, "IMMSA")
+        self.assertEqual(identity["clients"], {"3253"})
+        self.assertIsNone(source.client_name, "Imported evidence must not be rewritten by a consultation")
+
     def test_unknown_ambiguous_and_contradictory_inputs_are_not_guessed(self):
         other = client("OTHER", client_name="OTRA PERSONA", national_id="OTRA-CEDULA")
         cases = [
