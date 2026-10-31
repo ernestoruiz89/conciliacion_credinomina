@@ -26,7 +26,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 
 (async () => {
     const run = vm.runInContext("reconcileRemittance", context);
-    const frm = {doc: {name: "DEP-1", result: "Parcial"}, is_dirty: () => false, reload_doc: async () => {}};
+    const frm = {doc: {name: "DEP-1", docstatus: 1, result: "Parcial"}, is_dirty: () => false, reload_doc: async () => {}};
     const first = run(frm);
     await run(frm);
     assert.equal(calls, 1);
