@@ -13,7 +13,7 @@ def item(name, **values):
 
 
 class ApplicationComplementaryLinksTests(unittest.TestCase):
-    def load(self, items, journals, hidden=()):
+    def load(self, items, journals, hidden=(), include_amounts=False):
         sources = [dict(name="APP", parent="IMPORT"), dict(name="SECOND", parent="IMPORT2")]
         reads = []
 
@@ -30,7 +30,7 @@ class ApplicationComplementaryLinksTests(unittest.TestCase):
         with patch.object(frappe, "has_permission", return_value=True), \
              patch.object(frappe, "get_all", side_effect=query), \
              patch.object(links, "records", return_value=[row for row in items if row.name not in hidden]):
-            result = links.load_links(sources)
+            result = links.load_links(sources, include_amounts=include_amounts)
         return result, reads
 
     def test_direct_and_multiple_partial_adjustments_are_unique_and_exact(self):
@@ -42,6 +42,13 @@ class ApplicationComplementaryLinksTests(unittest.TestCase):
             dict(related_application="SECOND", related_import="IMPORT2", application_adjustment_usd=.5)])}})
         self.assertEqual([row["document"] for row in result["APP"]], ["A"])
         self.assertEqual([row["document"] for row in result["SECOND"]], ["A", "B"])
+
+    def test_detailed_amounts_sum_only_the_current_application_portions(self):
+        result, _ = self.load([item("A")], {"A": {"application_adjustment_history": json.dumps([
+            dict(related_application="APP", related_import="IMPORT", application_adjustment_usd=.5),
+            dict(related_application="SECOND", related_import="IMPORT2", application_adjustment_usd=2)])}}, include_amounts=True)
+        self.assertEqual(result["APP"][0]["amount_usd"], 1.5)
+        self.assertEqual(result["SECOND"][0]["amount_usd"], 2)
 
     def test_global_core_application_portions_do_not_link_deposit_portions(self):
         rows = [item("GLOBAL", category="Compensación entre partidas")]

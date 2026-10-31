@@ -42,6 +42,15 @@ class ApplicationDepositLinksTests(unittest.TestCase):
             self.assertEqual(links.load_links([]), {})
             read.assert_not_called()
 
+    def test_detailed_deposit_amounts_keep_exact_fifo_portions_without_double_counting(self):
+        deposits = [deposit("D", [{"aplicacion_id": "APP", "importe_usd": 10},
+            {"periodo": "PER", "fila_id": "KEY", "importe_usd": 7, "aplicaciones_fifo": [
+                dict(application_id="APP", amount_usd=2), dict(application_id="OTHER", amount_usd=5)]}])]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(links, "records", return_value=deposits):
+            result = links.load_links([application(), application("OTHER")], include_amounts=True)
+        self.assertEqual(result["APP"][0]["amount_usd"], 12)
+        self.assertEqual(result["OTHER"][0]["amount_usd"], 5)
+
     def test_only_real_positive_cash_and_fifo_application_slices_are_linked(self):
         deposits = [deposit("FIFO", [{"periodo": "PER", "fila_id": "KEY", "importe_usd": 50,
             "aplicaciones_fifo": [{"application_id": "APP", "amount_usd": 30},

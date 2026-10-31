@@ -655,8 +655,24 @@ async function cn_show_related_pending(frm) {
     }
     const fingerprint = () => JSON.stringify([frm.doc.name, frm.doc.modified, frm.doc.employer,
         frm.doc.client_name, frm.doc.source_client_name, frm.doc.client_number, frm.doc.loan_number]);
-    const initial = fingerprint();
+    let initial = fingerprint();
     const isCurrent = () => initial === fingerprint() && !frm.is_dirty();
+    const completeClient = async (client, completion) => {
+        if (!isCurrent()) {
+            frappe.msgprint(__("La partida cambió. Consulte nuevamente sus vínculos."));
+            return false;
+        }
+        const name = frm.doc.name;
+        await frappe.call({method: "credinomina_reconciliation.complementary_related_client.complete_client_fields",
+            type: "POST", args: {item_name: name, selected_client: client, modified: completion.modified},
+            freeze: true, freeze_message: __("Completando los datos vacíos del cliente…")});
+        if (!isCurrent()) return false;
+        await frm.reload_doc();
+        if (frm.doc.name !== name || frm.is_dirty()) return false;
+        initial = fingerprint();
+        frappe.show_alert({message: __("Se completaron los datos vacíos del cliente en la partida."), indicator: "green"});
+        return true;
+    };
     const context = {complementary_item: frm.doc.name};
     const button = frm.fields_dict.view_related_pending?.$input;
     frm._cn_related_pending_loading = true;
@@ -676,19 +692,21 @@ async function cn_show_related_pending(frm) {
                     + `<br>${esc(data.reason)}`);
                 return;
             }
-            data = await cn_choose_related_client(frm.doc.name, data, isCurrent);
+            data = await cn_choose_related_client(frm.doc.name, data, isCurrent, completeClient);
             if (!data || !isCurrent()) return;
         }
         await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
         if (!isCurrent()) return;
-        window.credinominaShowRelatedPending({...data, context: data.context || context});
+        window.credinominaShowRelatedPending({...data, context: data.context || context,
+            ...(data.client_completion?.available ? {on_complete_client: () =>
+                completeClient(data.client_completion.client, data.client_completion)} : {})});
     } finally {
         frm._cn_related_pending_loading = false;
         button?.prop("disabled", false);
     }
 }
 
-function cn_choose_related_client(itemName, data, isCurrent) {
+function cn_choose_related_client(itemName, data, isCurrent, completeClient) {
     const esc = value => frappe.utils.escape_html(String(value || ""));
     return new Promise(resolve => {
         let busy = false, closed = false, result = null;
@@ -700,6 +718,26 @@ function cn_choose_related_client(itemName, data, isCurrent) {
                     value: row.client,
                     label: `${row.client_name} · ${__("Nro. Cliente")}: ${row.client_number} · ${__("Similitud")}: ${row.similarity}%`,
                 }))]},
+            {fieldname: "complete_client_fields", fieldtype: "Button", label: __("Completar datos vacíos de la partida"),
+                hidden: !data.client_completion?.available, async click() {
+                    if (busy || closed || !data.client_completion?.available) return;
+                    const client = dialog.get_value("client");
+                    if (!data.candidates.some(row => row.client === client)) {
+                        frappe.msgprint(__("Seleccione uno de los clientes sugeridos."));
+                        return;
+                    }
+                    busy = true;
+                    dialog.disable_primary_action();
+                    try {
+                        if (await completeClient(client, data.client_completion)) {
+                            data.client_completion.available = false;
+                            dialog.set_df_property("complete_client_fields", "hidden", 1);
+                        }
+                    } finally {
+                        busy = false;
+                        dialog.enable_primary_action();
+                    }
+                }},
         ], primary_action_label: __("Ver partidas del cliente"), async primary_action(values) {
             if (busy || closed) return;
             if (!data.candidates.some(row => row.client === values.client)) {

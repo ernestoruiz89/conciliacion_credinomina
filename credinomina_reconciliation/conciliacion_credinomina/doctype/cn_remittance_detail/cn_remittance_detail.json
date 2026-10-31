@@ -12,9 +12,11 @@
     "matched_targets_summary", "detail_context_column", "application_reference", "comments", "application_comment", "evidence_tab",
     "detail_identity_extra_section", "client", "employee_number", "national_id", "identity_reason", "detail_loan_column",
     "installment_number", "portfolio_report_date", "portfolio_snapshot_used", "loan_selection_snapshot", "loan_selection_note", "targets_technical_section",
-    "row_key", "expected_usd", "expected_nio", "matched_targets"
+    "row_key", "expected_usd", "expected_nio", "matched_targets", "linked_documents_tab", "linked_documents_html"
   ],
   "fields": [
+    {"fieldname": "linked_documents_tab", "fieldtype": "Tab Break", "label": "Vínculos"},
+    {"fieldname": "linked_documents_html", "fieldtype": "HTML", "label": "Documentos vinculados", "read_only": 1},
     {"fieldname": "unreconcile_detail", "fieldtype": "Button", "label": "Desconciliar", "allow_on_submit": 1, "depends_on": "eval:doc.row_kind !== 'Diferencia documentada'", "description": "Retira la conciliación de esta fila y la deja pendiente de selección manual."},
     {"fieldname": "manual_reconciliation_required", "fieldtype": "Check", "label": "Solo conciliación manual", "default": "0", "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.row_kind !== 'Diferencia documentada'", "description": "Impide que la conciliación automática elija destinos para esta fila. Use Seleccionar partidas pendientes; desmarque si desea volver a permitir la selección automática."},
     {"fieldname": "row_kind", "fieldtype": "Select", "options": "Cliente\nDiferencia documentada", "default": "Cliente", "label": "Tipo de fila", "in_list_view": 1, "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
