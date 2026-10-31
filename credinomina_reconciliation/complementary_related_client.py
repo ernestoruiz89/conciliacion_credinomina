@@ -130,6 +130,16 @@ def resolve(item, selected_client=None):
     return _select(_lookup(item), selected_client)
 
 
+def _completion_details(item, client=None):
+    fields = [field for field in ("client_name", "client_number") if not clean_text(item.get(field))]
+    available = bool(fields and item.docstatus in (0, 1) and not item.get("generic_distribution")
+        and item.get("category") not in {"Saldo a favor de la empresa", "Diferencia por tolerancia", "Vinculado a depósito"}
+        and not item.get("origin_deposit") and not item.get("movement_key")
+        and frappe.has_permission("CN Complementary Item", "write", doc=item)
+        and (item.docstatus == 0 or frappe.has_permission("CN Complementary Item", "submit", doc=item)))
+    return dict(available=available, fields=fields, modified=str(item.modified), client=client)
+
+
 @frappe.whitelist()
 def get_related_pending(item_name, selected_client=None):
     from credinomina_reconciliation.reconciliation_workbench import _client_data
@@ -141,10 +151,65 @@ def get_related_pending(item_name, selected_client=None):
         if company:
             frappe.get_doc("CN Employer", company).check_permission("read")
         return dict(needs_client_selection=True, candidates=_suggestions(company, probe, candidates, loan_map),
-                    employer=company, query_name=probe["client_name"], reason=reason)
+                    employer=company, query_name=probe["client_name"], reason=reason,
+                    client_completion=_completion_details(item))
     company, identity = _select(lookup, selected_client)
     frappe.get_doc("CN Employer", company).check_permission("read")
     context = dict(complementary_item=item.name)
     if selected_client:
         context["client_choice"] = selected_client
-    return dict(_client_data(company, identity), context=context)
+    return dict(_client_data(company, identity), context=context,
+                client_completion=_completion_details(item, next(iter(identity["clients"]))))
+
+
+def _guard_completion(item, changes, selected_client):
+    """Keep the existing protections for confirmed financial identities."""
+    from credinomina_reconciliation.reclassification_distribution import guard_journal
+    from credinomina_reconciliation.complementary_compensation import guard_document
+    from credinomina_reconciliation.manual_origin_link import guard_item
+    from credinomina_reconciliation.receivable_recovery import guard_receipt
+    from credinomina_reconciliation.client_credit import _assert_financial_identity, CREDIT_CATEGORIES
+
+    if item.get("credit_client") and item.credit_client != selected_client:
+        frappe.throw(_("El cliente elegido no coincide con el beneficiario registrado en la partida."))
+    candidate = frappe.get_doc(item.as_dict())
+    candidate.update(changes)
+    guard_journal(candidate, item)
+    guard_document(candidate, item)
+    guard_item(candidate, item)
+    guard_receipt(candidate, item)
+    if item.docstatus == 1 and item.category in CREDIT_CATEGORIES:
+        _assert_financial_identity(candidate, item)
+
+
+@frappe.whitelist(methods=["POST"])
+def complete_client_fields(item_name, selected_client, modified):
+    from frappe.utils import escape_html
+
+    item = frappe.get_doc("CN Complementary Item", item_name, for_update=True)
+    item.check_permission("write")
+    if item.docstatus == 1:
+        item.check_permission("submit")
+    if str(item.modified) != str(modified):
+        frappe.throw(_("La partida cambió. Actualice la consulta antes de completar los datos."))
+    details = _completion_details(item)
+    if not details["available"]:
+        frappe.throw(_("La partida no tiene datos vacíos que pueda completar con este tratamiento y sus permisos actuales."))
+    if not clean_text(selected_client):
+        frappe.throw(_("Seleccione el cliente antes de completar los datos."))
+    _company, identity = resolve(item, selected_client)
+    client = frappe.get_doc("CN Client", selected_client, for_update=True)
+    client.check_permission("read")
+    if client.client_name != identity["client_name"] or canonical_identifier(client.client_number) not in identity["numbers"]:
+        frappe.throw(_("Los datos del cliente cambiaron. Consulte nuevamente las sugerencias."))
+    changes = {field: client.get(field) for field in details["fields"] if clean_text(client.get(field))}
+    if not changes:
+        frappe.throw(_("El cliente elegido no tiene datos para completar los campos vacíos."))
+    _guard_completion(item, changes, selected_client)
+    # Exact whitelist and blank-only updates: a normal save would reclassify
+    # imported items and recalculate balances unrelated to this enrichment.
+    frappe.db.set_value("CN Complementary Item", item.name, changes)
+    item.add_comment("Comment", _("Datos vacíos completados con el cliente {0}: {1}.").format(
+        escape_html(client.name), escape_html(frappe.as_json(changes))))
+    frappe.clear_document_cache("CN Complementary Item", item.name)
+    return dict(name=item.name, updated_fields=changes)

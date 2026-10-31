@@ -5,7 +5,7 @@ from collections import defaultdict
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
-def linked_balance(amount, manual, matched):
+def selected_links(manual, matched):
     if isinstance(matched, str):
         try:
             matched = json.loads(matched or "[]")
@@ -26,7 +26,11 @@ def linked_balance(amount, manual, matched):
     else:
         entries = [entry for entry in matched if isinstance(entry, dict)
                    and (not entry.get("instruction_id") or entry in internal)]
-    linked = sum_money(entry.get("amount_usd") for entry in entries)
+    return entries
+
+
+def linked_balance(amount, manual, matched):
+    linked = sum_money(entry.get("amount_usd") for entry in selected_links(manual, matched))
     return {"linked_usd": money_float(linked), "pending_usd": money_float(money(amount) - linked)}
 
 

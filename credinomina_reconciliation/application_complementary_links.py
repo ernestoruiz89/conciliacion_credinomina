@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import money
 JOURNALS = ("application_adjustment_history", "credit_history", FIELD)
 
 
-def load_links(sources):
+def load_links(sources, *, include_amounts=False):
     if not sources or not frappe.has_permission("CN Complementary Item", "read"):
         return {}
     parents = {source["name"]: source["parent"] for source in sources}
@@ -32,7 +32,7 @@ def load_links(sources):
         for item in records("CN Complementary Item", filters={
                 "name": ["in", candidate_names[offset:offset + PAGE_SIZE]], "docstatus": 1},
                 fields=["name", "category", "posting_date", "reference", "related_application", "related_import",
-                        "application_adjustment_usd", "application_source_row", "status"]):
+                        "application_adjustment_usd", "application_source_row", "status", "signed_amount_usd"]):
             readable[item.name] = item
     result = defaultdict(dict)
     visible_names = sorted(readable)
@@ -44,33 +44,35 @@ def load_links(sources):
             fields=["name", *JOURNALS], limit_page_length=0)
         for raw in journals:
             item = readable[raw.name]
-            targets = set()
+            targets = defaultdict(lambda: money(0))
 
-            def add(name, parent=None):
+            def add(name, amount, parent=None):
                 if name in parents and (not parent or parent == parents[name]):
-                    targets.add(name)
+                    targets[name] += money(amount)
 
             if item.category == "Ajuste de aplicación":
                 if money(item.application_adjustment_usd) > 0:
-                    add(item.related_application, item.related_import)
+                    add(item.related_application, item.application_adjustment_usd, item.related_import)
                 for entry in _entries(raw.get("application_adjustment_history")):
                     if money(entry.get("application_adjustment_usd")) > 0:
-                        add(entry.get("related_application"), entry.get("related_import"))
+                        add(entry.get("related_application"), entry["application_adjustment_usd"], entry.get("related_import"))
             if item.category == "Compensación entre partidas":
                 for entry in _entries(raw.get(FIELD)):
                     if entry.get("kind") == APPLICATION and money(entry.get("amount_usd")) > 0:
-                        add(entry.get("target"), entry.get("parent_document"))
+                        add(entry.get("target"), entry["amount_usd"], entry.get("parent_document"))
             if item.category in {"Saldo a favor del cliente", "Saldo a favor de la empresa"}:
                 history = _entries(raw.get("credit_history"))
                 reversed_ids = {entry["reverses"] for entry in history if entry.get("reverses")}
                 for entry in history:
                     if (not entry.get("reverses") and entry.get("operation_id") not in reversed_ids
                             and money(entry.get("importe_usd")) > 0):
-                        add(entry.get("application_id"), entry.get("import_name"))
+                        add(entry.get("application_id"), entry["importe_usd"], entry.get("import_name"))
             if item.category == "Diferencia por tolerancia" and item.status == "Vigente":
-                add(item.application_source_row)
-            for name in targets:
+                add(item.application_source_row, -money(item.get("signed_amount_usd")))
+            for name, amount in targets.items():
                 result[name][item.name] = dict(document=item.name, date=str(item.posting_date or ""),
                                                reference=item.reference or "")
+                if include_amounts:
+                    result[name][item.name].update(amount_usd=float(amount), category=item.category)
     return {name: sorted(items.values(), key=lambda row: (row["date"], row["document"]))
             for name, items in result.items()}

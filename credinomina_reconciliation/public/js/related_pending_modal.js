@@ -35,7 +35,20 @@ window.credinominaShowRelatedPending = function (result) {
     const dialog = new frappe.ui.Dialog({
         title: __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]),
         size: "extra-large",
-        fields: [{fieldname: "related_html", fieldtype: "HTML"}],
+        fields: [{fieldname: "related_html", fieldtype: "HTML"},
+            ...(result.on_complete_client ? [{fieldname: "complete_client_fields", fieldtype: "Button",
+                label: __("Completar datos vacíos de la partida"), async click() {
+                    if (dialog._completing_client) return;
+                    dialog._completing_client = true;
+                    const control = dialog.fields_dict.complete_client_fields;
+                    control?.$input?.prop("disabled", true);
+                    try {
+                        if (await result.on_complete_client()) control?.$wrapper.hide();
+                    } finally {
+                        dialog._completing_client = false;
+                        control?.$input?.prop("disabled", false);
+                    }
+                }}] : [])],
         ...(result.context || result.client ? {secondary_action_label: __("Abrir mesa de conciliación"), secondary_action() {
             dialog.hide();
             frappe.route_options = {cn_workbench: {employer: result.employer,

@@ -1629,7 +1629,6 @@ function renderRemittanceOverview(frm) {
     ${remittanceDetailDifferenceHtml(frm.doc, frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write")
         ,
         confirmed && !!frm.get_perm(0, "write"))}
-    ${remittanceIssuesHtml(frm.doc, frm.is_dirty(), true)}
     ${state.result !== frm.doc.result && confirmed ? `<details class="text-muted"><summary>${escape(__("Resultado guardado (auditoría)"))}</summary><p>${escape(frm.doc.result || __("Pendiente"))}. ${escape(__("Se conserva el resultado registrado; el estado mostrado arriba considera la distribución y los saldos a favor documentados."))}</p></details>` : ""}
     <p class="text-muted" style="margin:12px 0 0" role="status">${escape(state.hint)}</p>
     ${next ? `<button type="button" class="btn btn-primary btn-sm cn-deposit-next">${escape(__(next.label))}</button>` : ""}`;
@@ -1641,9 +1640,6 @@ function renderRemittanceOverview(frm) {
         if (!action || this.disabled) return;
         this.disabled = true;
         try {await action.run();} finally {this.disabled = false;}
-    });
-    frm.$wrapper.off("click.cn_issues", "[data-cn-issue-field]").on("click.cn_issues", "[data-cn-issue-field]", event => {
-        frm.scroll_to_field(event.currentTarget.dataset.cnIssueField);
     });
     frm.$wrapper.off("click.cn_reconcile_difference", ".cn-reconcile-detail-difference")
         .on("click.cn_reconcile_difference", ".cn-reconcile-detail-difference", async function () {

@@ -8,7 +8,7 @@ const dir = path.join(root, "conciliacion_credinomina/doctype/cn_accounting_impo
 const shared = fs.readFileSync(path.join(root, "public/js/accounting_bulk.js"), "utf8");
 const hooks = fs.readFileSync(path.join(root, "hooks.py"), "utf8");
 for (const hook of ["doctype_js", "doctype_list_js"]) {
-    assert.ok(hook === "doctype_js" ? hooks.includes('"CN Accounting Import": ["public/js/accounting_bulk.js", "public/js/difference_documentation.js"]') : hooks.includes(`${hook} = {"CN Accounting Import": "public/js/accounting_bulk.js"}`));
+    assert.ok(hook === "doctype_js" ? /"CN Accounting Import": \[[^\]]*"public\/js\/accounting_bulk.js"[^\]]*"public\/js\/difference_documentation.js"/.test(hooks) : hooks.includes(`${hook} = {"CN Accounting Import": "public/js/accounting_bulk.js"}`));
 }
 
 for (const view of ["list", "form"]) {

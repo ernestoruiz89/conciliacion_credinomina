@@ -51,7 +51,7 @@ def _collection_sources(sources):
     return result
 
 
-def load_links(sources):
+def load_links(sources, *, include_amounts=False):
     if not sources or not frappe.has_permission("CN Remittance Allocation", "read"):
         return {}
     names = {source["name"] for source in sources}
@@ -75,11 +75,15 @@ def load_links(sources):
                 continue
             direct = entry.get("aplicacion_id") or entry.get("historical_application")
             targets = {direct} & names if direct else set()
+            amounts = {direct: money(entry.get("importe_usd"))} if direct else {}
             via_collection = False
             if not direct and not (entry.get("partida") or entry.get("complementary_item")):
                 if entry.get("aplicaciones_fifo"):
-                    targets = {part.get("application_id") for part in _entries(entry["aplicaciones_fifo"])
-                               if money(part.get("amount_usd")) > 0} & names
+                    for part in _entries(entry["aplicaciones_fifo"]):
+                        if money(part.get("amount_usd")) > 0:
+                            key = part.get("application_id")
+                            amounts[key] = amounts.get(key, money(0)) + money(part["amount_usd"])
+                    targets = set(amounts) & names
                 else:
                     targets = collections.get((entry.get("periodo"), entry.get("fila_id")), set())
                     via_collection = True
@@ -88,5 +92,10 @@ def load_links(sources):
                 result[name][deposit.name] = dict(document=deposit.name,
                     date=str(deposit.get("deposit_date") or ""), reference=deposit.get("deposit_reference") or "",
                     via_collection=via_collection and (previous is None or previous["via_collection"]))
+                if include_amounts:
+                    amount = None if via_collection else amounts[name]
+                    previous_amount = previous.get("amount_usd", 0) if previous else 0
+                    result[name][deposit.name]["amount_usd"] = (
+                        None if amount is None or previous_amount is None else float(money(previous_amount) + amount))
     return {name: sorted(links.values(), key=lambda row: (row["date"], row["document"]))
             for name, links in result.items()}
