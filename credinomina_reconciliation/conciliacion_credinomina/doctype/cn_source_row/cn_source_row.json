@@ -26,10 +26,11 @@
     "accounting_source_key", "description_section", "description", "source_description", "source_fx_rate", "employer_text",
     "origin_section", "source_row", "effective", "source_key", "collection_row_id", "origin_column",
     "historical_application_id", "application_trace_section", "application_allocation_detail", "historical_trace_section", "historical_detail", "deposit_trace_section",
-    "allocation_detail", "rounding_trace_section", "rounding_movement_detail", "linked_documents_tab", "linked_documents_html"
+    "allocation_detail", "rounding_trace_section", "rounding_movement_detail", "linked_documents_tab", "linked_summary_html", "linked_documents_html"
   ],
   "fields": [
     {"fieldname": "linked_documents_tab", "fieldtype": "Tab Break", "label": "Vínculos"},
+    {"fieldname": "linked_summary_html", "fieldtype": "HTML", "label": "Resumen de la fila", "read_only": 1},
     {"fieldname": "linked_documents_html", "fieldtype": "HTML", "label": "Documentos vinculados", "read_only": 1},
     {"fieldname": "document_difference", "fieldtype": "Button", "label": "Clasificar / documentar diferencia", "allow_on_submit": 1},
     {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Documentación de la diferencia", "allow_on_submit": 1, "no_copy": 1},

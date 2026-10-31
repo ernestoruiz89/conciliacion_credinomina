@@ -15,8 +15,13 @@ class Links:
         self.rows = {}
         self.readable = {}
         self.notes = set()
+        self.components = dict(application=money(0), deposit=money(0), complementary=money(0), other=money(0))
 
     def add(self, doctype, document, amount, kind, state, row_name="", label=""):
+        component = {"CN Accounting Import": "application", "CN Reconciliation Period": "application",
+                     "CN Remittance Allocation": "deposit", "CN Complementary Item": "complementary"}.get(doctype, "other")
+        self.components[component] = (None if amount is None or self.components[component] is None
+                                      else self.components[component] + money(amount))
         key = (doctype, document)
         if key not in self.readable:
             self.readable[key] = bool(document and frappe.has_permission(doctype, "read") and list(
@@ -58,7 +63,8 @@ class Links:
         if not known:
             self.notes.add("Hay coberturas compartidas sin un importe atribuible a esta aplicación; consulte el período.")
         return dict(rows=rows, total_usd=money_float(sum_money(row["amount_usd"] for row in rows)) if known else None,
-                    notes=sorted(self.notes))
+                    notes=sorted(self.notes), components={key: money_float(value) if value is not None else None
+                                                         for key, value in self.components.items()})
 
 
 def _deposit(document, row):
@@ -138,6 +144,31 @@ def _source(row):
     return data.result()
 
 
+def _summary(doctype, row, result):
+    components = result["components"]
+    application = doctype == "CN Accounting Import" and row.get("event_type") == "Aplicacion"
+    difference = doctype == "CN Remittance Allocation" and row.get("row_kind") == "Diferencia documentada"
+    amount = row.get("difference_amount_usd") if difference else row.get("amount_usd")
+    if amount is None and doctype == "CN Accounting Import":
+        from credinomina_reconciliation.reconciliation import _original_converted_amount
+        amount = _original_converted_amount(row.as_dict() if callable(getattr(row, "as_dict", None)) else row, "USD")
+    cash_kind = "deposit" if application or row.get("remittance_allocation") else "application"
+    cash, complementary = components[cash_kind], components["complementary"]
+    # Missing evidence must not turn a financial component into a guessed zero.
+    if result["total_usd"] is None:
+        cash, complementary = None, None
+    pending = (money_float(money(amount) - money(result["total_usd"]))
+               if amount is not None and result["total_usd"] is not None else None)
+    if difference:
+        pending = row.get("difference_core_pending_usd")
+    labels = ["Diferencia de empresa US$" if difference else "Aplicación del core US$" if application else "Importe de la fila US$",
+              "Cubierto por depósitos US$" if application else "Vinculado a depósito US$" if cash_kind == "deposit" else "Vinculado a créditos US$",
+              "Partidas complementarias US$",
+              "Pendiente de respaldo US$" if difference else "Pendiente de cubrir US$" if application else "Sin vincular US$"]
+    return [dict(label=label, amount_usd=money_float(value) if value is not None else None)
+            for label, value in zip(labels, [amount, cash, complementary, pending])]
+
+
 @frappe.whitelist()
 def get_links(doctype, name, row_name, modified=None):
     field = SCOPES.get(doctype)
@@ -151,4 +182,4 @@ def get_links(doctype, name, row_name, modified=None):
     if row is None:
         frappe.throw(_("La fila no pertenece a este documento. Recargue el formulario."))
     result = _deposit(document, row) if field == "detail_rows" else _source(row)
-    return dict(result, modified=str(document.modified))
+    return dict(result, summary=_summary(doctype, row, result), modified=str(document.modified))

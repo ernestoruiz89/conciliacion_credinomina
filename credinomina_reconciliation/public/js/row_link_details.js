@@ -11,6 +11,8 @@
         const control = gridRow?.grid_form?.fields_dict?.linked_documents_html;
         if (!control) return;
         const wrapper = control.$wrapper;
+        const summaryWrapper = gridRow.grid_form.fields_dict.linked_summary_html?.$wrapper;
+        summaryWrapper?.html("");
         const sequence = control._cnLinksSequence = (control._cnLinksSequence || 0) + 1;
         const row = (frm.doc[parentfield] || []).find(row => row.name === rowName);
         wrapper.off(".cnRowLinks");
@@ -32,7 +34,12 @@
             const data = response.message || {};
             if (String(data.modified) !== String(modified)) throw new Error("Stale links");
             const rows = data.rows || [];
-            wrapper.html(`<div class="d-flex justify-content-between align-items-center mb-2"><strong>${esc(__("Documentos vinculados"))}</strong>
+            const summary = `<div data-row-link-summary style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px;margin-bottom:16px">
+                ${(data.summary || []).map(card => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
+                    <div class="small text-muted">${esc(__(card.label))}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${amount(card.amount_usd)}</div>
+                </div>`).join("")}</div>`;
+            summaryWrapper?.html(summary);
+            wrapper.html(`${summaryWrapper ? "" : summary}<div class="d-flex justify-content-between align-items-center mb-2"><strong>${esc(__("Documentos vinculados"))}</strong>
                 <button type="button" class="btn btn-default btn-sm" data-refresh-links>${esc(__("Actualizar vínculos"))}</button></div>
                 <div class="table-responsive"><table class="table table-bordered"><thead><tr>
                 ${["Documento", "Tipo de vínculo", "Estado", "Importe US$"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
