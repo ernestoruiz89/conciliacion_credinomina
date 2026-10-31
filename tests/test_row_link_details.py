@@ -111,6 +111,44 @@ class RowLinkDetailsTests(unittest.TestCase):
             with self.assertRaises(frappe.PermissionError):
                 api.get_links("CN Accounting Import", "IMPORT", "ROW")
 
+    def test_deposit_summary_uses_row_amounts_and_keeps_documented_credit_separate(self):
+        data = api.Links()
+        data.add("CN Accounting Import", "IMPORT", 10, "Aplicación", "Destino identificado")
+        data.add("CN Complementary Item", "CREDIT", 5, "Saldo a favor del cliente", "Documentado")
+        cards = api._summary("CN Remittance Allocation", frappe._dict(amount_usd=20), data.result())
+        self.assertEqual([card["amount_usd"] for card in cards], [20, 10, 5, 5])
+        self.assertEqual(cards[1]["label"], "Vinculado a créditos US$")
+        # Missing destination permission must not reclassify its visible amount.
+        with patch.object(api, "records", return_value=[]):
+            data = api.Links()
+            data.add("CN Complementary Item", "HIDDEN", 3, "Partida complementaria", "Confirmado")
+        cards = api._summary("CN Remittance Allocation", frappe._dict(amount_usd=10), data.result())
+        self.assertEqual([card["amount_usd"] for card in cards], [10, 0, 3, 7])
+
+    def test_application_summary_uses_gross_amount_without_counting_adjustments_twice(self):
+        data = api.Links()
+        data.add("CN Remittance Allocation", "D1", 10, "Depósito", "Conciliado")
+        data.add("CN Remittance Allocation", "D2", 20, "Depósito", "Conciliado")
+        data.add("CN Complementary Item", "ADJUSTMENT", 2, "Ajuste de aplicación", "Confirmado")
+        row = frappe._dict(event_type="Aplicacion", amount_usd=40, net_applied_usd=38, application_adjustment_usd=2)
+        cards = api._summary("CN Accounting Import", row, data.result())
+        self.assertEqual([card["amount_usd"] for card in cards], [40, 30, 2, 8])
+        self.assertEqual(cards[1]["label"], "Cubierto por depósitos US$")
+
+    def test_summary_preserves_unknown_amounts_signed_excess_and_company_differences(self):
+        data = api.Links()
+        data.add("CN Remittance Allocation", "SHARED", None, "Depósito", "Cobertura compartida")
+        cards = api._summary("CN Accounting Import", frappe._dict(event_type="Aplicacion", amount_usd=100), data.result())
+        self.assertEqual([card["amount_usd"] for card in cards], [100, None, None, None])
+        data = api.Links()
+        data.add("CN Accounting Import", "IMPORT", 10.01, "Aplicación", "Destino identificado")
+        cards = api._summary("CN Remittance Allocation", frappe._dict(amount_usd=10), data.result())
+        self.assertEqual(cards[-1]["amount_usd"], -.01, "Do not hide an overlinked cent")
+        cards = api._summary("CN Remittance Allocation", frappe._dict(row_kind="Diferencia documentada",
+            difference_amount_usd=-.03, difference_core_pending_usd=.03), api.Links().result())
+        self.assertEqual(cards[0]["amount_usd"], -.03)
+        self.assertEqual(cards[-1], dict(label="Pendiente de respaldo US$", amount_usd=.03))
+
 
 if __name__ == "__main__":
     unittest.main()
