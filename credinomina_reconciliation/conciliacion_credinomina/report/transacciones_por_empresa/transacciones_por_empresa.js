@@ -7,6 +7,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
         {fieldname: "state", label: __("Estado de conciliación"), fieldtype: "Select",
             options: "Todos\nConciliado\nParcial\nPendiente\nDistribuciones inconsistentes", default: "Todos"},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
+        {fieldname: "reconciled_by", label: __("Usuario de conciliación"), fieldtype: "Link", options: "User",
+            description: __("Conciliadas y parciales con participación del usuario; incluye la atribución inicial al último editor.")},
         {fieldname: "include_drafts", label: __("Incluir borradores"), fieldtype: "Check", default: 0},
     ],
     onload(report) {
@@ -59,7 +61,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         const money = value => value == null ? "—" : esc(format_currency(value, "USD"));
         const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
         let dialog, sequence = 0, offset = 0, closed = false, busy = false;
-        let activeFilters = {state: args.state || "", search: "", only_differences: 0};
+        let activeFilters = {state: args.state || "", search: "", only_differences: 0, reconciled_by: args.reconciled_by || ""};
         const load = async (start = 0) => {
             const request = ++sequence;
             offset = start;
@@ -86,7 +88,15 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     const management = item.management_pending_usd != null ? `${__("Gestión del saldo a favor")}: ${item.management_status} · ${__("Pendiente US$")}: ${item.management_pending_usd}` : "";
                     const extra = [item.status_detail, item.difference_reason && `${__("Razón de la diferencia")}: ${item.difference_reason}`,
                         item.used_label, management, item.reason, item.observations].filter(Boolean).join(" · ");
-                    const status = `${badge}${extra ? `<details style="margin-top:6px"><summary>${__("Ver motivo")}</summary><div style="min-width:200px;white-space:normal">${esc(extra)}</div></details>` : ""}`;
+                    const history = item.reconciliation_history || [];
+                    const trace = history.length ? `<details style="margin-top:6px"><summary>${__("Conciliaciones por usuario")} (${history.length})</summary>
+                        <div style="min-width:320px;white-space:normal">${history.map(entry => `<div style="padding:8px 0;border-bottom:1px solid var(--border-color)">
+                            <strong>${esc(entry.performed_by)}</strong> · ${esc(entry.performed_on)}<br>
+                            ${esc(entry.description)} · ${esc(entry.source_name)}${entry.detail_row ? ` · ${__("Fila")}: ${esc(entry.detail_row)}` : ""}<br>
+                            ${entry.origin === "Último editor (migración)" ? esc(__("Último editor (migración): no identifica quién realizó cada asignación anterior."))
+                                : `${__("Movimiento US$")}: ${money(entry.delta_usd)}${entry.shared_collection ? ` · ${__("Asignación a la cobranza vinculada")}` : ""}`}
+                        </div>`).join("")}</div></details>` : `<div class="text-muted">${__("Sin trazabilidad registrada")}</div>`;
+                    const status = `${badge}${extra ? `<details style="margin-top:6px"><summary>${__("Ver motivo")}</summary><div style="min-width:200px;white-space:normal">${esc(extra)}</div></details>` : ""}${trace}`;
                     const slug = isApplication ? "cn-accounting-import" : isComplementary ? "cn-complementary-item" : "cn-remittance-allocation";
                     const link = `<a href="/app/${slug}/${encodeURIComponent(item.document)}" target="_blank" rel="noopener noreferrer">${esc(item.document)}</a>`;
                     const date = item.date ? esc(frappe.datetime.str_to_user(item.date)) : "—";
@@ -110,7 +120,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     ${amountFields.map(field => `<td style="text-align:right;white-space:nowrap">${money(data.totals?.[field])}</td>`).join("")}<td></td></tr></tfoot>`;
                 const end = start + data.rows.length;
                 wrapper.html(`<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">${cards}</div>
-                    <p class="text-muted">${__("Los indicadores cuentan transacciones de esta empresa y mes, no celdas del calendario.")}</p>
+                    <p class="text-muted">${__("Los indicadores cuentan transacciones de esta empresa y mes, no celdas del calendario.")}${activeFilters.reconciled_by ? ` ${__("Limitados al usuario seleccionado.")}` : ""}</p>
                     <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:12px;line-height:1.4"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
                     <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody>${footer}</table></div>
                     <p class="text-muted">${__("El total incluye todas las páginas con los filtros actuales. Importes en US$. — indica que falta conversión o atribución individual; el total de esa columna también queda sin determinar.")}</p>
@@ -134,6 +144,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 {fieldname: "only_differences", label: __("Solo con diferencias"), fieldtype: "Check", default: 0,
                     description: __("Muestra parciales, pendientes y distribuciones por revisar. Se combina con Estado y Buscar.")},
                 {fieldtype: "Column Break"},
+                {fieldname: "reconciled_by", label: __("Usuario de conciliación"), fieldtype: "Link", options: "User",
+                    default: args.reconciled_by || "", description: __("Solo conciliadas y parciales con participación registrada.")},
                 {fieldname: "search", label: __("Buscar"), fieldtype: "Data", description: __("Cliente, crédito, documento, referencia, asiento o cuenta bancaria.")},
                 {fieldtype: "Section Break"},
                 {fieldname: "detail", fieldtype: "HTML"},
@@ -141,7 +153,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
             primary_action_label: __("Buscar / actualizar"),
             primary_action() {
                 activeFilters = {state: dialog.get_value("state") || "", search: dialog.get_value("search") || "",
-                    only_differences: Number(dialog.get_value("only_differences")) ? 1 : 0};
+                    only_differences: Number(dialog.get_value("only_differences")) ? 1 : 0,
+                    reconciled_by: dialog.get_value("reconciled_by") || ""};
                 load(0);
             },
             onhide() { closed = true; sequence++; },

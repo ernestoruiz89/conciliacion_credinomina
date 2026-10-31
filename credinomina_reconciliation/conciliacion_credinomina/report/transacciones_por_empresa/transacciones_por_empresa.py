@@ -7,6 +7,7 @@ from credinomina_reconciliation.company_transactions import (
     IMPORTED, application_progress_index, deposit_state, monthly_counts, application_month_amounts, deposit_month_amounts,
 )
 from credinomina_reconciliation import complementary_transactions
+from credinomina_reconciliation import reconciliation_trace
 from credinomina_reconciliation.application_context import import_company_scope, application_employer
 from credinomina_reconciliation.report_records import records as readable_records, child_records
 
@@ -43,6 +44,9 @@ def execute(filters=None):
     scoped = {"employer": filters.employer} if filters.get("employer") else {}
     records, sources, by_name = load_transactions(kind, drafts, scoped, dates)
     progress, collections = _application_progress(records, sources, by_name) if kind == "Aplicaciones" else ({}, {})
+    user = str(filters.get("reconciled_by") or "").strip()
+    if user:
+        records, sources = filter_user(kind, records, sources, collections, user)
     if selected_state:
         selected_names = {record["name"] for record in records if record["state"] == selected_state}
         records = [record for record in records if record["name"] in selected_names]
@@ -55,6 +59,8 @@ def execute(filters=None):
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
         if selected_state:
             row["_detail_filters"]["state"] = selected_state
+        if user:
+            row["_detail_filters"]["reconciled_by"] = user
     if data:
         data.append({"employer": _("Total"), "_is_total": True,
                      **{key: sum(row[key] for row in data) for key in ["total", *[f"m{month:02}" for month in range(1, 13)]]}})
@@ -78,6 +84,8 @@ def execute(filters=None):
             "Un saldo a favor completamente documentado puede estar conciliado aunque su devolución siga pendiente. Se excluyen los cancelados."))
     if drafts:
         message += " " + _("Los borradores sin tratamiento confirmado se incluyen como pendientes; en aplicaciones se utiliza el estado Borrador de la importación.")
+    message += " " + _("Usuario de conciliación muestra conciliadas y parciales con participación de ese usuario. "
+        "La atribución inicial usa el último editor del documento; las operaciones posteriores registran usuario, fecha e importe por asignación.")
     if kind in complementary_transactions.KINDS:
         message += " " + _("Compensaciones confirmadas y tratamientos ya documentados se incluyen aunque el documento permanezca en borrador.")
     summary = transaction_summary(records)
@@ -88,6 +96,13 @@ def transaction_summary(records):
     return [{"label": _(label), "value": sum(record["state"] == state for record in records), "datatype": "Int", "indicator": color}
         for state, label, color in (("Conciliado", "Conciliadas", "Green"), ("Parcial", "Parcialmente conciliadas", "Orange"),
                                     ("Pendiente", "Pendientes", "Red"), ("Revisar distribución", "Distribuciones inconsistentes", "Red"))]
+
+
+def filter_user(kind, records, sources, collections, user):
+    eligible = {row["name"] for row in records if row["state"] in {"Conciliado", "Parcial"}}
+    selected = reconciliation_trace.histories(kind, [row for row in sources if row["name"] in eligible], collections, user)
+    return ([row for row in records if row["name"] in selected],
+            [row for row in sources if row["name"] in selected])
 
 
 def load_transactions(kind, drafts, scoped, dates, detail=False):
@@ -212,7 +227,7 @@ def columns():
 
 @frappe.whitelist()
 def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0,
-                     only_differences=0):
+                     only_differences=0, reconciled_by=""):
     """Read-only detail of one cell, with the same inclusion rules as the report."""
     from credinomina_reconciliation.rounding import money, money_float
 
@@ -233,11 +248,13 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     # settled merely because its other applications are in a different month.
     context_dates = [f"{year}-01-01", f"{year}-12-31"] if transaction_type == "Aplicaciones" else dates
     records, sources, parents = load_transactions(transaction_type, bool(cint(include_drafts)), scope, context_dates, detail=True)
-    progress = _application_progress(records, sources, parents)[0] if transaction_type == "Aplicaciones" else {}
+    progress, collections = _application_progress(records, sources, parents) if transaction_type == "Aplicaciones" else ({}, {})
     if transaction_type == "Aplicaciones":
         sources = [row for row in sources if dates[0] <= str(row.get("event_date") or "")[:10] <= dates[1]]
         names = {row.name for row in sources}
         records = [record for record in records if record["name"] in names]
+    if reconciled_by:
+        records, sources = filter_user(transaction_type, records, sources, collections, str(reconciled_by).strip())
     states = {row["name"]: row["state"] for row in records}
     query = str(search or "").strip().casefold()
     fields = ("name", "parent", "client_name", "client_number", "loan_number", "reference", "voucher", "receipt",
@@ -249,6 +266,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
                                   row.get("parent") or "", cint(row.get("idx")), row.name))
     count = len(selected)
     start = max(cint(start), 0)
+    history = reconciliation_trace.histories(transaction_type, selected[start:start + 100], collections)
     amount_fields = (["original_usd", "adjustment_usd", "net_usd", "assigned_usd", "rounding_usd", "complementary_usd", "pending_usd"]
                      if transaction_type == "Aplicaciones" else ["original_usd", "resolved_usd", "pending_usd"]
                      if transaction_type in complementary_transactions.KINDS else ["original_usd", "assigned_usd", "surplus_usd", "pending_usd"])
@@ -292,6 +310,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
             # Unknown attribution/conversion must not produce a misleading partial total.
             totals[field] = None if totals[field] is None or item.get(field) is None else totals[field] + money(item[field])
         if start <= index < start + 100:
+            item["reconciliation_history"] = history.get(row.name, [])
             details.append(item)
     return {"rows": details, "total": len(records), "filtered_count": count, "start": start, "page_length": 100,
             "summary": transaction_summary(records),

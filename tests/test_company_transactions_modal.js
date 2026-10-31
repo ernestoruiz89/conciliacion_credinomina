@@ -46,7 +46,7 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.equal(clicked.include_drafts, 1);
     report.show_month_detail = originalOpen;
 
-    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución"});
+    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución", reconciled_by: "ana@example.com"});
     assert.ok(dialog.visible);
     assert.ok(dialog.html.includes("Cargando"));
     assert.ok(!dialog.fields[0].options.includes("<script>"));
@@ -55,15 +55,23 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.equal(dialog.fields[1].default, "Revisar distribución");
     assert.equal(dialog.fields.find(field => field.fieldname === "only_differences").default, 0);
     assert.equal(calls[0].args.only_differences, 0);
+    assert.equal(calls[0].args.reconciled_by, "ana@example.com");
+    assert.equal(dialog.fields.find(field => field.fieldname === "reconciled_by").default, "ana@example.com");
     const row = {doctype: "CN Accounting Import", document: 'IMPORT A"', row_index: 3, date: "2025-04-30", state: "Parcial",
         client_name: "<script>alert(1)</script>", client_number: "1", loan_number: "100-1", original_usd: 100, adjustment_usd: 20,
-        net_usd: 80, assigned_usd: 30, rounding_usd: 0, complementary_usd:20, pending_usd: 50, observations: "<b>Shared</b>"};
+        net_usd: 80, assigned_usd: 30, rounding_usd: 0, complementary_usd:20, pending_usd: 50, observations: "<b>Shared</b>",
+        reconciliation_history: [{performed_by: '<script>Ana</script>', performed_on: '2026-10-30 10:00:00',
+            source_name: 'D1', description: 'Distribución', delta_usd: 30, origin: 'Operación'},
+            {performed_by: 'luis@example.com', origin: 'Último editor (migración)', source_name: 'I1'}]};
     requests.shift().resolve(payload([row]));
     await flush();
     assert.ok(dialog.html.includes("LOCAL(2025-04-30)"));
     assert.ok(dialog.html.includes("USD 50.00"));
     assert.ok(!dialog.html.includes("<script>"));
     assert.ok(!dialog.html.includes("<b>Shared</b>"));
+    assert.ok(dialog.html.includes("Conciliaciones por usuario (2)"));
+    assert.ok(dialog.html.includes("luis@example.com"));
+    assert.ok(dialog.html.includes("no identifica quién realizó cada asignación anterior"));
     assert.ok(dialog.html.includes("/app/cn-accounting-import/IMPORT%20A%22"));
     assert.ok(dialog.html.includes("Fila 3"));
     assert.ok(dialog.html.includes('font-size:12px;line-height:1.4'));
@@ -79,12 +87,13 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     dialog.handlers[".cn-detail-next"]();
     assert.equal(requests.length, 1); // Ignore double-click while loading.
     const stale = requests.shift();
-    dialog.values = {state: "Pendiente", search: "Juan", only_differences: 1};
+    dialog.values = {state: "Pendiente", search: "Juan", only_differences: 1, reconciled_by: "luis@example.com"};
     dialog.primary_action();
     assert.equal(calls.at(-1).args.start, 0);
     assert.equal(calls.at(-1).args.search, "Juan");
     assert.equal(calls.at(-1).args.state, "Pendiente");
     assert.equal(calls.at(-1).args.only_differences, 1);
+    assert.equal(calls.at(-1).args.reconciled_by, "luis@example.com");
     requests.shift().resolve(payload([]));
     await flush();
     const latest = dialog.html;

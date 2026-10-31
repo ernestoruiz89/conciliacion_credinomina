@@ -92,6 +92,8 @@ def remove(item_name, operation_id, token, reason):
     try:
         frappe.db.set_value(item.doctype, item.name, {FIELD: frappe.as_json(remaining),
             'reclassification_deletions': frappe.as_json(audit)})
+        from credinomina_reconciliation.reconciliation_trace import capture_saved_item
+        capture_saved_item(item.name)
         if entry['kind'] == APPLICATION:
             from credinomina_reconciliation.credit_application import rebuild_destination
             rebuild_destination(next(period for period in periods if period.name == entry['period']))

@@ -13,6 +13,8 @@ assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos\nPartid
 assert.equal(filters.state.default, "Todos");
 assert.ok(filters.state.options.includes("Distribuciones inconsistentes"));
 assert.equal(filters.include_drafts.default, 0);
+assert.equal(filters.reconciled_by.fieldtype, "Link");
+assert.equal(filters.reconciled_by.options, "User");
 const formatter = (value, field, data) => report.formatter(value, null, {fieldname: field}, data, value => String(value));
 for (const [state, color] of [["Conciliado", "#dcfce7"], ["Parcial", "#fb923c"], ["Pendiente", "#fee2e2"]]) {
     const result = formatter(5, "m04", {m04_state: state, m04_conciliado: 3, m04_parcial: 1, m04_pendiente: 1});
