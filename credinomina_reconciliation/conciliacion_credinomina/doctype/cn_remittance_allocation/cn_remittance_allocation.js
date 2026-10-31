@@ -418,23 +418,55 @@ async function reconcileRemittance(frm) {
         });
         await frm.reload_doc();
         const result = response.message || {};
-        const escape = value => frappe.utils.escape_html(String(value ?? ""));
         frappe.msgprint({
             title: __("Conciliación finalizada"),
             indicator: remittancePresentation(frm.doc).color,
-            message: `<p><b>${__("Estado del depósito")}:</b> ${escape(frm.doc.result)}</p>
-                <p>${__("Depósito")}: ${escape(result.deposit || name)}</p>
-                <p>${__("Filas del detalle")}: ${escape(result.detail_rows || 0)} ·
-                ${__("Conciliadas")}: ${escape(result.detail_matched || 0)} ·
-                ${__("Pendientes")}: ${escape(result.detail_pending || 0)}</p>
-                <p>${__("Destinos")}: ${escape(result.targets || 0)}</p>
-                <p>${__("Períodos afectados")}: ${escape((result.periods || []).join(", ") || "—")}</p>
-                ${remittanceIssuesHtml(frm.doc)}`,
+            wide: true,
+            message: remittanceReconciliationSummaryHtml(frm.doc, result),
         });
     } finally {
         frappe.realtime.off(event, onProgress);
         frm.reconciliation_running = false;
     }
+}
+
+function remittanceReconciliationSummaryHtml(doc, result = {}) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const state = remittancePresentation(doc);
+    const cash = remittanceCashAmounts(doc);
+    const accent = {green: "var(--green-500, #22a06b)", orange: "var(--orange-500, #d97706)",
+        blue: "var(--blue-500, #2490ef)", gray: "var(--gray-500, #6b7280)"}[state.color];
+    const amount = value => value == null || !Number.isFinite(Number(value)) ? "—" : `US$ ${remittanceMoney(value)}`;
+    const amounts = [["Depositado", doc.amount_usd], ["Distribuido", cash.assigned],
+        ["Saldo a favor documentado", cash.credit], ["Sin distribuir", cash.pending]];
+    const counts = [["Filas del detalle", result.detail_rows], ["Conciliadas", result.detail_matched],
+        ["Pendientes", result.detail_pending], ["Destinos", result.targets]];
+    return `<section aria-label="${esc(__("Resumen de conciliación"))}" style="color:var(--text-color);padding:4px 0">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:18px 20px;border:1px solid var(--border-color);border-left:4px solid ${accent};border-radius:10px;background:var(--control-bg);margin-bottom:20px">
+            <div style="min-width:0;flex:1 1 220px">
+                <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${esc(__("Resumen de conciliación"))}</div>
+                <div style="font-size:17px;font-weight:600;overflow-wrap:anywhere">${esc(result.deposit || doc.name)}</div>
+                ${doc.employer ? `<div class="text-muted" style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">${esc(doc.employer)}</div>` : ""}
+            </div>
+            <span class="indicator-pill ${state.color}" style="height:auto;white-space:normal;max-width:100%;text-align:left">${esc(__(state.result))}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:20px">
+            ${amounts.map(([label, value]) => `<div style="padding:14px;border:1px solid var(--border-color);border-radius:8px;background:var(--fg-color)">
+                <div class="text-muted" style="font-size:12px;min-height:34px;line-height:1.4">${esc(__(label))}</div>
+                <div style="font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere">${esc(amount(value))}</div>
+            </div>`).join("")}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px;padding:16px;background:var(--control-bg);border-radius:8px;margin-bottom:18px">
+            ${counts.map(([label, value]) => `<div style="text-align:center">
+                <div style="font-size:24px;line-height:1.2;font-weight:600;font-variant-numeric:tabular-nums">${esc(value ?? 0)}</div>
+                <div class="text-muted" style="font-size:12px;margin-top:5px">${esc(__(label))}</div>
+            </div>`).join("")}
+        </div>
+        <div style="border-top:1px solid var(--border-color);padding-top:14px">
+            <div class="text-muted" style="font-size:12px;margin-bottom:5px">${esc(__("Períodos afectados"))}</div>
+            <div style="font-size:13px;overflow-wrap:anywhere">${esc((result.periods || []).join(", ") || "—")}</div>
+        </div>
+    </section>`;
 }
 
 async function showReconciliationHistory(frm) {
