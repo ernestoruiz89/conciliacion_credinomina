@@ -418,12 +418,14 @@ async function reconcileRemittance(frm) {
         });
         await frm.reload_doc();
         const result = response.message || {};
-        frappe.msgprint({
+        const dialog = new frappe.ui.Dialog({
             title: __("Conciliación finalizada"),
             indicator: remittancePresentation(frm.doc).color,
-            wide: true,
-            message: remittanceReconciliationSummaryHtml(frm.doc, result),
+            size: "large",
+            fields: [{fieldname: "summary", fieldtype: "HTML",
+                options: remittanceReconciliationSummaryHtml(frm.doc, result)}],
         });
+        dialog.show();
     } finally {
         frappe.realtime.off(event, onProgress);
         frm.reconciliation_running = false;

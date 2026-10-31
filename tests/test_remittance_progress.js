@@ -9,7 +9,10 @@ const context = {
     __: x => x,
     $: () => ({text: value => progress.push(value)}),
     frappe: {
-        ui: {form: {on() {}}},
+        ui: {form: {on() {}}, Dialog: class {
+            constructor(options) { this.options = options; }
+            show() { messages.push({message: this.options.fields[0].options, size: this.options.size}); }
+        }},
         realtime: {on: (e, cb) => listeners.set(e, cb), off: e => listeners.delete(e)},
         utils: {escape_html: x => x.replaceAll("<", "&lt;")},
         msgprint: x => messages.push(x),
@@ -42,6 +45,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
     assert.match(messages[0].message, /Parcial/);
     assert.match(messages[0].message, /DEP-1/);
     assert.match(messages[0].message, /P1, P2/);
+    assert.equal(messages[0].size, "large");
     assert.match(request.freeze_message, /este depósito/);
     assert.ok(!messages[0].message.includes("Se recalculó la empresa"));
     fail = true;
