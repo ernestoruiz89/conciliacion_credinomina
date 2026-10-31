@@ -167,6 +167,8 @@ class CloseProgressTests(unittest.TestCase):
             check_permission=Mock(), reload=Mock(), flags=frappe._dict(), save=Mock())
         scope = Mock(); scope.application_ids.return_value = ["APP"]
         def reconcile(*args, **kwargs):
+            self.assertEqual(kwargs.get("period_name"), "PER",
+                "Closing this period must not rebuild an unrelated closed month")
             kwargs["progress"](50, "Depósitos")
             return {}
         with patch.object(frappe, "get_doc", return_value=period), \
