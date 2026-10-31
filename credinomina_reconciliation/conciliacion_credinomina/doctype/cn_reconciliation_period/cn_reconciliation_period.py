@@ -749,15 +749,15 @@ def close_period(period_name: str, progress_id: str = ""):
                 "period_name": period.name, "progress_id": progress_id,
                 "percent": percent, "message": message,
             }, user=frappe.session.user)
-    # Closure must evaluate the latest imports, not the totals left by the
-    # last manual reconciliation. A late core edit can change both balances
-    # and open exceptions.
+    # Evaluate recent imports for this period. Other periods sharing the same
+    # company or deposits remain read-only evidence; their old exceptions must
+    # not trigger a company-wide recalculation while closing this document.
     report(5, _("Revisando movimientos recientes de la empresa y sus vínculos financieros…"))
     def reconcile_progress(percent, message):
         report(5 + int(percent * 0.65), message)
 
     if _reconcile_if_sources(
-        period.employer, progress=reconcile_progress, preserve_deposits=True,
+        period.employer, progress=reconcile_progress, preserve_deposits=True, period_name=period.name,
     ) is not None:
         period.reload()
     if period.status == "Cerrado":
