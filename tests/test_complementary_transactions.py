@@ -9,6 +9,11 @@ from credinomina_reconciliation.conciliacion_credinomina.report.transacciones_po
 
 
 class ComplementaryTransactionsTests(unittest.TestCase):
+    def setUp(self):
+        history = patch.object(report.reconciliation_trace, "histories", return_value={})
+        history.start()
+        self.addCleanup(history.stop)
+
     def test_linked_origins_are_neither_reconciled_nor_pending_transactions(self):
         for status in (0, 1):
             item = self.item(origin_deposit='D', category='Vinculado a depósito', docstatus=status)
@@ -64,8 +69,9 @@ class ComplementaryTransactionsTests(unittest.TestCase):
                 item = self.item(category="Compensación entre partidas", docstatus=0, compensated_usd=60)
                 with patch.object(frappe, "get_list", return_value=[item]) as get_list:
                     records, rows, _ = transactions.load_transactions(kind, False, {"employer": "A"}, ["2025-01-01", "2025-12-31"])
-                filters = get_list.call_args.kwargs["filters"]
-                self.assertEqual(get_list.call_args.args[0], "CN Complementary Item")
+                selection = next(call for call in get_list.call_args_list if "accounting_source_key" in call.kwargs.get("filters", {}))
+                filters = selection.kwargs["filters"]
+                self.assertEqual(selection.args[0], "CN Complementary Item")
                 self.assertEqual(filters["accounting_source_key"], ["is", "set" if accounting else "not set"])
                 self.assertEqual(filters["docstatus"], ["!=", 2])
                 self.assertEqual(filters["employer"], "A")

@@ -228,6 +228,8 @@ def distribute(item_name, rows, modified):
             validate_additional(doc)
             doc.db_set(FIELD, doc.get(FIELD))
             adjustments.reconcile_adjustment(doc)
+            from credinomina_reconciliation.reconciliation_trace import capture_adjustment_additions
+            capture_adjustment_additions(doc, additions)
         doc.add_comment("Comment", _("Distribución adicional entre aplicaciones: {0}.").format(
             "; ".join(f"{row['application']}: US$ {money(row['amount_usd']):.2f}" for row in selected)))
         return {"name": doc.name, "used_usd": money_float(total(doc)), "pending_usd": money_float(abs(money(doc.amount_usd)) - total(doc))}

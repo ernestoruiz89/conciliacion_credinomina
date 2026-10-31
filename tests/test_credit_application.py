@@ -9,6 +9,9 @@ from credinomina_reconciliation import credit_application as service
 
 class CreditApplicationTests(unittest.TestCase):
     def setUp(self):
+        trace = patch('credinomina_reconciliation.reconciliation_trace.capture_saved_item')
+        self.capture_trace = trace.start()
+        self.addCleanup(trace.stop)
         self.entry = dict(operation_id='OP', application_id='APP', importe_usd=20.76,
                           fecha='2026-05-30', referencia='V', period='MAY')
         self.item = frappe._dict(name='CREDIT', doctype='CN Complementary Item', docstatus=1,
@@ -53,6 +56,7 @@ class CreditApplicationTests(unittest.TestCase):
                 patch.object(service.frappe.db, 'set_value') as save, \
                 patch.object(service.frappe.db, 'get_value', return_value=0):
             result = unwrap(service.apply)('CREDIT', 'stamp', 'APP', 20.76, '2026-05-30')
+        self.capture_trace.assert_called_once_with('CREDIT')
         self.assertEqual(result['pending_usd'], .01)
         self.assertEqual(result['application_pending_usd'], 0)
         rebuild.assert_called_once_with(period)

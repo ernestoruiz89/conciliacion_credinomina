@@ -10,6 +10,11 @@ from credinomina_reconciliation.conciliacion_credinomina.report.transacciones_po
 
 
 class CompanyTransactionsTests(unittest.TestCase):
+    def setUp(self):
+        history = patch.object(report.reconciliation_trace, "histories", return_value={})
+        history.start()
+        self.addCleanup(history.stop)
+
     def test_month_counts_keep_duplicates_year_boundaries_and_all_months(self):
         records = [dict(employer="A", date="2025-01-01", state="Conciliado")] * 5
         records += [dict(employer="A", date="2025-02-01", state=state) for state in ("Conciliado", "Pendiente")]

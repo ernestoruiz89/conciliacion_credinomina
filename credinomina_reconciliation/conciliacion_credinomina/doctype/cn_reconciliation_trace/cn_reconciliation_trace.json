@@ -1,0 +1,26 @@
+{
+  "doctype": "DocType",
+  "name": "CN Reconciliation Trace",
+  "module": "Conciliacion Credinomina",
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "field_order": ["source_doctype", "source_name", "target_doctype", "target_name", "performed_by", "performed_on", "origin", "before_usd", "after_usd", "delta_usd", "detail_row", "description", "evidence"],
+  "fields": [
+    {"fieldname": "source_doctype", "label": "Tipo de origen", "fieldtype": "Data", "reqd": 1},
+    {"fieldname": "source_name", "label": "Documento de origen", "fieldtype": "Data", "reqd": 1, "search_index": 1},
+    {"fieldname": "target_doctype", "label": "Tipo de destino", "fieldtype": "Data", "reqd": 1},
+    {"fieldname": "target_name", "label": "Detalle de destino", "fieldtype": "Data", "reqd": 1, "search_index": 1},
+    {"fieldname": "performed_by", "label": "Usuario", "fieldtype": "Data", "reqd": 1, "search_index": 1},
+    {"fieldname": "performed_on", "label": "Fecha y hora", "fieldtype": "Datetime", "reqd": 1},
+    {"fieldname": "origin", "label": "Origen de la atribución", "fieldtype": "Data", "reqd": 1},
+    {"fieldname": "before_usd", "label": "Asignado antes US$", "fieldtype": "Currency", "precision": "2"},
+    {"fieldname": "after_usd", "label": "Asignado después US$", "fieldtype": "Currency", "precision": "2"},
+    {"fieldname": "delta_usd", "label": "Cambio US$", "fieldtype": "Currency", "precision": "2"},
+    {"fieldname": "detail_row", "label": "Fila de origen", "fieldtype": "Data"},
+    {"fieldname": "description", "label": "Operación", "fieldtype": "Small Text"},
+    {"fieldname": "evidence", "label": "Referencia de auditoría", "fieldtype": "Data"}
+  ],
+  "permissions": [],
+  "sort_field": "performed_on",
+  "sort_order": "DESC"
+}

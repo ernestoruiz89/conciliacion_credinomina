@@ -572,6 +572,8 @@ def link_application(item_name, application_name, modified, amount_usd, *, overr
     try:
         with journal_writer():
             frappe.db.set_value(item.doctype, item.name, FIELD, frappe.as_json([*existing, entry]))
+        from credinomina_reconciliation.reconciliation_trace import capture_saved_item
+        capture_saved_item(item.name)
         mark([item.name])
         rebuild_destination(period)
         application_adjustments.assert_cash_preserved(coverage["snapshots"])
@@ -664,6 +666,8 @@ def link_deposit(item_name, deposit_name, detail_name, modified, deposit_modifie
         before_credit = money(row.get(field))
         with journal_writer():
             frappe.db.set_value(item.doctype, item.name, FIELD, frappe.as_json([*existing, entry]))
+        from credinomina_reconciliation.reconciliation_trace import capture_saved_item
+        capture_saved_item(item.name)
         mark([item.name], deposits=[deposit.name])
         reconcile_deposit(deposit)
         row.reload()

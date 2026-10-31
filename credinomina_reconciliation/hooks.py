@@ -58,3 +58,11 @@ doc_events["File"] = {
 }
 doc_events["CN Complementary Item"]["on_change"] = "credinomina_reconciliation.complementary_state.item_changed"
 doc_events["CN Remittance Allocation"]["on_change"] = "credinomina_reconciliation.complementary_state.deposit_changed"
+doc_events["Version"] = {"after_insert": "credinomina_reconciliation.reconciliation_trace.capture_version"}
+doc_events["CN Remittance Allocation"]["on_cancel"] = "credinomina_reconciliation.reconciliation_trace.capture_deposit_cancel"
+doc_events["CN Complementary Item"]["on_change"] = [
+    "credinomina_reconciliation.complementary_state.item_changed",
+    "credinomina_reconciliation.reconciliation_trace.capture_item_journals",
+]
+for event in ("on_submit", "on_cancel"):
+    doc_events["CN Complementary Item"][event] = "credinomina_reconciliation.reconciliation_trace.capture_item_confirmation"
