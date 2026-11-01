@@ -41,6 +41,14 @@ def build(deposits, details):
                     national_id=row.get('national_id'), loan_number=row.get('loan_number'),
                     deposit_pending_usd=money_float(amount), source_rows=row['name'],
                     observation='Importe pendiente del detalle del depósito.'))
+        else:
+            for row in pending:
+                if not any(row.get(field) for field in ('client_number', 'national_id', 'loan_number', 'client_name')):
+                    continue
+                output.append(dict(base, client_name=row.get('client_name'), client_number=row.get('client_number'),
+                    national_id=row.get('national_id'), loan_number=row.get('loan_number'),
+                    deposit_pending_usd=None, deposit_detail_pending_usd=money_float(row['pending_usd']),
+                    source_rows=row['name'], observation='Pendiente según detalle; efectivo individual sin determinar. Revise la distribución del depósito.'))
         remainder = remaining - attributed
         if remainder > 0:
             output.append(dict(base, client_name='Sin cliente individual', deposit_pending_usd=money_float(remainder),

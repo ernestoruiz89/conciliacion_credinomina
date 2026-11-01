@@ -188,6 +188,7 @@ def get_columns(filters=None):
                         ('applied_pending_usd', 'Aplicado pendiente US$')])
     if not view or view == 'Depósito sin asignar':
         metrics.append(('deposit_pending_usd', 'Depósito sin asignar US$'))
+        metrics.append(('deposit_detail_pending_usd', 'Pendiente según detalle US$'))
     if not view or view == 'Partida complementaria':
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
                         ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
