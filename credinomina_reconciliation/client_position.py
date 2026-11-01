@@ -22,7 +22,7 @@ def _matches(row, filters):
     return not filters.get('only_open') or row.get('is_open')
 
 
-def build_position(collections, applications, items, balances, clients, filters, *, adjustment_receivables=()):
+def build_position(collections, applications, items, balances, clients, filters, *, adjustment_receivables=(), unallocated_deposits=()):
     output = []
     for source in collections:
         row = dict(source, position_type='Cobranza', event_date=source.get('payroll_month'),
@@ -91,6 +91,7 @@ def build_position(collections, applications, items, balances, clients, filters,
             observed_usd=item.get('observed_usd'),
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
             is_open=True, usd_currency='USD'))
+    output.extend(unallocated_deposits)
     view = filters.get('position_type')
     return sorted([row for row in output if (not view or row['position_type'] == view) and _matches(row, filters)],
                   key=lambda row: (str(row.get('event_date') or ''), row['position_type'],
@@ -112,8 +113,10 @@ def load_position(collections, filters):
     items = list(records('CN Complementary Item', fields=fields, filters={**scope, 'docstatus': ['!=', 2]})) if not view or view == 'Partida complementaria' else []
     clients = list(records('CN Client', filters=scope, fields=['name', 'client_number', 'client_name', 'national_id', 'employer'])) if items else []
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
+    from credinomina_reconciliation.unallocated_deposit_position import load as load_unallocated_deposits
     return build_position(collections, applications, items, load_balances(items), clients, filters,
-        adjustment_receivables=load_receivables(employer=filters.get('employer')) if not view or view == 'CxC por ajuste' else [])
+        adjustment_receivables=load_receivables(employer=filters.get('employer')) if not view or view == 'CxC por ajuste' else [],
+        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if not view or view == 'Depósito sin asignar' else [])
 
 
 def summary(data, filters=None):
@@ -149,6 +152,9 @@ def summary(data, filters=None):
         total(rows, 'applied_usd', 'Aplicado neto US$')
         total(rows, 'remitted_usd', 'Depósito asignado US$', 'green')
         total(rows, 'applied_pending_usd', 'CxC por aplicaciones US$', 'orange')
+    if 'Depósito sin asignar' in kinds:
+        total([row for row in data if row['position_type'] == 'Depósito sin asignar'],
+              'deposit_pending_usd', 'Depósitos sin asignar US$')
     if 'Partida complementaria' in kinds:
         rows = [row for row in data if row['position_type'] == 'Partida complementaria']
         reviews = [row for row in rows if row.get('operational_status') == 'Revisar distribución'

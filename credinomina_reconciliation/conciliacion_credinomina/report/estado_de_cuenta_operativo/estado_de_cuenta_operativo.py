@@ -21,6 +21,8 @@ def execute(filters=None):
         "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
         "No reste automáticamente los saldos a favor. "
+        "Depósito sin asignar muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
+        "solo atribuye importes al cliente cuando el detalle cabe en el efectivo pendiente. No se compensa automáticamente con aplicaciones. "
         "Las fechas filtran el mes de cobranza, la fecha de aplicación o la fecha de la partida, según el tipo; "
         "no reconstruyen saldos históricos. Solo se incluyen documentos visibles para su usuario. "
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
@@ -184,6 +186,8 @@ def get_columns(filters=None):
     if not view or view == 'Aplicación':
         metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
                         ('applied_pending_usd', 'Aplicado pendiente US$')])
+    if not view or view == 'Depósito sin asignar':
+        metrics.append(('deposit_pending_usd', 'Depósito sin asignar US$'))
     if not view or view == 'Partida complementaria':
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
                         ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
