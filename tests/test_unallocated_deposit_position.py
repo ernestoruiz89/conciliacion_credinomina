@@ -23,8 +23,22 @@ class UnallocatedDepositTests(unittest.TestCase):
                        justified_surplus_usd=0, unclassified_usd=20)
         details = [dict(name='R', parent='D', client_number='1', amount_usd=50, pending_usd=50)]
         rows = build([deposit], details)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['deposit_pending_usd'], 20)
-        self.assertEqual(rows[0]['client_name'], 'Sin cliente individual')
+        self.assertEqual(len(rows), 2)
+        self.assertIsNone(rows[0]['deposit_pending_usd'])
+        self.assertEqual(rows[0]['deposit_detail_pending_usd'], 50)
+        self.assertEqual(rows[1]['deposit_pending_usd'], 20)
+        self.assertEqual(rows[1]['client_name'], 'Sin cliente individual')
         self.assertIn('Revise', rows[0]['observation'])
         self.assertEqual(build([dict(deposit, cash_identity_status='Origen vinculado')], details), [])
+
+    def test_customer_pending_is_visible_when_detail_exceeds_cash_pool(self):
+        deposit = dict(name='D', employer='E', amount_usd=5503.64, allocated_usd=4040.04,
+                       justified_surplus_usd=0, unclassified_usd=1463.60)
+        details = [dict(name='A', parent='D', client_number='2839', amount_usd=662.23, pending_usd=612.71),
+                   dict(name='B', parent='D', client_number='other', amount_usd=856.27, pending_usd=856.27)]
+        rows = build([deposit], details)
+        result = build_position([], [], [], {}, [], {'client_number': '2839', 'only_open': 1}, unallocated_deposits=rows)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['deposit_detail_pending_usd'], 612.71)
+        self.assertIsNone(result[0]['deposit_pending_usd'])
+        self.assertEqual(result[0]['operational_status'], 'Revisar distribución')
