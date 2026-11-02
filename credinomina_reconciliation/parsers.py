@@ -238,6 +238,14 @@ def read_table(
     raise SourceFileError("Use un archivo .xlsx, .xls o .csv.")
 
 
+COLLECTION_COMMENT_FIELDS = ("comments", "application_comment", "cxc_difference_comment")
+
+
+def collection_comment(value: Any) -> str:
+    text = clean_text(value)
+    return "" if text == "0" else text
+
+
 COLLECTION_ALIASES = {
     "employer": {"empresa", "empresa_beneficiaria", "empresa_de_convenio"},
     "row_key": ("fila_id", "row_id", "id_fila"),
@@ -268,6 +276,7 @@ COLLECTION_ALIASES = {
     "comments": ("comentarios", "comentario", "observacion", "observaciones"),
     "application_reference": ("referencia_de_aplicacion", "referencia_aplicacion"),
     "application_comment": ("comentario_de_aplicacion", "comentario_aplicacion"),
+    "cxc_difference_comment": ("diferencias_cxc", "comentario_diferencias_cxc"),
     "deducted_nio": ("deducido_c", "deducido_cs", "deducido_nio", "monto_deducido_nio"),
     "deducted_usd": ("deducido_us", "deducido_usd", "monto_deducido_usd"),
 }
@@ -358,12 +367,10 @@ def _parse_collection_rows(
                 "total_installments": clean_text(_value(row, mapping, "total_installments")),
                 "expected_usd": expected_usd,
                 "expected_nio": expected_nio,
-                "comments": clean_text(_value(row, mapping, "comments")),
+                **{field: collection_comment(_value(row, mapping, field))
+                   for field in COLLECTION_COMMENT_FIELDS},
                 "application_reference": clean_text(
                     _value(row, mapping, "application_reference")
-                ),
-                "application_comment": clean_text(
-                    _value(row, mapping, "application_comment")
                 ),
                 "deducted_usd": deducted_usd,
                 "deducted_nio": deducted_nio,

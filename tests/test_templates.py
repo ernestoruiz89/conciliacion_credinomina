@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 
 from credinomina_reconciliation.parsers import parse_collection_file
 from credinomina_reconciliation.template_download import download_import_template
@@ -36,22 +37,26 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(tuple(cell.value for cell in sheet[1]), COLLECTION_HEADERS)
         self.assertEqual(sheet.max_row, 1)
         self.assertIsNotNone(sheet["C1"].comment)
-        self.assertEqual(sheet.column_dimensions["M"].number_format, "@")
+        id_column = get_column_letter(COLLECTION_HEADERS.index("Fila ID") + 1)
+        self.assertEqual(sheet.column_dimensions[id_column].number_format, "@")
         content = filled_content(content, {
             "Nro. Cliente": "001", "Nombre y Apellidos del Cliente": "ANA PÉREZ",
             "Nro. Crédito": "0900", "Monto de la cuota en US$": 46.52,
+            "Diferencias CXC": "Revisar saldo",
         })
         rows = parse_collection_file("cobranza.xlsx", content, require_name=True)
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["client_number"], "001")
         self.assertEqual(rows[0]["loan_number"], "0900")
         self.assertEqual(rows[0]["expected_usd"], 46.52)
+        self.assertEqual(rows[0]["cxc_difference_comment"], "Revisar saldo")
 
     def test_company_template_prefills_collection_identity_not_deductions(self):
         content = build_template_xlsx("empresa", [{
             "client_number": "001", "client_name": "ANA PÉREZ",
             "loan_number": "0900", "expected_usd": 46.52,
             "row_key": "FILA-1",
+            "cxc_difference_comment": "Diferencia informada",
         }])
         workbook = load_workbook(io.BytesIO(content))
         sheet = workbook.active
@@ -59,9 +64,9 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(sheet["C2"].value, "ANA PÉREZ")
         headers = [cell.value for cell in sheet[1]]
         self.assertEqual(sheet.cell(2, headers.index("Fila ID") + 1).value, "FILA-1")
-        self.assertIsNone(sheet["M2"].value)
-        self.assertIsNone(sheet["N2"].value)
-        sheet["N2"] = 46.52
+        self.assertIsNone(sheet.cell(2, headers.index("Deducido C$") + 1).value)
+        self.assertIsNone(sheet.cell(2, headers.index("Deducido US$") + 1).value)
+        sheet.cell(2, headers.index("Deducido US$") + 1, 46.52)
         stream = io.BytesIO()
         workbook.save(stream)
         rows = parse_collection_file(
@@ -71,6 +76,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["row_key"], "FILA-1")
         self.assertEqual(rows[0]["deducted_usd"], 46.52)
+        self.assertEqual(rows[0]["cxc_difference_comment"], "Diferencia informada")
 
     def test_deposit_template_accepts_name_only_identity(self):
         content = build_template_xlsx("deposito")
