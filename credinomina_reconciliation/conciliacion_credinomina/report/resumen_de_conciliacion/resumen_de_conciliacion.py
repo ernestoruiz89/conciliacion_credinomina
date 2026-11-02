@@ -3,6 +3,7 @@ from frappe import _
 from frappe.utils import cint
 
 from credinomina_reconciliation.report_records import records, child_records
+from credinomina_reconciliation.parsers import collection_comment
 from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
 
 
@@ -45,6 +46,7 @@ def execute(filters=None):
             and (row.historical_scope or "Mensual") == filters.historical_scope
         ]
     for row in data:
+        row["collection_cycle"] = row.collection_cycle or ("Mensual" if row.reconciliation_mode != "Historica" else "")
         row["closure_state"] = "Cerrado" if row.status == "Cerrado" else "Abierto"
         row["usd_currency"] = "USD"
     collection_rows = list(child_records(
@@ -53,11 +55,19 @@ def execute(filters=None):
             "name", "parent", "client", "client_name", "national_id", "loan_number",
             "expected_usd", "expected_nio", "applied_usd", "remitted_usd",
             "rounding_adjustment_usd", "remittance_detail", "first_exception_comment", "comments", "application_comment",
+            "cxc_difference_comment",
         ],
     ))
     summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
     if filters.get("view") == "Detalle":
         add_portfolio_status(data, detail)
+        for row in detail:
+            row["comments"] = "\n".join(
+                f"{_(label)}: {text}" for field, label in (
+                    ("comments", "Comentarios"), ("application_comment", "Aplicación"),
+                    ("cxc_difference_comment", "Diferencias CXC"),
+                ) if (text := collection_comment(row.get(field)))
+            )
     rows = detail if filters.get("view") == "Detalle" else summary
     if cint(filters.get("only_differences")):
         rows = [row for row in rows if row["has_difference"]]
@@ -77,6 +87,7 @@ def get_summary_columns():
 def get_columns(detail=False):
     columns = [
         {"fieldname": "name", "label": _("Período"), "fieldtype": "Link", "options": "CN Reconciliation Period", "width": 175},
+        {"fieldname": "collection_cycle", "label": _("Ciclo"), "fieldtype": "Data", "width": 150},
         {"fieldname": "employer", "label": _("Empresa"), "fieldtype": "Link", "options": "CN Employer", "width": 130},
         {"fieldname": "payroll_month", "label": _("Mes"), "fieldtype": "Date", "width": 100},
     ]
@@ -110,8 +121,7 @@ def get_columns(detail=False):
     else:
         columns.extend([
             {"fieldname": "difference_reason", "label": _("Razón de la diferencia"), "fieldtype": "Data", "width": 220},
-            {"fieldname": "comments", "label": _("Comentarios"), "fieldtype": "Data", "width": 320},
-            {"fieldname": "application_comment", "label": _("Comentario de Aplicación"), "fieldtype": "Data", "width": 320},
+            {"fieldname": "comments", "label": _("Comentarios"), "fieldtype": "Data", "width": 380},
         ])
         columns.append({"fieldname": "first_exception_comment", "label": _("Comentario de primera conciliación"),
                         "fieldtype": "Data", "width": 320})

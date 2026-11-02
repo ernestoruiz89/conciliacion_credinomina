@@ -16,10 +16,14 @@ frappe.query_reports["Resumen de Conciliacion"] = {
         const help = $('<details class="cn-reconciliation-help alert alert-info"></details>');
         $("<summary></summary>").text(__("Cómo leer el reporte de conciliación")).appendTo(help);
         $("<p></p>").text(__("Resumen: una fila por período. Detalle: una fila por período, empresa, cliente y crédito. Importes en US$. Cobranza − aplicación: positivo = falta aplicar; negativo = aplicación en exceso. Aplicación − depósito muestra la diferencia antes de saldos a favor y ajustes. Pendiente = aplicación + ajustes − depósito − saldo a favor utilizado, calculado por aplicación sin compensar faltantes con excedentes. La aplicación es neta de ajustes de aplicación. No aplica indica un período histórico o sin cobranza. El depósito mostrado es únicamente el importe asignado a estas aplicaciones. Solo con diferencias incluye diferencias explicadas por saldos a favor o ajustes; no significa necesariamente deuda pendiente.")).appendTo(help);
-        $("<p></p>").text(__("Detalle incluye los comentarios de cobranza y de aplicación del período por crédito, sin repetir textos iguales. El estado del crédito corresponde a la cartera importada, activa y accesible más reciente del mes de la fecha de corte del período o anterior; en períodos históricos se usa el mes del período. Si falta el corte o el crédito, o existe una duplicidad o diferencia de empresa, la columna indica esa situación.")).appendTo(help);
+        $("<p></p>").text(__("En Detalle, la columna Comentarios reúne los comentarios de cobranza, de aplicación y de diferencias CXC del período por crédito, con sus etiquetas y sin repetir textos iguales de cada campo. Los campos vacíos se omiten. El estado del crédito corresponde a la cartera importada, activa y accesible más reciente del mes de la fecha de corte del período o anterior; en períodos históricos se usa el mes del período. Si falta el corte o el crédito, o existe una duplicidad o diferencia de empresa, la columna indica esa situación.")).appendTo(help);
         help.prependTo(report.page.main);
     },
+    get_datatable_options(options) { return {...options, dynamicRowHeight: true}; },
     formatter(value, row, column, data, default_formatter) {
+        if (data && column.fieldname === "comments") {
+            return value ? `<div style="white-space:pre-wrap;overflow-wrap:anywhere">${frappe.utils.escape_html(String(value))}</div>` : "";
+        }
         const fields = ["collection_usd", "application_usd", "collection_difference_usd", "deposit_usd",
             "deposit_difference_usd", "credit_used_usd", "cash_adjustment_usd", "open_usd"];
         if (data && fields.includes(column.fieldname) && data[column.fieldname] == null) {

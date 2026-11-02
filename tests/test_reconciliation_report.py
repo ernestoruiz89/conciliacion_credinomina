@@ -151,11 +151,14 @@ class ReconciliationReportTests(unittest.TestCase):
         required = {'name', 'employer', 'collection_usd', 'application_usd', 'deposit_usd',
                     'collection_difference_usd', 'deposit_difference_usd', 'open_usd'}
         for detail in [False, True]:
+            self.assertEqual([c['fieldname'] for c in report.get_columns(detail)][:2], ['name', 'collection_cycle'])
             fields = {c['fieldname'] for c in report.get_columns(detail)}
             self.assertTrue(required <= fields)
             if detail:
                 self.assertTrue({'client_number', 'client_name', 'loan_number', 'first_exception_comment',
-                                 'comments', 'application_comment', 'portfolio_credit_status'} <= fields)
+                                 'comments', 'portfolio_credit_status'} <= fields)
+                self.assertNotIn('application_comment', fields)
+                self.assertNotIn('cxc_difference_comment', fields)
             else:
                 self.assertNotIn('first_exception_comment', fields)
 
@@ -168,19 +171,39 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(detail[0]['first_exception_comment'], 'No enviado a cobrar\nRevisar cuota')
 
     def test_collection_comments_preserved_per_credit_and_period(self):
-        claims = [collection('C1', comments=' Nota ', application_comment='Aplicado'),
-                  collection('C2', comments='Nota', application_comment='Revisar'),
+        claims = [collection('C1', comments=' Nota ', application_comment='Aplicado', cxc_difference_comment='Revisar CXC'),
+                  collection('C2', comments='Nota', application_comment='Revisar', cxc_difference_comment='Revisar CXC'),
                   dict(collection('C3', comments='Otro crédito'), loan_number='11125-2'),
                   dict(collection('C4', comments='Otro período'), parent='P2')]
         _, detail = build_views([period(), period('P2')], claims, [])
         rows = {(r['name'], r['loan_number']): r for r in detail}
         self.assertEqual(rows['P', '11125-1']['comments'], 'Nota')
         self.assertEqual(rows['P', '11125-1']['application_comment'], 'Aplicado\nRevisar')
+        self.assertEqual(rows['P', '11125-1']['cxc_difference_comment'], 'Revisar CXC')
         self.assertEqual(rows['P', '11125-2']['comments'], 'Otro crédito')
         self.assertEqual(rows['P2', '11125-1']['comments'], 'Otro período')
         _, direct_only = build_views([period()], [], [application(amount=10)])
         self.assertEqual(direct_only[0]['comments'], '')
         self.assertEqual(direct_only[0]['application_comment'], '')
+        self.assertEqual(direct_only[0]['cxc_difference_comment'], '')
+
+    def test_detail_combines_comments_with_labels_and_leaves_empty_cells_blank(self):
+        for values, expected in (
+            ({'comments': 'Nota', 'application_comment': 'Aplicado', 'cxc_difference_comment': 'Revisar'},
+             'Comentarios: Nota\nAplicación: Aplicado\nDiferencias CXC: Revisar'),
+            ({'cxc_difference_comment': '<texto> & diferencia'}, 'Diferencias CXC: <texto> & diferencia'),
+            ({}, ''),
+            ({'comments': '0', 'application_comment': ' 0 ', 'cxc_difference_comment': 0}, ''),
+        ):
+            with self.subTest(values=values):
+                with patch.object(report, 'records', return_value=[frappe._dict(period())]), \
+                     patch.object(report, 'child_records', return_value=[collection(**values)]) as query, \
+                     patch.object(report, 'load_direct_applications', return_value=[]), \
+                     patch.object(report, 'add_portfolio_status'):
+                    columns, rows = report.execute({'view': 'Detalle'})[:2]
+                self.assertEqual(rows[0]['comments'], expected)
+                self.assertEqual(sum(column['fieldname'] == 'comments' for column in columns), 1)
+                self.assertIn('cxc_difference_comment', query.call_args.kwargs['fields'])
 
     def test_portfolio_status_uses_period_cutoff_month_and_previous_available_cut(self):
         periods = [period(cutoff_date='2026-06-15'), period('P2')]
@@ -227,7 +250,7 @@ class ReconciliationReportTests(unittest.TestCase):
             lookup.assert_not_called()
 
     def test_execute_switches_granularity_and_filters_differences(self):
-        p = frappe._dict(period(applied_usd=20))
+        p = frappe._dict(period(applied_usd=20, collection_cycle='Segunda quincena'))
         claims = [frappe._dict(collection(expected_usd=20, applied_usd=20, remitted_usd=20,
                                         remittance_detail='[{"importe_usd":20}]'))]
         with patch.object(report, 'records', side_effect=lambda doctype, **kw: [p] if doctype == 'CN Reconciliation Period' else []), \
@@ -238,8 +261,10 @@ class ReconciliationReportTests(unittest.TestCase):
             _, detail = report.execute({'view': 'Detalle'})[:2]
             _, filtered = report.execute({'view': 'Detalle', 'only_differences': 1})[:2]
         self.assertEqual(enrich.call_count, 2)
-        self.assertTrue({'comments', 'application_comment'} <= set(child_query.call_args.kwargs['fields']))
+        self.assertTrue({'comments', 'application_comment', 'cxc_difference_comment'} <= set(child_query.call_args.kwargs['fields']))
         self.assertNotIn('client_number', summary[0])
+        self.assertEqual(summary[0]['collection_cycle'], 'Segunda quincena')
+        self.assertEqual(detail[0]['collection_cycle'], 'Segunda quincena')
         self.assertEqual(detail[0]['client_number'], '2885')
         self.assertEqual(filtered, [])
 
