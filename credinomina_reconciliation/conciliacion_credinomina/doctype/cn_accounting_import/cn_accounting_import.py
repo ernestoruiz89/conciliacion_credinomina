@@ -1093,6 +1093,16 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=True, 
         finally:
             _source_reconcile_verified.reset(token)
 
+    from credinomina_reconciliation.immaterial_differences import classify_document
+    processed_ids = {row.name for row in changed_rows}
+    for document in imports:
+        classify_document(document, row_names=processed_ids)
+    for period in periods:
+        classify_document(period)
+    if not preserve_deposits:
+        for name in allocation["registered_ids"]:
+            classify_document(frappe.get_doc("CN Remittance Allocation", name))
+
     # Related applications were balance evidence, not processed source rows.
     all_rows = changed_rows
     return {
