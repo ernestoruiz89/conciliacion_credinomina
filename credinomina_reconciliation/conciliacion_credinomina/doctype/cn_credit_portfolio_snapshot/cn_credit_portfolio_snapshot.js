@@ -18,11 +18,16 @@ function configurePortfolioFileReplacement(frm) {
     if (!control) return;
     if (!control._cn_portfolio_clear_attachment) {
         control._cn_portfolio_clear_attachment = control.clear_attachment;
+        control._cn_portfolio_upload_complete = control.on_upload_complete;
         control.clear_attachment = function (...args) {
             // Native Clear deletes the imported evidence. Open the normal
             // uploader instead; it saves the new URL and keeps the old file.
             if (frm.doc.file_hash) return this.on_attach_click();
             return this._cn_portfolio_clear_attachment(...args);
+        };
+        control.on_upload_complete = function (attachment) {
+            if (frm.is_new()) return this._cn_portfolio_upload_complete(attachment);
+            return completePortfolioFileUpload(frm, this, attachment);
         };
     }
     control.$value?.find('[data-action="clear_attachment"]')
@@ -33,6 +38,43 @@ function portfolioHeaderState(frm) {
     return Object.fromEntries(Object.entries(frm.doc).filter(([key, value]) =>
         !key.startsWith("_") && key !== "disabled" && key !== "modified" && key !== "modified_by"
         && (value === null || typeof value !== "object")));
+}
+
+async function savePortfolioHeader(frm) {
+    if (!frm.doc.file_hash && !frm.doc.rows?.length) return frm.save();
+    const state = portfolioHeaderState(frm);
+    const header = {source_file: frm.doc.source_file, notes: frm.doc.notes || "", disabled: Number(frm.doc.disabled) ? 1 : 0};
+    const response = await frappe.call({
+        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_credit_portfolio_snapshot.cn_credit_portfolio_snapshot.save_portfolio_header",
+        args: {snapshot_name: frm.doc.name, ...header, modified: frm.doc.modified},
+    });
+    if (!response.message || response.exc) throw new Error("missing_header_result");
+    if (frm.doc.name !== state.name) return;
+    const saved = response.message;
+    // Keep edits made while the request was in flight marked as unsaved.
+    for (const field of Object.keys(header)) {
+        if ((frm.doc[field] ?? "") === (header[field] ?? "")) frm.doc[field] = saved[field];
+    }
+    frm.doc.modified = saved.modified;
+    frm.doc.modified_by = saved.modified_by;
+    frm._cn_portfolio_saved = {...state, source_file: saved.source_file, notes: saved.notes};
+    frm.doc.__unsaved = JSON.stringify(portfolioHeaderState(frm)) === JSON.stringify(frm._cn_portfolio_saved) ? 0 : 1;
+    frm.refresh_field("source_file");
+    frm.refresh_header();
+}
+
+async function completePortfolioFileUpload(frm, control, attachment) {
+    await control.parse_validate_and_set_in_model(attachment.file_url);
+    frm.attachments.update_attachment(attachment);
+    const saving = savePortfolioHeader(frm);
+    frm._cn_saving_portfolio_file = saving;
+    try {
+        await saving;
+    } catch (error) {
+        frappe.msgprint(__("El archivo se subió, pero no se pudo guardar el encabezado del corte. Los cambios siguen pendientes; recargue el corte para verificar su estado antes de reintentar."));
+    } finally {
+        if (frm._cn_saving_portfolio_file === saving) frm._cn_saving_portfolio_file = null;
+    }
 }
 
 async function savePortfolioAvailability(frm) {
@@ -75,7 +117,8 @@ async function importPortfolioSnapshot(frm) {
     frm._cn_importing_portfolio = true;
     let stage = "save";
     try {
-        if (frm.is_dirty()) await frm.save();
+        if (frm._cn_saving_portfolio_file) await frm._cn_saving_portfolio_file;
+        if (frm.is_dirty()) await savePortfolioHeader(frm);
         stage = "import";
         const response = await frappe.call({
             method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_credit_portfolio_snapshot.cn_credit_portfolio_snapshot.import_portfolio_snapshot",

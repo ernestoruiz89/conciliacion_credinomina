@@ -835,3 +835,20 @@ duplicar pagos. En MariaDB/Frappe 16.52.0 se reprodujo el error 1406 con
 `varchar(140)`; tras migrar a `text` se conservó íntegro el motivo de 161
 caracteres. La migración repetida mantuvo intactos los documentos existentes.
 También pasaron 60 pruebas focalizadas y 40 subpruebas en Frappe 15.117.0.
+
+### Reemplazo del archivo de un corte con mucho detalle
+
+Al subir un nuevo adjunto, el control nativo intenta guardar el formulario
+completo. Un Excel de 3 MB puede tener un detalle ya importado cuyo JSON supere
+el límite HTTP de 25 MB. El campo de archivo y el botón de importación ahora
+guardan únicamente el encabezado mediante `save_portfolio_header`, con permisos,
+control de modificación concurrente y auditoría de la referencia anterior.
+
+`tests/test_portfolio_header_upload_ui.js` comprueba un formulario de más de
+25 MB con solicitudes de encabezado inferiores a 512 bytes, espera del guardado
+antes de importar y conservación de cambios pendientes ante errores. El ensayo
+`credinomina_reconciliation.testing.smoke_portfolio_header_upload.run`, exclusivo
+del sitio desechable, guarda un adjunto de 3,111,765 bytes y conserva 1000 filas,
+los dos archivos y los resultados de importación. El ensayo de actualización
+de cartera también conserva pagos, vínculos y períodos cerrados. Todos los
+datos de prueba se revierten. El límite de carga de archivos permanece igual.
