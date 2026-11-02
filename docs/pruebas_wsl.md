@@ -848,7 +848,13 @@ control de modificación concurrente y auditoría de la referencia anterior.
 25 MB con solicitudes de encabezado inferiores a 512 bytes, espera del guardado
 antes de importar y conservación de cambios pendientes ante errores. El ensayo
 `credinomina_reconciliation.testing.smoke_portfolio_header_upload.run`, exclusivo
-del sitio desechable, guarda un adjunto de 3,111,765 bytes y conserva 1000 filas,
-los dos archivos y los resultados de importación. El ensayo de actualización
+del sitio desechable, guarda un adjunto de 3,111,765 bytes y conserva 1000 filas
+y los resultados de importación. Al guardar el reemplazo se retiran los archivos
+anteriores registrados en el historial de ese corte y se actualiza la lista de
+adjuntos sin recargar su detalle. El borrado físico se encola después del commit;
+se comprueba que el nuevo archivo exista físicamente en el servidor antes de
+reemplazar la referencia o retirar adjuntos. Una carga incompleta o un rollback
+conservan el archivo anterior. Se comprueban también las cargas aún
+pendientes y los archivos compartidos con otra importación. El ensayo de actualización
 de cartera también conserva pagos, vínculos y períodos cerrados. Todos los
 datos de prueba se revierten. El límite de carga de archivos permanece igual.

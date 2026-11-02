@@ -59,6 +59,7 @@ async function savePortfolioHeader(frm) {
     frm.doc.modified_by = saved.modified_by;
     frm._cn_portfolio_saved = {...state, source_file: saved.source_file, notes: saved.notes};
     frm.doc.__unsaved = JSON.stringify(portfolioHeaderState(frm)) === JSON.stringify(frm._cn_portfolio_saved) ? 0 : 1;
+    for (const name of saved.removed_attachments || []) frm.attachments.remove_fileid(name);
     frm.refresh_field("source_file");
     frm.refresh_header();
 }
