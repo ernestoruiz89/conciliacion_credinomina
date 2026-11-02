@@ -8,6 +8,7 @@ from credinomina_reconciliation.accounting_client_summary import entries
 from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
+from credinomina_reconciliation.parsers import COLLECTION_COMMENT_FIELDS, collection_comment
 from credinomina_reconciliation.period_totals import direct_amounts_by_collection
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.report_records import records, child_records, require_complete_evidence, PAGE_SIZE
@@ -16,7 +17,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
            'cash_adjustment_usd', 'open_usd')
-COMMENTS = ('comments', 'application_comment', 'first_exception_comment')
+COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment')
 
 
 def add_portfolio_status(periods, details):
@@ -156,7 +157,8 @@ def build_views(periods, collections, applications):
         key = (period_name, *identity)
         if key not in groups:
             no_collection = bool(period.get('no_collection') or period.get('reconciliation_mode') == 'Historica')
-            groups[key] = dict(name=period_name, employer=period.get('employer'), payroll_month=period.get('payroll_month'),
+            groups[key] = dict(name=period_name, collection_cycle=period.get('collection_cycle'),
+                employer=period.get('employer'), payroll_month=period.get('payroll_month'),
                 closure_state=period.get('closure_state'), client_number=client,
                 client_name=source.get('client_name') or 'Sin identificar', loan_number=loan,
                 usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(),
@@ -173,7 +175,8 @@ def build_views(periods, collections, applications):
         row = group(source['parent'], source)
         row['_has_collection'] = True
         for field in COMMENTS:
-            comment = str(source.get(field) or '').strip()
+            comment = (collection_comment(source.get(field)) if field in COLLECTION_COMMENT_FIELDS
+                       else str(source.get(field) or '').strip())
             if comment and comment not in row['_comments'][field]:
                 row['_comments'][field].append(comment)
         _add(row, 'collection_usd', collection_quality(source)['quality_expected_usd'])
