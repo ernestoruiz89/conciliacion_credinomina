@@ -8,6 +8,7 @@ from credinomina_reconciliation.rounding import decimal_value
 DOCTYPE = "CN Difference Reason"
 CREDIT_COMPONENTS = {"core_pending_usd", "deposit_pending_usd", "client_credit_usd", "company_credit_usd"}
 DEFAULTS = (
+    ("Diferencia Inmaterial", "Diferencia absoluta de US$ 0.01 documentada por conversión de moneda; no modifica saldos."),
     ("Liquidación pendiente de cobro", "La aplicación o liquidación está registrada, pero falta acreditar el cobro."),
     ("Saldo a favor", "Posible excedente por verificar; esta etiqueta no documenta ni crea un saldo a favor."),
     ("Cuota no deducida", "La cuota no figura entre las deducciones recibidas."),

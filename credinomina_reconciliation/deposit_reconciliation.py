@@ -377,6 +377,15 @@ def reconcile_deposit(document, progress=None, undo=False):
         finally:
             engine._source_reconcile_verified.reset(token)
     document.reload()
+    if not undo:
+        from credinomina_reconciliation.immaterial_differences import classify_document
+        classify_document(document)
+        for period in active_periods:
+            classify_document(period)
+        active_ids = {row.name for row in active_sources}
+        for imported in imports:
+            if imported.name in active_parents:
+                classify_document(imported, row_names=active_ids)
     matched = sum(row.match_status in {"Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada", "Diferencia documentada"}
                   for row in document.detail_rows)
     report(100, _("Conciliación del depósito finalizada."))
