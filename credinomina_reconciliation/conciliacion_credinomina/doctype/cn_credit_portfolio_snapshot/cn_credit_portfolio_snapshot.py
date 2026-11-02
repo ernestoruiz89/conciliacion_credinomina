@@ -108,6 +108,21 @@ def set_portfolio_disabled(snapshot_name: str, disabled: int, modified: str):
     return {"disabled": saved.disabled, "modified": str(saved.modified), "modified_by": saved.modified_by}
 
 
+@frappe.whitelist(methods=["POST"])
+def save_portfolio_header(snapshot_name: str, source_file: str, notes: str, disabled: int, modified: str):
+    """Save the editable header without sending imported credits back to Desk."""
+    attachment = frappe.get_doc("File", {
+        "file_url": source_file,
+        "attached_to_doctype": "CN Credit Portfolio Snapshot",
+        "attached_to_name": snapshot_name,
+    })
+    attachment.check_permission("read")
+    saved = _update_portfolio_header(snapshot_name,
+        dict(source_file=source_file, notes=notes, disabled=disabled), modified)
+    return {**{field: saved.get(field) for field in HEADER_FIELDS},
+            "modified": str(saved.modified), "modified_by": saved.modified_by}
+
+
 def _update_portfolio_header(snapshot_name, changes, modified, docstatus=None):
     if str(changes.get("disabled")) not in {"0", "1"} or not modified:
         frappe.throw(_("Indique el estado del corte y su fecha de modificación."))
