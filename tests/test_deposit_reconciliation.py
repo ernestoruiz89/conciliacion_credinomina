@@ -7,6 +7,49 @@ from credinomina_reconciliation import deposit_reconciliation as scoped
 
 
 class SingleDepositTests(unittest.TestCase):
+    def test_frozen_cash_retains_row_fifo_company_and_reclassification_provenance(self):
+        detail = dict(tipo="Cobranza", periodo="P", fila_id="K", importe_usd=30,
+            fila_detalle="DETAIL", empresa="E", reclassification_operation_id="OP",
+            aplicaciones_fifo=[dict(application_id="A", amount_usd=30)])
+        deposit = frappe._dict(name="D", allocated_usd=30, allocation_detail=json.dumps([detail]))
+        period = frappe._dict(name="P", collection_rows=[frappe._dict(name="C", row_key="K")])
+        ledger, coverage = scoped.frozen_cash([deposit], [period], [])
+        self.assertEqual(ledger[0]["detail_row"], "DETAIL")
+        self.assertEqual(ledger[0]["fifo_applications"], detail["aplicaciones_fifo"])
+        self.assertEqual(ledger[0]["group"], "E")
+        self.assertEqual(ledger[0]["reclassification_operation_id"], "OP")
+        self.assertEqual(coverage["C:C"], 30)
+
+    def test_normal_reconcile_preserves_links_and_can_increase_or_add_coverage(self):
+        document = frappe._dict(name="D", allocated_usd=30, allocation_detail=json.dumps([
+            dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=30, fila_detalle="R")]))
+        for amounts in ([30], [10, 20], [35]):
+            ledger = [dict(deposit_id="D", claim_id="H:A", detail_row="R", amount_usd=amount) for amount in amounts]
+            ledger.append(dict(deposit_id="D", claim_id="H:B", amount_usd=10))
+            scoped.assert_preserved_allocations(document, {"allocations": ledger}, [])
+        for ledger in ([], [dict(deposit_id="D", claim_id="H:A", detail_row="R", amount_usd=29)],
+                       [dict(deposit_id="D", claim_id="H:B", detail_row="R", amount_usd=30)],
+                       [dict(deposit_id="D", claim_id="H:A", detail_row="OTHER", amount_usd=30)]):
+            with self.subTest(ledger=ledger), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(document, {"allocations": ledger}, [])
+
+    def test_operative_fifo_application_cannot_change_inside_the_same_collection(self):
+        document = frappe._dict(name="D", allocated_usd=30, allocation_detail=json.dumps([
+            dict(tipo="Cobranza", periodo="P", fila_id="K", importe_usd=30,
+                aplicaciones_fifo=[dict(application_id="A", amount_usd=30)])]))
+        period = frappe._dict(name="P", collection_rows=[frappe._dict(name="C", row_key="K")])
+        ledger = [dict(deposit_id="D", claim_id="C:C", amount_usd=30,
+                       fifo_applications=[dict(application_id="B", amount_usd=30)])]
+        with patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(document, {"allocations": ledger}, [period])
+
+    def test_corrupt_stored_ledgers_are_never_silently_ignored(self):
+        for raw in ('{}', '[null]', '[{"tipo":"Other","importe_usd":1}]',
+                    '[{"tipo":"Aplicacion historica","aplicacion_id":"A","importe_usd":-1}]',
+                    '[{"tipo":"Aplicacion historica","aplicacion_id":"A","importe_usd":"NaN"}]'):
+            with self.subTest(raw=raw), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.frozen_cash([frappe._dict(name="D", allocation_detail=raw)], [], [])
+
     def test_stored_cash_context_preserves_split_origins_and_signed_items(self):
         raw = json.dumps([
             dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=30, origen="Automática FIFO"),
@@ -38,8 +81,8 @@ class SingleDepositTests(unittest.TestCase):
             {"tipo": "Partida complementaria", "partida": "X1", "importe_usd": -10},
             {"tipo": "Movimiento de conciliación", "importe_usd": 0.01},
         ]))
-        movements = [dict(claim_id="H:H1", consumed_residual_usd=0.01, signed_amount_usd=0.01),
-                     dict(claim_id="C:C1", consumed_residual_usd=0, signed_amount_usd=-0.01)]
+        movements = [dict(deposit_id="D", claim_id="H:H1", consumed_residual_usd=0.01, signed_amount_usd=0.01),
+                     dict(deposit_id="D", claim_id="C:C1", consumed_residual_usd=0, signed_amount_usd=-0.01)]
         allocations, coverage = scoped.frozen_cash([deposit], [period], movements)
         self.assertEqual(len(allocations), 3)
         self.assertEqual(float(coverage["C:C1"]), 40.01)
@@ -59,7 +102,7 @@ class SingleDepositTests(unittest.TestCase):
 
     def test_endpoint_selects_individual_deposit_engine(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation import cn_remittance_allocation as api
-        doc = Mock(docstatus=1)
+        doc = Mock(docstatus=1, apply_fifo=False, detail_rows=[])
         with patch.object(api.frappe, "get_doc", return_value=doc), \
              patch.object(scoped, "reconcile_deposit", return_value={"scope": "deposit"}) as run:
             self.assertEqual(api.reconcile_remittance("D"), {"scope": "deposit"})

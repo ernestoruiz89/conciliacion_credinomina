@@ -10,6 +10,18 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_complementar
 
 
 class ApplicationAdjustmentScopeTests(unittest.TestCase):
+    def test_canceling_complement_can_remove_only_its_own_deposit_link(self):
+        import json
+        deposit = frappe._dict(name="D", allocation_detail=json.dumps([
+            dict(tipo="Partida complementaria", partida="CANCELLED", importe_usd=10),
+            dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=30)]))
+        item = frappe._dict(name="CANCELLED", docstatus=2)
+        valid = dict(allocations=[dict(deposit_id="D", claim_id="H:A", amount_usd=30)])
+        scoped._assert_retained_deposit_links(item, [deposit], valid, [])
+        shifted = dict(allocations=[dict(deposit_id="D", claim_id="H:B", amount_usd=30)])
+        with patch.object(frappe, "throw", side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
+            scoped._assert_retained_deposit_links(item, [deposit], shifted, [])
+
     def test_confirmation_does_not_run_company_reconciliation(self):
         doc = frappe._dict(employer="EMP", related_application="APP")
         with patch.object(adjustments, "reconcile_adjustment") as reconcile, \

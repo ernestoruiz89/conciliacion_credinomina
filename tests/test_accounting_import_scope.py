@@ -59,5 +59,5 @@ class AccountingImportScopeTests(unittest.TestCase):
 
     def test_previous_scope_includes_split_links_and_header(self):
         document = frappe._dict(historical_period="NEW", rows=[Row(name="A"), Row(name="B")])
-        with patch.object(engine, "_source_linked_periods", side_effect=[["OLD", "SECOND"], ["SECOND"]]):
+        with patch.object(engine, "_source_linked_periods_batch", return_value=[["OLD", "SECOND"], ["SECOND"]]):
             self.assertEqual(scope.linked_periods(document), ["NEW", "OLD", "SECOND"])

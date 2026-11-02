@@ -835,8 +835,11 @@ def _save_reconciled_document(document):
     return True
 
 
-def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False, unassigned_import=None,
+def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=True, unassigned_import=None,
                        period_name=None, import_name=None, previous_periods=()):
+    # Kept as an accepted legacy argument; global refreshes never replay cash.
+    # Individual deposit actions own the only supported cash reallocation path.
+    preserve_deposits = True
     if not frappe.has_permission("CN Accounting Import", "write"):
         frappe.throw(_("No tiene permiso para conciliar importaciones."))
 
@@ -1003,10 +1006,14 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=False,
     # Reloading with an empty parent period explicitly removes row assignments.
     # Recompute the old periods' balances without immediately matching these
     # applications back to payroll. They require an explicit period assignment.
-    matchable_rows = [row for row in changed_rows if row._source_import != unassigned_import]
+    from credinomina_reconciliation.application_link_preservation import preserve as preserve_application_links
+    linked_rows = preserve_application_links(changed_rows, original_source_rows, collection_rows,
+                                            exclude_import=unassigned_import)
+    linked_names = {row.name for row in linked_rows}
+    matchable_rows = [row for row in changed_rows if row._source_import != unassigned_import and row.name not in linked_names]
     _match_applications(
         matchable_rows, collection_rows, deposit_pairs, complementary_by_target, periods,
-        **({"fixed_sources": fixed_rows} if scoped_import else {}),
+        **({"fixed_sources": [*fixed_rows, *linked_rows]} if fixed_rows or linked_rows else {}),
     )
     for row in all_rows:
         if row._source_import == unassigned_import and row.event_type == "Aplicacion" and row.effective:
@@ -1982,7 +1989,7 @@ def _sync_remittance_details(context, allocation, claims=()):
 
 def _distribute_deposits(
     periods, source_rows, deposit_pairs, complementary_items,
-    complementary_by_target, manual_allocations, registered_ids, fixed_coverage=None,
+    complementary_by_target, manual_allocations, registered_ids, fixed_coverage=None, fixed_allocations=(),
 ):
     from credinomina_reconciliation.reconciliation_audit import snapshot
     audit_before = {item.name: snapshot(item) for item in manual_allocations}
@@ -2188,6 +2195,10 @@ def _distribute_deposits(
     # Signed complements retain their sign; settled claims remain at zero.
     from credinomina_reconciliation.credit_application import funding_totals
     fixed_coverage = dict(fixed_coverage or {})
+    fixed_fifo = defaultdict(lambda: defaultdict(lambda: money(0)))
+    for entry in fixed_allocations:
+        for part in entry.get("fifo_applications") or []:
+            fixed_fifo[entry["claim_id"]][part["application_id"]] += money(part["amount_usd"])
     for application, amount in funding_totals(historical_applications).items():
         key = "H:" + application
         fixed_coverage[key] = money(fixed_coverage.get(key)) + amount
@@ -2195,6 +2206,7 @@ def _distribute_deposits(
         for claim in claims:
             covered = money(fixed_coverage.get(claim["id"]))
             claim["fifo_covered_usd"] = money_float(covered)
+            claim["fifo_covered_by_application"] = dict(fixed_fifo.get(claim["id"], {}))
             original = money(claim["amount_usd"])
             remaining = original - covered
             claim["amount_usd"] = money_float(min(remaining, 0) if original < 0 else max(remaining, 0))

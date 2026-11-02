@@ -460,7 +460,11 @@ FIFO no corrige identidades contradictorias, no inventa una aplicación faltante
 
 Conserve primero el detalle de la distribución actual y consulte **Conciliación → Historial de conciliación**. Revise qué períodos y partidas quedarían afectados y obtenga la autorización correspondiente.
 
-Para corregir, modifique o retire los destinos equivocados y los vínculos del detalle, guarde y vuelva a Conciliar. Al verificar o cambiar una distribución existente se solicita un motivo y se conserva su antes y después. Si el detalle sigue provocando el mismo cruce automático, corríjalo o restrinja sus períodos; borrar una instrucción manual no garantiza que la automatización deje de seleccionar la misma aplicación.
+Una conciliación nueva conserva las asignaciones confirmadas. Un depósito puede cubrir varias aplicaciones, y una aplicación puede recibir varios depósitos y ajustes complementarios; cada operación utiliza únicamente la capacidad restante. Actualizar importaciones, períodos o maestros conserva los diarios de efectivo y reserva los vínculos de cobranza existentes antes de buscar nuevas coincidencias.
+
+Para corregir un vínculo ya confirmado, use primero **Desconciliar** en la fila afectada o en el depósito según el alcance. Después modifique los destinos y vuelva a conciliar. Una conciliación normal que intente quitar, reducir o mover una asignación confirmada se bloquea y no guarda sus cambios. Las disminuciones por ajustes confirmados conservan la cobranza de destino; si requieren repartir un nuevo importe entre varias cobranzas, solicitan revisión explícita. Al cancelar una partida solo puede retirarse su propio vínculo, conservando los demás pagos.
+
+FIFO conserva las aplicaciones exactas que ya recibieron efectivo, aunque después se importen aplicaciones más antiguas. Si una cobranza antigua tiene varios destinos y sus depósitos no conservan el reparto por aplicación, se requiere revisar sus vínculos antes de usar FIFO; no se reasigna el pago a otra aplicación por su antigüedad.
 
 Para retirar la conciliación vigente, use **Conciliación → Desconciliar**. Lea la advertencia, indique el motivo y confirme la acción. El depósito permanece confirmado y conserva su origen contable; revise los destinos antes de conciliar otra vez. Las restricciones por períodos cerrados, reservas de saldos a favor y otros vínculos siguen vigentes. Desconciliar no requiere el rol de eliminación del core porque no cancela ni elimina el documento.
 

@@ -87,6 +87,7 @@ class SignedComplementaryTests(unittest.TestCase):
         doc.voucher = " AS-100 "
         with patch.object(frappe, "db", Mock()) as db:
             db.get_value.side_effect = lambda doctype, *args, **kwargs: 'Sin CxC adicional' if doctype == 'CN Complementary Subcategory' else None
-            CNComplementaryItem.before_update_after_submit(SimpleNamespace(validate=lambda: CNComplementaryItem.validate(doc)))
+            doc.validate = lambda: CNComplementaryItem.validate(doc)
+            CNComplementaryItem.before_update_after_submit(doc)
         self.assertEqual(doc.voucher, "AS-100")
         self.assertEqual(doc.accounting_status, "Asiento informado")

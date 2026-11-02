@@ -11,7 +11,8 @@ def fifo_targets(matches, amount_usd, reserved=None):
     Claims are already scoped and identity-checked by remittance_detail. An
     operative claim can contain several applications: sort their dated slices,
     not the payroll month or the collection row's creation date. Existing cash
-    and explicit instructions consume the oldest capacity before this plan.
+    is deducted from the exact recorded application slices. Legacy cash without
+    a slice cannot choose a different application by assuming oldest-first.
     """
     reserved = reserved or {}
     loans = {canonical_credit_number(claim.get("loan_number")) for claim in matches}
@@ -39,8 +40,26 @@ def fifo_targets(matches, amount_usd, reserved=None):
             except ValueError:
                 return [], "FIFO requiere una fecha válida en todas las aplicaciones candidatas"
             dated.append((day, str(part["id"]), money(part["amount_usd"])))
-        skip = max(money(claim.get("fifo_covered_usd")), money(0)) + used
+        covered = max(money(claim.get("fifo_covered_usd")), money(0))
+        specific = claim.get("fifo_covered_by_application") or {}
+        dated_totals = {}
+        for day, application_id, amount in dated:
+            key = (day, application_id)
+            dated_totals[key] = dated_totals.get(key, money(0)) + amount
+        dated = [(day, application_id, amount) for (day, application_id), amount in dated_totals.items()]
+        capacities = {application_id: amount for _day, application_id, amount in dated}
+        if any(application_id not in capacities or money(amount) < 0 or money(amount) > capacities[application_id]
+               for application_id, amount in specific.items()):
+            return [], "La cobertura guardada no coincide con las aplicaciones vigentes; revise la distribución antes de aplicar FIFO"
+        if claim.get("kind") == "C" and covered and len(dated) > 1:
+            if sum((money(value) for value in specific.values()), money(0)) != covered:
+                return [], "La cobranza tiene depósitos previos sin reparto por aplicación; revise sus vínculos antes de aplicar FIFO"
+        # Current request reservations consume remaining dated capacity in the
+        # same order as this plan; earlier persisted cash keeps its exact slice.
+        skip = used if specific else covered + used
         for day, application_id, amount in sorted(dated):
+            if specific:
+                amount = max(amount - max(money(specific.get(application_id)), money(0)), money(0))
             consumed = min(skip, amount)
             skip -= consumed
             amount = min(amount - consumed, available)
