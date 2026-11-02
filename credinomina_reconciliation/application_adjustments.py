@@ -20,7 +20,19 @@ def mark_mixed_settlements(rows, collections):
                 or not money(net_amount(row))):
             continue
         if row.get("historical_period"):
-            complete = money(row.get("historical_remitted_usd")) > 0 and money(row.get("historical_balance_usd")) == 0
+            paid = money(row.get("historical_remitted_usd"))
+            rounding = sum_money(entry.get("diferencia_usd") for entry in
+                                 frappe.parse_json(row.get("historical_detail") or "[]"))
+            expected = money(net_amount(row)) + rounding
+            if paid < 0 or paid > expected:
+                row.deposit_match_status = "Diferencia de importe"
+                row.deposit_match_reason = _("La cobertura de depósitos no coincide con el aplicado neto y sus ajustes; revise la distribución.")
+                continue
+            if paid < expected:
+                row.deposit_match_status = "Depósito parcial" if paid > 0 else "Sin deposito"
+                row.deposit_match_reason = _("El aplicado neto conserva un saldo pendiente de cobertura con depósitos.")
+                continue
+            complete = paid > 0 and paid == expected and money(row.get("historical_balance_usd")) == 0
         else:
             links = frappe.parse_json(row.get("application_allocation_detail") or "[]")
             targets = [by_name.get(link.get("collection_row_id")) for link in links]
@@ -32,7 +44,14 @@ def mark_mixed_settlements(rows, collections):
                 cash = sum_money(entry.get("importe_usd") for entry in
                     frappe.parse_json(target.get("remittance_detail") or "[]")
                     if entry.get("destino") != "Partida complementaria")
-                if cash <= 0 or cash + max(-money(target.get("rounding_adjustment_usd")), 0) < money(target.get("applied_usd")):
+                expected = money(target.get("applied_usd")) + money(target.get("rounding_adjustment_usd"))
+                if cash > expected or cash < 0:
+                    row.deposit_match_status = "Diferencia de importe"
+                    row.deposit_match_reason = _("La cobranza vinculada tiene cobertura inconsistente; revise la distribución antes de darla por conciliada.")
+                    complete = False
+                    break
+                if cash <= 0 or cash != expected:
+                    row.deposit_match_status = "Depósito parcial" if cash > 0 else "Sin deposito"
                     complete = False
         if complete:
             row.deposit_match_status = MIXED_STATUS

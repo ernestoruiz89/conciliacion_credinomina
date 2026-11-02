@@ -2,10 +2,11 @@ frappe.listview_settings["CN Reconciliation Period"] = {
     // Always fetch the indicator, including with personalized list columns.
     // Colors come from DocType states, shared by the list and form header.
     add_fields: ["status", "status_before_close", "applied_total_usd", "deposit_coverage_usd",
-        "complementary_coverage_usd", "pending_usd", "usd_currency"],
+        "complementary_coverage_usd", "negative_complementary_usd", "cash_breakdown_known", "cash_breakdown_note", "pending_usd", "usd_currency"],
     formatters: {
-        deposit_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
-        complementary_coverage_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
+        deposit_coverage_usd(value, df, doc) { return Number(doc.cash_breakdown_known) !== 1 || value == null ? "—" : frappe.format(value, df, null, doc); },
+        complementary_coverage_usd(value, df, doc) { return Number(doc.cash_breakdown_known) !== 1 || value == null ? "—" : frappe.format(value, df, null, doc); },
+        negative_complementary_usd(value, df, doc) { return Number(doc.cash_breakdown_known) !== 1 || value == null ? "—" : frappe.format(value, df, null, doc); },
         pending_usd(value, df, doc) { return value == null ? "—" : frappe.format(value, df, null, doc); },
         status_before_close(value, df, doc) {
             if (doc.status !== "Cerrado") return "—";
@@ -35,7 +36,7 @@ frappe.listview_settings["CN Reconciliation Period"] = {
         if (settings.fields) {
             const fields = JSON.parse(settings.fields).filter(field => !hiddenColumns.has(field.fieldname));
             for (const fieldname of ["status_before_close", "applied_total_usd", "deposit_coverage_usd",
-                "complementary_coverage_usd", "pending_usd"]) {
+                "complementary_coverage_usd", "negative_complementary_usd", "pending_usd"]) {
                 if (!fields.some(field => field.fieldname === fieldname)) fields.push({fieldname});
             }
             settings.fields = JSON.stringify(fields);

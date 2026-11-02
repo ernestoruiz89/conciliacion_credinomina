@@ -6,6 +6,44 @@ from credinomina_reconciliation import accounting_client_summary as summary
 
 
 class AccountingClientSummaryTests(unittest.TestCase):
+    def test_explicit_fifo_slices_attribute_shared_cash_to_the_correct_application(self):
+        collection = dict(applied_usd=200, remittance_detail=[dict(importe_usd=100,
+            aplicaciones_fifo=[dict(application_id='B', amount_usd=100)])])
+        sources = [self.source(name=name, historical_period='', collection_row_id='C') for name in ('A', 'B')]
+        rows = summary.build_summary({'rows': sources}, {'C': collection}, group_by_row=True)
+        by_name = {row['source_row_name']: row for row in rows}
+        self.assertEqual((by_name['A']['assigned_usd'], by_name['A']['balance_usd']), (0, 100))
+        self.assertEqual((by_name['B']['assigned_usd'], by_name['B']['balance_usd']), (100, 0))
+        self.assertEqual(self.build(sources, {'C': collection})[0]['assigned_usd'], 100)
+        from credinomina_reconciliation.company_transactions import application_progress_index, application_month_amounts
+        sources[0].update(parent='I', event_date='2026-09-30')
+        sources[1].update(parent='I', event_date='2026-10-15')
+        parents = {'I': dict(status='Importado', employer='E')}
+        progress = application_progress_index(sources, parents, {'C': collection})
+        self.assertEqual((progress['A']['state'], progress['B']['state']), ('Pendiente', 'Conciliado'))
+        months = application_month_amounts(sources, parents, {'C': collection}, progress)
+        self.assertEqual(months[('E', '2026-09')]['covered_usd'], 0)
+        self.assertEqual(months[('E', '2026-10')]['covered_usd'], 100)
+        # A duplicated link to the same claim must not spend the slice twice.
+        sources[1]['application_allocation_detail'] = [dict(collection_row_id='C', amount_usd=50)] * 2
+        self.assertEqual(summary.row_amounts({'rows': sources}, {'C': collection})['B']['applied_usd'], 100)
+        # Mixed unsplit evidence remains unknown, rather than guessing a share.
+        collection['remittance_detail'].append(dict(importe_usd=10))
+        self.assertIsNone(summary.row_amounts({'rows': sources}, {'C': collection})['B']['balance_usd'])
+
+    def test_invalid_fifo_slice_does_not_produce_a_paid_application(self):
+        source = self.source(historical_period='', collection_row_id='C')
+        collection = dict(applied_usd=100, remittance_detail=[dict(importe_usd=50,
+            aplicaciones_fifo=[dict(application_id='A', amount_usd=100)])])
+        with self.assertRaises(ValueError):
+            self.build([source], {'C': collection})
+
+    def test_projected_direct_cash_cannot_pay_a_legacy_application_twice(self):
+        source = self.source(historical_period='', collection_row_id='C')
+        collection = dict(applied_usd=200, remittance_detail=[dict(importe_usd=100, aplicacion_directa='OTHER')])
+        row = self.build([source], {'C': collection})[0]
+        self.assertEqual((row['assigned_usd'], row['balance_usd']), (0, 100))
+
     def source(self, **changes):
         return dict(dict(name='A', event_type='Aplicacion', effective=1, client_number='1',
             client_name='Cliente uno', currency='USD', amount=100, historical_period='H',

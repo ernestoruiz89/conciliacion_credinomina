@@ -619,6 +619,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
     deposit_links = {row["accounting_source_key"]: row["remittance_allocation"] for row in deposits}
     for row in parsed:
         row["remittance_allocation"] = deposit_links.get(row.get("accounting_source_key"), "")
+    from credinomina_reconciliation.accounting_reimport_state import reconciliation_state
     existing_settings = defaultdict(list)
     for row in document.rows or []:
         if row.source_key:
@@ -628,6 +629,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
                     row.historical_period,
                     row.processing_route,
                     row.difference_reason, row.get("difference_notes"),
+                    row.as_dict(),
                 )
             )
     document.file_hash = file_sha256(content)
@@ -635,29 +637,28 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
     reassigned_rows = []
     for record in parsed:
         previous = existing_settings[record["source_key"]]
-        preserved_name, manual_rate, prior_period, prior_route, difference_reason, difference_notes = (
-            previous.pop(0) if previous else (None, 0, "", "", "", "")
+        preserved_name, manual_rate, prior_period, prior_route, difference_reason, difference_notes, previous_state = (
+            previous.pop(0) if previous else (None, 0, "", "", "", "", {})
         )
         period = ""
         if record["event_type"] == "Aplicacion" and document.historical_period:
             period = document.historical_period if apply_default_period else prior_period or document.historical_period
             if preserved_name and period != prior_period:
                 reassigned_rows.append((len(document.rows) + 1, prior_period))
-        document.append(
-            "rows",
-            {
-                **record,
-                **({"name": preserved_name} if preserved_name else {}),
-                "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
-                "processing_route": prior_route,
-                "difference_reason": difference_reason,
-                "difference_notes": difference_notes,
-                "historical_period": period,
-                "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
-                "match_status": "Pendiente",
-                "deposit_match_status": "Pendiente",
-            },
-        )
+        restored_row = {
+            **record,
+            **({"name": preserved_name} if preserved_name else {}),
+            "manual_fx_rate": record.get("manual_fx_rate", manual_rate),
+            "processing_route": prior_route,
+            "difference_reason": difference_reason,
+            "difference_notes": difference_notes,
+            "historical_period": period,
+            "effective": int(record["event_type"] != "Ajuste" and not record.get("remittance_allocation")),
+            "match_status": "Pendiente",
+            "deposit_match_status": "Pendiente",
+        }
+        restored_row.update(reconciliation_state(previous_state, restored_row))
+        document.append("rows", restored_row)
     document.imported_on = now_datetime()
     document.imported_by = frappe.session.user
     document.status = "Importado"
@@ -1786,7 +1787,7 @@ def _prepare_remittance_details(
                 continue
             if manual:
                 plan["targets"], plan["reason"] = manual_detail_targets(
-                    plan["row"], claims, manual, amount, item.employer, selected_periods(item),
+                    plan["row"], claims, [dict(entry, allow_partial=True) for entry in manual], amount, item.employer, selected_periods(item),
                     allowed_groups=allowed_groups,
                     allow_other_periods=bool(item.get("allow_manual_other_periods")),
                 )
@@ -1818,8 +1819,8 @@ def _prepare_remittance_details(
                     "claim_id": target["claim_id"],
                     "amount_usd": target["amount_usd"],
                     "origin": FIFO if apply_fifo else DETAIL,
-                    **({"detail_row": plan["row"].name,
-                        "fifo_applications": target["fifo_applications"]} if apply_fifo else {}),
+                    "detail_row": plan["row"].name,
+                    **({"fifo_applications": target["fifo_applications"]} if apply_fifo else {}),
                 })
                 reserved.add((deposit_id, target["claim_id"]))
                 reserved_amounts[target["claim_id"]] += money(target["amount_usd"])
@@ -1852,12 +1853,36 @@ def _prepare_remittance_details(
             bool(plan["targets"]) for plan in plans
         ) == 1:
             rounding_eligible.add(deposit_id)
+    plans_by_row = {plan["row"].name: plan for state in contexts.values() for plan in state["rows"]}
+    rejected = {}
+    for instruction in prior_instructions:
+        if not instruction.get("detail_row"):
+            continue
+        plan = plans_by_row.get(instruction["detail_row"])
+        if not plan or not any(target.get("instruction_id") == instruction["id"] for target in plan["targets"]):
+            rejected[instruction["id"]] = (plan.get("reason") if plan else "") or "La fila del detalle no pudo validar este destino manual"
     return {
         "instructions": instructions, "blocked_deposits": blocked,
         "contexts": contexts, "rounding_eligible": rounding_eligible,
+        "rejected_instructions": rejected,
         "client_credit_reservations": {deposit_id: money_float(sum_money(credit.amount_usd for credit in client_credits
                 if registered_ids.get(credit.registered_deposit) == deposit_id)) for deposit_id in registered_ids.values()},
     }
+
+
+def _validated_remittance_instructions(context, instructions):
+    """A rejected detail link must never become a financial cash allocation.
+
+    Deposits with signed counterparts are atomic: an invalid positive or
+    negative instruction rejects the entire group, including other detail rows.
+    """
+    rejected = dict(context.get("rejected_instructions") or {})
+    signed_deposits = {entry["deposit_id"] for entry in instructions if money(entry.get("amount_usd")) < 0}
+    failed_deposits = {entry["deposit_id"] for entry in instructions if entry["id"] in rejected} & signed_deposits
+    for entry in instructions:
+        if entry["deposit_id"] in failed_deposits:
+            rejected.setdefault(entry["id"], "Distribución con contrapartida inválida; revise los vínculos del detalle")
+    return [entry for entry in instructions if entry["id"] not in rejected], rejected
 
 
 def _sync_remittance_details(context, allocation, claims=()):
@@ -2285,7 +2310,9 @@ def _distribute_deposits(
         if not permits_claim(candidates[0], claims_by_id.get(claim_id, {}), item.get("employer")):
             manual_results[item.name] = "Empresa no coincide"
             manually_ambiguous_deposits.add(candidates[0]["id"])
-            continue
+            # Keep invalid instructions for the allocator's atomic signed-group
+            # validation; dropping a negative counterpart could spend only the
+            # positive side of an invalid distribution.
         instructions.append(
             {"id": item.name, "deposit_id": candidates[0]["id"],
              "claim_id": claim_id, "amount_usd": flt(item.amount_usd),
@@ -2320,7 +2347,9 @@ def _distribute_deposits(
     reservations = detail_context.get("client_credit_reservations", {})
     cash_deposits = [{**deposit, "amount_usd": money_float(max(money(deposit["amount_usd"]) - money(reservations.get(deposit["id"])), money(0)))}
                      for deposit in deposits]
-    result = allocate_cash(cash_deposits, claims, instructions, manually_ambiguous_deposits)
+    valid_instructions, rejected_instructions = _validated_remittance_instructions(detail_context, instructions)
+    result = allocate_cash(cash_deposits, claims, valid_instructions, manually_ambiguous_deposits)
+    result["instruction_results"].update(rejected_instructions)
     for deposit_id, amount in reservations.items():
         if deposit_id in result["deposit_remaining"]:
             result["deposit_remaining"][deposit_id] = money_float(money(result["deposit_remaining"][deposit_id]) + money(amount))
@@ -2416,6 +2445,10 @@ def _distribute_deposits(
                 person = detail_identities.get(entry["detail_row"], {})
                 destination.update({"fila_detalle": entry["detail_row"], "cliente": person.get("client_name") or "",
                                     "nro_cliente": person.get("client_number") or "", "credito": person.get("loan_number") or ""})
+        if entry.get("detail_row"):
+            # Preserve row provenance for manual and exact-detail allocations,
+            # too. Several rows can legitimately pay the same application.
+            destination["fila_detalle"] = entry["detail_row"]
         detail_by_deposit[entry["deposit_id"]].append(
             {**destination, "empresa": entry.get("group") or claims_by_id[claim_id].get("group"), "importe_usd": entry["amount_usd"],
              "origen": entry["origin"],
@@ -2793,7 +2826,7 @@ def _rebuild_period_balances(
 ):
     from credinomina_reconciliation.credit_application import with_funding
     allocation = with_funding(allocation, source_rows)
-    totals_context = PeriodTotalsContext(periods, source_rows)
+    totals_context = PeriodTotalsContext(periods, source_rows, cash_allocation=allocation)
     period_by_name = {period.name: period for period in periods}
     rows_by_name = {}
     for period in periods:
@@ -2864,6 +2897,7 @@ def _rebuild_period_balances(
                 **({"saldo_a_favor": entry["credit_item"], "operacion": entry["credit_operation"],
                     "deposito_origen": entry["origin_deposit"]} if entry.get("credit_item") else {}),
                 **({"aplicacion_directa": entry["direct_application"]} if entry.get("direct_application") else {}),
+                **({"aplicaciones_fifo": entry["fifo_applications"]} if entry.get("fifo_applications") else {}),
             }
         )
         target.remitted_usd = flt(target.remitted_usd) + amount
@@ -3139,7 +3173,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
     }
-    totals_context = PeriodTotalsContext(historical_periods.values(), source_rows)
+    totals_context = PeriodTotalsContext(historical_periods.values(), source_rows, cash_allocation=allocation)
     assigned_periods = {period.name: period for period in periods}
     applications = {
         row.name: row for row in source_rows
@@ -3201,7 +3235,8 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
         application.historical_detail = json.dumps(details, ensure_ascii=False)
         application.deposit_match_status = (
-            "Depósito conciliado" if application.historical_balance_usd <= CASH_EPSILON
+            "Diferencia de importe" if money(remitted) > money(applied) + money(adjustment) or money(remitted) < 0
+            else "Depósito conciliado" if application.historical_balance_usd <= CASH_EPSILON
             else "Depósito parcial" if remitted > CASH_EPSILON
             else "Sin deposito"
         )
@@ -3274,6 +3309,10 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
                 "Conciliado" if related and applied == 0 and any(money(row.get("application_adjustment_usd")) > 0 for row in related)
                 else historical_status(applied + adjustment, remitted)
             )
+            if period.status == "Conciliado" and any(
+                    row.deposit_match_status not in SETTLED_APPLICATION_STATUSES for row in related):
+                # An excess on one application cannot settle another's shortfall.
+                period.status = "Parcial"
         with totals_context.use():
             if period.status == "Cerrado":
                 with period_write_action("reconcile"):

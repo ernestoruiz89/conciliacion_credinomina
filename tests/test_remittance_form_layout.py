@@ -32,15 +32,18 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         self.assertTrue(fields["technical_section"]["collapsible"])
         self.assertGreater(doc["field_order"].index("unallocated_usd"), doc["field_order"].index("technical_section"))
         self.assertIn("Incluye los saldos a favor", fields["unallocated_usd"]["description"])
-        self.assertEqual(fields["unclassified_usd"]["label"], "Sin asignar ni justificar US$")
+        self.assertEqual(fields["unclassified_usd"]["label"], "Sin distribuir US$")
+        self.assertIn("distribuir o justificar", fields["unclassified_usd"]["description"])
         self.assertTrue(fields["result"]["allow_on_submit"])
         self.assertFalse(fields["detail_rows"].get("read_only"))
         self.assertTrue(fields["detail_rows"]["allow_on_submit"])
         child_path = path.parent.parent / "cn_remittance_detail/cn_remittance_detail.json"
         child_fields = json.loads(child_path.read_text(encoding="utf-8"))["fields"]
         editable = [field["fieldname"] for field in child_fields
-                    if not field.get("read_only") and field["fieldtype"] not in ("Section Break", "Button")]
-        self.assertEqual(editable, ["employer", "loan_number"])
+                    if not field.get("read_only") and field["fieldtype"] not in
+                    ("Section Break", "Column Break", "Tab Break", "Button", "HTML")]
+        self.assertEqual(editable, ["manual_reconciliation_required", "employer", "loan_number"])
+        self.assertTrue(next(field for field in child_fields if field["fieldname"] == "manual_reconciliation_required")["allow_on_submit"])
         self.assertTrue(next(field for field in child_fields if field["fieldname"] == "loan_number")["allow_on_submit"])
         button = next(field for field in child_fields if field["fieldname"] == "create_client_credit")
         self.assertEqual(button["fieldtype"], "Button")

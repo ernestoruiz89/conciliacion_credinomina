@@ -151,6 +151,11 @@ class ClosureScopeTests(unittest.TestCase):
 
 
 class CloseProgressTests(unittest.TestCase):
+    def setUp(self):
+        lock = patch.object(controller, 'lock_period_companies')
+        lock.start()
+        self.addCleanup(lock.stop)
+
     def test_company_engine_receives_scope_and_progress_without_global_reconciliation(self):
         module = "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import"
         progress = Mock()
@@ -178,10 +183,12 @@ class CloseProgressTests(unittest.TestCase):
              patch.object(controller, "_reconcile_if_sources", side_effect=reconcile), \
              patch.object(controller, "_pending_remittance_details_for_period", return_value=[]), \
              patch.object(controller, "_pending_registered_targets", return_value=False), \
+             patch.object(closure, "validate_direct_applications") as validate_applications, \
              patch.object(controller, "now_datetime", return_value=datetime(2026, 10, 2)), \
              patch.object(closure, "ClosureScope", return_value=scope):
             result = controller.close_period("PER", "TOKEN")
         self.assertEqual(result["status"], "Cerrado")
+        validate_applications.assert_called_once_with(period)
         self.assertEqual(period.status_before_close, "Conciliado")
         self.assertTrue(period.flags.skip_comment_reconciliation)
         period.reload.assert_called_once(); period.save.assert_called_once()

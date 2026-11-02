@@ -23,6 +23,26 @@ FINANCIAL_FIELDS = (
 MANAGED_FIELDS = ("credit_resolved_usd", "credit_pending_usd", "credit_management_status", "credit_history", "credit_usage_issue")
 
 
+def available_from(item, deposit=None):
+    """Cash-backed credit cannot be used before its bank receipt exists.
+
+    Reclassified evidence retains its original posting date; its explicit
+    credit_origin_date is the financial origin instead. Legacy dates remain
+    untouched, but new uses also respect the actual bank date.
+    """
+    origin = getdate(item.get('credit_origin_date') or item.get('posting_date'))
+    bank_date = (deposit.get('deposit_date') if deposit is not None else
+        frappe.db.get_value('CN Remittance Allocation', item.registered_deposit, 'deposit_date')
+        if item.get('registered_deposit') else None)
+    return max(origin, getdate(bank_date)) if bank_date else origin
+
+
+def validate_origin_date(item, deposit):
+    origin = getdate(item.get('credit_origin_date') or item.get('posting_date'))
+    if deposit.get('deposit_date') and origin < getdate(deposit.deposit_date):
+        frappe.throw(_('La fecha de origen del saldo a favor no puede ser anterior al depósito que lo respalda.'))
+
+
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def search_beneficiaries(doctype, txt, searchfield, start, page_len, filters=None):
@@ -146,6 +166,7 @@ def validate_client_credit(doc, previous=None):
     deposit.check_permission("read")
     if deposit.docstatus != 1:
         frappe.throw(_("Confirme primero el depósito de origen."))
+    validate_origin_date(doc, deposit)
     other_credits = other_reservations(deposit.name, doc.name)
     capacity = money(deposit.amount_usd) - money(deposit.allocated_usd) - sum_money(row.amount_usd for row in other_credits)
     if money(doc.amount_usd) > capacity:
@@ -284,7 +305,7 @@ def record_management(item_name, modified, treatment, amount_usd, event_date, re
         frappe.throw(_("El importe de la gestión debe ser positivo y no superar el saldo pendiente."))
     if treatment not in {"Devolución", "Aplicación futura"} or not clean_text(reference) or not event_date:
         frappe.throw(_("Indique devolución o aplicación, fecha y referencia del core/comprobante."))
-    if getdate(event_date) < getdate(item.get('credit_origin_date') or item.posting_date) or getdate(event_date) > getdate():
+    if getdate(event_date) < available_from(item) or getdate(event_date) > getdate():
         frappe.throw(_("La fecha de gestión no puede ser futura ni anterior al saldo a favor."))
     support_file = clean_text(support_file)
     if support_file:
@@ -357,7 +378,7 @@ def reverse_management(item_name, modified, entry_id, event_date, reason):
     if not original or not original["can_reverse"]:
         frappe.throw(_("La gestión no existe o ya fue revertida."))
     date = getdate(event_date)
-    earliest = max([getdate(item.get('credit_origin_date') or item.posting_date), *[getdate(entry["fecha"]) for entry in entries if entry.get("fecha")]])
+    earliest = max([available_from(item), *[getdate(entry["fecha"]) for entry in entries if entry.get("fecha")]])
     if date < earliest or date > getdate():
         frappe.throw(_("La reversión no puede ser futura ni anterior a las gestiones registradas."))
     amount = money(original["importe_usd"])

@@ -49,7 +49,7 @@ def ensure_related_periods_open(doc):
 
 
 def validate_company_credit(doc):
-    from credinomina_reconciliation.client_credit import MANAGED_FIELDS, _assert_financial_identity, lock_credit_deposit, other_reservations
+    from credinomina_reconciliation.client_credit import MANAGED_FIELDS, _assert_financial_identity, lock_credit_deposit, other_reservations, validate_origin_date
     previous = doc.get_doc_before_save() if callable(getattr(doc, "get_doc_before_save", None)) else None
     if previous and previous.docstatus == 1:
         _assert_financial_identity(doc, previous)
@@ -83,6 +83,7 @@ def validate_company_credit(doc):
         deposit.check_permission("read")
         if deposit.docstatus != 1 or not deposit.deposit_date:
             frappe.throw(_("Seleccione un depósito registrado y confirmado."))
+        validate_origin_date(doc, deposit)
         if doc.employer and doc.employer != deposit.employer:
             frappe.throw(_("El depósito y la partida pertenecen a empresas diferentes."))
         doc.employer = deposit.employer

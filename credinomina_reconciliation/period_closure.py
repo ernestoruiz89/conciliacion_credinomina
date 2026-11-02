@@ -154,19 +154,30 @@ def pending_registered_targets(target_filters):
 def validate_direct_applications(period):
     """Validate financial coverage independently of collection quality."""
     from frappe import _
+    from credinomina_reconciliation.reconciliation import converted_amount
     from credinomina_reconciliation.rounding import money
     sources = frappe.get_all("CN Source Row", filters={
         "parenttype": "CN Accounting Import", "parentfield": "rows",
         "historical_period": period.name, "event_type": "Aplicacion", "effective": 1,
-    }, fields=["name", "amount", "application_adjustment_usd", "match_status",
-               "application_allocation_detail", "historical_balance_usd", "deposit_match_status"], limit_page_length=0)
+    }, fields=["name", "amount", "currency", "equivalent_currency", "equivalent_amount", "manual_fx_rate",
+               "fx_basis", "application_adjustment_usd", "match_status",
+               "application_allocation_detail", "historical_balance_usd", "deposit_match_status",
+               "historical_remitted_usd", "historical_detail"], limit_page_length=0)
     if period.get("no_collection") and not sources:
         frappe.throw(_("Asigne al menos una aplicación contable efectiva al período sin cobranza antes de cerrarlo."))
     for source in sources:
         # Missing collection links are informational, not missing money.
         if source.match_status != "Conciliado":
             frappe.throw(_("Revise la aplicación efectiva {0} del período antes del cierre.").format(source.name))
-        if money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
+        original = converted_amount(dict(source, application_adjustment_usd=0), "USD")
+        if original is None:
+            frappe.throw(_("Falta la conversión a US$ de la aplicación {0}; no se puede verificar su cobertura para el cierre.").format(source.name))
+        net = money(original) - money(source.get("application_adjustment_usd"))
+        paid = money(source.get("historical_remitted_usd"))
+        rounding = sum((money(entry.get("diferencia_usd")) for entry in entries(source.get("historical_detail"))), money(0))
+        if net < 0 or paid < 0 or paid > net + rounding:
+            frappe.throw(_("La aplicación {0} tiene cobertura mayor al aplicado neto o importes inconsistentes. Revise su distribución antes del cierre.").format(source.name))
+        if paid < net + rounding or money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
             "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste",
         }:
             frappe.throw(_("Falta completar la conciliación 2 de la aplicación {0} con depósitos o ajustes confirmados.").format(source.name))

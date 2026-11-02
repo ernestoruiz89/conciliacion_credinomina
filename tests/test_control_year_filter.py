@@ -30,10 +30,12 @@ class ControlYearFilterTests(unittest.TestCase):
             for field in ("payroll_month", "event_date", "deposit_date"):
                 self.assertNotIn(field, filters, (dt, filters))
             if "limit_page_length" in query:
-                # Receivables use the permission-aware paginator, not a screen cap.
-                if dt == 'CN Complementary Item' and 'subcategory_effect' in filters:
+                # Financial readers use bounded pages instead of screen caps.
+                # Empty fixtures finish on page zero; every bounded request
+                # must carry a paginator offset rather than truncating totals.
+                if query['limit_page_length']:
                     self.assertEqual(query['limit_page_length'], 500)
-                    self.assertEqual(query.get('limit_start'), 0)
+                    self.assertEqual(query['limit_start'], 0)
                 else:
                     self.assertEqual(query["limit_page_length"], 0)
 
@@ -53,22 +55,32 @@ class ControlYearFilterTests(unittest.TestCase):
 
     def test_year_catalog_uses_visible_parents_and_selected_employer(self):
         def get_list(dt, **kwargs):
-            self.assertEqual(kwargs["filters"]["employer"], "EMP")
             if dt == "CN Reconciliation Period":
-                return [frappe._dict(payroll_month="2010-01-01")]
+                self.assertEqual(kwargs['filters']['employer'], 'EMP')
+                return ([frappe._dict(payroll_month="2010-01-01")] if kwargs.get('group_by')
+                        else [frappe._dict(name='P', employer='EMP')])
             if dt == "CN Remittance Allocation":
+                self.assertEqual(kwargs['filters']['employer'], 'EMP')
                 return [frappe._dict(deposit_date="2027-01-01")]
-            return ["VISIBLE-IMPORT"]
-        context = ([dict(parent='VISIBLE-IMPORT', historical_period='P', event_date='2026-03-01'),
-                    dict(parent='OTHER', portfolio_employer='OTHER', event_date='2029-03-01')],
-                   {'VISIBLE-IMPORT': {}, 'OTHER': {}}, {'P': dict(employer='EMP')}, {}, {})
-        with patch('credinomina_reconciliation.application_context.load_application_context', return_value=context) as load, \
+            self.assertEqual(dt, 'CN Accounting Import')
+            self.assertEqual(kwargs['or_filters'], [['employer', '=', 'EMP'], ['employer', 'is', 'not set']])
+            return [frappe._dict(name='VISIBLE-IMPORT', employer='', historical_period='')]
+        sources = [frappe._dict(parent='VISIBLE-IMPORT', historical_period='P', event_date='2026-03-01'),
+                   frappe._dict(parent='OTHER', portfolio_employer='OTHER', event_date='2029-03-01')]
+        def get_all(dt, **kwargs):
+            self.assertEqual(dt, 'CN Source Row')
+            self.assertEqual(kwargs['filters']['parent'], ['in', ['VISIBLE-IMPORT']])
+            self.assertEqual(kwargs['filters']['parenttype'], 'CN Accounting Import')
+            self.assertEqual(kwargs['filters']['parentfield'], 'rows')
+            self.assertNotIn('historical_detail', kwargs['fields'])
+            return [row for row in sources if row.parent in kwargs['filters']['parent'][1]]
+        with patch('credinomina_reconciliation.application_context.load_application_context', side_effect=AssertionError('Loaded full financial balances')) as load, \
              patch.object(control.frappe, "has_permission", return_value=True), \
              patch.object(control.frappe, "get_list", side_effect=get_list), \
-             patch.object(control.frappe, "get_all", return_value=[frappe._dict(event_date="2026-03-01")]) as query:
+             patch.object(control.frappe, "get_all", side_effect=get_all) as query:
             self.assertEqual(control._available_years("EMP"), [2027, 2026, 2010])
-        load.assert_called_once_with('EMP')
-        query.assert_not_called()
+        load.assert_not_called()
+        query.assert_called_once()
 
     def test_catalog_respects_doctype_read_permissions(self):
         with patch.object(control.frappe, "has_permission", return_value=False), \

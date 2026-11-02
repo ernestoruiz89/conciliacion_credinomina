@@ -57,8 +57,8 @@ class ControlLazyTests(unittest.TestCase):
 
     def test_dashboard_requests_summary_but_excel_requests_full_data(self):
         with patch.object(control, "_build_control_data", return_value={"year": "Todos"}) as build:
-            self.assertEqual(control.get_control_data("Todos", "A")["work_scope"], "Todos")
-        build.assert_called_once_with("Todos", "A", summary_only=True)
+            self.assertEqual(control.get_control_data("Todos", "A")["work_scope"], "calendar")
+        build.assert_called_once_with("Todos", "A", summary_only=True, include_work_items=False)
 
     def test_work_overview_ignores_calendar_year_but_keeps_employer(self):
         with patch.object(control, "_work_consultation", return_value=({"work_scope": "Todos", "work_items": [], "open_deposits": []}, {})) as build:

@@ -151,7 +151,9 @@ class FifoDetailEngineTests(unittest.TestCase):
                 patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]):
             context = engine._prepare_remittance_details([self.doc], {"DEP": "DEP"},
                 [self.deposit], self.claims, list(manual), {})
-        result = allocate_cash([self.deposit], self.claims, list(manual) + context["instructions"], context["blocked_deposits"])
+        valid, rejected = engine._validated_remittance_instructions(context, list(manual) + context["instructions"])
+        result = allocate_cash([self.deposit], self.claims, valid, context["blocked_deposits"])
+        result["instruction_results"].update(rejected)
         return context, result
 
     def test_repeated_client_rows_share_remaining_capacity_without_double_booking(self):

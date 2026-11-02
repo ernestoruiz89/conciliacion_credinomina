@@ -15,7 +15,9 @@ class PeriodFinancialTotalsTests(unittest.TestCase):
         return calculate_totals(period, [source], adjustment)
 
     def assert_totals(self, values, applied, covered, pending):
-        self.assertEqual(values, dict(applied_total_usd=applied, remitted_total_usd=covered, pending_usd=pending))
+        expected = dict(applied_total_usd=applied, remitted_total_usd=covered, pending_usd=pending)
+        self.assertEqual({key: values[key] for key in expected}, expected)
+        self.assertAlmostEqual(values["deposit_coverage_usd"] + values["complementary_coverage_usd"], covered)
 
     def test_original_application_with_deposit_and_confirmed_offset(self):
         self.assert_totals(self.historical(), 100, 100, 0)
@@ -65,7 +67,7 @@ class PeriodFinancialTotalsTests(unittest.TestCase):
             self.assertEqual(kwargs["filters"]["category"], "Ajuste de aplicación")
             return [item]
         with patch.object(frappe, "get_all", side_effect=query) as read:
-            context = PeriodTotalsContext([p1, p2], [row])
+            context = PeriodTotalsContext([p1, p2], [row], cash_allocation={"allocations": []})
             self.assert_totals(context.values(p1), 100, 100, 0)
             self.assert_totals(context.values(p2), 0, 0, 0)
             read.assert_called_once()

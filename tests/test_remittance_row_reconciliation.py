@@ -16,6 +16,9 @@ class RowReconciliationTests(unittest.TestCase):
 
     def test_exact_provenance_preserves_other_row_even_with_same_destination(self):
         document=self.document(explicit=True, shared=True)
+        entries=json.loads(document.allocation_detail)
+        entries[1]['aplicacion_id']='A'
+        document.allocation_detail=json.dumps(entries)
         removed, kept=service.split_row_allocations(document,"R1")
         self.assertEqual(sum(x['importe_usd'] for x in removed),30)
         self.assertEqual(kept,json.loads(document.allocation_detail)[1:])

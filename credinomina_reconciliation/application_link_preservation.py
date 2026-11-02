@@ -6,6 +6,7 @@ from frappe import _
 
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.collection_link_preservation import conflicts as collection_identity_conflicts
 
 
 def preserve(rows, originals, collections, *, exclude_import=None):
@@ -34,9 +35,18 @@ def preserve(rows, originals, collections, *, exclude_import=None):
                  and money(link.get('amount_usd')) >= 0 for link in links))
         if not valid or not row.get('effective'):
             frappe.throw(_('La aplicación {0} ya tiene una conciliación vinculada que no puede retirarse automáticamente. Revise sus destinos antes de continuar.').format(row.name))
+        if any(collection_identity_conflicts(row, targets[link['collection_row_id']]) for link in links):
+            frappe.throw(_('La cobranza vinculada a la aplicación {0} cambió de identidad o crédito. '
+                'Revise su conciliación antes de continuar; se conservaron los vínculos existentes.').format(row.name))
         net = money(net_application_amount(row))
-        if sum_money(link.get('amount_usd') for link in links) != net:
-            if len(links) != 1 or net < 0:
+        original_net = money(net_application_amount(old))
+        linked = sum_money(link.get('amount_usd') for link in links)
+        if linked > original_net:
+            frappe.throw(_('La distribución guardada de la aplicación {0} supera su importe neto. Revise sus vínculos antes de continuar.').format(row.name))
+        if net != original_net:
+            # A partially linked application also has an unlinked portion. A
+            # reduction cannot choose which portion to change by inference.
+            if len(links) != 1 or linked != original_net or net < 0:
                 frappe.throw(_('El importe de la aplicación {0} cambió y su distribución entre cobranzas requiere revisión explícita; se conservaron los vínculos existentes.').format(row.name))
             links = [dict(links[0], amount_usd=money_float(net))]
             encoded = json.dumps(links, ensure_ascii=False)

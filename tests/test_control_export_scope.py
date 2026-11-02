@@ -29,6 +29,10 @@ class ExportScopeTests(unittest.TestCase):
     def test_unlinked_exceptions_have_company_and_exclusive_year_end(self):
         response = frappe._dict()
         captured = []
+        # Translate column labels independently from the deliberately minimal
+        # response-local fixture; this test exercises export scope, not Redis.
+        with patch.object(statement, '_', side_effect=lambda value: value):
+            columns = statement.get_columns()
         def get_list(doctype, **kwargs):
             captured.append((doctype, kwargs))
             return []
@@ -38,7 +42,7 @@ class ExportScopeTests(unittest.TestCase):
              patch.object(frappe, 'local', SimpleNamespace(response=response, flags=frappe._dict(in_test=False))), \
              patch.object(page, 'now_datetime', return_value=datetime(2026, 10, 2)), \
              patch.object(frappe, 'db', SimpleNamespace(get_single_value=lambda *a: 'dd/mm/yyyy')), \
-             patch.object(statement, 'execute', return_value=(statement.get_columns(), [{'employer': 'Empresa A', 'balance_usd': 1.5}], 'Nota')) as report, \
+             patch.object(statement, 'execute', return_value=(columns, [{'employer': 'Empresa A', 'balance_usd': 1.5}], 'Nota')) as report, \
              patch('credinomina_reconciliation.control_export.build_control_workbook', return_value=b'workbook') as workbook:
             page.export_control_excel(2025, 'Empresa A')
         report.assert_called_once_with({'view_mode': 'Resumen', 'employer': 'Empresa A',

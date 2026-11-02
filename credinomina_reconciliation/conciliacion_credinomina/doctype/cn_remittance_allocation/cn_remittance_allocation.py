@@ -70,6 +70,21 @@ def set_detail_credit(remittance_name, detail_row_name, portfolio_row_name, modi
 
 
 class CNRemittanceAllocation(Document):
+    def _save(self, *args, **kwargs):
+        # Take the company lock before Frappe's document FOR UPDATE. A normal
+        # input edit must invalidate cash snapshots just like reconciliation;
+        # taking it in before_update_after_submit would reverse the lock order.
+        if self.get('name') and not self.is_new():
+            previous = frappe.get_doc(self.doctype, self.name)
+            if (self.docstatus == 1 or previous.docstatus == 1) and (
+                    self.docstatus != previous.docstatus or self._reconciliation_inputs_changed(previous)):
+                self.check_permission('write')
+                from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
+                from credinomina_reconciliation.paying_employers import reconciliation_companies
+                owners = {previous.get('employer'), self.get('employer')} - {None, ''}
+                lock_cash_pool({company for owner in owners for company in reconciliation_companies(owner)})
+        return super()._save(*args, **kwargs)
+
     def insert(self, *args, **kwargs):
         # Frappe validates links before before_insert/validate. Repair only the
         # recovery snapshot, without bypassing normal link validation.
@@ -102,11 +117,16 @@ class CNRemittanceAllocation(Document):
             return
         from credinomina_reconciliation.accounting_deposits import validate_evidence
         validate_evidence(self, previous)
+        from credinomina_reconciliation.deposit_draft_state import reset_unexecuted
+        unexecuted = reset_unexecuted(self, previous)
         if previous and self.get("reconciliation_identity") != previous.get("reconciliation_identity"):
             frappe.throw(_("No se puede modificar la identidad interna del depósito."))
         self.deposit_reference = clean_text(self.deposit_reference)
         self.deposit_voucher = clean_text(self.deposit_voucher)
         self._validate_deposit()
+        if unexecuted:
+            self.unallocated_usd = self.amount_usd
+            self.unclassified_usd = self.amount_usd
         self._invalidate_changed_detail_credits()
         from credinomina_reconciliation.detail_balances import update_detail_balances
         update_detail_balances(self)
@@ -145,7 +165,7 @@ class CNRemittanceAllocation(Document):
             self.detail_status = "Cargado; pendiente de conciliación"
             self.result = "Pendiente"
 
-    def _validate_deposit(self):
+    def _validate_deposit(self, *, reversing=False):
         from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin, assert_usable_cash
         if is_linked_origin(self) and (self.docstatus == 1 or any(self.get(field) for field in (
                 "targets", "detail_rows", "detail_file", "detail_periods")) or money(self.get("allocated_usd"))):
@@ -200,6 +220,10 @@ class CNRemittanceAllocation(Document):
             equivalent = money_float(self.deposit_amount)
         else:
             frappe.throw(_("La moneda del depósito debe ser USD o NIO."))
+        if not reversing and self.docstatus == 1 and money(equivalent) + MONEY_EPSILON < (
+                money(self.get('allocated_usd')) + money(self.get('justified_surplus_usd'))):
+            frappe.throw(_("El equivalente en US$ es menor que el efectivo ya distribuido o reservado. "
+                "Desconcilie y revise sus destinos y saldos a favor antes de cambiar el importe o la tasa."))
         self.amount_usd = equivalent
         duplicates = frappe.get_all(
             "CN Remittance Allocation",
@@ -265,7 +289,7 @@ class CNRemittanceAllocation(Document):
             assigned += money(target.amount_usd)
         from credinomina_reconciliation.client_credit import load_credits
         client_reserved = sum((money(item.amount_usd) for item in load_credits([self.name])), money(0)) if self.name and self.docstatus == 1 else money(0)
-        if assigned > money(equivalent) - client_reserved + MONEY_EPSILON:
+        if not reversing and assigned > money(equivalent) - client_reserved + MONEY_EPSILON:
             if client_reserved:
                 frappe.throw(_("Los destinos usan efectivo reservado como saldo a favor. Ese saldo no está disponible para nuevos pagos."))
             frappe.throw(_("Los destinos superan el importe del depósito en US$."))
@@ -430,12 +454,14 @@ class CNRemittanceAllocation(Document):
                 return money(value)
             if fieldname == "fx_rate":
                 return decimal_value(value)
+            if fieldname in {"apply_fifo", "allow_manual_other_periods"}:
+                return cint(value)
             return str(value or "")
 
         fields = (
             "employer", "deposit_reference", "deposit_voucher", "deposit_date",
             "deposit_currency", "deposit_amount", "fx_rate",
-            "detail_file", "detail_hash", "allow_manual_other_periods",
+            "detail_file", "detail_hash", "allow_manual_other_periods", "apply_fifo",
         )
         if any(
             input_value(self, fieldname) != input_value(previous, fieldname)
@@ -460,10 +486,14 @@ class CNRemittanceAllocation(Document):
         ]
         if current_targets != previous_targets:
             return True
-        detail_fields = ("name", "employer", "client", "client_number", "loan_number", "row_kind",
+        detail_fields = ("name", "employer", "client", "client_number", "client_name", "loan_number",
+                         "national_id", "employee_number", "installment_number", "application_reference", "row_key",
+                         "deducted_usd", "deducted_nio", "manual_reconciliation_required", "row_kind",
                          "difference_basis", "difference_amount_usd", "difference_core_item")
         def detail_identity(document):
-            return [tuple(row.get(field) or "" for field in detail_fields)
+            return [tuple(money(row.get(field)) if field in {"deducted_usd", "deducted_nio", "difference_amount_usd"}
+                          else cint(row.get(field)) if field == "manual_reconciliation_required"
+                          else str(row.get(field) or "") for field in detail_fields)
                     for row in (document.get("detail_rows") or [])]
         return detail_identity(self) != detail_identity(previous)
 

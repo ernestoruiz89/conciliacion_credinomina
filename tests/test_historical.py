@@ -82,6 +82,8 @@ class HistoricalReconciliationTest(unittest.TestCase):
         self.assertEqual(10, historical_balance(100, 90))
         self.assertEqual("Parcial", historical_status(100, 90))
         self.assertEqual("Conciliado", historical_status(100, 100))
+        self.assertEqual("Con excedente", historical_status(100, 100.01))
+        self.assertEqual("Con excedente", historical_status(0, 1))
         self.assertEqual("Pendiente", historical_status(100, 0))
 
     def test_one_deposit_can_cover_several_historical_applications(self):

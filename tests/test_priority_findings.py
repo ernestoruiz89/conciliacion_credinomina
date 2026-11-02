@@ -67,6 +67,27 @@ def application(**values):
         client_number='1', client_name='Ana', loan_number='109277-1') | values)
 
 
+def monetary_report_queries(parent, sources, collections=()):
+    """Return typed report inputs, with no reconciliation trace in this fixture."""
+    def listed(doctype, **kwargs):
+        if doctype == 'CN Accounting Import':
+            return [parent.name] if kwargs.get('pluck') == 'name' else [parent]
+        if doctype == 'CN Reconciliation Period':
+            assert kwargs.get('pluck') == 'name'
+            return list(dict.fromkeys(row.parent for row in collections))
+        raise AssertionError(doctype)
+
+    def children(doctype, **kwargs):
+        if doctype == 'CN Source Row':
+            return sources
+        if doctype == 'CN Collection Row':
+            return list(collections)
+        if doctype == 'CN Reconciliation Trace':
+            return []
+        raise AssertionError(doctype)
+    return listed, children
+
+
 @pytest.mark.parametrize('paid,adjustment,saved,state,covered,pending', [
     (0, 0, 'Depósito conciliado', 'Pendiente', 0, 100),
     (80, 0, 'Depósito conciliado', 'Parcial', 80, 20),
@@ -80,9 +101,10 @@ def test_report_filters_counts_percentage_and_detail_share_real_coverage(paid, a
     parent = frappe._dict(name='IMPORT', employer='A', status='Importado', historical_period='P')
     source = application(historical_remitted_usd=paid, application_adjustment_usd=adjustment,
                          deposit_match_status=saved)
+    listed, children = monetary_report_queries(parent, [source])
     with patch.object(frappe, 'has_permission', return_value=True), \
-            patch.object(frappe, 'get_list', return_value=[parent]), \
-            patch.object(frappe, 'get_all', return_value=[source]):
+            patch.object(frappe, 'get_list', side_effect=listed), \
+            patch.object(frappe, 'get_all', side_effect=children):
         _, matrix, _, _, counts = report.execute(dict(year=2025, employer='A'))
         detail = report.get_month_detail(2025, 4, 'A', state=state)
         other = report.get_month_detail(2025, 4, 'A', state='Parcial' if state != 'Parcial' else 'Conciliado')
@@ -107,10 +129,7 @@ def test_operative_saved_settled_label_does_not_skip_reading_collection_evidence
                          collection_row_id='C', processing_route='Operativa')
     collection = frappe._dict(name='C', parent='P', applied_usd=100,
                              remittance_detail='[{"importe_usd":80}]')
-    def listed(doctype, **kwargs):
-        return [parent] if doctype == 'CN Accounting Import' else ['P']
-    def children(doctype, **kwargs):
-        return [source] if doctype == 'CN Source Row' else [collection]
+    listed, children = monetary_report_queries(parent, [source], [collection])
     with patch.object(frappe, 'has_permission', return_value=True), \
             patch.object(frappe, 'get_list', side_effect=listed), \
             patch.object(frappe, 'get_all', side_effect=children) as read:
@@ -167,10 +186,7 @@ def test_month_detail_keeps_the_same_shared_claim_context_as_the_calendar():
     first = application(historical_period='', historical_remitted_usd=0, collection_row_id='C', processing_route='Operativa')
     second = application(**dict(first, name='OTHER', event_date='2025-05-15'))
     collection = frappe._dict(name='C', parent='P', applied_usd=100, remittance_detail='[{"importe_usd":100}]')
-    def listed(doctype, **kwargs):
-        return [parent] if doctype == 'CN Accounting Import' else ['P']
-    def children(doctype, **kwargs):
-        return [first, second] if doctype == 'CN Source Row' else [collection]
+    listed, children = monetary_report_queries(parent, [first, second], [collection])
     with patch.object(frappe, 'has_permission', return_value=True), \
             patch.object(frappe, 'get_list', side_effect=listed), \
             patch.object(frappe, 'get_all', side_effect=children):

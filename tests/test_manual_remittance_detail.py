@@ -1,5 +1,6 @@
 """Explicit row links resolve ambiguity without duplicating the cash ledger."""
 import unittest
+from collections import defaultdict
 from unittest.mock import Mock, patch
 
 import frappe
@@ -29,8 +30,10 @@ class ManualRemittanceDetailTests(unittest.TestCase):
             context = source._prepare_remittance_details(
                 [remittance], {"DEP": "DEP"}, self.deposits, self.claims, manual, {},
             )
-        result = allocate_cash(self.deposits, self.claims, manual + context["instructions"],
+        valid, rejected = source._validated_remittance_instructions(context, manual + context["instructions"])
+        result = allocate_cash(self.deposits, self.claims, valid,
                                context["blocked_deposits"])
+        result["instruction_results"].update(rejected)
         with patch.object(source.frappe, "db", Mock()) as db, patch(
             "credinomina_reconciliation.remittance_target_summary.load_target_descriptions",
             return_value=descriptions or {"H:A": {"loan_number": "108331-1"}, "H:B": {"loan_number": "108331-1"}},
@@ -60,7 +63,9 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.claims = self.claims[:1]
         context, result, statuses, _ = self.reconcile([])
         self.assertEqual(context['instructions'][0]['origin'], DETAIL)
+        self.assertEqual(context['instructions'][0]['detail_row'], 'ROW')
         self.assertEqual(result['allocations'][0]['origin'], DETAIL)
+        self.assertEqual(result['allocations'][0]['detail_row'], 'ROW')
         self.assertEqual(statuses['DEP'], 'Conciliado')
         self.assertEqual(self.reconcile([])[1]['allocations'], result['allocations'])
 
@@ -78,12 +83,54 @@ class ManualRemittanceDetailTests(unittest.TestCase):
             with self.subTest(field=field):
                 original = self.claims[0][field]
                 self.claims[0][field] = value
-                self.assertEqual(self.reconcile()[2]["DEP"], "Revisar filas")
+                _, result, statuses, _ = self.reconcile()
+                self.assertEqual(statuses["DEP"], "Revisar filas")
+                self.assertEqual(result["allocations"], [])
+                self.assertEqual(result["deposit_remaining"]["DEP"], 22.52)
                 self.claims[0][field] = original
         self.manual[0]["amount_usd"] = 20
         self.assertEqual(self.reconcile()[2]["DEP"], "Revisar filas")
         self.row.deducted_nio = 0
         self.assertEqual(self.reconcile()[2]["DEP"], "Revisar filas")
+
+    def test_invalid_signed_counterpart_cannot_execute_any_part_of_group(self):
+        self.income_in_client_detail()
+        self.claims[-1]["amount_usd"] = self.manual[-1]["amount_usd"] = -0.29
+        self.claims[-1]["client_number"] = "OTHER"
+        self.row.deducted_usd = self.deposits[0]["amount_usd"] = 251.99
+        _, result, statuses, _ = self.reconcile()
+        self.assertEqual(result["allocations"], [])
+        self.assertEqual(result["deposit_remaining"]["DEP"], 251.99)
+        self.assertTrue(all(value != "Aplicada" for value in result["instruction_results"].values()))
+        self.assertEqual(statuses["DEP"], "Revisar filas")
+
+    def test_distributor_keeps_foreign_negative_counterpart_for_atomic_rejection(self):
+        class Row(frappe._dict):
+            def as_dict(self):
+                return dict(self)
+        account = Row(name="DEP", reference="", voucher="", event_date="2025-04-30", currency="USD", amount=90,
+                      equivalent_currency="USD", equivalent_amount=90, employer_text="EMP", effective=1)
+        deposit = Row(name="DEP", amount_usd=90, employer="EMP", result="Pendiente")
+        items = [Row(name=name, employer=company, amount_usd=amount) for name, company, amount in
+                 (("GOOD", "EMP", 50), ("BAD", "OTHER", -10))]
+        targets = [Row(name=name, parent="DEP", complementary_item=item, amount_usd=amount)
+                   for name, item, amount in (("T1", "GOOD", 50), ("T2", "BAD", -10))]
+        employers = [Row(name="EMP", employer_name="EMP", employer_code="EMP")]
+        context = dict(instructions=[], contexts={"DEP": dict(rows=[], status="Distribución manual")},
+                       blocked_deposits={"DEP"}, rounding_eligible=set())
+        with patch.object(frappe, "get_all", side_effect=lambda doctype, **kwargs: targets if doctype == "CN Remittance Target" else employers), \
+             patch.object(frappe, "db", Mock()), \
+             patch.object(source, "resolved_deposit_employer", return_value=("EMP", False)), \
+             patch.object(source, "load_client_index", return_value=[]), \
+             patch.object(source, "_prepare_remittance_details", return_value=context), \
+             patch.object(source, "_sync_remittance_details", return_value={"DEP": "Distribución manual"}), \
+             patch("credinomina_reconciliation.paying_employers.load_payer_map", return_value={}), \
+             patch("credinomina_reconciliation.credit_application.funding_totals", return_value={}), \
+             patch("credinomina_reconciliation.receivable_recovery.validate_deposit_distributions"):
+            result = source._distribute_deposits([], [], [(account, account)], items, defaultdict(list), [deposit], {"DEP": "DEP"})
+        self.assertEqual(result["allocations"], [])
+        self.assertEqual(result["deposit_remaining"]["DEP"], 90)
+        self.assertNotEqual(result["instruction_results"]["T1"], "Aplicada")
 
     def test_fully_covered_detail_still_requires_successful_allocation(self):
         self.claims[0]["amount_usd"] = 10

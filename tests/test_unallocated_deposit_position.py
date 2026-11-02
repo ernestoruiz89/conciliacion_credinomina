@@ -7,8 +7,10 @@ from credinomina_reconciliation.client_position import build_position, summary
 class UnallocatedDepositTests(unittest.TestCase):
     def test_customer_and_company_portions_do_not_double_count_covered_or_documented_cash(self):
         deposit = dict(name='D', employer='E', deposit_date='2025-04-10', amount_usd=100,
-                       allocated_usd=30, justified_surplus_usd=10, unclassified_usd=60)
+                       allocated_usd=30, justified_surplus_usd=10, unclassified_usd=60,
+                       allocation_detail=[dict(tipo='Aplicacion historica', aplicacion_id='OTHER', fila_detalle='OTHER', importe_usd=30)])
         details = [dict(name='R', parent='D', client_name='Ana', client_number='1', amount_usd=35, pending_usd=35),
+                   dict(name='OTHER', parent='D', amount_usd=40, client_credit_usd=10, pending_usd=0),
                    dict(name='X', parent='D', row_kind='Diferencia documentada', pending_usd=200)]
         rows = build([deposit], details)
         self.assertEqual([(r['client_name'], r['deposit_pending_usd']) for r in rows],
@@ -33,7 +35,9 @@ class UnallocatedDepositTests(unittest.TestCase):
 
     def test_customer_pending_is_visible_when_detail_exceeds_cash_pool(self):
         deposit = dict(name='D', employer='E', amount_usd=5503.64, allocated_usd=4040.04,
-                       justified_surplus_usd=0, unclassified_usd=1463.60)
+                       justified_surplus_usd=0, unclassified_usd=1463.60,
+                       allocation_detail=[dict(tipo='Aplicacion historica', aplicacion_id='APP', fila_detalle='A', importe_usd=49.52),
+                                          dict(tipo='Aplicacion historica', aplicacion_id='OTHER', importe_usd=3990.52)])
         details = [dict(name='A', parent='D', client_number='2839', amount_usd=662.23, pending_usd=612.71),
                    dict(name='B', parent='D', client_number='other', amount_usd=856.27, pending_usd=856.27)]
         rows = build([deposit], details)
@@ -42,3 +46,28 @@ class UnallocatedDepositTests(unittest.TestCase):
         self.assertEqual(result[0]['deposit_detail_pending_usd'], 612.71)
         self.assertIsNone(result[0]['deposit_pending_usd'])
         self.assertEqual(result[0]['operational_status'], 'Revisar distribución')
+
+    def test_rejected_planned_target_does_not_hide_actual_client_cash(self):
+        deposit = dict(name='D', employer='E', amount_usd=100, allocated_usd=0,
+                       justified_surplus_usd=0, unclassified_usd=100, allocation_detail='[]')
+        details = [dict(name='R', parent='D', client_number='1', amount_usd=100,
+                        linked_usd=100, pending_usd=0, match_status='Revisar')]
+        rows = build([deposit], details)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['deposit_pending_usd'], 100)
+        self.assertEqual(rows[0]['client_number'], '1')
+
+    def test_unattributed_legacy_cash_keeps_client_amount_uncertain(self):
+        deposit = dict(name='D', employer='E', amount_usd=100, allocated_usd=50,
+                       justified_surplus_usd=0, unclassified_usd=50,
+                       allocation_detail=[dict(tipo='Aplicacion historica', aplicacion_id='APP', importe_usd=50)])
+        rows = build([deposit], [dict(name='R', parent='D', client_number='1', amount_usd=100, pending_usd=0)])
+        self.assertIsNone(rows[0]['deposit_pending_usd'])
+        self.assertEqual(rows[0]['deposit_detail_pending_usd'], 100)
+        self.assertEqual(rows[1]['deposit_pending_usd'], 50)
+        for invalid in ('NaN', None):
+            with self.subTest(invalid=invalid):
+                corrupt = dict(deposit, allocated_usd=0, unclassified_usd=100,
+                    allocation_detail=[dict(tipo='Aplicacion historica', fila_detalle='R', importe_usd=invalid)])
+                result = build([corrupt], [dict(name='R', parent='D', client_number='1', amount_usd=100)])
+                self.assertIsNone(result[0]['deposit_pending_usd'])

@@ -29,7 +29,8 @@ class ImportedEvidenceRemovalTests(unittest.TestCase):
                          patch.object(frappe, "_", side_effect=lambda text: text), \
                          patch.object(frappe, "throw", side_effect=reject):
                         doc = frappe._dict(doctype=doctype, name="IMPORTED", docstatus=status,
-                                           accounting_source_key="original-ledger-key", file_hash="original-hash")
+                                           accounting_source_key="original-ledger-key", file_hash="original-hash",
+                                           flags=frappe._dict())
                         with self.assertRaisesRegex(ValueError, "histórico contable"):
                             getattr(controller, hook)(doc)
 
@@ -67,7 +68,7 @@ class ImportedEvidenceRemovalTests(unittest.TestCase):
 
     def test_authorized_complementary_item_still_checks_financial_dependencies(self):
         self.role.return_value = True
-        doc = frappe._dict(doctype="CN Complementary Item", accounting_source_key="core")
+        doc = frappe._dict(doctype="CN Complementary Item", accounting_source_key="core", flags=frappe._dict())
         with patch("credinomina_reconciliation.receivable_recovery.guard_origin",
                    side_effect=ValueError("registered recovery")):
             for hook in ("on_trash", "before_cancel"):

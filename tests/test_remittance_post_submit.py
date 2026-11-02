@@ -42,9 +42,19 @@ class RemittancePostSubmitTests(unittest.TestCase):
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
-        path = Path(__file__).resolve().parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.json"
+        directory = Path(__file__).resolve().parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype"
+        path = directory / "cn_remittance_allocation/cn_remittance_allocation.json"
         self.fields = {field["fieldname"]: frappe._dict(field)
                        for field in json.loads(path.read_text(encoding="utf-8"))["fields"]}
+        metadata = {"CN Remittance Allocation": SimpleNamespace(fields=list(self.fields.values()), get_field=self.fields.get)}
+        self.table_fields = [field for field in self.fields.values() if field.fieldtype == "Table"]
+        for field in self.table_fields:
+            slug = field.options.lower().replace(" ", "_")
+            child = json.loads((directory / slug / (slug + ".json")).read_text(encoding="utf-8"))
+            metadata[field.options] = SimpleNamespace(fields=[frappe._dict(row) for row in child["fields"]])
+        patcher = patch.object(frappe, "get_meta", side_effect=lambda doctype, **kwargs: metadata[doctype])
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.previous = Snapshot(
             doctype="CN Remittance Allocation", name="REM-TEST", docstatus=1,
             result="Revisar detalle", deposit_amount=100, fx_rate=36.5, notes="",
@@ -53,10 +63,22 @@ class RemittancePostSubmitTests(unittest.TestCase):
         )
 
     def current(self, **changes):
+        # Frappe tables contain child Documents, including stable names/indexes.
+        # The real classification guard now compares their metadata and values.
+        def child_rows(document):
+            for field in self.table_fields:
+                if field.fieldname in document:
+                    document[field.fieldname] = [frappe._dict(dict(row,
+                        name=row.get("name") or f"{field.fieldname}-{index}",
+                        idx=row.get("idx") or index, doctype=field.options))
+                        for index, row in enumerate(document.get(field.fieldname) or [], 1)]
+        child_rows(self.previous)
         doc = Snapshot(copy.deepcopy(dict(self.previous)) | changes)
-        doc.meta = SimpleNamespace(get_field=self.fields.get)
+        child_rows(doc)
+        doc.meta = SimpleNamespace(fields=list(self.fields.values()), get_field=self.fields.get)
         doc._validate_deposit = Mock()
         doc._update_financial_status = MethodType(CNRemittanceAllocation._update_financial_status, doc)
+        doc._update_coverage_totals = MethodType(CNRemittanceAllocation._update_coverage_totals, doc)
         doc.flags = frappe._dict()
         if doc.get("detail_rows"):
             doc["detail_rows"] = [frappe._dict(row) for row in doc["detail_rows"]]

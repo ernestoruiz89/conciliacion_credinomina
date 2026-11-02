@@ -14,6 +14,11 @@ from credinomina_reconciliation.period_closure import ClosureScope
 
 
 class PeriodControlCutTests(unittest.TestCase):
+    def setUp(self):
+        lock = patch.object(period_module, 'lock_period_companies')
+        lock.start()
+        self.addCleanup(lock.stop)
+
     def _period(self):
         return frappe._dict(
             name="PER-1", employer="EMP-1", status="Pendiente",

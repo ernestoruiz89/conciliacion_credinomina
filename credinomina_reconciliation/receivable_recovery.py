@@ -120,6 +120,7 @@ def lock_recovery_origins(documents):
 
 
 def validate_compensation_recovery(documents, amount):
+    from credinomina_reconciliation.complementary_compensation import _direction
     for receipt in documents:
         if not receipt.get('receivable_origin'):
             continue
@@ -128,6 +129,9 @@ def validate_compensation_recovery(documents, amount):
         other = next(doc for doc in documents if doc.name != receipt.name)
         if other.employer != receipt.employer or other.get('receivable_origin'):
             frappe.throw(_('La partida para compensar la CxC debe pertenecer a la misma empresa.'))
+        if money(receipt.get('amount_usd')) <= 0 or _direction(receipt) != 1 or _direction(other) != -1:
+            frappe.throw(_('El cobro de CxC debe ser un destino positivo y su contrapartida un crédito; '
+                'un débito no reduce la deuda original. Revise el signo y la evidencia de ambas partidas.'))
         original = frappe.get_doc('CN Complementary Item', receipt.receivable_origin)
         original.check_permission('read')
         _check_employee_counterpart(original, other)

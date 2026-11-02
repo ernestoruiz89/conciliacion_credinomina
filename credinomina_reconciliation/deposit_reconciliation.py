@@ -10,6 +10,7 @@ from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.allocation_origin import UNRECORDED
 from credinomina_reconciliation.reconciliation_scope import document_state
 from credinomina_reconciliation.remittance_periods import selected_periods
+from credinomina_reconciliation.parsers import clean_text
 
 
 def lock_cash_pool(companies):
@@ -41,7 +42,15 @@ def entries(value):
 
 def frozen_cash(deposits, periods, movements):
     """Actual cash and signed tolerance coverage; planned targets reserve no cash."""
-    row_ids = {(period.name, row.row_key): row.name for period in periods for row in period.collection_rows}
+    row_ids = {}
+    for period in periods:
+        for row in period.collection_rows:
+            key = (period.name, clean_text(row.get('row_key')))
+            if key in row_ids and row_ids[key] != row.name:
+                frappe.throw(_('El período {0} tiene varias cuotas con la misma Fila ID ({1}). '
+                    'Revise sus identificadores antes de conciliar; no se modificó la distribución guardada.').format(
+                        period.name, key[1] or _('sin identificar')))
+            row_ids[key] = row.name
     allocations, coverage = [], defaultdict(lambda: money(0))
     # Validate every stored deposit from one pass over its allocations.
     recorded_by_deposit = defaultdict(lambda: money(0))
@@ -51,7 +60,7 @@ def frozen_cash(deposits, periods, movements):
             claim = (
                 "H:" + entry.get("aplicacion_id", "") if kind == "Aplicacion historica"
                 else "X:" + entry.get("partida", "") if kind == "Partida complementaria"
-                else "C:" + row_ids.get((entry.get("periodo"), entry.get("fila_id")), "") if kind == "Cobranza"
+                else "C:" + row_ids.get((entry.get("periodo"), clean_text(entry.get("fila_id"))), "") if kind == "Cobranza"
                 else ""
             )
             if kind == "Movimiento de conciliación":
@@ -209,14 +218,18 @@ def reconcile_deposit(document, progress=None, undo=False):
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
     from credinomina_reconciliation.manual_complementary_policy import assert_no_legacy_tolerance
     assert_no_legacy_tolerance({"deposit_source_row": document.name})
-    document._validate_deposit()
     if undo:
+        # Legacy cash can exceed its current bank equivalent. Withdrawal must
+        # remain possible, while identity, closure and credit guards still run.
+        document._validate_deposit(reversing=True)
         document._assert_can_reverse_distribution()
         if frappe.get_all("CN Complementary Item", filters={
             "registered_deposit": document.name, "docstatus": 1,
             "category": ["in", [engine.COMPANY_CREDIT, engine.CLIENT_CREDIT]],
         }, limit_page_length=1):
             frappe.throw(_("Cancele los saldos a favor vinculados antes de desconciliar el depósito."))
+    else:
+        document._validate_deposit()
     imports = engine.load_scoped_imports(companies)
     source_rows = [row for imported in imports for row in imported.rows]
     for imported in imports:

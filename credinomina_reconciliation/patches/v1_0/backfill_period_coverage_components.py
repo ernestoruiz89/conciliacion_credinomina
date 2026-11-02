@@ -17,7 +17,7 @@ def execute():
         for period in periods:
             values = context.values(period)
             frappe.db.set_value("CN Reconciliation Period", period.name, {
-                "deposit_coverage_usd": values["deposit_coverage_usd"],
-                "complementary_coverage_usd": values["complementary_coverage_usd"],
+                "deposit_coverage_usd": values["deposit_coverage_usd"] or 0,
+                "complementary_coverage_usd": values["complementary_coverage_usd"] or 0,
             }, update_modified=False)
         last = names[-1]

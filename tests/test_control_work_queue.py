@@ -318,7 +318,7 @@ class ControlWorkQueueTests(unittest.TestCase):
                           }), \
              patch.object(control_credinomina.frappe, "get_list", side_effect=get_list), \
              patch.object(control_credinomina.frappe, "get_all", side_effect=get_all):
-            data = get_control_data(year=2026)
+            data = control_credinomina._build_control_data(year=2026, summary_only=True)
 
         historical = {row.reference for row in data["unassigned_historical_applications"]}
         self.assertEqual(data["unassigned_historical_applications"][0].client_name, "Ana Pérez")

@@ -31,7 +31,7 @@ class FakeException:
 class ClosedExceptionGuardTests(unittest.TestCase):
     def _closed_db(self, closed="PER-CLOSED"):
         return SimpleNamespace(
-            get_value=lambda doctype, period, field: (
+            get_value=lambda doctype, period, field, **kwargs: (
                 "Cerrado" if period == closed else "Pendiente"
             ),
             count=Mock(), set_value=Mock(),

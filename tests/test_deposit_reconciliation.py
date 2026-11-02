@@ -7,6 +7,28 @@ from credinomina_reconciliation import deposit_reconciliation as scoped
 
 
 class SingleDepositTests(unittest.TestCase):
+    def test_duplicate_collection_keys_cannot_move_recorded_cash_to_the_last_child(self):
+        deposit = frappe._dict(name='D', allocated_usd=100, allocation_detail=json.dumps([
+            dict(tipo='Cobranza', periodo='P', fila_id='K', importe_usd=100)]))
+        period = frappe._dict(name='P', collection_rows=[
+            frappe._dict(name='ORIGINAL', row_key='K'), frappe._dict(name='OTHER', row_key=' K ')])
+        with patch.object(frappe, 'throw', side_effect=ValueError), self.assertRaises(ValueError):
+            scoped.frozen_cash([deposit], [period], [])
+
+    def test_blank_duplicate_collection_keys_also_require_explicit_review(self):
+        period = frappe._dict(name='P', collection_rows=[
+            frappe._dict(name='ORIGINAL', row_key=None), frappe._dict(name='OTHER', row_key='')])
+        with patch.object(frappe, 'throw', side_effect=ValueError), self.assertRaises(ValueError):
+            scoped.frozen_cash([], [period], [])
+
+    def test_repeated_read_of_the_same_child_is_not_a_different_destination(self):
+        period = frappe._dict(name='P', collection_rows=[frappe._dict(name='ORIGINAL', row_key='K')])
+        deposit = frappe._dict(name='D', allocated_usd=100, allocation_detail=json.dumps([
+            dict(tipo='Cobranza', periodo='P', fila_id='K', importe_usd=100)]))
+        ledger, coverage = scoped.frozen_cash([deposit], [period, period], [])
+        self.assertEqual(ledger[0]['claim_id'], 'C:ORIGINAL')
+        self.assertEqual(coverage['C:ORIGINAL'], 100)
+
     def test_frozen_cash_retains_row_fifo_company_and_reclassification_provenance(self):
         detail = dict(tipo="Cobranza", periodo="P", fila_id="K", importe_usd=30,
             fila_detalle="DETAIL", empresa="E", reclassification_operation_id="OP",

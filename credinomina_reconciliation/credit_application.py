@@ -12,8 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
 
-from credinomina_reconciliation.client_credit import CATEGORY, CREDIT_CATEGORIES, RESULT
-from credinomina_reconciliation.parsers import clean_text, canonical_credit_number
+from credinomina_reconciliation.client_credit import CATEGORY, CREDIT_CATEGORIES, RESULT, available_from
+from credinomina_reconciliation.parsers import clean_text, canonical_credit_number, canonical_identifier
 from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation import credit_usage
 
@@ -93,7 +93,12 @@ def _identity_matches(item, row, employer):
         if row.get('client'):
             if row.get('client') != item.credit_client:
                 return False
-        elif not item.client_number or clean_text(row.get('client_number')) != clean_text(item.client_number):
+        elif not item.client_number or not row.get('client_number'):
+            return False
+        # A resolved Link does not erase contradictory original identifiers.
+        # Legacy imports can retain a stale client Link after identity changes.
+        if (item.client_number and row.get('client_number') and
+                canonical_identifier(row.get('client_number')) != canonical_identifier(item.client_number)):
             return False
         if item.loan_number and canonical_credit_number(row.get('loan_number')) != canonical_credit_number(item.loan_number):
             return False
@@ -247,7 +252,7 @@ def apply(item_name, modified, application_id, amount_usd, event_date, notes='')
     amount = money(amount_usd)
     if amount <= 0 or amount > money(credit_usage.totals(item)['credit_pending_usd']):
         frappe.throw(_('Indique un importe positivo que no supere el saldo a favor disponible.'))
-    if (not event_date or getdate(event_date) < max(getdate(item.get('credit_origin_date') or item.posting_date), getdate(row.event_date))
+    if (not event_date or getdate(event_date) < max(available_from(item), getdate(row.event_date))
             or getdate(event_date) > getdate()):
         frappe.throw(_('La fecha debe ser igual o posterior al saldo y a la aplicación, y no puede ser futura.'))
     available = money(cash_coverage(row, lock=True)['adjustable_usd'])
@@ -272,7 +277,9 @@ def reverse(item_name, modified, entry_id, event_date, reason):
     if not original:
         frappe.throw(_('La aplicación del saldo ya fue revertida o no existe.'))
     item, row, period = _locked_context(item_name, modified, original['application_id'])
-    if not clean_text(reason) or not event_date or getdate(event_date) < getdate(original['fecha']) or getdate(event_date) > getdate():
+    if (not clean_text(reason) or not event_date
+            or getdate(event_date) < max(getdate(original['fecha']), available_from(item))
+            or getdate(event_date) > getdate()):
         frappe.throw(_('Indique motivo y una fecha de reversión válida, posterior o igual a la aplicación del saldo.'))
     entry = dict(operation_id=uuid4().hex, reverses=entry_id, tratamiento='Reversión de aplicación contable',
         importe_usd=-original['importe_usd'], fecha=str(getdate(event_date)), application_id=row.name,

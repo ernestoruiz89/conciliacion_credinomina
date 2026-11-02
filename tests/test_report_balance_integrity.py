@@ -139,8 +139,12 @@ def test_aging_total_and_grouped_export_distinguish_known_subtotal_from_unknown(
 def test_invalid_recovery_excel_summary_is_unknown_and_preserves_observation():
     rows = receivable(15)
     detail = build_detail([], [], [], [], adjustment_receivables=rows)
-    with patch.object(statement, 'load_detail', return_value=detail), patch.object(statement, 'load_core_detail', return_value=[]):
+    with patch.object(statement, 'load_detail', return_value=detail), patch.object(statement, 'load_core_detail', return_value=[]), \
+         patch('credinomina_reconciliation.deposit_difference_report.frappe.has_permission', return_value=True), \
+         patch('credinomina_reconciliation.deposit_difference_report.records', return_value=[]) as difference_deposits:
         columns, summary, _ = statement.execute()
+    assert difference_deposits.call_args.args[0] == 'CN Remittance Allocation'
+    assert difference_deposits.call_args.kwargs['filters'] == {'docstatus': 1}
     payload = build_control_workbook(dict(year=2025, periods=[], adjustment_receivables=rows,
         company_statement=dict(columns=columns, rows=summary, message='Revisar cobros')),
         exceptions=[], actions=[], employer_label='E', generated_at=datetime(2026,10,12))

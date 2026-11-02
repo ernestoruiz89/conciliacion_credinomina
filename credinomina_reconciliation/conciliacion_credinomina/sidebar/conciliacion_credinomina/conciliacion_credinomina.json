@@ -33,6 +33,18 @@
       "show_arrow": 0
     },
     {
+      "type": "Link",
+      "label": "Mesa de conciliación",
+      "link_type": "Page",
+      "link_to": "mesa-conciliacion",
+      "icon": "arrow-left-right",
+      "child": 0,
+      "collapsible": 1,
+      "keep_closed": 0,
+      "indent": 0,
+      "show_arrow": 0
+    },
+    {
       "type": "Section Break",
       "label": "Conciliación",
       "icon": "arrow-left-right",

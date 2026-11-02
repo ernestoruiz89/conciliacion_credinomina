@@ -1,6 +1,8 @@
 """USD period coverage, including confirmed offsets without counting them twice."""
 import json
+import re
 from collections import defaultdict
+from decimal import Decimal
 from contextlib import contextmanager
 from contextvars import ContextVar
 
@@ -19,6 +21,46 @@ TOTAL_FIELDS = ("applied_total_usd", "deposit_coverage_usd", "complementary_cove
 def entries(value):
     result = json.loads(value or "[]") if isinstance(value, str) else value or []
     return result if isinstance(result, list) else []
+
+
+def _mentions_record(raw, name):
+    """Identify complete record names even when a journal cannot be decoded."""
+    if not name:
+        return False
+    # Names can contain separators such as dashes, slashes and dots. Treat
+    # those as part of the token so P1 never matches P10 or P1-OTHER.
+    return re.search(r"(?<![\w@./:+-])" + re.escape(str(name)) +
+                     r"(?![\w@./:+-])", str(raw)) is not None
+
+
+def _credit_funding(historical_rows):
+    """Read executed credit funding once, without its collection projection."""
+    total, operations = money(0), set()
+    for source in historical_rows:
+        detail = entries(source.get('historical_detail'))
+        funding = [entry for entry in detail if isinstance(entry, dict) and
+                   (entry.get('origen') == 'Saldo a favor' or entry.get('saldo_a_favor'))]
+        if not funding:
+            continue
+        try:
+            amounts = [Decimal(str(entry.get('importe_usd'))) for entry in detail]
+            if any(not amount.is_finite() for amount in amounts):
+                raise ValueError()
+            if sum_money(amounts) != money(source.get('historical_remitted_usd')):
+                raise ValueError()
+            for entry in funding:
+                amount = Decimal(str(entry.get('importe_usd')))
+                if (not entry.get('saldo_a_favor') or not entry.get('operacion') or
+                        entry.get('origen') != 'Saldo a favor' or amount < 0):
+                    raise ValueError()
+                operation = (entry['saldo_a_favor'], entry['operacion'])
+                if operation in operations:
+                    raise ValueError()
+                operations.add(operation)
+                total += money(amount)
+        except (TypeError, ValueError, ArithmeticError, AttributeError):
+            return None
+    return total
 
 
 def direct_amounts_by_collection(sources):
@@ -86,11 +128,13 @@ class PeriodTotalsContext:
     Ordinary saves and migration read persisted evidence. The engine supplies
     in-memory rows so totals never lag one reconciliation behind.
     """
-    def __init__(self, periods, source_rows=None):
+    def __init__(self, periods, source_rows=None, cash_allocation=None):
         self.periods = {period.name: period for period in periods}
         self.source_rows = source_rows
         self.historical = None
         self.reductions = None
+        self.cash_allocation = cash_allocation
+        self.cash_breakdowns = None
 
     @contextmanager
     def use(self):
@@ -122,6 +166,7 @@ class PeriodTotalsContext:
             by_name[row.name] = row
             if row.get("historical_period") in self.periods and row.get("match_status") == "Conciliado":
                 self.historical[row.historical_period].append(row)
+        self.sources_by_name = by_name
         self.reductions = defaultdict(lambda: money(0))
         employers = sorted({period.get("employer") for period in self.periods.values() if period.get("employer")})
         adjustments = frappe.get_all("CN Complementary Item", filters={
@@ -158,10 +203,133 @@ class PeriodTotalsContext:
             if period_name and period_name in self.periods:
                 self.reductions[period_name] += money(item.application_adjustment_usd)
 
+    def _load_cash_breakdowns(self):
+        if self.cash_breakdowns is not None:
+            return
+        from credinomina_reconciliation.period_cash_breakdown import calculate
+        claim_periods = {'H:' + name: row.get('historical_period') for name, row in self.sources_by_name.items()
+                         if row.get('effective') and row.get('match_status') == 'Conciliado'}
+        claim_periods.update({'C:' + row.name: period.name for period in self.periods.values()
+                             for row in period.get('collection_rows') or []})
+        allocations, errors = [], {}
+        if self.cash_allocation is not None:
+            # The selected deposit has not necessarily been persisted yet.
+            # Use the complete in-flight journal, including frozen other cash.
+            allocations = list(self.cash_allocation.get('allocations') or [])
+            allocations += [dict(deposit_id=row['deposit_id'], claim_id='T:' + str(row.get('name') or index),
+                                 amount_usd=row.get('consumed_residual_usd') or 0)
+                            for index, row in enumerate(self.cash_allocation.get('rounding_movements') or [])]
+        else:
+            from credinomina_reconciliation.report_records import _pages
+            for deposit in _pages(frappe.get_all, 'CN Remittance Allocation',
+                    filters={'docstatus': 1, 'allocation_detail': ['like', '%Partida complementaria%']},
+                    fields=['name', 'allocation_detail', 'cash_identity_status']):
+                if deposit.get('cash_identity_status') == 'Origen vinculado':
+                    continue
+                raw = deposit.get('allocation_detail') or '[]'
+                try:
+                    rows = json.loads(raw) if isinstance(raw, str) else raw
+                    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                        raise ValueError()
+                    amounts = [Decimal(str(row.get('importe_usd'))) for row in rows]
+                    if any(not amount.is_finite() for amount in amounts):
+                        raise ValueError()
+                    if not any(row.get('tipo') == 'Partida complementaria' and amount < 0
+                               for row, amount in zip(rows, amounts)):
+                        continue
+                except (TypeError, ValueError, ArithmeticError):
+                    for name in self.periods:
+                        if _mentions_record(raw, name) or any(_mentions_record(raw, source.get('name'))
+                                                               for source in self.historical[name]):
+                            errors[name] = 'El diario del depósito compartido no permite comprobar el desglose de efectivo.'
+                    continue
+                # Keep whole deposits, never only the requested period's lines.
+                relevant = any(row.get('periodo') in self.periods or
+                               row.get('aplicacion_id') in self.sources_by_name for row in rows)
+                if not relevant:
+                    continue
+                for index, row in enumerate(rows):
+                    kind = row.get('tipo')
+                    if kind == 'Aplicacion historica':
+                        claim = 'H:' + str(row.get('aplicacion_id') or '')
+                    elif kind == 'Cobranza':
+                        claim = 'C:JOURNAL:' + json.dumps([row.get('periodo'), row.get('fila_id')])
+                        claim_periods[claim] = row.get('periodo')
+                    elif kind == 'Partida complementaria':
+                        claim = 'X:' + str(row.get('partida') or '')
+                    else:
+                        claim = 'T:' + str(row.get('movimiento') or index)
+                    allocations.append(dict(deposit_id=deposit.name, claim_id=claim, amount_usd=row.get('importe_usd'),
+                                            _period_hint=row.get('periodo') if kind in {'Aplicacion historica', 'Cobranza'} else None))
+        try:
+            amounts = [Decimal(str(row.get('amount_usd'))) for row in allocations]
+            if any(not amount.is_finite() for amount in amounts):
+                raise ValueError()
+            negative_deposits = {row['deposit_id'] for row, amount in zip(allocations, amounts)
+                                 if money(amount) < 0}
+        except (TypeError, ValueError, ArithmeticError, AttributeError, KeyError):
+            self.cash_breakdowns = {name: calculate(name, allocations, claim_periods) for name in self.periods}
+            return
+        allocations = [row for row in allocations if row['deposit_id'] in negative_deposits]
+        # Resolve other beneficiaries too: missing metadata cannot be assumed
+        # to belong to the selected period, even for a shared bank deposit.
+        for prefix, doctype, fields in (
+                ('H:', 'CN Source Row', ['name', 'historical_period', 'effective', 'match_status']),
+                ('C:', 'CN Collection Row', ['name', 'parent'])):
+            names = sorted({row['claim_id'][2:] for row in allocations
+                            if row['claim_id'].startswith(prefix) and row['claim_id'] not in claim_periods})
+            for offset in range(0, len(names), 500):
+                filters = {'name': ['in', names[offset:offset + 500]],
+                           'parenttype': 'CN Accounting Import' if prefix == 'H:' else 'CN Reconciliation Period',
+                           'parentfield': 'rows' if prefix == 'H:' else 'collection_rows'}
+                for row in frappe.get_all(doctype, filters=filters, fields=fields, limit_page_length=0):
+                    if prefix == 'C:' or row.get('effective') and row.get('match_status') == 'Conciliado':
+                        claim_periods[prefix + row.name] = row.get('historical_period') if prefix == 'H:' else row.parent
+        # Scope whole deposits, not individual portions. In particular, a lost
+        # application explicitly recorded in P1 must not make unrelated P2's
+        # result depend on whether both periods share the same migration batch.
+        deposit_scopes = defaultdict(set)
+        unscoped = set()
+        for row in allocations:
+            if money(row.get('amount_usd')) <= 0 or row['claim_id'].partition(':')[0] not in {'H', 'C'}:
+                continue
+            current = claim_periods.get(row['claim_id'])
+            hint = row.get('_period_hint')
+            if current:
+                deposit_scopes[row['deposit_id']].add(current)
+            if hint:
+                deposit_scopes[row['deposit_id']].add(hint)
+            if not current and not hint:
+                # The unresolved beneficiary could be any selected period.
+                # A known co-beneficiary must not conceal that uncertainty.
+                unscoped.add(row['deposit_id'])
+        self.cash_breakdowns = {name: calculate(name, [row for row in allocations
+            if row['deposit_id'] in unscoped or not deposit_scopes[row['deposit_id']]
+            or name in deposit_scopes[row['deposit_id']]], claim_periods) for name in self.periods}
+        for name, reason in errors.items():
+            self.cash_breakdowns[name] = dict(known=False, reason=reason)
+
     def values(self, period):
         self._load()
         direct = self.historical[period.name]
         result = calculate_totals(period, direct, self.reductions[period.name])
+        self._load_cash_breakdowns()
+        breakdown = self.cash_breakdowns[period.name]
+        delta = breakdown.get('cash_adjustment_usd')
+        funding = _credit_funding(direct)
+        known = (breakdown['known'] and funding is not None and
+                 money(result['deposit_coverage_usd']) + money(delta) - funding >= 0)
+        if known:
+            result['deposit_coverage_usd'] = money_float(money(result['deposit_coverage_usd']) + money(delta) - funding)
+            result['complementary_coverage_usd'] = money_float(money(result['complementary_coverage_usd']) - money(delta) + funding)
+            result['negative_complementary_usd'] = breakdown['negative_complementary_usd']
+        else:
+            result.update(deposit_coverage_usd=None, complementary_coverage_usd=None, negative_complementary_usd=None)
+        result['cash_breakdown_known'] = int(known)
+        result['cash_breakdown_note'] = '' if known else (breakdown.get('reason') or
+            ('El detalle del saldo a favor aplicado está incompleto o duplicado; no permite comprobar el efectivo.'
+             if funding is None else
+             'La distribución guardada no coincide con la cobertura del período; revise su desglose.'))
         if period.get("reconciliation_mode") != "Historica" and direct:
             projected_cash = sum_money(entry.get("importe_usd")
                 for row in period.get("collection_rows") or []

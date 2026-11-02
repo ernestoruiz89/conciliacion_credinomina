@@ -4,6 +4,7 @@ from frappe import _
 
 from credinomina_reconciliation.exception_selection import resolve_related_case
 from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation.period_lock import lock_period_companies
 
 DOCTYPE = "CN Reconciliation Exception"
 FIELDS = ["name", "period", "status", "related_case_type", "related_case_id", "source_import", "source_row"]
@@ -49,6 +50,7 @@ def create_application_exception(period_name, application_id, expected_pending_u
     if not frappe.has_permission(DOCTYPE, "create"):
         frappe.throw(_("No tiene permiso para registrar excepciones."), frappe.PermissionError)
     # Serialize double clicks/retries against the same application and closure.
+    lock_period_companies([period_name])
     frappe.db.sql("select name from `tabCN Reconciliation Period` where name=%s for update", (period_name,))
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("read")

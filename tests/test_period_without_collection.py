@@ -35,7 +35,8 @@ class PeriodWithoutCollectionTests(unittest.TestCase):
                 controller.CNReconciliationPeriod._validate_unique_period(self.period())
 
     def test_closure_requires_effective_application_and_full_funding(self):
-        source = frappe._dict(name='APP', match_status='Conciliado', historical_balance_usd=0,
+        source = frappe._dict(name='APP', currency='USD', amount=100, historical_remitted_usd=100,
+                             match_status='Conciliado', historical_balance_usd=0,
                              deposit_match_status='Depósito conciliado', quality_status='Sin cobranza vinculada')
         with patch.object(frappe, 'get_all', return_value=[source]):
             validate_direct_applications(self.period())
