@@ -820,3 +820,18 @@ excede el efectivo disponible, se detiene la operación antes de guardar y se
 solicita revisar o vincular el movimiento del core. El ensayo con una diferencia
 negativa comprueba que no se crean pagos ni se cambian destinos manuales cuando
 el efectivo no alcanza; al vincular la partida del core se concilia normalmente.
+
+### Motivos extensos en destinos manuales
+
+`expand_remittance_target_result` amplía `CN Remittance Target.result` de
+`Data` a `Small Text` al ejecutar `bench --site <sitio> migrate`. Conserva los
+motivos completos y los resultados existentes; no recalcula conciliaciones.
+
+El ensayo `credinomina_reconciliation.testing.smoke_remittance_target_result.run`
+está restringido a `cn-reconciliation-test.local` y revierte sus documentos.
+Comprueba un motivo real de período no autorizado de más de 140 caracteres,
+rechazo sin aplicar efectivo, autorización explícita posterior y reintento sin
+duplicar pagos. En MariaDB/Frappe 16.52.0 se reprodujo el error 1406 con
+`varchar(140)`; tras migrar a `text` se conservó íntegro el motivo de 161
+caracteres. La migración repetida mantuvo intactos los documentos existentes.
+También pasaron 60 pruebas focalizadas y 40 subpruebas en Frappe 15.117.0.
