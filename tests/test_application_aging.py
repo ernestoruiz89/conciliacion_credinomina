@@ -7,6 +7,30 @@ from credinomina_reconciliation.rounding import sum_money
 
 
 class ApplicationAgingTests(unittest.TestCase):
+    def test_explicit_fifo_shared_cash_retains_each_applications_due_date(self):
+        self.collections['C'].update(applied_usd=200, remittance_detail=[dict(importe_usd=100,
+            aplicaciones_fifo=[dict(application_id='B', amount_usd=100)])])
+        sources = [self.operative(name='A'), self.operative(name='B', event_date='2026-10-15')]
+        rows = self.balances(sources)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['source_rows'], rows[0]['amount_usd']), ('A', 100))
+        self.assertEqual(rows[0]['due_date'], date(2026, 10, 10))
+        rows = application_balances(sources, self.imports, self.periods, self.collections, self.employers,
+                                   '2026-11-01', include_settled=True)
+        self.assertEqual([(row['source_rows'], row['paid_usd']) for row in rows], [('A', 0), ('B', 100)])
+
+    def test_invalid_fifo_shared_cash_is_reported_as_unknown(self):
+        self.collections['C'].update(applied_usd=100, remittance_detail=[dict(importe_usd=50,
+            aplicaciones_fifo=[dict(application_id='A', amount_usd=100)])])
+        row = self.balances([self.operative()])[0]
+        self.assertIsNone(row['amount_usd'])
+        self.assertIn('no coincide', row['distribution_issue'])
+        self.collections['C'].update(applied_usd=200, remittance_detail=[dict(importe_usd=150,
+            aplicaciones_fifo=[dict(application_id='A', amount_usd=150)])])
+        row = self.balances([self.operative()])[0]
+        self.assertIsNone(row['amount_usd'])
+        self.assertIn('supera', row['distribution_issue'])
+
     def setUp(self):
         self.imports = {"I": {"name": "I", "employer": "E"}}
         self.periods = {
@@ -85,6 +109,66 @@ class ApplicationAgingTests(unittest.TestCase):
                 amount=applied, historical_remitted_usd=paid,
                 historical_detail=json.dumps([{"diferencia_usd": delta}]),
             )]), [])
+
+    def test_fully_adjusted_application_does_not_hide_existing_payment_from_reviews(self):
+        source = self.source(application_adjustment_usd=100, historical_remitted_usd=10,
+            historical_detail='[{"importe_usd":10}]')
+        for include_settled in (False, True):
+            with self.subTest(include_settled=include_settled):
+                rows = application_balances([source], self.imports, self.periods, self.collections,
+                    self.employers, '2026-11-01', include_settled=include_settled, include_reviews=True)
+                self.assertEqual(len(rows), 1)
+                row = rows[0]
+                self.assertEqual((row['applied_usd'], row['paid_usd'], row['amount_usd']), (0, 10, 0))
+                from credinomina_reconciliation.application_aging import balance_status
+                self.assertEqual(balance_status(row), 'Revisar distribución')
+                from credinomina_reconciliation.control_kpis import summarize_applications
+                self.assertEqual(summarize_applications(rows)['review_count'], 1)
+
+    def test_zero_net_operative_application_still_validates_positive_saved_links(self):
+        source = self.operative(application_adjustment_usd=100,
+            application_allocation_detail='[{"collection_row_id":"C","amount_usd":10}]')
+        self.collections['C'].update(applied_usd=10)
+        rows = application_balances([source], self.imports, self.periods, self.collections,
+            self.employers, '2026-11-01', include_reviews=True)
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]['amount_usd'])
+        self.assertIn('inconsistentes', rows[0]['distribution_issue'])
+
+    def test_legitimate_zero_net_does_not_absorb_another_applications_collection_cash(self):
+        source = self.operative(application_adjustment_usd=100)
+        self.collections['C'].update(applied_usd=50,
+            remittance_detail='[{"destino":"Cobranza","importe_usd":50}]')
+        self.assertEqual(self.balances([source]), [])
+        rows = application_balances([source], self.imports, self.periods, self.collections,
+            self.employers, '2026-11-01', include_settled=True, include_reviews=True)
+        self.assertEqual((rows[0]['applied_usd'], rows[0]['paid_usd'], rows[0]['amount_usd']), (0, 0, 0))
+
+    def test_valid_zero_share_does_not_inherit_another_applications_invalid_links(self):
+        zero = self.operative(name='ZERO', application_adjustment_usd=100,
+            application_allocation_detail='[{"collection_row_id":"C","amount_usd":0}]')
+        bad = self.operative(name='BAD', application_allocation_detail='[{"collection_row_id":"C","amount_usd":200}]')
+        self.collections['C'].update(applied_usd=100)
+        for include_settled in (False, True):
+            with self.subTest(include_settled=include_settled):
+                rows = application_balances([zero, bad], self.imports, self.periods, self.collections,
+                    self.employers, '2026-11-01', include_reviews=True, include_settled=include_settled)
+                by_name = {row['source_rows']: row for row in rows}
+                self.assertIsNone(by_name['BAD']['amount_usd'])
+                if include_settled:
+                    self.assertEqual((by_name['ZERO']['amount_usd'], by_name['ZERO']['paid_usd']), (0, 0))
+                    self.assertNotIn('distribution_issue', by_name['ZERO'])
+                else:
+                    self.assertNotIn('ZERO', by_name)
+
+    def test_excessive_adjustment_is_not_certified_as_a_valid_zero_net(self):
+        for source in (self.source(application_adjustment_usd=101),
+                       self.operative(application_adjustment_usd=101)):
+            with self.subTest(period=source['historical_period']):
+                row = self.balances([source])[0]
+                self.assertIsNone(row['applied_usd'])
+                self.assertIsNone(row['amount_usd'])
+                self.assertIn('supera el importe original', row['distribution_issue'])
 
     def test_operational_does_not_require_deduction_detail_and_counts_cash_once(self):
         self.collections["C"].update(deduction_status="Pendiente de detalle", remittance_detail=json.dumps([

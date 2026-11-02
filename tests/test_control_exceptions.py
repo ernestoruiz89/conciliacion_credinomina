@@ -20,6 +20,7 @@ class ControlExceptionTests(unittest.TestCase):
         self.exceptions = []
         self.permissions = set()
         for ctx in (
+            patch.object(api, 'lock_period_companies'),
             patch.object(api.frappe, "db", self.db),
             patch.object(api.frappe, "get_doc", side_effect=self.get_doc),
             patch.object(api.frappe, "get_all", side_effect=lambda *a, **k: self.exceptions),

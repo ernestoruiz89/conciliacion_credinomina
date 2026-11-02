@@ -83,6 +83,8 @@ def historical_balance(applied_usd, remitted_usd) -> float:
 def historical_status(applied_usd, remitted_usd) -> str:
     applied = money(applied_usd)
     remitted = money(remitted_usd)
+    if remitted > applied + MONEY_EPSILON:
+        return "Con excedente"
     if applied <= MONEY_EPSILON:
         return "Pendiente"
     if max(applied - remitted, 0) <= MONEY_EPSILON:

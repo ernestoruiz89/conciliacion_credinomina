@@ -91,6 +91,30 @@ class ReceivableRecoveryTests(unittest.TestCase):
         with patch.object(frappe, 'throw', side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
             recovery.validate_compensation_recovery([receipt(), receipt('OTHER')], 1)
 
+    def test_negative_legacy_receipt_cannot_reduce_debt_against_a_debit(self):
+        # Generic opposite signs are insufficient for a recovery: the receipt
+        # must be a positive destination, settled by an actual credit.
+        cash = receipt(category=offsets.CATEGORY, amount=-3, amount_usd=-3,
+            check_permission=Mock(), review_action=offsets.CATEGORY)
+        debit = frappe._dict(name='DEBIT', employer='E', category=offsets.CATEGORY,
+            review_action=offsets.CATEGORY, docstatus=0, amount_usd=3)
+        with patch.object(frappe.db, 'exists', return_value=False), \
+             patch.object(frappe, 'get_doc', return_value=origin(check_permission=Mock())), \
+             patch.object(recovery, 'preview_recovery', return_value={'companies': [dict(employer='E', available_usd=10)]}), \
+             patch.object(frappe, 'throw', side_effect=frappe.ValidationError):
+            offsets._validate_pair(cash, debit)
+            with self.assertRaises(frappe.ValidationError):
+                recovery.validate_compensation_recovery((cash, debit), 3)
+
+    def test_valid_positive_receipt_accepts_original_core_credit_stored_as_magnitude(self):
+        cash = receipt(category=offsets.CATEGORY, amount=3, amount_usd=3)
+        credit = frappe._dict(name='CORE-CREDIT', employer='E', category=offsets.CATEGORY,
+            review_action=offsets.CATEGORY, docstatus=0, amount_usd=3,
+            accounting_source_key='IMPORTED-CREDIT', source_debit=0, source_credit=3)
+        with patch.object(frappe, 'get_doc', return_value=origin(check_permission=Mock())), \
+             patch.object(recovery, 'preview_recovery', return_value={'companies': [dict(employer='E', available_usd=10)]}):
+            recovery.validate_compensation_recovery((cash, credit), 3)
+
     def test_cancelled_receipts_can_be_loaded_for_history_but_not_settlement(self):
         with patch.object(receivables, 'records', return_value=[]) as read:
             receivables.load_settlements([origin()], include_cancelled=True)

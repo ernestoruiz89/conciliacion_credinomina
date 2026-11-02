@@ -90,6 +90,7 @@ def run():
         for doctype, documents in reversed(list(names.items())):
             for field in frappe.get_meta(doctype).get_table_fields():
                 frappe.db.delete(field.options, {"parenttype": doctype, "parent": ["in", documents]})
+            frappe.db.delete("CN Reconciliation Trace", {"source_doctype": doctype, "source_name": ["in", documents]})
             frappe.db.delete("Version", {"ref_doctype": doctype, "docname": ["in", documents]})
             frappe.db.delete("Comment", {"reference_doctype": doctype, "reference_name": ["in", documents]})
             frappe.db.delete(doctype, {"name": ["in", documents]})

@@ -95,17 +95,22 @@ function renderPeriodFinancialOverview(frm) {
     if (!wrapper) return;
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const amount = value => frm.is_new() || value == null ? "—" : format_currency(value, "USD", 2);
+    const known = Number(frm.doc.cash_breakdown_known) === 1;
+    const breakdown = value => !frm.is_new() && !known ? "—" : amount(value);
     const cards = [
         [__("Importe US$"), frm.doc.applied_total_usd],
-        [__("Depósitos US$"), frm.doc.deposit_coverage_usd],
-        [__("Partidas complementarias US$"), frm.doc.complementary_coverage_usd],
+        [__("Efectivo de depósitos US$"), frm.doc.deposit_coverage_usd, true],
+        [__("Cobertura complementaria US$"), frm.doc.complementary_coverage_usd, true],
         [__("Saldo US$"), frm.doc.pending_usd],
     ];
     wrapper.html(`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">
-        ${cards.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
-            <div class="small text-muted">${esc(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${esc(amount(value))}</div>
+        ${cards.map(([label, value, needsBreakdown]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
+            <div class="small text-muted">${esc(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${esc(needsBreakdown ? breakdown(value) : amount(value))}</div>
         </div>`).join("")}
-    </div>`);
+    </div>
+    <p class="small text-muted" style="margin:12px 0 0"><strong>${esc(__("Complementarias negativas US$ (incluidas)"))}: ${esc(breakdown(frm.doc.negative_complementary_usd))}</strong><br>
+        ${esc(__("Se conserva su signo. Su efecto ya está incluido en la cobertura complementaria; no se suma otra vez."))}</p>
+    ${frm.doc.cash_breakdown_note ? `<p class="small text-muted" style="margin-top:8px">${esc(frm.doc.cash_breakdown_note)}</p>` : ""}`);
 }
 
 async function reconcileCollection(frm) {

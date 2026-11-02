@@ -8,6 +8,8 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import Mock, patch
 
+from credinomina_reconciliation.rounding import money, decimal_value, MONEY_EPSILON
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCTYPE = ROOT / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation"
@@ -15,7 +17,8 @@ DOCTYPE = ROOT / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn
 
 class CorrectionTests(unittest.TestCase):
     def setUp(self):
-        self.doc = Mock(docstatus=1, modified="current", name="DEP-1")
+        self.doc = Mock(docstatus=1, modified="current", name="DEP-1", deposit_amount=100,
+                        deposit_currency="USD", allocated_usd=0, justified_surplus_usd=0, fx_rate=0)
         self.doc.flags = SimpleNamespace()
         self.doc.get.side_effect = {"employer": "OLD", "deposit_date": "2026-10-01",
                                     "deposit_reference": "REF"}.get
@@ -35,7 +38,8 @@ class CorrectionTests(unittest.TestCase):
                         and node.name == "correct_deposit_data")
         function.decorator_list = []
         namespace = {"frappe": self.frappe, "_": lambda text: text,
-                     "clean_text": lambda text: str(text or "").strip()}
+                     "clean_text": lambda text: str(text or "").strip(),
+                     "money": money, "decimal_value": decimal_value, "MONEY_EPSILON": MONEY_EPSILON}
         exec(compile(ast.Module(body=[function], type_ignores=[]), "correction", "exec"), namespace)
         self.correct = namespace["correct_deposit_data"]
 
@@ -48,7 +52,7 @@ class CorrectionTests(unittest.TestCase):
         self.call()
         self.doc.check_permission.assert_called_once_with("write")
         self.doc.update.assert_called_once_with({"employer": "NEW", "deposit_date": date(2026, 10, 2),
-                                                "deposit_reference": "NEW REF"})
+                                                "deposit_reference": "NEW REF", "deposit_amount": money(100)})
         self.assertTrue(self.doc.flags.ignore_validate_update_after_submit)
         self.doc.save.assert_called_once_with()
         self.assertIn("Motivo: Error", self.doc.add_comment.call_args.args[1])
@@ -66,6 +70,20 @@ class CorrectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.call()
         self.doc.add_comment.assert_not_called()
+
+    def test_correction_never_reduces_executed_or_reserved_cash(self):
+        self.doc.allocated_usd, self.doc.justified_surplus_usd = 80, 10
+        with self.assertRaises(ValueError):
+            self.call(deposit_amount=89.99)
+        self.doc.save.assert_not_called()
+        self.doc.add_comment.assert_not_called()
+
+    def test_corrected_native_amount_is_compared_in_usd(self):
+        self.doc.deposit_currency, self.doc.fx_rate = 'NIO', 36.6243
+        self.doc.deposit_amount, self.doc.allocated_usd = 3662.43, 90
+        with self.assertRaises(ValueError):
+            self.call(deposit_amount=1831.22)
+        self.doc.save.assert_not_called()
 
     def test_fields_remain_locked_for_regular_post_submit_edits(self):
         meta = json.loads((DOCTYPE / "cn_remittance_allocation.json").read_text(encoding="utf-8"))

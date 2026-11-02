@@ -7,7 +7,7 @@ from frappe import _
 from frappe.utils import getdate, get_datetime, nowdate, now_datetime
 
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
-from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT as CREDIT_RESULT
+from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT as CREDIT_RESULT, available_from
 from credinomina_reconciliation.client_identity import name_key
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 from credinomina_reconciliation import credit_usage
@@ -22,7 +22,7 @@ _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", 
 
 
 def _origin_date(doc):
-    return doc.get('credit_origin_date') if doc.category in CREDIT_CATEGORIES and doc.get('credit_origin_date') else doc.posting_date
+    return available_from(doc) if doc.category in CREDIT_CATEGORIES else doc.posting_date
 
 
 def balance(doc, as_of_date=None):
@@ -495,7 +495,8 @@ def reverse_compensation(item_name, operation_id, reversal_date, reason, request
         frappe.throw(_("Esta confirmación ya se utilizó con otros datos."))
     if any(row.get("reverses_operation_id") == operation_id for doc in (left, right) for row in doc.compensations):
         frappe.throw(_("La compensación ya fue revertida."))
-    latest = max(getdate(row.compensation_date) for doc in (left, right) for row in doc.compensations)
+    latest = max([getdate(_origin_date(doc)) for doc in (left, right)] +
+                 [getdate(row.compensation_date) for doc in (left, right) for row in doc.compensations])
     if date > getdate(nowdate()) or date < latest:
         frappe.throw(_("La reversión no puede ser futura ni anterior a las compensaciones registradas."))
     if any(money(balance(doc)["compensated_usd"]) < amount for doc in (left, right)):

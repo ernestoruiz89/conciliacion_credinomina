@@ -21,7 +21,9 @@ class CompanySummaryExportTests(TestCase):
                                   **{key: value if key == field else 0 for key, _ in METRICS}))
         positions.append(dict(employer='Sin importe', balance_usd=None,
                               **{key: None if key == 'core_pending_usd' else 0 for key, _ in METRICS}))
-        with patch.object(report, 'load_detail', return_value=positions), patch.object(report, 'load_core_detail', return_value=[]):
+        with patch.object(report, 'load_detail', return_value=positions), \
+             patch.object(report, 'load_core_detail', return_value=[]), \
+             patch.object(report, 'load_deposit_differences', return_value=[]):
             columns, rows, message = report.execute({'view_mode': 'Resumen'})
         payload = build_control_workbook(
             {'year': 'Todos', 'periods': [],

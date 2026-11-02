@@ -20,8 +20,9 @@ for (const title of ["Pendiente", "Parcial"]) assert.equal(states[title], "Orang
 assert.equal(states["Con excedente"], "Red");
 assert.equal(states.Conciliado, "Green");
 assert.equal(states.Cerrado, "Purple");
-const context = vm.createContext({__: value => value, frappe: {listview_settings: {},
+const context = vm.createContext({__: value => value, format_currency: (value, currency) => `${currency} ${Number(value).toFixed(2)}`, frappe: {listview_settings: {},
     model: {can_write: () => false},
+    format: value => `USD ${Number(value).toFixed(2)}`, ui: {form: {on() {}}},
     get_meta: () => meta, scrub: value => value.toLowerCase(),
     utils: {escape_html: value => value.replace(/</g, "&lt;").replace(/>/g, "&gt;")}}});
 vm.runInContext(fs.readFileSync(path.join(directory, "cn_reconciliation_period_list.js"), "utf8"), context);
@@ -57,4 +58,25 @@ assert.ok(hiddenColumns.every(fieldname => !displayed.includes(fieldname)));
 assert.ok(["employer", "status", "historical_scope", "status_before_close"].every(fieldname => displayed.includes(fieldname)));
 view.list_view_settings.fields = null;
 settings.onload(view);
+for (const fieldname of ["deposit_coverage_usd", "complementary_coverage_usd", "negative_complementary_usd"]) {
+    assert.ok(settings.add_fields.includes(fieldname));
+    assert.equal(settings.formatters[fieldname](90, {}, {cash_breakdown_known: 0}), "—");
+    assert.equal(meta.fields.find(field => field.fieldname === fieldname).depends_on, "eval:doc.cash_breakdown_known == 1");
+}
+assert.equal(settings.formatters.deposit_coverage_usd(90, {}, {cash_breakdown_known: 1}), "USD 90.00");
+assert.equal(settings.formatters.negative_complementary_usd(-10, {}, {cash_breakdown_known: 1}), "USD -10.00");
+vm.runInContext(fs.readFileSync(path.join(directory, "cn_reconciliation_period.js"), "utf8"), context);
+let summary = "";
+const form = {is_new: () => false, fields_dict: {financial_overview_html: {$wrapper: {html: value => {summary = value;}}}},
+    doc: {applied_total_usd: 100, deposit_coverage_usd: 90, complementary_coverage_usd: 10,
+        negative_complementary_usd: -10, pending_usd: 0, cash_breakdown_known: 1}};
+context.renderPeriodFinancialOverview(form);
+assert.ok(summary.includes("USD 90.00") && summary.includes("USD -10.00"));
+assert.ok(summary.includes("Complementarias negativas US$ (incluidas)") && summary.includes("no se suma otra vez"));
+form.doc.cash_breakdown_known = 0;
+form.doc.cash_breakdown_note = "<script>sin reparto</script>";
+context.renderPeriodFinancialOverview(form);
+assert.ok(summary.includes("—"));
+assert.ok(!summary.includes("USD 90.00") && !summary.includes("USD -10.00"));
+assert.ok(!summary.includes("<script>"));
 console.log("OK: status column, complete color mapping and status fetch for personalized lists.");

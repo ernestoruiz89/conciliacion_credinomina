@@ -47,6 +47,35 @@ def collection_link_issue(links, net, collections, usage=None):
     return ''
 
 
+def explicit_collection_cash(collection):
+    """Return executed cash by application only when every portion is explicit.
+
+    Direct application cash is projected onto payroll for display, but already
+    belongs to its application's own journal. It must not cover a legacy claim
+    for a second time. Unsplit legacy cash or tolerance remains unattributable.
+    """
+    if money(collection.get('rounding_adjustment_usd')):
+        return None
+    assigned = defaultdict(lambda: money(0))
+    for entry in entries(collection.get('remittance_detail')):
+        if entry.get('destino') == 'Partida complementaria' or entry.get('aplicacion_directa'):
+            continue
+        amount = money(entry.get('importe_usd'))
+        if not amount:
+            continue
+        parts = entries(entry.get('aplicaciones_fifo'))
+        if not parts:
+            return None
+        if (amount < 0 or any(not part.get('application_id') or money(part.get('amount_usd')) <= 0 for part in parts)
+                or sum_money(part.get('amount_usd') for part in parts) != amount):
+            raise ValueError('La distribución por aplicación no coincide con el depósito; revise la cobranza.')
+        for part in parts:
+            assigned[part['application_id']] += money(part['amount_usd'])
+    if collection.get('applied_usd') is not None and sum_money(assigned.values()) > money(collection['applied_usd']):
+        raise ValueError('La distribución por aplicación supera el aplicado de la cobranza.')
+    return dict(assigned) if assigned else None
+
+
 def _client_group_key(row, index):
     return next(((field, str(row.get(field))) for field in
                  ('client_number', 'client', 'national_id', 'loan_number') if row.get(field)),
@@ -94,20 +123,30 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
             add(group, net, None, None, issue)
             continue
         for link in links:
-            claims[link.get('collection_row_id')].append((group, money(link.get('amount_usd'))))
+            claims[link.get('collection_row_id')].append((group, money(link.get('amount_usd')), row.get('name')))
         add(group, money(net) - linked)
 
     for claim, parts in claims.items():
         collection = collections.get(claim)
-        local = sum_money(amount for _, amount in parts)
-        groups = {id(group) for group, _ in parts}
+        local = sum_money(amount for _, amount, _ in parts)
+        groups = {id(group) for group, _, _ in parts}
+        explicit = explicit_collection_cash(collection) if collection else None
+        if explicit is not None and all(name or not explicit for _, _, name in parts):
+            by_application = {}
+            for group, amount, name in parts:
+                key = (id(group), name)
+                previous = by_application.get(key, (group, money(0)))
+                by_application[key] = (group, previous[1] + amount)
+            for (_group_id, name), (group, amount) in by_application.items():
+                add(group, amount, explicit.get(name, 0))
+            continue
         cash = sum_money(item.get('importe_usd') for item in entries(collection.get('remittance_detail'))
-                         if item.get('destino') != 'Partida complementaria') if collection else 0
+                         if item.get('destino') != 'Partida complementaria' and not item.get('aplicacion_directa')) if collection else 0
         rounding = money(collection.get('rounding_adjustment_usd')) if collection else 0
         overlinked = collection and collection.get('applied_usd') is not None and local > money(collection['applied_usd'])
         uncertain = not collection or overlinked or len(groups) > 1 or ((cash or rounding) and local != money(collection.get('applied_usd')))
         if uncertain:
-            for group, amount in parts:
+            for group, amount, _name in parts:
                 add(group, amount, None, None, 'Distribución compartida o no disponible: no se puede atribuir el depósito a esta importación. Consulte el período.')
         else:
             add(parts[0][0], local, cash, rounding)

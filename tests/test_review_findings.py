@@ -209,16 +209,20 @@ def test_invalid_deposit_propagates_unknown_to_excel_summary():
     from credinomina_reconciliation.control_export import build_control_workbook
     from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as report
     detail = statement.build_detail([],[],[],[deposit(allocated_usd=110)])
-    with patch.object(report, 'load_detail', return_value=detail), patch.object(report, 'load_core_detail', return_value=[]):
+    with patch.object(report, 'load_detail', return_value=detail), patch.object(report, 'load_core_detail', return_value=[]), \
+         patch('credinomina_reconciliation.deposit_difference_report.frappe.has_permission', return_value=True), \
+         patch('credinomina_reconciliation.deposit_difference_report.records', return_value=[]) as difference_deposits:
         columns, rows, message = report.execute({'view_mode':'Resumen'})
+    assert difference_deposits.call_args.args[0] == 'CN Remittance Allocation'
+    assert difference_deposits.call_args.kwargs['filters'] == {'docstatus': 1}
     payload = build_control_workbook({'year':'Todos','periods':[],
         'company_statement':dict(columns=columns,rows=rows,message=message)}, exceptions=[], actions=[],
         employer_label='E', generated_at=datetime(2026,10,12))
     sheet = load_workbook(io.BytesIO(payload))['Resumen']
-    values = dict(zip([cell.value for cell in sheet[4]], [cell.value for cell in sheet[5]]))
-    assert values['Saldo contable core US$'] == 0
-    assert values['Depósitos sin asignar US$'] == 'N/D'
-    assert values['Partidas pendientes'] == 1
+    fields = {column['fieldname']: index for index, column in enumerate(columns, 1)}
+    assert sheet.cell(5, fields['core_balance_usd']).value == 0
+    assert sheet.cell(5, fields['deposit_pending_usd']).value == 'N/D'
+    assert sheet.cell(5, fields['pending_count']).value == 1
 
 
 def test_collection_export_does_not_present_missing_usd_as_zero():

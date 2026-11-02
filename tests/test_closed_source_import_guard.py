@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from contextlib import contextmanager
 from unittest.mock import Mock, patch
 
 import frappe
@@ -49,10 +50,26 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
             return "PER-CLOSED" if name == "FEE-CLOSED" else "PER-OPEN"
         return None
 
-    def _check(self, document):
+    def _get_all(self, doctype, *, filters, fields=None, pluck=None, **kwargs):
+        names = filters['name'][1]
+        self.assertEqual(filters['name'][0], 'in')
+        if doctype == 'CN Reconciliation Period':
+            self.assertEqual(filters['status'], 'Cerrado')
+            self.assertEqual(pluck, 'name')
+            return [name for name in names if self._get_value(doctype, name, 'status') == 'Cerrado']
+        field = 'parent' if doctype == 'CN Collection Row' else 'period'
+        self.assertIn(doctype, {'CN Collection Row', 'CN Complementary Item'})
+        return [frappe._dict(name=name, **{field: self._get_value(doctype, name, field)}) for name in names]
+
+    @contextmanager
+    def _database(self):
         with patch.object(
             source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
-        ):
+        ), patch.object(source_module.frappe, 'get_all', side_effect=self._get_all):
+            yield
+
+    def _check(self, document):
+        with self._database():
             source_module.CNAccountingImport._validate_closed_source_edits(document)
 
     def test_multiquincena_second_closed_period_rejects_rate_edit(self):
@@ -113,9 +130,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
                 self._check(document)
         with patch.object(source_module.frappe, "throw", side_effect=ValueError):
             with self.assertRaises(ValueError):
-                with patch.object(
-                    source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
-                ):
+                with self._database():
                     source_module.CNAccountingImport.on_trash(document)
 
     def test_deleting_import_linked_to_closed_period_requires_reopen(self):
@@ -123,9 +138,7 @@ class ClosedSourceImportGuardTests(unittest.TestCase):
         document = _document([linked], [linked])
         with patch.object(source_module.frappe, "throw", side_effect=ValueError):
             with self.assertRaises(ValueError):
-                with patch.object(
-                    source_module.frappe, "db", Mock(get_value=Mock(side_effect=self._get_value)),
-                ):
+                with self._database():
                     source_module.CNAccountingImport.on_trash(document)
 
     def test_removing_linked_row_or_replacing_source_file_requires_reopen(self):

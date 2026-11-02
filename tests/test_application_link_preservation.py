@@ -49,6 +49,30 @@ class ApplicationLinkPreservationTests(unittest.TestCase):
         self.assertEqual(json.loads(source.application_allocation_detail),
                          [dict(collection_row_id='C80', period='P', amount_usd=60)])
 
+    def test_partial_link_keeps_unlinked_remainder_on_an_unchanged_refresh(self):
+        raw = '[{ "collection_row_id": "C80", "period": "P", "amount_usd": 40 }]'
+        source = self.source(amount=100, application_allocation_detail=raw)
+        original = source.as_dict()
+        source.application_allocation_detail = '[]'
+        fixed = preserve([source], [original], [Row(name='C80', parent='P')])
+        self.assertEqual(fixed, [source])
+        self.assertEqual(source.application_allocation_detail, raw)
+        self.assertEqual(json.loads(source.application_allocation_detail)[0]['amount_usd'], 40)
+
+    def test_adjusting_partial_link_does_not_invent_which_portion_is_reduced(self):
+        source = self.source(amount=100,
+            application_allocation_detail='[{"collection_row_id":"C80","period":"P","amount_usd":40}]')
+        original = source.as_dict()
+        source.application_adjustment_usd = 20
+        with patch.object(frappe, 'throw', side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
+            preserve([source], [original], [Row(name='C80', parent='P')])
+
+    def test_existing_overlinked_evidence_is_not_silently_normalized(self):
+        source = self.source(amount=30,
+            application_allocation_detail='[{"collection_row_id":"C80","period":"P","amount_usd":40}]')
+        with patch.object(frappe, 'throw', side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
+            preserve([source], [source.as_dict()], [Row(name='C80', parent='P')])
+
     def test_missing_destination_or_ambiguous_split_change_blocks_instead_of_rematching(self):
         source = self.source()
         with patch.object(frappe, 'throw', side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
@@ -62,6 +86,14 @@ class ApplicationLinkPreservationTests(unittest.TestCase):
     def test_explicit_unassignment_is_not_restored(self):
         source = self.source()
         self.assertEqual(preserve([source], [source.as_dict()], [], exclude_import='I'), [])
+
+    def test_existing_child_id_cannot_move_the_confirmed_application_to_another_credit_or_client(self):
+        for values in (dict(loan_number='999-1'), dict(client='2'), dict(installment_number='3')):
+            source = self.source(installment_number='2')
+            target = Row(name='C80', parent='P', loan_number='109-1', client='1', installment_number='2')
+            target.update(values)
+            with self.subTest(values=values), patch.object(frappe, 'throw', side_effect=frappe.ValidationError), self.assertRaises(frappe.ValidationError):
+                preserve([source], [source.as_dict()], [target])
 
     def test_incompatible_currency_or_identity_does_not_bypass_matching_rules(self):
         for changes in (dict(currency='NIO'), dict(loan_number='OTHER-1')):

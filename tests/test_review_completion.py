@@ -131,7 +131,13 @@ def test_batched_candidates_use_actual_cash_or_reservation_once_and_cannot_confi
         context = CandidateContext(rows, parent, item)
         assert cash_coverage(rows[0], context=context)['adjustable_usd'] == 40
         assert cash_coverage(rows[1], context=context)['adjustable_usd'] == 100
-        assert reads.call_count <= 4
+        # The original reservation/cash reads stay bounded. Applied credit is
+        # an additional authoritative journal, loaded in batches of 100 IDs.
+        cash_reads = [call for call in reads.call_args_list if call.args[0] != 'CN Complementary Item']
+        credit_reads = [call for call in reads.call_args_list if call.args[0] == 'CN Complementary Item']
+        assert len(cash_reads) <= 4
+        assert len(credit_reads) <= 2
+        assert all(len(call.kwargs['or_filters']) <= 100 for call in credit_reads)
         per_row.assert_not_called()
         with pytest.raises(ValueError):
             cash_coverage(rows[0], lock=True, context=context)

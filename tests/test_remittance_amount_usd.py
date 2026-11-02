@@ -48,6 +48,7 @@ class RemittanceAmountUsdTest(unittest.TestCase):
             deposit_voucher=" V-1 ", _validate_deposit=Mock(),
             _invalidate_changed_detail_credits=Mock(),
             _update_financial_status=Mock(),
+            _update_coverage_totals=Mock(),
             get_doc_before_save=Mock(return_value=None),
             get=lambda key: None,
         )
@@ -56,6 +57,8 @@ class RemittanceAmountUsdTest(unittest.TestCase):
         self.assertEqual("R-1", document.deposit_reference)
         self.assertEqual("V-1", document.deposit_voucher)
         document._validate_deposit.assert_called_once_with()
+        document._update_financial_status.assert_called_once_with()
+        document._update_coverage_totals.assert_called_once_with()
 
 
 if __name__ == "__main__":

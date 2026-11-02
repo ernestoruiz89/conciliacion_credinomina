@@ -45,7 +45,7 @@ from credinomina_reconciliation.parsers import (
     parse_collection_file,
     source_key,
 )
-from credinomina_reconciliation.period_lock import current_period_write_action, period_write_action
+from credinomina_reconciliation.period_lock import current_period_write_action, period_write_action, lock_period_companies
 from credinomina_reconciliation.period_naming import new_period_name, rename_period_for_context_change
 from credinomina_reconciliation.period_totals import update_period_totals
 from credinomina_reconciliation.reconciliation import (
@@ -84,6 +84,8 @@ class CNReconciliationPeriod(Document):
 
     def validate(self):
         self._validate_closed_transition()
+        from credinomina_reconciliation.collection_link_preservation import guard as guard_collection_links
+        guard_collection_links(self)
         if self.payroll_month:
             self.payroll_month = getdate(self.payroll_month).replace(day=1)
         self._validate_mode()
@@ -742,6 +744,7 @@ def close_period(period_name: str, progress_id: str = ""):
         frappe.throw(_("Este período ya está cerrado."))
     if not period.employer:
         frappe.throw(_("Indique la empresa del período antes de cerrarlo."))
+    lock_period_companies(employers=[period.employer])
 
     def report(percent, message):
         if progress_id:
@@ -786,6 +789,8 @@ def close_period(period_name: str, progress_id: str = ""):
             ))
         if period.status != "Conciliado":
             frappe.throw(_("El aplicado neto debe estar cubierto por depósitos o compensado por ajustes confirmados antes del cierre."))
+        from credinomina_reconciliation.period_closure import validate_direct_applications
+        validate_direct_applications(period)
         if application_ids and _pending_registered_targets(
             {"historical_application": ["in", application_ids]}
         ):
@@ -800,6 +805,8 @@ def close_period(period_name: str, progress_id: str = ""):
         report(100, _("Período cerrado."))
         return {"period": period.name, "status": period.status}
     period.recalculate_totals()
+    if flt(getattr(period, "pending_usd", 0)) > CASH_EPSILON:
+        frappe.throw(_("El período todavía tiene aplicaciones pendientes de cubrir. Verifique los importes antes del cierre."))
     if not _has_operative_application(period, scope=scope):
         frappe.throw(_(
             "No se puede cerrar el período sin aplicaciones efectivas del core vinculadas al período."

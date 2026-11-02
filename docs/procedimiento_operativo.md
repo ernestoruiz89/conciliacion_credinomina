@@ -128,6 +128,8 @@ En **Consultas → Saldos por cliente**, active **Solo pendientes** para ver ún
 
 En **Detalle de movimientos → Filas**, **Aplicado USD** indica lo cubierto por depósitos y ajustes confirmados, descontando la diferencia menor de conciliación; **Saldo USD** indica lo pendiente por aplicación. Por ejemplo, un movimiento de US$100 con US$60 de depósitos y US$10 de ajuste muestra US$70 aplicado y US$30 de saldo. Las columnas solo consultan datos guardados. Si varias aplicaciones comparten una cobertura que no puede repartirse con certeza, muestran **—**, aunque el resumen por cliente pueda determinar el total. Los movimientos ignorados, no efectivos o distintos de aplicaciones también muestran **—**.
 
+Una aplicación con neto cero y sin pagos sobrantes puede estar conciliada. Si un registro antiguo conserva cobertura de depósitos que excede ese neto, **Estado de Cuenta Operativo**, **Estado de Cuenta por Empresa** y el control de aplicaciones la mantienen para revisión, conservando la cobertura registrada y su advertencia. El ajuste no oculta los vínculos ni crea una nueva deuda para corregirlos.
+
 Al inicio de **1. Importación**, la sección **Cobertura de las aplicaciones** muestra las tarjetas **Importe**, **Depósitos**, **Partidas complementarias** y **Saldo** de las aplicaciones efectivas, antes de los datos del archivo. Los depósitos son solo los importes atribuibles a sus aplicaciones. Las partidas incluyen compensaciones confirmadas y diferencias menores con su signo; no son efectivo adicional. Si una cobranza comparte aplicaciones y no permite atribuir el depósito sin duplicarlo, el importe afectado muestra «—».
 
 Control posterior: compare número de líneas, débitos y créditos originales con la extracción contable. El total de aplicaciones no sustituye el total de todas las líneas contables, porque también hay depósitos y complementarias.
@@ -330,6 +332,8 @@ Cuando la tasa de la planilla difiere de la tasa del depósito, la diferencia en
 
 Ruta: **Conciliación Credinómina → Depósitos → Distribución de Depósito** o `/app/cn-remittance-allocation`. El nombre automático es DEP-mes-año-consecutivo, según la fecha del depósito.
 
+Duplicar un depósito puede conservar sus datos y destinos previstos, pero no copia pagos ejecutados, reservas ni el estado conciliado. Los nuevos registros y borradores permanecen pendientes hasta ejecutar **Conciliar**; confirme y revise el nuevo detalle. Las filas y destinos copiados deben vincularse dentro del nuevo documento, sin reutilizar identificadores de detalle del depósito original.
+
 1. En **1. Depósito**, seleccione la empresa pagadora y la cuenta bancaria conocida. Registre referencia, fecha real, importe en su moneda original y, si hace falta distinguir referencias repetidas, comprobante contable. Adjunte el soporte disponible.
 2. Revise la moneda que completó la cuenta. Si el depósito está en NIO, ingrese tasa positiva C$/US$. **Equivalente US$** es calculado y de solo lectura. Por ejemplo, C$3,662.43 a 36.6243 equivalen a US$100.00. Los importes se redondean a dos decimales mediante Decimal; conserve la precisión de la tasa.
 3. Guarde. El supervisor usa **Confirmar depósito** cuando el dinero y la evidencia son correctos. Esta confirmación no ejecuta la conciliación ni crea pagos en el core.
@@ -391,6 +395,8 @@ Para trabajar con una persona concreta, abra su fila en **2. Detalle** y pulse *
 No repita en Destinos una asignación que ya quedó conciliada automáticamente. La distribución completa incluye también saldos a favor, aunque estos no se agreguen como pagos a créditos en esa tabla.
 
 Si la conciliación eligió una aplicación equivocada, abra la fila del cliente en **2. Detalle** y pulse **Desconciliar**. Confirme la acción: se libera el efectivo aplicado por esa fila, se retiran sus destinos y se actualizan los saldos de las aplicaciones. Las demás filas conservan su distribución. La fila queda **Pendiente manual**; use **Seleccionar partidas pendientes**, guarde y concilie para elegir su nuevo destino. Mientras esté marcada **Solo conciliación manual**, la selección automática y FIFO no elegirán aplicaciones para esa fila. Desmarque esa opción si desea habilitarlas nuevamente.
+
+Si varias filas del mismo depósito pagan una aplicación, cada una conserva su procedencia. Desconciliar una libera únicamente su porción y las complementarias vinculadas a esa fila, manteniendo los pagos de las demás filas y depósitos. Cuando un registro antiguo no permite distinguir esas porciones, la acción solicita revisar la distribución; no supone un reparto.
 
 Una fila de cliente con pendiente cero aparece **Conciliada**. La diferencia de empresa no se reparte entre los clientes: cada fila conserva el resultado de sus aplicaciones reales. Si el efectivo disponible no alcanza para cubrir las aplicaciones identificadas, la conciliación se detiene para revisar los destinos o vincular la partida del core. El **Estado de Cuenta por Empresa** y su vista **Conciliación** muestran la diferencia una sola vez en **Diferencia depósito pendiente en core US$**; es un control informativo, no se suma nuevamente al saldo ni crea un asiento. Cuando se vincula y concilia el movimiento del core, deja de estar pendiente de registro. En cortes anteriores el estado puede aparecer como no determinable si no existe historial suficiente del vínculo.
 
@@ -462,9 +468,23 @@ Conserve primero el detalle de la distribución actual y consulte **Conciliació
 
 Una conciliación nueva conserva las asignaciones confirmadas. Un depósito puede cubrir varias aplicaciones, y una aplicación puede recibir varios depósitos y ajustes complementarios; cada operación utiliza únicamente la capacidad restante. Actualizar importaciones, períodos o maestros conserva los diarios de efectivo y reserva los vínculos de cobranza existentes antes de buscar nuevas coincidencias.
 
+Una fila de cobranza con aplicaciones, efectivo o destinos reservados conserva su cliente, crédito, cuota y **Fila ID**, incluso al recargar un archivo con la misma Fila ID. Para corregir esos datos, retire primero sus vínculos por el flujo autorizado. Se permiten correcciones de nombre, comentarios y formatos equivalentes de identificadores que no cambien la identidad. Un saldo a favor del cliente tampoco puede aplicarse si el número original contradice al beneficiario vinculado.
+
 Para corregir un vínculo ya confirmado, use primero **Desconciliar** en la fila afectada o en el depósito según el alcance. Después modifique los destinos y vuelva a conciliar. Una conciliación normal que intente quitar, reducir o mover una asignación confirmada se bloquea y no guarda sus cambios. Las disminuciones por ajustes confirmados conservan la cobranza de destino; si requieren repartir un nuevo importe entre varias cobranzas, solicitan revisión explícita. Al cancelar una partida solo puede retirarse su propio vínculo, conservando los demás pagos.
 
 FIFO conserva las aplicaciones exactas que ya recibieron efectivo, aunque después se importen aplicaciones más antiguas. Si una cobranza antigua tiene varios destinos y sus depósitos no conservan el reparto por aplicación, se requiere revisar sus vínculos antes de usar FIFO; no se reasigna el pago a otra aplicación por su antigüedad.
+
+Un destino manual rechazado por cliente, crédito, empresa o período no distribuye efectivo. Un vínculo parcial válido puede aplicar menos que el importe de la fila y deja el remanente pendiente. Si una distribución tiene contrapartidas negativas, una instrucción inválida rechaza el grupo firmado completo para evitar aplicar únicamente un lado.
+
+Los vínculos parciales de aplicación a cobranza se conservan con su importe original al actualizar sin cambios. Un enlace de US$40 sobre una aplicación de US$100 continúa en US$40; el remanente sin enlazar no se agrega por inferencia. Si cambia el neto y no hay un reparto unívoco, se exige revisión explícita.
+
+Recargar una fila contable idéntica conserva su identificador, los vínculos con cobranza y la evidencia de depósitos. La conservación exige el mismo origen, identidad, fecha, moneda, importes y período; un cambio financiero o una reasignación explícita mantiene sus validaciones habituales y no hereda resultados de otra aplicación.
+
+Los reportes atribuyen los pagos a cada aplicación cuando el diario conserva porciones FIFO explícitas, manteniendo su fecha y vencimiento. Sin ese desglose no se supone un reparto. Para el cierre se verifican las aplicaciones individualmente: un exceso en una no cubre el faltante de otra, aunque el total del período coincida; los excesos quedan para revisión.
+
+El resumen del período separa **Efectivo de depósitos** y **Cobertura complementaria**. Un depósito de US$90 distribuido como aplicación US$100 y complementaria −US$10 muestra US$90 de efectivo y US$10 de cobertura complementaria. Debajo conserva el importe original **−US$10** como complementaria negativa incluida; no se suma de nuevo. La cobertura total sigue siendo US$100 y el pendiente US$0. Los saldos a favor aplicados también son cobertura complementaria; su uso no se cuenta otra vez como efectivo de depósitos.
+
+Si ese depósito cubre varias aplicaciones del mismo período, el resumen puede determinar el efectivo conjunto sin repartir la complementaria entre ellas. Si comparte varios períodos o tiene otros destinos positivos y no existe atribución explícita, los componentes muestran **—** con el motivo. También quedan sin determinar cuando falta evidencia del saldo a favor aplicado o los totales guardados no coinciden con el detalle. Los importes y vínculos de cada aplicación se conservan. La migración actualiza este desglose en los períodos existentes, incluidos los cerrados, sin volver a conciliar ni cambiar estados, pendientes o distribuciones.
 
 Para retirar la conciliación vigente, use **Conciliación → Desconciliar**. Lea la advertencia, indique el motivo y confirme la acción. El depósito permanece confirmado y conserva su origen contable; revise los destinos antes de conciliar otra vez. Las restricciones por períodos cerrados, reservas de saldos a favor y otros vínculos siguen vigentes. Desconciliar no requiere el rol de eliminación del core porque no cancela ni elimina el documento.
 
@@ -487,6 +507,8 @@ Control posterior: la aplicación retirada debe volver a mostrar su pendiente, e
 ### Corregir datos de un depósito confirmado
 
 Use **Corregir datos** para rectificar empresa pagadora, fecha, referencia o importe en la moneda registrada de un depósito confirmado, si cuenta con permiso de escritura. Indique el motivo obligatorio y pulse **Guardar corrección**; después use **Conciliar**. El equivalente en US$ se recalcula sin modificar el débito o crédito contable original. El importe corregido debe reflejar el efectivo recibido según el soporte bancario: una línea de crédito del asiento puede representar solo una parte del depósito. La acción conserva los cambios y su motivo, verifica que el documento no haya cambiado en otra sesión y mantiene las validaciones de vínculos, saldos a favor y períodos cerrados. No permite reducir el importe por debajo del efectivo ya distribuido o reservado.
+
+El mismo límite se aplica al cambiar la tasa C$/US$: el nuevo equivalente no puede ser menor que el efectivo distribuido más los saldos a favor reservados, aunque se hayan retirado los destinos manuales. Las modificaciones financieras y la conciliación comparten el bloqueo de saldos; si otra sesión cambió el depósito o sus saldos, recargue antes de reintentar.
 
 Después de guardar, revise detalle, períodos y destinos y pulse **Conciliar**. La corrección de cabecera no demuestra que la nueva distribución sea válida. Si una validación bloquea el cambio, resuelva primero los vínculos o solicite la reapertura autorizada; no fuerce la edición en la base de datos.
 
@@ -762,9 +784,13 @@ Ante una consulta, no se presenta la diferencia de cobranza como saldo contractu
 5. Compruebe **Cerrado** y el resultado financiero conservado en el detalle. Cerrar bloquea edición; no garantiza que toda gestión externa de un saldo a favor o asiento contable haya terminado. Revise esas partidas en la bandeja de trabajo.
 6. Para una corrección posterior, el supervisor o administrador usa **Reabrir período**, indica motivo y revisa las operaciones afectadas. Conserve la evidencia de la reapertura y cierre nuevamente cuando proceda.
 
+El cierre comprueba los importes de cada aplicación en US$, incluyendo su conversión documentada, ajustes confirmados y diferencias firmadas. Un estado guardado como conciliado o un saldo guardado en cero no sustituye esa comprobación: faltantes, excesos y conversiones ausentes impiden cerrar.
+
+El cierre y los cambios de excepciones se verifican contra el estado actual del período. Si otra sesión lo cerró durante la gestión, la app rechaza la operación desactualizada; recargue y aplique las reglas de seguimiento de períodos cerrados. El historial de asignaciones conserva sus importes en US$, independientemente de la moneda predeterminada del sitio.
+
 **Registrar corte de control** sirve para conservar Excel y JSON privados con las cifras de ese momento, fecha y motivo o próxima gestión. **Más opciones → Ver cortes registrados** permite recuperarlos. No equivale a cerrar, no paga deuda y no impide recibir evidencia tardía.
 
-Al inicio de la pestaña **Período y conciliación**, cuatro tarjetas muestran los saldos financieros guardados. **Importe US$** expresa las aplicaciones antes de compensaciones; **Depósitos US$** muestra el efectivo aplicado a esas aplicaciones; **Partidas complementarias US$** separa las compensaciones confirmadas y diferencias menores firmadas; **Saldo US$** suma lo aún pendiente por aplicación o cuota. Por ejemplo, importe US$100.00, depósito US$80.00 y compensación US$20.00 muestran saldo US$0.00. No sume otra vez los equivalentes en C$ ni reste dos veces la complementaria. Un exceso en otra cuota no reduce ese saldo, y una CxC trasladada a una partida conserva su gestión fuera del saldo de la aplicación.
+Al inicio de la pestaña **Período y conciliación**, cuatro tarjetas muestran los saldos financieros guardados. **Importe US$** expresa las aplicaciones antes de compensaciones; **Efectivo de depósitos US$** muestra el efectivo atribuible a esas aplicaciones; **Cobertura complementaria US$** separa las compensaciones confirmadas, saldos a favor aplicados y diferencias documentadas; **Saldo US$** suma lo aún pendiente por aplicación o cuota. Por ejemplo, importe US$100.00, depósito US$80.00 y compensación US$20.00 muestran saldo US$0.00. Las complementarias negativas conservan su signo por separado e indican que su efecto ya está incluido; si falta atribución, los componentes muestran **—** con el motivo. No sume otra vez los equivalentes en C$ ni reste dos veces la complementaria. Un exceso en otra cuota no reduce ese saldo, y una CxC trasladada a una partida conserva su gestión fuera del saldo de la aplicación.
 
 ## Saldos a favor y rendición
 
@@ -780,6 +806,8 @@ documental de la IMF. Una clasificación equivocada se
 cancela expresamente antes de redistribuir, siempre que no existan gestiones
 realizadas ni períodos cerrados afectados. No compense automáticamente saldos
 de personas o empresas distintas.
+
+La fecha de origen financiero del saldo a favor y sus aplicaciones, devoluciones, compensaciones y reversiones no pueden anticiparse al depósito que lo respalda. Una reclasificación puede conservar una fecha contable distinta; su origen financiero sigue siendo el documentado para ese efectivo. Los registros antiguos conservan sus fechas originales, pero las nuevas operaciones respetan la fecha bancaria.
 
 Para rendir el mes sin detener datos tardíos, registre un corte de control y
 consulte **Más opciones → Ver cortes registrados**. Cada corte conserva Excel
@@ -953,6 +981,7 @@ Desde la partida original confirmada, use **Aplicar cobro / Compensar CxC**:
 
 Las correcciones conservan el historial. Revierta la distribución o compensación
 equivocada antes de cancelar su registro; el pendiente vuelve a quedar abierto.
+En recuperaciones históricas, el recibo debe tener sentido positivo y la contrapartida debe ser un crédito real según su evidencia contable. Otro débito no constituye un cobro ni reduce la CxC, aunque los importes coincidan.
 Si un depósito conserva un destino hacia una partida cancelada o sin confirmar,
 retire o corrija ese destino expresamente antes de reutilizar el efectivo.
 

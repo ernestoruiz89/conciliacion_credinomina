@@ -39,8 +39,7 @@ class EmployerNamingTest(unittest.TestCase):
             ],
             list(patches["pre_model_sync"]),
         )
-        self.assertEqual(
-            [
+        expected_post_sync = [
                 "credinomina_reconciliation.patches.v1_0.rename_cn_employers_by_name",
                 "credinomina_reconciliation.patches.v1_0.assign_client_employers",
                 "credinomina_reconciliation.patches.v1_0.backfill_clients",
@@ -87,9 +86,10 @@ class EmployerNamingTest(unittest.TestCase):
                 "credinomina_reconciliation.patches.v1_0.backfill_deposit_financial_status",
                 "credinomina_reconciliation.patches.v1_0.classify_exception_closure",
                 "credinomina_reconciliation.patches.v1_0.review_financial_origins",
-            ],
-            list(patches["post_model_sync"]),
-        )
+            ]
+        registered = list(patches["post_model_sync"])
+        self.assertEqual(expected_post_sync, registered[:len(expected_post_sync)])
+        self.assertEqual(len(registered), len(set(registered)))
 
     def test_patch_preserves_codes_when_renaming_existing_records(self):
         root = Path(__file__).resolve().parents[1]

@@ -250,7 +250,9 @@ def test_compact_grid_keeps_original_row_description_and_full_export_columns():
     assert rows[0]['source_row'] == 257 and rows[0]['source_row_id'] == 'R'
     compact = control.columns()
     audit = control.columns(audit=True)
-    assert len([column for column in compact if not column.get('hidden')]) == 9
+    assert [column['fieldname'] for column in compact if not column.get('hidden')] == [
+        'event_date', 'employer', 'client_name', 'movement_type', 'debit_usd', 'credit_usd',
+        'pending_usd', 'state', 'difference_reason', 'audit_action']
     assert {column['fieldname'] for column in audit} <= {column['fieldname'] for column in compact}
     assert next(column for column in compact if column['fieldname'] == 'description')['hidden'] == 1
     assert next(column for column in audit if column['fieldname'] == 'source_row')['label'] == 'Fila original'

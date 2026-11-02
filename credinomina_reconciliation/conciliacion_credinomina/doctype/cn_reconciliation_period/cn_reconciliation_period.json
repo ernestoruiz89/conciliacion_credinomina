@@ -49,6 +49,9 @@
     "deposit_coverage_usd",
     "financial_totals_column",
     "complementary_coverage_usd",
+    "negative_complementary_usd",
+    "cash_breakdown_known",
+    "cash_breakdown_note",
     "remitted_total_usd",
     "financial_pending_column",
     "pending_usd",
@@ -276,24 +279,54 @@
     {
       "fieldname": "deposit_coverage_usd",
       "fieldtype": "Currency",
+      "depends_on": "eval:doc.cash_breakdown_known == 1",
       "in_list_view": 1,
-      "label": "Aplicado a depósitos US$",
+      "label": "Efectivo de depósitos US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,
       "no_copy": 1,
-      "description": "Importe de depósitos aplicado a las aplicaciones de este período. No incluye efectivo asignado a otros períodos, ingresos ni saldos a favor."
+      "description": "Efectivo real atribuible a las aplicaciones de este período. No incluye efectivo asignado a otros períodos, ingresos ni saldos a favor. Si no existe atribución suficiente, se muestra como no determinable."
     },
     {
       "fieldname": "complementary_coverage_usd",
       "fieldtype": "Currency",
+      "depends_on": "eval:doc.cash_breakdown_known == 1",
       "in_list_view": 1,
-      "label": "Aplicado a partidas complementarias US$",
+      "label": "Cobertura complementaria US$",
       "options": "usd_currency",
       "precision": "2",
       "read_only": 1,
       "no_copy": 1,
-      "description": "Compensaciones confirmadas de aplicaciones y diferencias menores firmadas. Puede ser negativo; no incluye diferencias cambiarias en revisión."
+      "description": "Contribución a la cobertura de aplicaciones por ajustes y diferencias documentadas, incluyendo el efecto de las partidas negativas. El importe firmado de las partidas negativas se muestra por separado y no se suma otra vez."
+    },
+    {
+      "fieldname": "negative_complementary_usd",
+      "fieldtype": "Currency",
+      "depends_on": "eval:doc.cash_breakdown_known == 1",
+      "in_list_view": 1,
+      "label": "Complementarias negativas US$ (incluidas)",
+      "options": "usd_currency",
+      "precision": "2",
+      "read_only": 1,
+      "no_copy": 1,
+      "description": "Porciones negativas del diario, conservando su signo. Su efecto ya está incluido en la cobertura complementaria; no se suma otra vez. Sin atribución explícita el desglose se muestra como no determinable."
+    },
+    {
+      "fieldname": "cash_breakdown_known",
+      "fieldtype": "Check",
+      "label": "Desglose de efectivo determinado",
+      "default": "0",
+      "hidden": 1,
+      "read_only": 1,
+      "no_copy": 1
+    },
+    {
+      "fieldname": "cash_breakdown_note",
+      "fieldtype": "Small Text",
+      "label": "Observación del desglose de efectivo",
+      "read_only": 1,
+      "no_copy": 1
     },
     {
       "fieldname": "remitted_total_usd",

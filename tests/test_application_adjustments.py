@@ -148,6 +148,28 @@ class ApplicationAdjustmentTests(unittest.TestCase):
         adjustments.mark_mixed_settlements([row], [])
         self.assertEqual(row.deposit_match_status, "Depósito parcial")
 
+    def test_mixed_status_checks_amounts_even_if_cached_balance_is_zero(self):
+        for paid, status in ((80, adjustments.MIXED_STATUS), (81, 'Diferencia de importe'), (79, 'Depósito parcial')):
+            row = frappe._dict(name='A', event_type='Aplicacion', effective=1, match_status='Conciliado',
+                amount=100, application_adjustment_usd=20, historical_period='P', historical_remitted_usd=paid,
+                historical_balance_usd=0, historical_detail='[]', deposit_match_status=adjustments.MIXED_STATUS)
+            adjustments.mark_mixed_settlements([row], [])
+            self.assertEqual(row.deposit_match_status, status)
+
+    def test_mixed_operating_status_rejects_overcoverage_and_accepts_signed_rounding(self):
+        row = frappe._dict(name='A', event_type='Aplicacion', effective=1, match_status='Conciliado',
+            amount=100, application_adjustment_usd=20, historical_period='',
+            application_allocation_detail='[{"collection_row_id":"C","amount_usd":80}]')
+        collection = frappe._dict(name='C', applied_usd=80, rounding_adjustment_usd=0,
+                                 remittance_detail='[{"importe_usd":81}]')
+        adjustments.mark_mixed_settlements([row], [collection])
+        self.assertEqual(row.deposit_match_status, 'Diferencia de importe')
+        for rounding, cash in ((0.01, 80.01), (-0.01, 79.99)):
+            collection.rounding_adjustment_usd = rounding
+            collection.remittance_detail = '[{"importe_usd":' + str(cash) + '}]'
+            adjustments.mark_mixed_settlements([row], [collection])
+            self.assertEqual(row.deposit_match_status, adjustments.MIXED_STATUS)
+
     def test_guard_detects_reallocation_not_just_same_deposit_total(self):
         signature = adjustments.allocation_signature([{"tipo":"Aplicacion historica","aplicacion_id":"A","importe_usd":100}])
         with patch.object(frappe, "db", Mock(get_value=Mock(return_value='[{"tipo":"Aplicacion historica","aplicacion_id":"B","importe_usd":100}]'))), \

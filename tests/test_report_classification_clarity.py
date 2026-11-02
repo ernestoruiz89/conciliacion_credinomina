@@ -68,7 +68,7 @@ def test_each_selected_type_has_its_own_totals_even_with_no_matching_rows():
         'Aplicación': ['Aplicado neto US$', 'Depósito asignado US$', 'CxC por aplicaciones US$'],
         'Partida complementaria': ['Complementarias pendientes de conciliar US$', 'Saldos a favor por gestionar US$', 'Partidas pendientes de registro contable'],
         'Cobranza': ['Cobranza US$', 'Aplicado para control US$', 'Filas con diferencias de control'],
-        'CxC por ajuste': ['CxC por ajustes US$'],
+        'CxC por ajuste': ['CxC a la empresa por ajustes US$', 'CxC al empleado por ajustes US$'],
     }
     for kind, expected in labels.items():
         totals = summary([], {'position_type': kind})

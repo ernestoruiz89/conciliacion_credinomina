@@ -13,10 +13,10 @@
     {"fieldname": "complementary_item", "fieldtype": "Link", "label": "Partida complementaria", "options": "CN Complementary Item", "allow_on_submit": 1},
     {"fieldname": "employer", "fieldtype": "Link", "label": "Empresa de destino de la partida genérica", "options": "CN Employer", "allow_on_submit": 1, "depends_on": "complementary_item", "description": "Para partidas genéricas. Al vincular una fila se toma su empresa; sin fila indique la empresa autorizada a la que corresponde este importe."},
     {"fieldname": "amount_usd", "fieldtype": "Currency", "label": "Asignado US$", "options": "usd_currency", "precision": "2", "reqd": 1, "in_list_view": 1, "columns": 2, "allow_on_submit": 1},
-    {"fieldname": "detail_row", "fieldtype": "Data", "label": "ID de fila del detalle", "hidden": 1, "allow_on_submit": 1},
-    {"fieldname": "detail_row_label", "fieldtype": "Data", "label": "Fila del detalle vinculada", "read_only": 1, "allow_on_submit": 1},
+    {"fieldname": "detail_row", "fieldtype": "Data", "label": "ID de fila del detalle", "hidden": 1, "allow_on_submit": 1, "no_copy": 1},
+    {"fieldname": "detail_row_label", "fieldtype": "Data", "label": "Fila del detalle vinculada", "read_only": 1, "allow_on_submit": 1, "no_copy": 1},
     {"fieldname": "notes", "fieldtype": "Small Text", "label": "Destino / cliente y crédito", "in_list_view": 1, "columns": 4, "allow_on_submit": 1},
-    {"fieldname": "result", "fieldtype": "Data", "label": "Resultado", "read_only": 1, "in_list_view": 1, "columns": 2, "allow_on_submit": 1}
+    {"fieldname": "result", "fieldtype": "Data", "label": "Resultado", "read_only": 1, "in_list_view": 1, "columns": 2, "allow_on_submit": 1, "no_copy": 1}
   ],
   "istable": 1,
   "links": [],

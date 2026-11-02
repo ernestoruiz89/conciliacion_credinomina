@@ -107,10 +107,12 @@ class ReviewSafeguards(unittest.TestCase):
         full = statement.get_columns(dict(view_mode='Detalle', compact_view=0))
         self.assertEqual({c['fieldname'] for c in compact}, {c['fieldname'] for c in full})
         self.assertEqual([c['fieldname'] for c in compact if not c.get('hidden') and c['fieldtype'] == 'Currency'],
-            ['statement_amount_usd'])
+            ['statement_amount_usd', 'pending_core_difference_usd'])
         self.assertTrue({'employer', 'client_name', 'position_type', 'status', 'source_document'} <=
             {c['fieldname'] for c in compact if not c.get('hidden')})
         from credinomina_reconciliation.company_accounting_statement import management_detail, MANAGEMENT_FIELDS
+        self.assertNotIn('pending_core_difference_usd', MANAGEMENT_FIELDS,
+            'The informational core difference must not become a second management balance')
         rows = management_detail([dict(employer='E', balance_usd=None, status='Sin conversión US$',
             **{field: None if field == 'core_pending_usd' else 0 for field in MANAGEMENT_FIELDS})])
         result = statement._presentation(rows, dict(view_mode='Detalle', compact_view=1))

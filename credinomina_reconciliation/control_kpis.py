@@ -4,7 +4,7 @@ from datetime import timedelta
 import frappe
 from frappe.utils import getdate
 
-from credinomina_reconciliation.application_aging import application_balances
+from credinomina_reconciliation.application_aging import application_balances, balance_status
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -71,7 +71,7 @@ def summarize_applications(rows, year=None, employer=None, as_of=None):
         "overdue_usd": complete_total((row for row in selected if (row.get("age_days") or 0) > 0), 'amount_usd'),
         "without_date_usd": complete_total(selected, 'without_date'),
         "missing_fx_count": sum(row.get('amount_usd') is None and not row.get('distribution_issue') for row in selected),
-        "review_count": sum(bool(row.get('distribution_issue')) for row in selected),
+        "review_count": sum(balance_status(row) == 'Revisar distribución' for row in selected),
         "unlinked_usd": money_float(sum_money(row.get("applied_usd") for row in selected if not row.get("period"))),
     }
 

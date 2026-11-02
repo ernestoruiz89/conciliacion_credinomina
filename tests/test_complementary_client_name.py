@@ -16,18 +16,23 @@ class ComplementaryClientNameTests(unittest.TestCase):
         self.assertFalse(field.get("hidden"))
         self.assertEqual((field["read_only"], field["allow_on_submit"]), (1, 1))
         order = schema["field_order"]
-        self.assertEqual(order[order.index("client_name") + 1], "client_number")
+        start = order.index('client_name')
+        self.assertEqual(order[start:start + 3], ['client_name', 'view_related_pending', 'client_number'])
+        action = next(field for field in schema['fields'] if field['fieldname'] == 'view_related_pending')
+        self.assertEqual(action['fieldtype'], 'Button')
 
     def test_opening_existing_import_shows_source_name_without_saving(self):
         doc = frappe._dict(category="Otros ingresos", docstatus=1, amount_usd=0.29,
                            source_client_name="Ana Pérez", source_debit=10.62)
         before = dict(doc)
+        doc.set_onload = Mock()
         with patch.object(module.frappe, "db", Mock()) as db:
             module.CNComplementaryItem.onload(doc)
         self.assertEqual(doc.client_name, "Ana Pérez")
         self.assertEqual({key: doc[key] for key in before}, before)
         db.get_value.assert_not_called()
         db.set_value.assert_not_called()
+        doc.set_onload.assert_called_once_with('has_reclassification_distributions', False)
 
     def test_exact_client_lookup_is_scoped_and_preferred_over_source_name(self):
         doc = frappe._dict(category="Otros ingresos", client_number="123", credit_client="123",

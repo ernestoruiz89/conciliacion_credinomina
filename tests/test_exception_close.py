@@ -10,6 +10,11 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliati
 
 
 class ExceptionCloseTests(unittest.TestCase):
+    def setUp(self):
+        lock = patch.object(period_module, 'lock_period_companies')
+        lock.start()
+        self.addCleanup(lock.stop)
+
     def test_close_reconciles_and_reloads_before_accepting_historical_status(self):
         period = SimpleNamespace(
             name="HIST-2025-04-15", employer="EMP-1", status="Conciliado",

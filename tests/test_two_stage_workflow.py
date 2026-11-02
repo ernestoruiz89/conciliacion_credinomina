@@ -24,7 +24,8 @@ def test_quality_and_cash_are_independent(requested, applied, paid, gap, pending
     original = copy.deepcopy(row)
     assert collection_quality(row, 'Detalle de empresa')['quality_difference_usd'] == gap
     totals = calculate_totals(dict(reconciliation_mode='Operativa', applied_usd=applied, collection_rows=[row]))
-    assert totals == dict(applied_total_usd=applied, remitted_total_usd=paid, pending_usd=pending)
+    assert totals == dict(applied_total_usd=applied, deposit_coverage_usd=paid,
+        complementary_coverage_usd=0, remitted_total_usd=paid, pending_usd=pending)
     assert row == original
 
 

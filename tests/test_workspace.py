@@ -33,10 +33,10 @@ class WorkspaceTest(unittest.TestCase):
         )
 
     def test_workspace_has_spanish_display_translation(self):
-        translations = dict(csv.reader(
+        translations = dict(row for row in csv.reader(
             (ROOT / "credinomina_reconciliation" / "translations" / "es.csv")
             .read_text(encoding="utf-8").splitlines()
-        ))
+        ) if row)
         self.assertEqual("Conciliación Credinómina", translations[self.workspace["title"]])
 
     def test_blocks_refer_to_existing_cards_and_shortcuts(self):

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 import json
 
 from credinomina_reconciliation.aging import age_balance
-from credinomina_reconciliation.accounting_client_summary import collection_links, collection_link_issue
+from credinomina_reconciliation.accounting_client_summary import collection_links, collection_link_issue, explicit_collection_cash
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -131,6 +131,14 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         if applied is None:
             output.append({**item, "observation": "Falta tipo de cambio; saldo US$ sin determinar"})
             continue
+        if money(applied) <= 0 and money(source.get('application_adjustment_usd')) > 0:
+            original = converted_amount({**source, 'application_adjustment_usd': 0}, 'USD')
+            if original is not None and money(source['application_adjustment_usd']) > money(original):
+                issue = 'El ajuste supera el importe original de la aplicación; revise su distribución.'
+                output.append({**item, 'applied_usd': None, 'paid_usd': None, 'adjustment_usd': None,
+                    'amount_usd': None, 'distribution_issue': issue, 'observation': issue,
+                    **age_balance(None, item.get('due_date'), as_of)})
+                continue
         if source.get('_cutoff_distribution_issue'):
             issue = source['_cutoff_distribution_issue']
             output.append({**item, 'applied_usd': money_float(applied),
@@ -138,11 +146,8 @@ def application_balances(sources, imports, periods, collections, employers, as_o
                 'amount_usd': None, 'distribution_issue': issue, 'observation': issue,
                 **age_balance(None, item.get('due_date'), as_of)})
             continue
-        if money(applied) <= 0:
-            if include_settled and money(source.get("application_adjustment_usd")) > 0:
-                item["observation"] = "Aplicación compensada por ajuste; no representa un depósito"
-                emit(item, applied)
-            continue
+        if money(applied) <= 0 and money(source.get("application_adjustment_usd")) > 0:
+            item["observation"] = "Aplicación compensada por ajuste; el ajuste no representa un depósito"
         if historical or mode == "Historica":
             linked = bool(historical and source.get("match_status") == "Conciliado")
             paid = source.get("historical_remitted_usd") if linked else 0
@@ -160,7 +165,9 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             # the caller's scope instead of exposing them as unlinked debt.
             if any(link.get('collection_row_id') not in collections for link in links):
                 continue
-            issue = collection_link_issue(links, applied, collections, usage)
+            # A valid zero share cannot consume or overbook the claim. Keep
+            # validating its own links without assigning another row's excess.
+            issue = collection_link_issue(links, applied, collections, usage if money(applied) > 0 else None)
         except (ValueError, TypeError):
             issue = 'Detalle de distribución inválido; revise los vínculos de la aplicación.'
         if issue:
@@ -168,6 +175,12 @@ def application_balances(sources, imports, periods, collections, employers, as_o
                 'paid_usd': None, 'adjustment_usd': None, 'fx_variance_usd': None,
                 'amount_usd': None, 'distribution_issue': issue, 'observation': issue,
                 **age_balance(None, item.get('due_date'), as_of)})
+            continue
+        if money(applied) <= 0:
+            # Validate saved links before treating a zero net as settled. With
+            # valid zero links, other applications own the collection's cash.
+            if include_settled:
+                emit(item, applied)
             continue
         for link in links:
             collection = collections.get(link.get("collection_row_id"))
@@ -185,6 +198,34 @@ def application_balances(sources, imports, periods, collections, employers, as_o
 
     for name, parts in groups.items():
         collection = collections[name]
+        try:
+            explicit = explicit_collection_cash(collection)
+        except (ValueError, TypeError) as error:
+            for part in parts:
+                output.append({**part, 'paid_usd': None, 'amount_usd': None,
+                    'distribution_issue': str(error), 'observation': str(error),
+                    **age_balance(None, part.get('due_date'), as_of)})
+            continue
+        if explicit is not None:
+            # Keep each application's identity/date when the executed ledger
+            # specifies its share. Repeated links to one claim consume cash once.
+            by_application = {}
+            for part in parts:
+                key = (part.get('source_import'), part.get('source_rows'))
+                if key in by_application:
+                    by_application[key]['applied_usd'] += money(part['applied_usd'])
+                else:
+                    by_application[key] = dict(part)
+            for part in by_application.values():
+                assigned = explicit.get(part.get('source_rows'), 0)
+                if money(assigned) > money(part['applied_usd']):
+                    issue = 'La distribución por aplicación supera su importe vinculado; revise la cobranza.'
+                    output.append({**part, 'paid_usd': None, 'amount_usd': None,
+                        'distribution_issue': issue, 'observation': issue,
+                        **age_balance(None, part.get('due_date'), as_of)})
+                else:
+                    emit(part, part['applied_usd'], assigned, fx=collection.get('fx_variance_usd'))
+            continue
         # Subtract only the cash assigned to the loan claim. A complementary
         # item may be paid partially or not paid; its face amount is not cash.
         paid = sum_money(

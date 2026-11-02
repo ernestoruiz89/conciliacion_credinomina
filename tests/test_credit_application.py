@@ -28,6 +28,35 @@ class CreditApplicationTests(unittest.TestCase):
                              (dict(self.row, loan_number='999-1'), 'EMP')]:
             self.assertFalse(service._identity_matches(self.item, row, company))
 
+    def test_client_link_cannot_override_a_conflicting_original_client_number(self):
+        self.assertFalse(service._identity_matches(self.item, dict(self.row, client_number='999'), 'EMP'))
+        self.assertTrue(service._identity_matches(self.item, dict(self.row, client_number='002885'), 'EMP'))
+        self.assertTrue(service._identity_matches(self.item, dict(self.row, client_number=''), 'EMP'))
+        self.assertFalse(service._identity_matches(self.item, dict(self.row, client='', client_number=''), 'EMP'))
+
+    def test_conflicting_client_number_is_not_offered_and_cannot_consume_credit(self):
+        self.item.modified = 'stamp'
+        self.row.update(client_number='999', event_type='Aplicacion', effective=1,
+            match_status='Conciliado', historical_period='MAY', historical_balance_usd=20.76)
+        parent = frappe._dict(name='IMPORT', employer='EMP', status='Importado', rows=[self.row],
+            check_permission=Mock())
+        origin = frappe._dict(docstatus=1, cash_identity_status='', check_permission=Mock())
+        documents = {'CN Complementary Item': self.item, 'CN Accounting Import': parent,
+                     'CN Remittance Allocation': origin}
+        with patch.object(frappe, 'get_doc', side_effect=lambda doctype, *args, **kwargs: documents[doctype]), \
+             patch.object(frappe, 'get_list', return_value=['MAY']), \
+             patch.object(frappe.db, 'get_value', return_value='IMPORT'), \
+             patch('credinomina_reconciliation.remittance_selection._historical_sources', return_value=[parent]), \
+             patch('credinomina_reconciliation.deposit_reconciliation.lock_cash_pool'), \
+             patch('credinomina_reconciliation.paying_employers.reconciliation_companies', return_value=['EMP']), \
+             patch.object(frappe, 'throw', side_effect=ValueError), patch.object(service, '_save_journal') as save:
+            self.assertEqual(service.candidates('CREDIT')['rows'], [])
+            with self.assertRaises(ValueError):
+                unwrap(service.apply)('CREDIT', 'stamp', 'APP', 20.76, '2026-05-30')
+            save.assert_not_called()
+        self.assertEqual(self.item.credit_history, '[]')
+        self.assertEqual(self.item.credit_resolved_usd, 0)
+
     def test_reversal_is_dated_and_preserves_the_original_operation(self):
         history = [self.entry, dict(operation_id='REV', reverses='OP', application_id='APP',
                                    importe_usd=-20.76, fecha='2026-06-01')]
@@ -67,6 +96,7 @@ class CreditApplicationTests(unittest.TestCase):
 
     def test_rejects_overpayment_invalid_dates_and_nonpositive_amounts_before_writes(self):
         with patch.object(service, '_locked_context', return_value=(self.item, self.row, frappe._dict(name='MAY'))), \
+                patch.object(service.frappe.db, 'get_value', return_value='2026-04-30'), \
                 patch('credinomina_reconciliation.application_adjustments.cash_coverage', return_value={'adjustable_usd': 20.76}), \
                 patch.object(service, '_save_journal') as save, \
                 patch.object(service.frappe, 'throw', side_effect=ValueError):

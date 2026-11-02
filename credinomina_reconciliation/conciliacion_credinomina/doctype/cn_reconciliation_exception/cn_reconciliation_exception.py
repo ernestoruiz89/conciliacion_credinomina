@@ -3,6 +3,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.model.naming import getseries
 from frappe.utils import getdate, now_datetime
+from credinomina_reconciliation.period_lock import lock_period_companies
 
 
 _ACTION_FIELDS = (
@@ -34,6 +35,18 @@ def new_exception_name(period, creation=None):
 
 
 class CNReconciliationException(Document):
+    def before_insert(self):
+        # Frappe runs this before naming/validation. An exception cannot enter
+        # a period while another transaction is completing its closure.
+        lock_period_companies([self.get('period')])
+
+    def _save(self, *args, **kwargs):
+        if self.get('name') and not self.is_new():
+            self.check_permission('write')
+            previous_period = frappe.db.get_value(self.doctype, self.name, 'period')
+            lock_period_companies([previous_period, self.get('period')])
+        return super()._save(*args, **kwargs)
+
     def autoname(self):
         self.name = new_exception_name(self.period)
 
@@ -71,14 +84,15 @@ class CNReconciliationException(Document):
             ))
         self._validate_follow_up_actions(previous)
 
-    def _assert_related_periods_open(self, previous=None):
+    def _assert_related_periods_open(self, previous=None, *, current=False):
         from credinomina_reconciliation.exception_policy import can_follow_up_closed
         periods = {self.period}
         if previous and previous.period:
             periods.add(previous.period)
         for period_name in periods - {None, ""}:
             if frappe.db.get_value(
-                "CN Reconciliation Period", period_name, "status"
+                "CN Reconciliation Period", period_name, "status",
+                **({'for_update': True, 'wait': False} if current else {})
             ) == "Cerrado":
                 if can_follow_up_closed(self, previous):
                     continue
@@ -88,12 +102,14 @@ class CNReconciliationException(Document):
                 ).format(period_name))
 
     def on_trash(self):
-        self._assert_related_periods_open()
+        # Deletion already holds the exception row lock. Do not acquire the
+        # company lock in reverse order; fail fast if closure owns this period.
+        self._assert_related_periods_open(current=True)
         if getattr(self, "complementary_item", None):
             frappe.throw(_("Conserve la excepción de registro contable y su historial; no se puede eliminar."))
 
     def before_cancel(self):
-        self._assert_related_periods_open()
+        self._assert_related_periods_open(current=True)
 
     def before_update_after_submit(self):
         self._assert_related_periods_open(self.get_doc_before_save())
