@@ -20,7 +20,7 @@ def _imports_for_cuts(names):
         filters={"portfolio_snapshot": ["in", names], "docstatus": ["!=", 2]}, fields=["name"])}
     parents.update(row.parent for row in _pages(frappe.get_all, "CN Source Row", filters={
         "portfolio_snapshot_used": ["in", names], "parenttype": "CN Accounting Import",
-        "parentfield": "rows", "docstatus": ["!=", 2],
+        "parentfield": "rows", "event_type": "Aplicacion", "docstatus": ["!=", 2],
     }, fields=["parent"]))
     return parents
 
@@ -99,11 +99,12 @@ def refresh_portfolio_dependencies(snapshot, previous_report_date=None):
         doc = _locked_document("CN Accounting Import", name)
         if doc.docstatus == 2:
             continue
-        rows = [row for row in doc.rows if row.portfolio_snapshot_used == snapshot.name or (
-            row.event_type == "Aplicacion" and doc.portfolio_snapshot == snapshot.name)]
+        rows = [row for row in doc.rows if row.event_type == "Aplicacion" and (
+            row.portfolio_snapshot_used == snapshot.name or (
+                not row.portfolio_snapshot_used and doc.portfolio_snapshot == snapshot.name))]
         if not rows:
             continue
-        values = [dict(row.as_dict(), event_type="Aplicacion") for row in rows]
+        values = [row.as_dict() for row in rows]
         refresh_accounting_portfolio(values, snapshot, index=index)
         for value in values:
             if (doc.employer and doc.employer != UNIDENTIFIED_EMPLOYER and value.get("portfolio_employer")
