@@ -16,7 +16,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
-           'cash_adjustment_usd', 'open_usd')
+           'cash_adjustment_usd', 'conversion_usd', 'open_usd')
 COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment')
 
 
@@ -25,7 +25,7 @@ def add_portfolio_status(periods, details):
     if not details:
         return
     for row in details:
-        row['portfolio_credit_status'] = 'Sin corte de cartera aplicable'
+        row['portfolio_credit_status'] = 'No aplica' if row.get('_company_conversion') else 'Sin corte de cartera aplicable'
     if not frappe.has_permission('CN Credit Portfolio Snapshot', 'read'):
         return
     months = {period['name']: get_last_day(period.get('cutoff_date') or period['payroll_month'])
@@ -40,7 +40,7 @@ def add_portfolio_status(periods, details):
                  for name, month in months.items()}
     loans_by_cut = defaultdict(set)
     for row in details:
-        if by_period[row['name']]:
+        if by_period[row['name']] and not row.get('_company_conversion'):
             loans_by_cut[by_period[row['name']]].add(row['loan_number'])
     by_credit = defaultdict(list)
     for cut, loans in loans_by_cut.items():
@@ -49,6 +49,8 @@ def add_portfolio_status(periods, details):
         }, fields=['credit_number', 'credit_status', 'employer'], loan_field='credit_number', loans=loans):
             by_credit[(cut, canonical_credit_number(credit['credit_number']))].append(credit)
     for row in details:
+        if row.get('_company_conversion'):
+            continue
         cut = by_period[row['name']]
         if not cut:
             continue
@@ -133,7 +135,7 @@ def _finish(row):
         else 'Con diferencias' if row['collection_difference_usd'] else 'Conforme')
     row['cash_control'] = ('Revisar' if row['open_usd'] is None else 'Pendiente' if row['open_usd'] > 0
         else 'Con excedente' if row['deposit_difference_usd'] is not None
-        and money(row['deposit_difference_usd']) + money(row['cash_adjustment_usd']) - money(row['credit_used_usd']) < 0
+        and money(row['deposit_difference_usd']) + money(row['cash_adjustment_usd']) - money(row['credit_used_usd']) - money(row['conversion_usd']) < 0
         else 'Cubierta' if row['application_usd'] else 'Sin aplicación')
     row['observations'] = ' · '.join(sorted(row['_notes']))
     row['has_difference'] = bool(row['_notes'] or row['collection_control'] in {'Sin cobranza', 'Sin base', 'Con diferencias'}
@@ -209,6 +211,30 @@ def build_views(periods, collections, applications):
         except (ValueError, TypeError):
             _cash(row, 'invalid', applied, 0)
 
+    from credinomina_reconciliation.company_conversion import from_rows
+    try:
+        conversions = from_rows(applications)
+    except (ValueError, TypeError):
+        conversions = []
+        suspect = {source.get('historical_period') for source in applications
+                   if 'conversion_empresa' in str(source.get('historical_detail') or '')}
+        for (period_name, *_identity), row in groups.items():
+            if period_name in suspect:
+                row['deposit_usd'] = row['open_usd'] = None
+                row['_notes'].add('La documentación de la diferencia de empresa no permite comprobar el efectivo; revise el depósito.')
+    for proof in conversions:
+        if proof['period'] not in period_map:
+            continue
+        row = group(proof['period'], dict(name='FX:' + proof['deposit'],
+            client_name=proof['employer'] + ' · Diferencia documentada de empresa'))
+        row['_company_conversion'] = True
+        row['_no_collection'] = True
+        row['collection_usd'] = None
+        _add(row, 'deposit_usd', proof['amount_usd'])
+        _add(row, 'conversion_usd', -money(proof['amount_usd']))
+        row['_difference_reasons'].add(proof.get('difference_reason') or 'Diferencia Inmaterial')
+        row['_notes'].add('Diferencia documentada de la empresa en ' + proof['deposit'] + '; pendiente de respaldo del core. No se distribuye entre clientes.')
+
     details = [_finish(row) for row in groups.values()]
     by_period = defaultdict(list)
     for row in details:
@@ -227,7 +253,7 @@ def build_views(periods, collections, applications):
             for field in AMOUNTS:
                 _add(row, field, child[field])
             row['_notes'].update(child['_notes'])
-        row['credit_count'] = len(children)
+        row['credit_count'] = sum(not child.get('_company_conversion') for child in children)
         row['difference_count'] = sum(child['has_difference'] for child in children)
         if money(row['application_usd']) != money(period.get('applied_usd')):
             row['_notes'].add('El detalle no coincide con el aplicado del período; revise vínculos y actualice la conciliación.')

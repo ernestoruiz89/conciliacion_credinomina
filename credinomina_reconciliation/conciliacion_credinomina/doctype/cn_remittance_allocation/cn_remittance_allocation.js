@@ -443,7 +443,7 @@ function remittanceReconciliationSummaryHtml(doc, result = {}) {
         ["Saldo a favor documentado", cash.credit], ["Sin distribuir", cash.pending]];
     const counts = [["Filas del detalle", result.detail_rows], ["Conciliadas", result.detail_matched],
         ["Pendientes", result.detail_pending], ["Destinos", result.targets]];
-    return `<section aria-label="${esc(__("Resumen de conciliación"))}" style="color:var(--text-color);padding:4px 0">
+    return `${Number(doc.conversion_coverage_usd) ? `<p class="text-muted">${esc(__("Diferencia documentada de la empresa"))}: ${esc(amount(doc.conversion_coverage_usd))}. ${esc(__("Se conserva separada del efectivo y de los clientes."))}</p>` : ""}<section aria-label="${esc(__("Resumen de conciliación"))}" style="color:var(--text-color);padding:4px 0">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:18px 20px;border:1px solid var(--border-color);border-left:4px solid ${accent};border-radius:10px;background:var(--control-bg);margin-bottom:20px">
             <div style="min-width:0;flex:1 1 220px">
                 <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px">${esc(__("Resumen de conciliación"))}</div>

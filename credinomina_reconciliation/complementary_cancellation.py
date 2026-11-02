@@ -218,7 +218,7 @@ def _assert_retained_deposit_links(item, deposits, allocation, periods):
         # portions, not merely the unchanged total of the deposit.
         snapshot = frappe._dict(name=deposit.name, allocation_detail=json.dumps(retained, ensure_ascii=False),
             allocated_usd=money_float(sum((money(entry.get("importe_usd")) for entry in retained
-                if entry.get("tipo") in {"Aplicacion historica", "Cobranza", "Partida complementaria"}), money(0))))
+                if entry.get("tipo") in {"Aplicacion historica", "Cobranza", "Partida complementaria", "Diferencia documentada de empresa"}), money(0))))
         assert_preserved_allocations(snapshot, allocation, periods)
 
 

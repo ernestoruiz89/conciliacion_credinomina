@@ -57,6 +57,17 @@ def frozen_cash(deposits, periods, movements):
     for deposit in deposits:
         for entry in stored_entries(deposit):
             kind = entry.get("tipo")
+            from credinomina_reconciliation.company_conversion import KIND as FX_KIND, PREFIX as FX_PREFIX
+            if kind == FX_KIND:
+                proof = entry.get("conversion_empresa") or {}
+                amount = money(entry.get("importe_usd"))
+                if (proof.get("deposit") != deposit.name or money(proof.get("amount_usd")) != amount
+                        or amount != money(-.01) or not proof.get("application_ids")):
+                    frappe.throw(_("La diferencia de empresa guardada no tiene documentación válida. Revise el depósito."))
+                allocations.append(dict(deposit_id=deposit.name, claim_id=FX_PREFIX + deposit.name,
+                    amount_usd=money_float(amount), origin=FX_KIND, company_conversion=proof))
+                recorded_by_deposit[deposit.name] += amount
+                continue
             claim = (
                 "H:" + entry.get("aplicacion_id", "") if kind == "Aplicacion historica"
                 else "X:" + entry.get("partida", "") if kind == "Partida complementaria"
@@ -114,6 +125,8 @@ def _link_amounts(allocations, deposit_name):
     for entry in allocations:
         if entry["deposit_id"] != deposit_name:
             continue
+        if entry.get("company_conversion"):
+            continue  # Employer FX evidence is not a loan or imported-core cash link.
         key = (entry["claim_id"], entry.get("detail_row") or "",
                entry.get("reclassification_operation_id") or "")
         parts = entry.get("fifo_applications") if entry["claim_id"].startswith("C:") else None
@@ -346,6 +359,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         values = dict(allocated_usd=0, unallocated_usd=document.amount_usd,
                       unclassified_usd=document.amount_usd, justified_surplus_usd=0,
                       credit_coverage_usd=0, complementary_coverage_usd=0,
+                      conversion_coverage_usd=0,
                       allocation_detail="[]", result="Pendiente",
                       detail_status="Detalle pendiente", inherited_exception_comment="")
         frappe.db.set_value(document.doctype, document.name, values)

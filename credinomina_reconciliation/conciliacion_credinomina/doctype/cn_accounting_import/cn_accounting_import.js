@@ -163,6 +163,7 @@ function accountingBalanceSummary(totals) {
         [__("Partidas complementarias US$"), totals?.complementary_usd],
         [__("Saldo US$"), totals?.balance_usd],
     ];
+    if (totals?.conversion_usd) fields.splice(3, 0, [__("Diferencia documentada de la empresa US$"), totals.conversion_usd]);
     return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px">
         ${fields.map(([label, value]) => `<div style="padding:12px;border:1px solid var(--border-color);border-radius:8px;background:var(--control-bg)">
             <div class="small text-muted">${esc(label)}</div><div style="font-size:16px;font-weight:600;margin-top:4px">${esc(amount(value))}</div>

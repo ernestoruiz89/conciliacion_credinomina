@@ -222,7 +222,9 @@ class PeriodTotalsContext:
         else:
             from credinomina_reconciliation.report_records import _pages
             for deposit in _pages(frappe.get_all, 'CN Remittance Allocation',
-                    filters={'docstatus': 1, 'allocation_detail': ['like', '%Partida complementaria%']},
+                    filters={'docstatus': 1},
+                    or_filters=[['allocation_detail', 'like', '%Partida complementaria%'],
+                                ['allocation_detail', 'like', '%Diferencia documentada de empresa%']],
                     fields=['name', 'allocation_detail', 'cash_identity_status']):
                 if deposit.get('cash_identity_status') == 'Origen vinculado':
                     continue
@@ -234,7 +236,7 @@ class PeriodTotalsContext:
                     amounts = [Decimal(str(row.get('importe_usd'))) for row in rows]
                     if any(not amount.is_finite() for amount in amounts):
                         raise ValueError()
-                    if not any(row.get('tipo') == 'Partida complementaria' and amount < 0
+                    if not any(row.get('tipo') in {'Partida complementaria', 'Diferencia documentada de empresa'} and amount < 0
                                for row, amount in zip(rows, amounts)):
                         continue
                 except (TypeError, ValueError, ArithmeticError):
@@ -257,6 +259,8 @@ class PeriodTotalsContext:
                         claim_periods[claim] = row.get('periodo')
                     elif kind == 'Partida complementaria':
                         claim = 'X:' + str(row.get('partida') or '')
+                    elif kind == 'Diferencia documentada de empresa':
+                        claim = 'X:CONVERSION:' + deposit.name
                     else:
                         claim = 'T:' + str(row.get('movimiento') or index)
                     allocations.append(dict(deposit_id=deposit.name, claim_id=claim, amount_usd=row.get('importe_usd'),
@@ -320,11 +324,13 @@ class PeriodTotalsContext:
         known = (breakdown['known'] and funding is not None and
                  money(result['deposit_coverage_usd']) + money(delta) - funding >= 0)
         if known:
+            conversion = money(breakdown.get('conversion_coverage_usd'))
             result['deposit_coverage_usd'] = money_float(money(result['deposit_coverage_usd']) + money(delta) - funding)
-            result['complementary_coverage_usd'] = money_float(money(result['complementary_coverage_usd']) - money(delta) + funding)
+            result['complementary_coverage_usd'] = money_float(money(result['complementary_coverage_usd']) - money(delta) + funding - conversion)
             result['negative_complementary_usd'] = breakdown['negative_complementary_usd']
+            result['conversion_coverage_usd'] = money_float(conversion)
         else:
-            result.update(deposit_coverage_usd=None, complementary_coverage_usd=None, negative_complementary_usd=None)
+            result.update(deposit_coverage_usd=None, complementary_coverage_usd=None, negative_complementary_usd=None, conversion_coverage_usd=None)
         result['cash_breakdown_known'] = int(known)
         result['cash_breakdown_note'] = '' if known else (breakdown.get('reason') or
             ('El detalle del saldo a favor aplicado está incompleto o duplicado; no permite comprobar el efectivo.'

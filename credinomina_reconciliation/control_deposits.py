@@ -143,7 +143,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                                                     amount_usd=item["receivable_usd"]))
     output = []
     for deposit in {d["name"]: d for d in deposits}.values():
-        credits, other, adjustments = money(0), money(0), money(0)
+        credits, other, adjustments, conversion = money(0), money(0), money(0), money(0)
         related, months = set(), set()
         destinations = {}
         destination_employers = {}
@@ -170,6 +170,9 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                 label = " · ".join(filter(None, [item.get("name"), treatment or item.get("category")])) or "Partida complementaria (detalle no disponible)"
                 if entry.get("fila_detalle") and entry.get("empresa"):
                     label += " · " + entry["empresa"]
+            elif entry.get("tipo") == "Diferencia documentada de empresa":
+                conversion += amount
+                kind, label = "Diferencia de empresa", "Diferencia documentada de la empresa"
             elif entry.get("tipo") == "Movimiento de conciliación":
                 adjustments += amount  # Cash consumed, not the signed adjustment.
                 kind = "Partida complementaria"
@@ -205,7 +208,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         client_pending = pending(client_balances)
         company_total = sum((money(item.get("amount_usd")) for item in company_balances), money(0))
         company_pending = pending(company_balances)
-        review = allocated - credits - other - adjustments
+        review = allocated - credits - other - adjustments - conversion
         unclassified = total - allocated - credit_balance
         result = deposit.get("result") or "Pendiente"
         needs_review = bool(
@@ -226,6 +229,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "original_amount": money_float(deposit.get("deposit_amount")),
             "total_usd": float(total), "credits_usd": float(credits), "other_usd": float(other),
             "adjustments_usd": float(adjustments), "credit_balance_usd": float(credit_balance),
+            "conversion_usd": float(conversion),
             "client_credit_usd": float(client_total), "client_credit_pending_usd": float(client_pending),
             "company_credit_usd": float(company_total), "company_credit_pending_usd": float(company_pending),
             "credit_management_pending_usd": float(client_pending + company_pending),

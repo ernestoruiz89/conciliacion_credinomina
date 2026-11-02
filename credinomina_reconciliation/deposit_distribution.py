@@ -111,6 +111,9 @@ def build_distribution(deposit, items=None, balances=(), periods=None, people=No
             add(category or item.get("category") or "Partida complementaria (detalle no disponible)", amount,
                 person=person, employer=entry.get("empresa") if item else "", period=period,
                 item=item, description=item.get("description") or "")
+        elif entry.get("tipo") == "Diferencia documentada de empresa":
+            add("Diferencia documentada de la empresa", amount, employer=entry.get("empresa"),
+                period=period, state="Documentado", description="Diferencia inmaterial documentada en la empresa, pendiente de respaldo del core; no se distribuye entre clientes.")
         elif entry.get("tipo") == "Movimiento de conciliación":
             item = items.get(entry.get("movimiento"), {})
             add("Partida complementaria", amount, period=period, item=item,

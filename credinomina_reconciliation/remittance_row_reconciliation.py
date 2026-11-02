@@ -26,6 +26,9 @@ def split_row_allocations(document, row_name):
         frappe.throw(_("La distribución guardada no es válida. Revise el depósito."))
     if sum_money(entry.get("importe_usd") for entry in entries) != money(document.get("allocated_usd")):
         frappe.throw(_("La distribución guardada no coincide con el importe aplicado. Revise el depósito."))
+    from credinomina_reconciliation.company_conversion import KIND
+    if any(entry.get("tipo") == KIND for entry in entries):
+        frappe.throw(_("Este depósito tiene una diferencia documentada a nivel de empresa. Use Desconciliar depósito para retirar la distribución conjunta y conservar su trazabilidad."))
     owners = {}
     for row in document.get("detail_rows") or []:
         for target in json.loads(row.get("matched_targets") or "[]"):

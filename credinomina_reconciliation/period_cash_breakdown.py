@@ -38,7 +38,7 @@ def calculate(period_name, allocations, claim_periods):
     except (TypeError, ValueError, InvalidOperation, AttributeError):
         return _unknown('La distribución ejecutada contiene importes o identidades de depósito inválidos.')
 
-    adjustment = money(0)
+    adjustment, conversion = money(0), money(0)
     for portions in grouped.values():
         negatives = [(claim, amount) for claim, amount in portions if amount < 0]
         if not negatives:
@@ -66,6 +66,8 @@ def calculate(period_name, allocations, claim_periods):
         if sum_money(amount for _claim, amount in loans) + negative < 0:
             return _unknown('Las complementarias negativas superan la cobertura positiva del depósito.')
         adjustment += negative
+        conversion += sum_money(amount for claim, amount in negatives if claim.startswith('X:CONVERSION:'))
 
     return dict(known=True, cash_adjustment_usd=money_float(adjustment),
-                negative_complementary_usd=money_float(adjustment), reason='')
+                negative_complementary_usd=money_float(adjustment - conversion),
+                conversion_coverage_usd=money_float(-conversion), reason='')

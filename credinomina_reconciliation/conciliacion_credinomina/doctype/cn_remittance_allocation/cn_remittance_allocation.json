@@ -16,7 +16,7 @@
     "detail_source_file", "destinations_tab", "complete_distribution_section", "refresh_distribution", "complete_distribution", "destinations_section",
     "allow_manual_other_periods", "create_complementary", "select_pending_targets", "link_detail_targets", "targets", "results_tab",
     "result_summary_section", "financial_status", "allocated_usd", "credit_coverage_usd", "result_summary_column", "complementary_coverage_usd",
-    "justified_surplus_usd", "unclassified_usd", "allocation_summary_section", "allocation_preview", "exceptions_section", "inherited_exception_comment",
+    "conversion_coverage_usd", "justified_surplus_usd", "unclassified_usd", "allocation_summary_section", "allocation_preview", "exceptions_section", "inherited_exception_comment",
     "technical_section", "result", "unallocated_usd", "allocation_detail", "accounting_tab", "link_accounting_origins",
     "origin_link_status", "origin_link_notes", "linked_core_deposit", "accounting_sources", "deposit_group_key", "cash_identity_status",
     "cash_identity_reason", "consolidated_deposit", "source_file", "source_row", "source_file_hash", "accounting_source_key",
@@ -25,6 +25,7 @@
     "source_client_name", "source_loan_number", "bank_identification", "source_description"
   ],
   "fields": [
+    {"fieldname": "conversion_coverage_usd", "fieldtype": "Currency", "label": "Diferencia documentada de la empresa US$", "options": "usd_currency", "precision": "2", "read_only": 1, "allow_on_submit": 1, "no_copy": 1, "depends_on": "eval:doc.conversion_coverage_usd", "description": "Diferencia inmaterial documentada en la empresa. No es efectivo adicional ni una partida complementaria; queda pendiente de respaldo del core."},
     {"fieldname": "difference_documentation_section", "fieldtype": "Section Break", "label": "Documentación de diferencias"},
     {"fieldname": "difference_reason", "read_only": 1, "fieldtype": "Link", "options": "CN Difference Reason", "label": "Razón de la diferencia", "allow_on_submit": 1, "no_copy": 1, "description": "Clasificación documental; no cambia saldos ni concilia."},
     {"fieldname": "difference_notes", "read_only": 1, "fieldtype": "Small Text", "label": "Documentación de la diferencia", "allow_on_submit": 1, "no_copy": 1},

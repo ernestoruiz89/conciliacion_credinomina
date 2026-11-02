@@ -68,22 +68,49 @@ class DepositDifferenceTests(unittest.TestCase):
             claim["period"] = "P"
             claim["fifo_applications"] = [dict(id=f"A{index}", event_date="2025-04-15", amount_usd=claim["amount_usd"])]
 
-    def test_fifo_documented_shortage_applies_only_cash_and_keeps_cent_pending(self):
-        self.setup_case(-.01)
+    def test_fifo_larger_documented_shortage_applies_only_cash_and_keeps_balance_pending(self):
+        self.setup_case(-.03)
         self.enable_fifo()
         before = copy.deepcopy(self.rows)
         result, statuses, rows = self.reconcile()
         self.assertEqual(statuses["DEP"], "Parcial; diferencia de empresa pendiente")
-        self.assertEqual([entry["amount_usd"] for entry in result["allocations"]], [60, 39.99])
+        self.assertEqual([entry["amount_usd"] for entry in result["allocations"]], [60, 39.97])
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
-        self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": .01})
-        self.assertEqual(rows["R1"]["pending_usd"], .01)
+        self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": .03})
+        self.assertEqual(rows["R1"]["pending_usd"], .03)
         self.assertEqual(rows["R1"]["match_status"], "Cobertura parcial; diferencia de empresa")
-        self.assertEqual(rows["DIFF"]["pending_usd"], -.01)
-        self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .01)
-        self.assertEqual(result["allocations"][1]["fifo_applications"][0]["amount_usd"], 39.99)
+        self.assertEqual(rows["DIFF"]["pending_usd"], -.03)
+        self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .03)
+        self.assertEqual(result["allocations"][1]["fifo_applications"][0]["amount_usd"], 39.97)
         self.assertEqual(self.rows, before)
         self.assertEqual(self.reconcile()[0], result)
+
+    def test_documented_immaterial_cent_belongs_to_company_without_currency_validation(self):
+        self.setup_case(-.01)
+        self.enable_fifo()
+        self.diff.difference_reason = "Diferencia Inmaterial"
+        # No original currency, equivalent amounts or exchange rates are
+        # provided. The accepted company documentation is the authority.
+        result, statuses, rows = self.reconcile()
+        self.assertEqual(statuses["DEP"], difference.SETTLED)
+        self.assertEqual([rows[key]["linked_usd"] for key in ("R0", "R1")], [60, 40])
+        self.assertTrue(all(rows[key]["pending_usd"] == 0 for key in ("R0", "R1")))
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        company = next(entry for entry in result["allocations"] if entry.get("company_conversion"))
+        self.assertEqual(company["amount_usd"], -.01)
+        self.assertNotIn("detail_row", company)
+        self.assertNotIn("client", company["company_conversion"])
+        self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .01)
+        self.assertEqual(sum(difference.money(entry["amount_usd"]) for entry in result["allocations"]), difference.money(99.99))
+
+    def test_undocumented_or_stale_cent_does_not_create_company_coverage(self):
+        self.setup_case(-.01)
+        self.enable_fifo()
+        self.diff.difference_reason = "Diferencia Inmaterial"
+        self.diff.difference_basis = "STALE"
+        result, statuses, _ = self.reconcile()
+        self.assertFalse(result["allocations"])
+        self.assertNotEqual(statuses["DEP"], difference.SETTLED)
 
     def test_fifo_preserves_explicit_manual_amounts_and_rejects_overbudget_manual_only(self):
         self.setup_case(-.01)
