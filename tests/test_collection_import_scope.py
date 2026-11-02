@@ -21,16 +21,21 @@ class Period(frappe._dict):
 
 class CollectionImportScopeTests(unittest.TestCase):
     def test_new_corrected_and_unchanged_uploads_leave_other_periods_out_of_scope(self):
-        for state in ("new", "corrected", "unchanged"):
+        for state in ("new", "corrected", "unchanged", "comments"):
             with self.subTest(state=state):
                 content = b"collection"
                 record = dict(source_row=2, row_key="KEY", client_number="CLIENT", client_name="Cliente",
                               loan_number="123-1", expected_usd=80)
                 existing = frappe._dict(record, name="ROW", client="CLIENT", expected_usd=50)
+                if state == "comments":
+                    record.update(comments="", application_comment="", cxc_difference_comment="Revisar CXC")
+                    existing.update(comments="0", application_comment="0", expected_usd=80,
+                        application_reference="MANUAL", applied_usd=60, remitted_usd=45,
+                        application_status="Aplicacion parcial", remittance_detail='[{"deposit":"DEP"}]')
                 period = Period(name="P", employer="E", reconciliation_mode="Operativa", status="Borrador",
                     payroll_month="2026-09-01", collection_cycle="Segunda quincena", cutoff_date="2026-09-30",
                     collection_file="/private/files/collection.csv", notes="", flags=frappe._dict(),
-                    collection_import_sha256=api.file_sha256(content) if state == "unchanged" else "old-hash",
+                    collection_import_sha256=api.file_sha256(content) if state in ("unchanged", "comments") else "old-hash",
                     collection_rows=[] if state == "new" else [existing], check_permission=Mock(),
                     save=Mock(), reload=Mock())
                 clients = Mock()
@@ -62,6 +67,13 @@ class CollectionImportScopeTests(unittest.TestCase):
                     self.assertEqual(period.collection_rows[0].expected_usd, 80)
                 if state != "new":
                     self.assertEqual(period.collection_rows[0].name, "ROW")
+                if state == "comments":
+                    row = period.collection_rows[0]
+                    self.assertEqual((row.comments, row.application_comment, row.cxc_difference_comment),
+                                     ("", "", "Revisar CXC"))
+                    self.assertEqual(row.application_reference, "MANUAL")
+                    self.assertEqual((row.applied_usd, row.remitted_usd, row.application_status, row.remittance_detail),
+                                     (60, 45, "Aplicacion parcial", '[{"deposit":"DEP"}]'))
 
     def test_no_existing_sources_does_not_start_reconciliation(self):
         with patch.object(api.frappe, "db", SimpleNamespace(exists=lambda *_: False)), \

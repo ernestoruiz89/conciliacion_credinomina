@@ -20,6 +20,7 @@ COLLECTION_HEADERS = (
     "Comentarios",
     "Referencia de Aplicación",
     "Comentario de Aplicación",
+    "Diferencias CXC",
     "Fila ID",
 )
 
@@ -31,6 +32,7 @@ DETAIL_HEADERS = (
 )
 
 _DEPOSIT_OMITTED_HEADERS = {
+    "Diferencias CXC",
     "Nro. cuota",
     "Referencia de Aplicación",
     "Comentario de Aplicación",
@@ -51,7 +53,7 @@ TEMPLATE_TYPES = {
 _ROW_FIELDS = (
     "client_number", "employee_number", "client_name", "national_id",
     "loan_number", "installment_number", "total_installments", "expected_usd",
-    "expected_nio", "comments", "application_reference", "application_comment",
+    "expected_nio", "comments", "application_reference", "application_comment", "cxc_difference_comment",
 )
 
 _HEADER_NOTES = {
@@ -68,18 +70,20 @@ _HEADER_NOTES = {
     "Comentarios": "Observaciones de la cobranza o de la deducción.",
     "Referencia de Aplicación": "Referencia que puede vincular la aplicación del core con la cuota.",
     "Comentario de Aplicación": "Observaciones de la aplicación, si existen.",
+    "Diferencias CXC": "Comentario de diferencias CXC recibido en la cobranza. El valor 0 se deja vacío.",
     "Deducido C$": "Importe retenido al empleado en C$. Informe este o Deducido US$; use 0 si no se dedujo.",
     "Deducido US$": "Importe retenido al empleado en US$. Informe este o Deducido C$; use 0 si no se dedujo.",
     "Fila ID": "Opcional en cobranza; se genera si queda vacío. En los detalles conserve el ID exportado para identificar la cuota.",
 }
 
-_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 22, 24, 24, 32, 27, 32, 19, 19, 28)
+_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 13, 22, 24, 24, 32, 27, 32, 32, 19, 19, 28)
 _TEXT_COLUMNS = (1, 2, 4, 5, 6, 7, 11)
 _DEPOSIT_ROW_FIELDS = tuple(
     field for field in _ROW_FIELDS
     if field not in {
         "installment_number", "application_reference", "application_comment",
         "total_installments", "expected_usd", "expected_nio",
+        "cxc_difference_comment",
     }
 )
 _DEPOSIT_COLUMN_WIDTHS = (17, 17, 38, 21, 17, 32, 19, 19, 19, 30)

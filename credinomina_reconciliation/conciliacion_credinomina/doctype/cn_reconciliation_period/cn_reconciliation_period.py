@@ -36,6 +36,7 @@ from credinomina_reconciliation.historical import (
     is_historical_date,
 )
 from credinomina_reconciliation.parsers import (
+    COLLECTION_COMMENT_FIELDS,
     SourceFileError,
     canonical_credit_number,
     canonical_identifier,
@@ -498,8 +499,14 @@ def import_collection(period_name: str):
         for record in parsed for row in existing_by_credit.get(_collection_credit_key(record), [])
         for field in ("client_name", "national_id")
     )
+    needs_comment_refresh = any(
+        (row.get(field) or "") != (record.get(field) or "")
+        for record in parsed for row in existing_by_credit.get(_collection_credit_key(record), [])
+        for field in COLLECTION_COMMENT_FIELDS
+    )
     if (period.collection_import_sha256 == import_hash and period.collection_rows
-            and not needs_credit_normalization and not needs_client_enrichment):
+            and not needs_credit_normalization and not needs_client_enrichment
+            and not needs_comment_refresh):
         source_summary = _reconcile_if_sources(period.employer, period_name=period.name)
         return {
             "period": period.name, "rows": len(period.collection_rows),
@@ -520,7 +527,7 @@ def import_collection(period_name: str):
     source_fields = (
         "source_row", "employee_number", "client_name",
         "national_id", "loan_number", "installment_number", "total_installments",
-        "expected_usd", "expected_nio", "comments",
+        "expected_usd", "expected_nio", *COLLECTION_COMMENT_FIELDS,
     )
     for record in parsed:
         if not record.get("loan_number"):
@@ -568,9 +575,9 @@ def import_collection(period_name: str):
             )
             row.update({field: record.get(field) for field in source_fields})
             row.client = client
-            # Empty cells in a corrected cobranza are not instructions to erase
-            # comments or references already entered by an operator.
-            for field in ("application_reference", "application_comment"):
+            # Preserve manual references when the corrected file omits them.
+            # Read-only comments always reflect the current source file.
+            for field in ("application_reference",):
                 if record.get(field):
                     row.set(field, record[field])
         else:
@@ -943,6 +950,7 @@ def export_collection(period_name: str):
                 row.comments,
                 row.application_reference,
                 row.application_comment,
+                row.get("cxc_difference_comment"),
                 None,
                 None,
                 row.row_key,
@@ -950,7 +958,7 @@ def export_collection(period_name: str):
         )
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    widths = [15, 17, 38, 20, 16, 12, 20, 22, 22, 32, 26, 32, 18, 18, 28]
+    widths = [15, 17, 38, 20, 16, 12, 20, 22, 22, 32, 26, 32, 32, 18, 18, 28]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[chr(64 + index)].width = width
     stream = io.BytesIO()

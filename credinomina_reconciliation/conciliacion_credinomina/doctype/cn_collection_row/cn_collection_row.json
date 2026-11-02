@@ -9,7 +9,7 @@
     "first_exception_comment", "usd_currency", "nio_currency", "row_key", "source_row", "client",
     "employee_number", "national_id", "installment_number", "total_installments", "expected_nio", "comments",
     "deducted_usd", "deducted_nio", "deduction_currency", "deduction_status", "deduction_evidence_date", "deduction_match_note",
-    "application_reference", "application_comment", "applied_nio", "complementary_usd", "quality_section", "quality_basis",
+    "application_reference", "application_comment", "cxc_difference_comment", "applied_nio", "complementary_usd", "quality_section", "quality_basis",
     "quality_expected_usd", "remitted_usd", "remitted_nio", "remittance_detail", "inherited_exception_comment", "fx_variance_usd",
     "rounding_adjustment_usd", "application_status", "difference_reason", "difference_notes", "document_difference"
   ],
@@ -166,6 +166,7 @@
       "fieldname": "comments",
       "fieldtype": "Small Text",
       "label": "Comentarios",
+      "read_only": 1,
       "in_list_view": 0
     },
     {
@@ -245,6 +246,14 @@
       "fieldname": "application_comment",
       "fieldtype": "Small Text",
       "label": "Comentario de Aplicación",
+      "read_only": 1,
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "cxc_difference_comment",
+      "fieldtype": "Small Text",
+      "label": "Comentario Diferencias CXC",
+      "read_only": 1,
       "in_list_view": 0
     },
     {

@@ -42,6 +42,20 @@ def workbook_bytes(rows):
 
 
 class CollectionParserTest(unittest.TestCase):
+    def test_collection_comments_import_cxc_and_clear_only_zero_placeholders(self):
+        headers = ["Nro. Cliente", "Nro. Crédito", "Cuota USD", "Comentarios",
+                   "Comentario de Aplicación", "Diferencias CXC"]
+        for zero in (0, 0.0, "0", " 0 "):
+            with self.subTest(zero=zero):
+                content = workbook_bytes([headers, [100, 900, 10, zero, zero, zero],
+                    [101, 901, 20, "Saldo 0", " Aplicado ", "Revisar diferencia"]])
+                rows = parse_collection_file("cobranza.xlsx", content)
+                for field in ("comments", "application_comment", "cxc_difference_comment"):
+                    self.assertEqual(rows[0][field], "")
+                self.assertEqual(rows[1]["comments"], "Saldo 0")
+                self.assertEqual(rows[1]["application_comment"], "Aplicado")
+                self.assertEqual(rows[1]["cxc_difference_comment"], "Revisar diferencia")
+
     def test_credit_normalization_adds_only_a_missing_numeric_suffix(self):
         cases = (
             (13375, "13375-1"), (13375.0, "13375-1"),
