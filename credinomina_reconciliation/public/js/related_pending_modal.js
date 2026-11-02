@@ -57,10 +57,23 @@ window.credinominaShowRelatedPending = function (result) {
         }} : {}),
         primary_action_label: __("Cerrar"), primary_action() { dialog.hide(); },
     });
-    dialog.fields_dict.related_html.$wrapper.html(`<p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>
+    const clientFilters = {
+        ...(result.client_number ? {client_number: String(result.client_number)}
+            : result.national_id ? {national_id: String(result.national_id)} : {}),
+        ...(result.employer ? {employer: String(result.employer)} : {}),
+    };
+    const canFilterClient = Boolean(result.client_number || result.national_id);
+    dialog.fields_dict.related_html.$wrapper.html(`${canFilterClient ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button type="button" class="btn btn-default btn-sm cn-open-account-report">${esc(__("Ver Estado de Cuenta Operativo"))}</button></div>` : ""}
+        <p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start">
             ${panel("Aplicaciones pendientes", applications, "No se encontraron aplicaciones pendientes para este cliente.")}
             ${panel("Depósitos y partidas complementarias pendientes", rows, "No se encontraron depósitos ni partidas complementarias pendientes para este cliente.")}
         </div><p class="text-muted small" style="margin-top:8px">${esc(__("«—» en el saldo de una aplicación indica que no se puede atribuir un pendiente individual con certeza; consulte su período."))}</p>`);
+    if (canFilterClient) {
+        dialog.fields_dict.related_html.$wrapper.on("click.cnRelatedPending", ".cn-open-account-report", () => {
+            dialog.hide();
+            frappe.set_route("query-report", "Estado de Cuenta Operativo", clientFilters);
+        });
+    }
     dialog.show();
 };

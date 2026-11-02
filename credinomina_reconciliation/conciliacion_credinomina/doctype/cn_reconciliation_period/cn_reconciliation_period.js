@@ -251,7 +251,8 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
                 <tbody>${data.rows.map((row, index) => `<tr>
                     <td>${esc(__(row.kind))}<br><a href="/app/${routes[row.doctype] || "cn-reconciliation-period"}/${encodeURIComponent(row.source)}">${esc(row.source)}</a></td>
                     <td>${esc(row.row ?? "—")}</td>
-                    <td>${esc(row.client_name || "—")}<div class="text-muted">${esc(row.client_number)} ${esc(row.loan_number)}</div></td>
+                    <td>${esc(row.client_name || "—")}<div class="text-muted">${esc(row.client_number)} ${esc(row.loan_number)}</div>
+                        ${row.client_number ? `<button type="button" class="btn btn-default btn-xs mt-1" data-pending="account-report" data-row-index="${index}">${esc(__("Ver Estado de Cuenta Operativo"))}</button>` : ""}</td>
                     <td class="text-right text-nowrap">${money(row.applied)}</td><td class="text-right">${money(row.paid)}${row.paid_identified > 0 ? `<div class="text-muted">${esc(__("Incluye {0} identificados en detalle, por aplicar", [format_currency(row.paid_identified, "USD", 2)]))}</div>` : ""}</td>
                     <td class="text-right">${money(row.pending)}${row.pending_label ? `<div class="text-muted">${esc(__(row.pending_label))}</div>` : ""}${row.pending_application > 0 && row.pending_deposit > 0 ? `<div>${money(row.pending_deposit)} ${esc(__("por cubrir con depósito"))}</div>` : ""}</td>
                     <td>${esc(__(row.status))}<details><summary>${esc(__("Ver motivo"))}</summary>${esc(row.reason)}
@@ -273,6 +274,14 @@ async function refreshPeriodPending(frm, start = 0, search = "", kind = "") {
             if (!current() || !data.can_document_difference || frm.doc.docstatus === 2) return;
             const row = data.rows[Number(event.currentTarget.dataset.rowIndex)];
             if (row) return createPeriodPendingComplementary(frm, row);
+        });
+        wrapper.on("click.cnPending", '[data-pending="account-report"]', event => {
+            if (!current()) return;
+            const row = data.rows[Number(event.currentTarget.dataset.rowIndex)];
+            if (!row?.client_number) return;
+            frappe.set_route("query-report", "Estado de Cuenta Operativo", {
+                client_number: String(row.client_number), employer: frm.doc.employer,
+            });
         });
     } catch (error) {
         if (!current()) return;

@@ -32,6 +32,8 @@ def _identity_values(selected, peers):
     return {
         'client_name': selected.client_name or _('Sin identificar'),
         'client_number': selected.client_number or '',
+        'national_id': selected.national_id or next(iter(
+            (row.national_id for row in peers if row.national_id)), ''),
         'numbers': {canonical_identifier(row.client_number) for row in peers if row.client_number},
         'number_values': {str(row.client_number).strip() for row in peers if row.client_number},
         'clients': {str(row.client) for row in peers if row.client},
@@ -254,4 +256,5 @@ def _related_pending(employer, identity):
     applications.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
     rows.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
     return {'client_name': identity['client_name'], 'client_number': identity['client_number'],
+            'national_id': identity['national_id'],
             'applications': applications, 'rows': rows}
