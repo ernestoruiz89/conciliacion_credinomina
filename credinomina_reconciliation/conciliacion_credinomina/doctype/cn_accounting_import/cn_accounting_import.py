@@ -1711,9 +1711,22 @@ def _prepare_remittance_details(
         total_usd = 0.0
         rate = flt(item.fx_rate) if remittance_fx_basis(item) else 0
         difference = prepare(item, rows, claims, [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id])
+        from credinomina_reconciliation.company_conversion import documented_coverage, PREFIX as CONVERSION_PREFIX
+        conversion = (documented_coverage(item, rows, claims,
+            [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id],
+            [credit for credit in client_credits if registered_ids.get(credit.registered_deposit) == deposit_id],
+            reserved_amounts, allowed_groups)
+            if difference and not difference["error"] else None)
+        if conversion:
+            difference["conversion"] = conversion
+            claim_id = CONVERSION_PREFIX + item.name
+            claims.append(dict(id=claim_id, kind="X", amount_usd=conversion["amount_usd"],
+                               group=item.employer, period=conversion["period"], company_conversion=conversion))
+            instructions.append(dict(id="CONVERSION:" + item.name, deposit_id=deposit_id,
+                claim_id=claim_id, amount_usd=conversion["amount_usd"], origin="Diferencia documentada de empresa"))
         fifo_cash_left = None
         if (apply_fifo and difference and not difference["error"]
-                and difference["amount"] < 0 and not difference["core"]):
+                and difference["amount"] < 0 and not difference["core"] and not conversion):
             # Documentary shortages do not fund applications. Preserve explicit
             # instructions and reserve credits before planning automatic cash.
             fifo_cash_left = max(money(deposit["amount_usd"]) - sum_money(
@@ -1839,6 +1852,8 @@ def _prepare_remittance_details(
                 continue
             plan["targets"] = targets
             plan["reason"] = reason + "; " + plan["explanation"]
+            if conversion:
+                plan["reason"] += "; diferencia documentada en la empresa; importe del cliente conservado íntegramente"
             if fifo_cash_left is not None:
                 fifo_cash_left -= sum_money(target["amount_usd"] for target in targets)
                 if requested < amount:
@@ -2375,6 +2390,7 @@ def _distribute_deposits(
         tolerance_by_employer, client_catalog=client_catalog,
     )
     instructions.extend(detail_context["instructions"])
+    claims_by_id.update({claim["id"]: claim for claim in claims})
     previously_blocked = set(manually_ambiguous_deposits)
     manually_ambiguous_deposits.update(detail_context["blocked_deposits"])
     # Client-owned cash is never available for new manual or automatic claims.
@@ -2460,6 +2476,10 @@ def _distribute_deposits(
     for entry in result["allocations"]:
         assigned_by_deposit[entry["deposit_id"]] += entry["amount_usd"]
         claim_id = entry["claim_id"]
+        if entry.get("company_conversion"):
+            from credinomina_reconciliation.company_conversion import journal_entry
+            detail_by_deposit[entry["deposit_id"]].append(journal_entry(entry["company_conversion"]))
+            continue
         if claim_id.startswith("C:"):
             target = rows_by_name[claim_id[2:]]
             destination = {
@@ -3219,6 +3239,8 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         and row.match_status == "Conciliado"
     }
     deposits_by_application = defaultdict(list)
+    conversions = {entry["deposit_id"]: entry["company_conversion"] for entry in allocation["allocations"]
+                   if entry.get("company_conversion")}
     unclassified_deposits_by_period = defaultdict(set)
     for entry in allocation["allocations"]:
         if not entry["claim_id"].startswith("H:"):
@@ -3238,6 +3260,8 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
                 "fecha": str(account.event_date or ""),
                 "importe_usd": entry["amount_usd"],
                 "origen": entry["origin"],
+                **({"conversion_empresa": conversions[entry["deposit_id"]]}
+                   if entry["deposit_id"] in conversions else {}),
                 **({"saldo_a_favor": entry["credit_item"], "operacion": entry["credit_operation"],
                     "deposito_origen": entry["origin_deposit"]} if entry.get("credit_item") else {}),
             }

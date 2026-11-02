@@ -107,6 +107,7 @@ def get_columns(detail=False):
         ("deposit_difference_usd", "Aplicación − depósito US$", 185),
         ("credit_used_usd", "Saldo a favor utilizado US$", 180),
         ("cash_adjustment_usd", "Ajustes de conciliación US$", 185),
+        ("conversion_usd", "Diferencia de empresa US$", 190),
         ("open_usd", "Pendiente por cubrir US$", 175),
     ))
     columns.extend([

@@ -888,7 +888,7 @@ function summarizeCash(receipts) {
     return {count: unique.length, settled: unique.filter(d => d.settled).length,
         review: unique.filter(d => d.needs_review || !d.settled).length,
         creditCount: unique.filter(d => Number(d.credit_balance_usd) > MONEY_EPSILON).length,
-        ...Object.fromEntries(["total_usd", "credits_usd", "other_usd", "adjustments_usd", "credit_balance_usd", "client_credit_usd", "company_credit_usd", "unclassified_usd", "review_usd"].map(field => [field, sum(field)]))};
+        ...Object.fromEntries(["total_usd", "credits_usd", "other_usd", "adjustments_usd", "conversion_usd", "credit_balance_usd", "client_credit_usd", "company_credit_usd", "unclassified_usd", "review_usd"].map(field => [field, sum(field)]))};
 }
 
 function renderCashSummary(receipts) {
@@ -949,6 +949,7 @@ function renderCashCard(deposit) {
         <strong class="cn-cell-amount">${money(deposit.total_usd)}</strong>
         <span class="cn-badge">${esc(cashStatus(deposit))}</span>
         <span class="cn-cell-sub">${esc(__("A créditos"))}: ${money(deposit.credits_usd)}</span>
+        ${Number(deposit.conversion_usd) ? `<span class="cn-cell-sub">${esc(__("Diferencia documentada de la empresa"))}: ${signedMoney(deposit.conversion_usd)}</span>` : ""}
         ${Math.abs(Number(deposit.other_usd)) > MONEY_EPSILON ? `<span class="cn-cell-sub">${esc(__("Otros conceptos"))}: ${signedMoney(deposit.other_usd)}</span>` : ""}
         ${renderCashCreditBalances(deposit)}
         ${renderCashReceivables([deposit])}

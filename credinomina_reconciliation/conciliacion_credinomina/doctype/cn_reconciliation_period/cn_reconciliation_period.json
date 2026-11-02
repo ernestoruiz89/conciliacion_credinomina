@@ -50,6 +50,7 @@
     "financial_totals_column",
     "complementary_coverage_usd",
     "negative_complementary_usd",
+    "conversion_coverage_usd",
     "cash_breakdown_known",
     "cash_breakdown_note",
     "remitted_total_usd",
@@ -103,6 +104,7 @@
     "legacy_detail_html"
   ],
   "fields": [
+    {"fieldname": "conversion_coverage_usd", "fieldtype": "Currency", "label": "Diferencia documentada de la empresa US$", "options": "usd_currency", "precision": "2", "read_only": 1, "no_copy": 1, "depends_on": "eval:doc.conversion_coverage_usd", "description": "Diferencia inmaterial documentada en la empresa, pendiente de respaldo del core y separada del efectivo y de las partidas complementarias."},
     {
       "fieldname": "no_collection",
       "fieldtype": "Check",

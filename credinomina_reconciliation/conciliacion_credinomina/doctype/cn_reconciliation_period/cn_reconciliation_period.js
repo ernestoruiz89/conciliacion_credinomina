@@ -110,6 +110,7 @@ function renderPeriodFinancialOverview(frm) {
     </div>
     <p class="small text-muted" style="margin:12px 0 0"><strong>${esc(__("Complementarias negativas US$ (incluidas)"))}: ${esc(breakdown(frm.doc.negative_complementary_usd))}</strong><br>
         ${esc(__("Se conserva su signo. Su efecto ya está incluido en la cobertura complementaria; no se suma otra vez."))}</p>
+    ${Number(frm.doc.conversion_coverage_usd) ? `<p class="small text-muted">${esc(__("Diferencia documentada de la empresa US$"))}: ${esc(breakdown(frm.doc.conversion_coverage_usd))}</p>` : ""}
     ${frm.doc.cash_breakdown_note ? `<p class="small text-muted" style="margin-top:8px">${esc(frm.doc.cash_breakdown_note)}</p>` : ""}`);
 }
 

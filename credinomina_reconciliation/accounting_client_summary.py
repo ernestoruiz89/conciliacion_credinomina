@@ -174,11 +174,24 @@ def balance_totals(document, rows):
     deposits = total('assigned_usd')
     rounding = total('rounding_usd')
     balance = total('balance_usd')
+    from credinomina_reconciliation.company_conversion import from_rows
+    proofs = from_rows(document.get('rows') or [])
+    source_ids = {row.get('name') for row in document.get('rows') or []}
+    conversion = money(0)
+    for proof in proofs:
+        if not set(proof['application_ids']) <= source_ids:
+            deposits = None  # A shared employer correction cannot be split by import.
+            conversion = None
+            break
+        conversion -= money(proof['amount_usd'])
+    if deposits is not None:
+        deposits -= conversion
     return {
         'amount_usd': money_float(net + adjustments) if net is not None else None,
         'deposits_usd': money_float(deposits) if deposits is not None else None,
         'complementary_usd': money_float(adjustments - rounding) if rounding is not None else None,
         'balance_usd': money_float(balance) if balance is not None else None,
+        **({'conversion_usd': money_float(conversion) if conversion is not None else None} if proofs else {}),
     }
 
 

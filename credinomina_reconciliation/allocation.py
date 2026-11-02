@@ -53,6 +53,8 @@ def allocate_cash(
                 "claim_id": claim_id,
                 "amount_usd": money_float(amount),
                 "origin": origin,
+                **({"company_conversion": claims[claim_id]["company_conversion"]}
+                   if claims[claim_id].get("company_conversion") else {}),
                 **({"group": group} if group else {}),
                 **({"detail_row": detail_row} if detail_row else {}),
                 **({"fifo_applications": fifo_applications} if fifo_applications else {}),

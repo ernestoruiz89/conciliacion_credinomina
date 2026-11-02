@@ -20,12 +20,15 @@ def coverage_totals(deposit):
             raise ValueError('Missing allocation journal')
         complementary = sum_money(row.get('importe_usd') for row in entries
                                   if row.get('tipo') == 'Partida complementaria')
+        conversion = sum_money(row.get('importe_usd') for row in entries
+                               if row.get('tipo') == 'Diferencia documentada de empresa')
         return {
             'credit_coverage_usd': money_float(assigned - complementary),
             'complementary_coverage_usd': money_float(complementary + money(deposit.get('justified_surplus_usd'))),
+            'conversion_coverage_usd': money_float(-conversion),
         }
     except (TypeError, ValueError, ArithmeticError):
-        return {'credit_coverage_usd': None, 'complementary_coverage_usd': None}
+        return {'credit_coverage_usd': None, 'complementary_coverage_usd': None, 'conversion_coverage_usd': None}
 
 
 def reconciliation_status(deposit):
