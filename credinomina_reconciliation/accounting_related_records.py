@@ -251,7 +251,7 @@ def _related_pending(employer, identity):
     applications = _application_rows(employer, identity)
     rows = [*_deposit_rows(employer, identity),
             *_complementary_rows(employer, identity)]
-    applications.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
-    rows.sort(key=lambda row: (row['date'], row['document'], row['loan_number']), reverse=True)
+    applications.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
+    rows.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
     return {'client_name': identity['client_name'], 'client_number': identity['client_number'],
             'applications': applications, 'rows': rows}
