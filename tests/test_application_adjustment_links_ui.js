@@ -24,6 +24,8 @@ context.frm = frm;
 (async () => {
     await vm.runInContext("cn_distribute_applications(frm)", context);
     assert.equal(dialog.options.primary_action_label, "Confirmar distribución adicional");
+    const currencyFields = dialog.fields_dict.applications.df.fields.filter(field => field.fieldtype === "Currency");
+    assert.deepEqual(Array.from(currencyFields, field => field.options), ["USD", "USD"]);
     dialog.values.accounting_import = "IMPORT";
     await dialog.options.fields.find(field => field.fieldname === "accounting_import").onchange();
     const rows = dialog.fields_dict.applications.df.data;

@@ -1587,8 +1587,8 @@ async function cn_distribute_applications(frm, initial = null) {
                 {fieldtype: "Data", fieldname: "client_name", label: __("Cliente"), read_only: 1, in_list_view: 1, columns: 3},
                 {fieldtype: "Data", fieldname: "loan_number", label: __("Crédito"), read_only: 1, in_list_view: 1, columns: 2},
                 {fieldtype: "Date", fieldname: "event_date", label: __("Fecha"), read_only: 1, in_list_view: 1, columns: 2},
-                {fieldtype: "Currency", fieldname: "adjustable_usd", label: __("Disponible US$"), read_only: 1, in_list_view: 1, columns: 1, precision: 2},
-                {fieldtype: "Currency", fieldname: "amount_usd", label: __("Ajuste US$"), in_list_view: 1, columns: 2, precision: 2},
+                {fieldtype: "Currency", fieldname: "adjustable_usd", label: __("Disponible US$"), options: "USD", read_only: 1, in_list_view: 1, columns: 1, precision: 2},
+                {fieldtype: "Currency", fieldname: "amount_usd", label: __("Ajuste US$"), options: "USD", in_list_view: 1, columns: 2, precision: 2},
             ]},
     ], primary_action_label: __(frm.doc.docstatus === 1 ? "Confirmar distribución adicional" : "Guardar distribución"), async primary_action() {
         if (busy) return;
