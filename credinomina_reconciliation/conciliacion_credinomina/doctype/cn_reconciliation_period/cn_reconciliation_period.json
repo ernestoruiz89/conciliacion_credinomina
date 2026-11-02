@@ -126,15 +126,15 @@
       "fieldname": "provisional_tab",
       "fieldtype": "Tab Break",
       "label": "Ajustes provisionales",
-      "depends_on": "eval:doc.reconciliation_mode != 'Historica' && !doc.no_collection"
+      "depends_on": "eval:(doc.provisional_adjustments || []).length > 0"
     },
     {
       "fieldname": "provisional_adjustments",
       "fieldtype": "Table",
       "options": "CN Provisional Adjustment",
-      "label": "Diferencias para trasladar al depósito",
+      "label": "Ajustes provisionales históricos",
       "no_copy": 1,
-      "description": "Genere las diferencias, clasifique cada fila y apruebe. No afectan saldos hasta usar Conciliación preparada en el depósito confirmado. Si cambia la base, genere y apruebe otra vez."
+      "description": "Información histórica del flujo anterior de ajustes provisionales. Se conserva para consultar su trazabilidad. Para documentar diferencias actuales, use Clasificar / documentar diferencia en la fila correspondiente."
     },
     {
       "fieldname": "prepared_deposit",
