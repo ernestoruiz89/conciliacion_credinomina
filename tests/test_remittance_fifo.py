@@ -110,10 +110,28 @@ class FifoMatchingTests(unittest.TestCase):
     def test_operative_fixed_cash_is_consumed_before_new_slices(self):
         self.claims = [dict(id="C:R", kind="C", group="EMP", period="P1", client="5464",
             client_number="5464", loan_number="109578-1", amount_usd=55, core_applied_usd=55,
-            fifo_covered_usd=15, fifo_applications=[dict(id="A", event_date="2025-04-01", amount_usd=20),
+            fifo_covered_usd=15, fifo_covered_by_application={"A": 15}, fifo_applications=[dict(id="A", event_date="2025-04-01", amount_usd=20),
                 dict(id="B", event_date="2025-04-30", amount_usd=50)])]
         targets, _ = self.suggest(40, reserved_amounts={"C:R": money(10)})
         self.assertEqual(targets[0]["fifo_applications"], [dict(application_id="B", event_date="2025-04-30", amount_usd=40)])
+
+    def test_late_older_application_cannot_move_existing_cash_to_another_slice(self):
+        self.claims = [dict(id="C:R", kind="C", group="EMP", period="P1", client="5464",
+            client_number="5464", loan_number="109578-1", amount_usd=50, core_applied_usd=50,
+            fifo_covered_usd=50, fifo_covered_by_application={"B": 50},
+            fifo_applications=[dict(id="A", event_date="2025-04-01", amount_usd=50),
+                               dict(id="B", event_date="2025-04-30", amount_usd=50)])]
+        targets, _ = self.suggest(50)
+        self.assertEqual(targets[0]["fifo_applications"], [dict(application_id="A", event_date="2025-04-01", amount_usd=50)])
+        for invalid in ({"MISSING": 50}, {"B": 60}):
+            self.claims[0]["fifo_covered_by_application"] = invalid
+            targets, reason = self.suggest(50)
+            self.assertEqual(targets, [])
+            self.assertIn("no coincide", reason)
+        del self.claims[0]["fifo_covered_by_application"]
+        targets, reason = self.suggest(50)
+        self.assertEqual(targets, [])
+        self.assertIn("sin reparto por aplicación", reason)
 
 
 class FifoDetailEngineTests(unittest.TestCase):
@@ -299,19 +317,19 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual(context["rounding_eligible"], set())
         self.assertEqual(result["claim_remaining"]["H:A"], 0.01)
 
-    def test_flag_is_optional_and_editable_on_confirmed_deposits(self):
+    def test_flag_defaults_enabled_and_remains_editable_on_confirmed_deposits(self):
         path = Path(__file__).parents[1] / "credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation.json"
         schema = json.loads(path.read_text(encoding="utf-8"))
         field = next(f for f in schema["fields"] if f["fieldname"] == "apply_fifo")
-        self.assertEqual(field["default"], "0")
+        self.assertEqual(field["default"], "1")
         self.assertEqual(field["allow_on_submit"], 1)
 
     def test_server_rejects_fifo_without_selected_periods(self):
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation import cn_remittance_allocation as api
-        doc = frappe._dict(employer="EMP", deposit_date="2025-05-09", deposit_amount=55.05,
-                           docstatus=0, detail_rows=[], detail_periods=[], apply_fifo=1)
-        with patch.object(api, "allowed_employers", return_value={"EMP"}), \
+        doc = Mock(docstatus=1, detail_rows=[frappe._dict(name="R")], apply_fifo=1)
+        doc.get.return_value = []
+        with patch.object(api.frappe, "get_doc", return_value=doc), \
                 patch.object(api.frappe, "throw", side_effect=ValueError) as error:
             with self.assertRaises(ValueError):
-                api.CNRemittanceAllocation._validate_deposit(doc)
+                api._reconcile_remittance("DEP")
         self.assertIn("al menos un período", error.call_args.args[0])

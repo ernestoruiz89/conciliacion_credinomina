@@ -207,6 +207,21 @@ def reconcile_cancellation(item, scope):
     return reconcile_scoped(item, scope)
 
 
+def _assert_retained_deposit_links(item, deposits, allocation, periods):
+    """Canceling one complement can release only that complement's cash link."""
+    from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+    for deposit in deposits:
+        retained = [entry for entry in entries(deposit.allocation_detail)
+                    if not (item.get("docstatus") == 2 and entry.get("tipo") == "Partida complementaria"
+                            and entry.get("partida") == item.name)]
+        # The guard verifies destinations, detail rows and explicit application
+        # portions, not merely the unchanged total of the deposit.
+        snapshot = frappe._dict(name=deposit.name, allocation_detail=json.dumps(retained, ensure_ascii=False),
+            allocated_usd=money_float(sum((money(entry.get("importe_usd")) for entry in retained
+                if entry.get("tipo") in {"Aplicacion historica", "Cobranza", "Partida complementaria"}), money(0))))
+        assert_preserved_allocations(snapshot, allocation, periods)
+
+
 def reconcile_scoped(item, scope, *, action="cancelar la partida"):
     """One atomic pass: mutable affected deposits + frozen related bank cash."""
     if not any(scope[field] for field in ("deposits", "periods", "applications")):
@@ -290,6 +305,7 @@ def reconcile_scoped(item, scope, *, action="cancelar la partida"):
             if stored.deposit_currency == "NIO" and stored.amount_usd else 0}
     if scope["applications"]:
         changed = [row for row in rows if row.name in scope["applications"]]
+        link_snapshots = [row.as_dict() for row in changed]
         by_employer = defaultdict(list)
         for row in changed:
             by_employer[row._source_employer or ""].append(row)
@@ -298,10 +314,17 @@ def reconcile_scoped(item, scope, *, action="cancelar la partida"):
         for row in changed:
             row.match_status, row.match_reason = "Pendiente", ""
             row.collection_period, row.collection_row_id, row.application_allocation_detail = "", "", "[]"
-        engine._match_applications(changed, [row for period in periods for row in period.collection_rows],
-            frozen_pairs, complementary, periods, fixed_sources=[row for row in rows if row.name not in scope["applications"]])
+        from credinomina_reconciliation.application_link_preservation import preserve
+        collection_rows = [row for period in periods for row in period.collection_rows]
+        preserved = preserve(changed, link_snapshots, collection_rows)
+        preserved_names = {row.name for row in preserved}
+        engine._match_applications([row for row in changed if row.name not in preserved_names], collection_rows,
+            frozen_pairs, complementary, periods,
+            fixed_sources=[row for row in rows if row.name not in scope["applications"]] + preserved)
     pairs, registered = engine._registered_deposit_pairs(rows, mutable)
-    allocation = engine._distribute_deposits(periods, rows, pairs, items, complementary, mutable, registered, fixed_coverage=coverage)
+    allocation = engine._distribute_deposits(periods, rows, pairs, items, complementary, mutable, registered,
+                                           fixed_coverage=coverage, fixed_allocations=fixed_allocations)
+    _assert_retained_deposit_links(item, mutable, allocation, evidence)
     for deposit in mutable:
         engine._sync_rounding_movements([movement for movement in allocation["rounding_movements"]
             if movement["deposit_id"] == deposit.name], allocation, rows, deposit_name=deposit.name)

@@ -1,5 +1,6 @@
 """Reconcile one confirmed deposit against capacity left by persisted deposits."""
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 import json
 
 import frappe
@@ -45,7 +46,7 @@ def frozen_cash(deposits, periods, movements):
     # Validate every stored deposit from one pass over its allocations.
     recorded_by_deposit = defaultdict(lambda: money(0))
     for deposit in deposits:
-        for entry in entries(deposit.allocation_detail):
+        for entry in stored_entries(deposit):
             kind = entry.get("tipo")
             claim = (
                 "H:" + entry.get("aplicacion_id", "") if kind == "Aplicacion historica"
@@ -53,13 +54,22 @@ def frozen_cash(deposits, periods, movements):
                 else "C:" + row_ids.get((entry.get("periodo"), entry.get("fila_id")), "") if kind == "Cobranza"
                 else ""
             )
-            if not claim:
+            if kind == "Movimiento de conciliación":
                 continue
+            if not claim:
+                frappe.throw(_("La distribución guardada del depósito {0} contiene un tipo de destino desconocido. Revísela antes de conciliar.").format(deposit.name))
             if not claim[2:]:
                 frappe.throw(_("El depósito {0} tiene un destino que ya no existe. Revise su distribución antes de conciliar.").format(deposit.name))
             amount = money(entry.get("importe_usd"))
+            if not amount or (amount < 0 and kind != "Partida complementaria"):
+                frappe.throw(_("La distribución guardada del depósito {0} contiene un importe inválido. Revísela antes de conciliar.").format(deposit.name))
             allocations.append({"deposit_id": deposit.name, "claim_id": claim,
-                                "amount_usd": money_float(amount), "origin": entry.get("origen") or UNRECORDED})
+                                "amount_usd": money_float(amount), "origin": entry.get("origen") or UNRECORDED,
+                                **({"detail_row": entry["fila_detalle"]} if entry.get("fila_detalle") else {}),
+                                **({"fifo_applications": entry["aplicaciones_fifo"]} if entry.get("aplicaciones_fifo") else {}),
+                                **({"group": entry["empresa"]} if entry.get("empresa") else {}),
+                                **({"reclassification_operation_id": entry["reclassification_operation_id"]}
+                                   if entry.get("reclassification_operation_id") else {})})
             coverage[claim] += amount
             recorded_by_deposit[deposit.name] += amount
     for movement in movements:
@@ -72,6 +82,58 @@ def frozen_cash(deposits, periods, movements):
         if recorded_by_deposit[deposit.name] != money(expected):
             frappe.throw(_("La distribución guardada del depósito {0} no coincide con su importe asignado. Revise ese depósito antes de continuar.").format(deposit.name))
     return allocations, coverage
+
+
+def stored_entries(deposit):
+    """Malformed persisted evidence must never be treated as an empty ledger."""
+    raw = deposit.get("allocation_detail") or "[]"
+    try:
+        rows = json.loads(raw) if isinstance(raw, str) else raw
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            raise ValueError()
+        for row in rows:
+            value = Decimal(str(row.get("importe_usd")))
+            if not value.is_finite():
+                raise ValueError()
+    except (ValueError, TypeError, InvalidOperation):
+        frappe.throw(_("La distribución guardada del depósito {0} no es válida. Revísela antes de conciliar.").format(deposit.name))
+    return rows
+
+
+def _link_amounts(allocations, deposit_name):
+    amounts = defaultdict(lambda: money(0))
+    for entry in allocations:
+        if entry["deposit_id"] != deposit_name:
+            continue
+        key = (entry["claim_id"], entry.get("detail_row") or "",
+               entry.get("reclassification_operation_id") or "")
+        parts = entry.get("fifo_applications") if entry["claim_id"].startswith("C:") else None
+        if parts:
+            if (not isinstance(parts, list) or any(not isinstance(part, dict) or not part.get("application_id")
+                    or money(part.get("amount_usd")) <= 0 for part in parts)
+                    or sum((money(part.get("amount_usd")) for part in parts), money(0)) != money(entry["amount_usd"])):
+                frappe.throw(_("La distribución FIFO guardada no coincide con sus aplicaciones. Revise el depósito."))
+            for part in parts:
+                amounts[(*key, part["application_id"])] += money(part.get("amount_usd"))
+        else:
+            amounts[(*key, "")] += money(entry["amount_usd"])
+    return amounts
+
+
+def assert_preserved_allocations(document, allocation, periods):
+    """A normal reconcile can add cash, never withdraw a confirmed link.
+
+    The explicit undo actions retain their existing permission and closure
+    guards. Throwing here aborts all intermediate distributor writes too.
+    """
+    previous, _coverage = frozen_cash([document], periods, [])
+    old = _link_amounts(previous, document.name)
+    new = _link_amounts(allocation["allocations"], document.name)
+    for key, amount in old.items():
+        assigned = new.get(key, money(0))
+        if amount * assigned <= 0 or abs(assigned) < abs(amount):
+            frappe.throw(_("La conciliación cambiaría una asignación ya confirmada del depósito {0}. "
+                "Use Desconciliar en la fila o en el depósito antes de modificar sus vínculos. No se guardó ningún cambio.").format(document.name))
 
 
 def affected_periods(deposit, allocation, periods, source_rows, complementary_items):
@@ -212,7 +274,10 @@ def reconcile_deposit(document, progress=None, undo=False):
     pairs, registered = engine._registered_deposit_pairs(source_rows, [document])
     allocation = engine._distribute_deposits(periods, source_rows, [] if undo else pairs, complements,
                                            complementary_by_target, [] if undo else [document],
-                                           {} if undo else registered, fixed_coverage=coverage)
+                                           {} if undo else registered, fixed_coverage=coverage,
+                                           fixed_allocations=fixed_allocations)
+    if not undo:
+        assert_preserved_allocations(document, allocation, periods)
     affected = affected_periods(document, allocation, periods, source_rows, complements)
     if undo:
         pairs = []
