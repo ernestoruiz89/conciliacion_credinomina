@@ -1,6 +1,7 @@
 frappe.ui.form.on("CN Credit Portfolio Snapshot", {
     refresh(frm) {
         if (frm.is_new()) return;
+        configurePortfolioFileReplacement(frm);
         if (!frm.is_dirty() && !frm._cn_saving_availability) {
             frm._cn_portfolio_saved = portfolioHeaderState(frm);
         }
@@ -11,6 +12,22 @@ frappe.ui.form.on("CN Credit Portfolio Snapshot", {
         return savePortfolioAvailability(frm);
     },
 });
+
+function configurePortfolioFileReplacement(frm) {
+    const control = frm.fields_dict?.source_file;
+    if (!control) return;
+    if (!control._cn_portfolio_clear_attachment) {
+        control._cn_portfolio_clear_attachment = control.clear_attachment;
+        control.clear_attachment = function (...args) {
+            // Native Clear deletes the imported evidence. Open the normal
+            // uploader instead; it saves the new URL and keeps the old file.
+            if (frm.doc.file_hash) return this.on_attach_click();
+            return this._cn_portfolio_clear_attachment(...args);
+        };
+    }
+    control.$value?.find('[data-action="clear_attachment"]')
+        .text(frm.doc.file_hash ? __("Reemplazar") : __("Clear"));
+}
 
 function portfolioHeaderState(frm) {
     return Object.fromEntries(Object.entries(frm.doc).filter(([key, value]) =>
