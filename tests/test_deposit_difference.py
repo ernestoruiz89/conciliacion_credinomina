@@ -37,6 +37,7 @@ class DepositDifferenceTests(unittest.TestCase):
             result['deposit_remaining'][name] = float(difference.money(result['deposit_remaining'][name]) + difference.money(amount))
         with patch.object(frappe, "db", Mock()) as db, patch(
                 "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={}):
+            db.get_single_value.return_value = "yyyy-mm-dd"
             statuses = engine._sync_remittance_details(context, result, self.claims)
             updates = {call.args[1]: call.args[2] for call in db.set_value.call_args_list if call.args[0] == "CN Remittance Detail"}
         return result, statuses, updates
@@ -56,6 +57,56 @@ class DepositDifferenceTests(unittest.TestCase):
         self.assertEqual(rows["R1"]["pending_usd"], 40)
         self.assertEqual(before, self.rows)
         self.assertEqual(result, self.reconcile()[0])
+
+    def enable_fifo(self):
+        self.doc.apply_fifo = 1
+        self.doc.detail_periods = [frappe._dict(period="P")]
+        for index, (row, claim) in enumerate(zip(self.rows, self.claims)):
+            if claim.get("kind") == "X":
+                continue
+            row.loan_number = claim["loan_number"] = f"LOAN-{index}"
+            claim["period"] = "P"
+            claim["fifo_applications"] = [dict(id=f"A{index}", event_date="2025-04-15", amount_usd=claim["amount_usd"])]
+
+    def test_fifo_documented_shortage_applies_only_cash_and_keeps_cent_pending(self):
+        self.setup_case(-.01)
+        self.enable_fifo()
+        before = copy.deepcopy(self.rows)
+        result, statuses, rows = self.reconcile()
+        self.assertEqual(statuses["DEP"], "Parcial; diferencia de empresa pendiente")
+        self.assertEqual([entry["amount_usd"] for entry in result["allocations"]], [60, 39.99])
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": .01})
+        self.assertEqual(rows["R1"]["pending_usd"], .01)
+        self.assertEqual(rows["R1"]["match_status"], "Cobertura parcial; diferencia de empresa")
+        self.assertEqual(rows["DIFF"]["pending_usd"], -.01)
+        self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .01)
+        self.assertEqual(result["allocations"][1]["fifo_applications"][0]["amount_usd"], 39.99)
+        self.assertEqual(self.rows, before)
+        self.assertEqual(self.reconcile()[0], result)
+
+    def test_fifo_preserves_explicit_manual_amounts_and_rejects_overbudget_manual_only(self):
+        self.setup_case(-.01)
+        self.enable_fifo()
+        manual = [dict(id="M", deposit_id="DEP", claim_id="H:0", amount_usd=60, detail_row="R0", origin="Manual")]
+        before = copy.deepcopy(manual)
+        result, _, _ = self.reconcile(manual)
+        self.assertEqual(result["instruction_results"]["M"], "Aplicada")
+        self.assertEqual([entry["amount_usd"] for entry in result["allocations"]], [60, 39.99])
+        self.assertEqual(manual, before)
+        manual.append(dict(id="M2", deposit_id="DEP", claim_id="H:1", amount_usd=40, detail_row="R1", origin="Manual"))
+        with self.assertRaisesRegex(frappe.ValidationError, "no se repartirá"):
+            self.reconcile(manual)
+
+    def test_fifo_negative_core_later_covers_full_applications_without_fabricated_cash(self):
+        self.setup_case(-.01, core=True)
+        self.enable_fifo()
+        result, statuses, rows = self.reconcile()
+        self.assertEqual(statuses["DEP"], "Conciliado")
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": 0, "X:CORE": 0})
+        self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], 0)
+        self.assertEqual(sum(entry["amount_usd"] for entry in result["allocations"]), 99.99)
 
     def test_positive_difference_keeps_unassigned_cash_until_core_exists(self):
         self.setup_case(.03)
