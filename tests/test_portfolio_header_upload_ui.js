@@ -10,7 +10,9 @@ function form() {
     const frm = {doc: {name: "CUT", source_file: "/private/files/original.xlsx", file_hash: "IMPORTED",
         notes: "", disabled: 0, modified: "OLD", modified_by: "USER", rows, row_count: rows.length},
         is_new: () => false, is_dirty() {return !!this.doc.__unsaved;},
-        attachments: {files: ["/private/files/original.xlsx"], update_attachment(file) {this.files.push(file.file_url);}},
+        attachments: {files: [{name: "OLD", file_url: "/private/files/original.xlsx"}],
+            update_attachment(file) {this.files.push(file);},
+            remove_fileid(name) {this.files = this.files.filter(file => file.name !== name);}},
         save() {throw new Error("Saving the full imported document exceeds the request limit");},
         refresh_field() {}, refresh_header() {}, reload_doc: async () => {},
         add_custom_button(_label, action) {this.importButton = action;},
@@ -23,9 +25,9 @@ function form() {
     handlers.refresh(frm);
     return frm;
 }
-const attachment = {file_url: "/private/files/corrected.xlsx", file_size: 3111765};
+const attachment = {name: "NEW", file_url: "/private/files/corrected.xlsx", file_size: 3111765};
 function headerResponse(args) {
-    savedHeader = {...args.args, modified: "NEW", modified_by: "USER"};
+    savedHeader = {...args.args, modified: "NEW", modified_by: "USER", removed_attachments: ["OLD"]};
     return {message: savedHeader};
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -43,7 +45,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(frm.doc.__unsaved, 0);
     assert.equal(frm.doc.rows, rows);
     assert.equal(frm.doc.file_hash, "IMPORTED");
-    assert.deepEqual(frm.attachments.files, ["/private/files/original.xlsx", attachment.file_url]);
+    assert.deepEqual(frm.attachments.files, [attachment], "Only confirmed superseded attachments disappear from the sidebar");
 
     // Import waits for the compact save already in progress, without starting
     // a second full save or importing against the previous attachment.
@@ -57,6 +59,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     const importing = frm.importButton();
     await tick();
     assert.equal(calls.length, 1);
+    assert.equal(frm.attachments.files.length, 2, "The previous attachment remains until the server confirms the save");
     finish(); await uploading; await importing;
     assert.equal(calls.length, 2);
     assert.ok(calls[1].method.endsWith(".import_portfolio_snapshot"));
@@ -74,6 +77,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(frm.doc.__unsaved, 1);
     assert.equal(frm.doc.modified, "OLD");
     assert.equal(frm.doc.rows, rows);
+    assert.equal(frm.attachments.files.length, 2, "A failed save must keep the previous attachment");
 
     // Notes edited during the save remain pending and are sent by the import
     // button in another compact request with the fresh modification timestamp.

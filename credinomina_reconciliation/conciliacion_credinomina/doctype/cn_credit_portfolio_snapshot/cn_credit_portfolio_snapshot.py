@@ -17,6 +17,7 @@ from credinomina_reconciliation.parsers import (
 )
 from credinomina_reconciliation.portfolio_naming import rename_snapshot_for_date
 from credinomina_reconciliation.portfolio_refresh import refresh_portfolio_dependencies
+from credinomina_reconciliation.portfolio_files import prune_previous_files
 
 _importing_portfolio = ContextVar("cn_importing_portfolio", default=False)
 HEADER_FIELDS = ("source_file", "notes", "disabled")
@@ -42,6 +43,7 @@ class CNCreditPortfolioSnapshot(Document):
             return super()._save(ignore_permissions=ignore_permissions, ignore_version=ignore_version)
         saved = _update_portfolio_header(self.name, {field: self.get(field) for field in HEADER_FIELDS},
                                          self.modified, docstatus=self.docstatus)
+        prune_previous_files(self.name, saved.source_file)
         # Restore authoritative derived header values; ordinary saves cannot
         # change the imported results, hash, counters or child table.
         self.update(saved)
@@ -117,10 +119,13 @@ def save_portfolio_header(snapshot_name: str, source_file: str, notes: str, disa
         "attached_to_name": snapshot_name,
     })
     attachment.check_permission("read")
+    if attachment.is_remote_file or not attachment.exists_on_disk():
+        frappe.throw(_("El nuevo archivo todavía no está disponible en el servidor. Se conserva el archivo anterior; espere a que termine la carga y vuelva a intentarlo."))
     saved = _update_portfolio_header(snapshot_name,
         dict(source_file=source_file, notes=notes, disabled=disabled), modified)
     return {**{field: saved.get(field) for field in HEADER_FIELDS},
-            "modified": str(saved.modified), "modified_by": saved.modified_by}
+            "modified": str(saved.modified), "modified_by": saved.modified_by,
+            "removed_attachments": prune_previous_files(snapshot_name, saved.source_file)}
 
 
 def _update_portfolio_header(snapshot_name, changes, modified, docstatus=None):
