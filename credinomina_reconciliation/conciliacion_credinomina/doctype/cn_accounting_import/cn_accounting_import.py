@@ -1711,6 +1711,17 @@ def _prepare_remittance_details(
         total_usd = 0.0
         rate = flt(item.fx_rate) if remittance_fx_basis(item) else 0
         difference = prepare(item, rows, claims, [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id])
+        fifo_cash_left = None
+        if (apply_fifo and difference and not difference["error"]
+                and difference["amount"] < 0 and not difference["core"]):
+            # Documentary shortages do not fund applications. Preserve explicit
+            # instructions and reserve credits before planning automatic cash.
+            fifo_cash_left = max(money(deposit["amount_usd"]) - sum_money(
+                credit.amount_usd for credit in client_credits
+                if registered_ids.get(credit.registered_deposit) == deposit_id
+            ) - sum_money(entry["amount_usd"] for entry in prior_instructions
+                         if entry["deposit_id"] == deposit_id), money(0))
+        fifo_cash_limited = False
         for row in rows:
             if is_difference(row):
                 continue
@@ -1805,8 +1816,14 @@ def _prepare_remittance_details(
                     plan["status"] = "Revisar"
                 # These instructions already exist. Only associate their results.
                 continue
+            requested = amount if fifo_cash_left is None else money_float(min(money(amount), fifo_cash_left))
+            if requested < amount:
+                fifo_cash_limited = True
+            if not requested:
+                plan["status"], plan["reason"] = "Revisar", "Sin efectivo disponible; diferencia de empresa pendiente de respaldo del core"
+                continue
             targets, reason = suggest_detail_targets(
-                plan["row"], claims, amount, item.employer,
+                plan["row"], claims, requested, item.employer,
                 selected_periods(item),
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
                 allowed_groups=allowed_groups,
@@ -1822,6 +1839,10 @@ def _prepare_remittance_details(
                 continue
             plan["targets"] = targets
             plan["reason"] = reason + "; " + plan["explanation"]
+            if fifo_cash_left is not None:
+                fifo_cash_left -= sum_money(target["amount_usd"] for target in targets)
+                if requested < amount:
+                    plan["reason"] += "; efectivo aplicado parcialmente; diferencia de empresa pendiente de respaldo del core"
             for target in targets:
                 instruction_id = "D:" + plan["row"].name + ":" + target["claim_id"]
                 instructions.append({
@@ -1840,6 +1861,7 @@ def _prepare_remittance_details(
             "outside_complements": outside_complements,
             "deposit_usd": flt(deposit["amount_usd"]),
             "difference": difference,
+            "fifo_cash_limited": fifo_cash_limited,
         }
         if difference and difference["core"] and not difference["error"]:
             instruction_id = "D:" + difference["row"].name + ":" + difference["core"]["id"]
@@ -1960,7 +1982,9 @@ def _sync_remittance_details(context, allocation, claims=()):
                 if money(updates["pending_usd"]) > 0 and targets:
                     # Applying every FIFO instruction does not settle a row
                     # whose amount exceeds the available application balance.
-                    plan["status"] = updates["match_status"] = "Revisar"
+                    plan["status"] = updates["match_status"] = (
+                        "Cobertura parcial; diferencia de empresa" if state.get("fifo_cash_limited")
+                        and all(value == "Aplicada" for value in results) else "Revisar")
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
@@ -1987,6 +2011,8 @@ def _sync_remittance_details(context, allocation, claims=()):
                     for plan in state["rows"]
                 ) or not outside_applied:
                     state["status"] = "Revisar filas"
+                elif state.get("fifo_cash_limited"):
+                    state["status"] = "Parcial; diferencia de empresa pendiente"
                 elif difference:
                     from credinomina_reconciliation.deposit_difference import SETTLED
                     core_applied = allocation["instruction_results"].get(difference.get("instruction_id")) == "Aplicada"
@@ -2410,6 +2436,7 @@ def _distribute_deposits(
                 "Revisar filas", "Detalle supera depósito", "Importar detalle actualizado",
             }
             else "Detalle pendiente" if detail_statuses.get(item.name) == "Detalle pendiente"
+            else "Parcial" if detail_statuses.get(item.name) == "Parcial; diferencia de empresa pendiente"
             else (
                 "Distribuido, aplicación pendiente" if remaining <= CASH_EPSILON
                 else "Parcial, aplicación pendiente"

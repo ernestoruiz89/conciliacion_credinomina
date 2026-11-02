@@ -386,7 +386,7 @@ def reconcile_deposit(document, progress=None, undo=False):
         for imported in imports:
             if imported.name in active_parents:
                 classify_document(imported, row_names=active_ids)
-    matched = sum(row.match_status in {"Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada", "Diferencia documentada"}
+    matched = sum(row.match_status in {"Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"}
                   for row in document.detail_rows)
     report(100, _("Conciliación del depósito finalizada."))
     return {"deposit": document.name, "result": document.result, "periods": sorted(affected),

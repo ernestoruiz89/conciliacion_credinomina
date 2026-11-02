@@ -43,15 +43,12 @@ def run():
                 diff_name = diff.name
                 assert money(diff.difference_amount_usd) == money(delta)
                 if delta < 0:
-                    try:
-                        reconcile_deposit(deposit)
-                    except frappe.ValidationError as error:
-                        assert 'no se repartirá' in str(error), str(error)
-                    else:
-                        raise AssertionError('No debe repartir entre clientes un faltante de efectivo')
+                    reconcile_deposit(deposit)
                     deposit.reload(); imported.reload()
-                    assert money(deposit.allocated_usd) == 0
-                    assert money(imported.rows[0].historical_balance_usd) == 100
+                    assert deposit.result == "Parcial", deposit.as_dict()
+                    assert money(deposit.allocated_usd) == money(100 + delta)
+                    assert money(deposit.unallocated_usd) == 0
+                    assert money(imported.rows[0].historical_balance_usd) == abs(money(delta))
                 else:
                     reconcile_deposit(deposit)
                     deposit.reload(); imported.reload()

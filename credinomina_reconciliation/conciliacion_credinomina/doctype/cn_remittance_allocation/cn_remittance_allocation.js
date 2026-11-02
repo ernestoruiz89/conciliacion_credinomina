@@ -1589,7 +1589,7 @@ function remittanceIssues(doc, dirty = false) {
         add("FIFO necesita al menos un período seleccionado en Períodos a conciliar.", "detail_periods");
     }
     for (const row of rows) {
-        if (["Conciliada", "No deducido", "Cobertura parcial; diferencia de empresa", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
+        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
         const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
             row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
