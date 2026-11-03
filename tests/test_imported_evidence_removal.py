@@ -69,11 +69,18 @@ class ImportedEvidenceRemovalTests(unittest.TestCase):
     def test_authorized_complementary_item_still_checks_financial_dependencies(self):
         self.role.return_value = True
         doc = frappe._dict(doctype="CN Complementary Item", accounting_source_key="core", flags=frappe._dict())
+        doc._prepare_deactivation = lambda: CNComplementaryItem._prepare_deactivation(doc)
         with patch("credinomina_reconciliation.receivable_recovery.guard_origin",
                    side_effect=ValueError("registered recovery")):
             for hook in ("on_trash", "before_cancel"):
                 with self.assertRaisesRegex(ValueError, "registered recovery"):
                     getattr(CNComplementaryItem, hook)(doc)
+
+    def test_unconfirmation_flag_cannot_bypass_actual_core_cancellation_permission(self):
+        doc = frappe._dict(doctype="CN Complementary Item", name="CORE", accounting_source_key="core",
+                           flags=frappe._dict(cn_unconfirming=True))
+        with patch.object(frappe, "throw", side_effect=reject), self.assertRaisesRegex(ValueError, "Eliminar Mov"):
+            evidence.guard_imported_removal(doc, "cancelar")
 
     def test_accounting_import_provenance_and_cleared_payload(self):
         for values in ({"file_hash": "hash"}, {"bulk_source_hash": "bulk"},

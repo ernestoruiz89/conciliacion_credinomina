@@ -158,9 +158,9 @@ def capture_adjustment_additions(doc, additions):
 
 def capture_item_confirmation(doc, method=None):
     """Confirmation/reversal of the original adjustment; additions have their own actor."""
-    if frappe.flags.in_migrate or method not in {"on_submit", "on_cancel"}:
+    if frappe.flags.in_migrate or method not in {"on_submit", "on_cancel", "on_unconfirm"}:
         return
-    sign = -1 if method == "on_cancel" else 1
+    sign = 1 if method == "on_submit" else -1
     if doc.get("category") == "Ajuste de aplicación":
         portions = [(doc.get("related_application"), doc.get("application_adjustment_usd"))]
         portions += [(row.get("related_application"), row.get("application_adjustment_usd"))
@@ -168,7 +168,7 @@ def capture_item_confirmation(doc, method=None):
         for index, (target, amount) in enumerate(portions):
             append(ITEM, doc.name, APPLICATION, target, key=[method, str(doc.modified), index],
                 user=frappe.session.user, timestamp=now_datetime(), after=money(amount) * sign,
-                description="Reversión de ajuste" if sign < 0 else "Confirmación de ajuste")
+                description="Desconfirmación de ajuste" if method == "on_unconfirm" else "Reversión de ajuste" if sign < 0 else "Confirmación de ajuste")
     elif not doc.get("compensations") and doc.get("category") in {"Saldo a favor del cliente", "Saldo a favor de la empresa"}:
         append(ITEM, doc.name, ITEM, doc.name, key=[method, str(doc.modified)],
             user=frappe.session.user, timestamp=now_datetime(), after=money(doc.get("amount_usd")) * sign,

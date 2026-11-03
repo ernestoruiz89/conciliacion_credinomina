@@ -142,6 +142,8 @@ function cn_cancel_item(frm) {
 }
 
 function cn_unconfirm_item(frm) {
+    if (frm.is_new() || frm.doc.docstatus !== 1 || !frm.get_perm(0, "write") || !frm.get_perm(0, "cancel")) return;
+    if (frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la partida antes de desconfirmarla."));
     const name = frm.doc.name;
     const modified = frm.doc.modified;
     const dialog = new frappe.ui.Dialog({
@@ -152,7 +154,7 @@ function cn_unconfirm_item(frm) {
         ],
         primary_action_label: __("Desconfirmar"),
         async primary_action(values) {
-            if (frm.doc.name !== name || frm.is_dirty()) {
+            if (frm.doc.name !== name || frm.doc.modified !== modified || frm.is_dirty()) {
                 frappe.msgprint(__("Guarde o recargue la partida antes de desconfirmarla."));
                 return;
             }

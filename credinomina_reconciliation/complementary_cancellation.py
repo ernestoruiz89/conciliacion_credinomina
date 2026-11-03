@@ -212,7 +212,7 @@ def _assert_retained_deposit_links(item, deposits, allocation, periods):
     from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
     for deposit in deposits:
         retained = [entry for entry in entries(deposit.allocation_detail)
-                    if not (item.get("docstatus") == 2 and entry.get("tipo") == "Partida complementaria"
+                    if not (item.get("docstatus") != 1 and entry.get("tipo") == "Partida complementaria"
                             and entry.get("partida") == item.name)]
         # The guard verifies destinations, detail rows and explicit application
         # portions, not merely the unchanged total of the deposit.
