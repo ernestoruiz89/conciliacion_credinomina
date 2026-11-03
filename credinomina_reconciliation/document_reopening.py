@@ -87,14 +87,14 @@ def unconfirm_complement(name, modified, reason):
 
 @frappe.whitelist(methods=["POST"])
 def undo_cancellation(doctype: str, name: str, modified: str, reason: str):
-    """Restore only a draft, requiring the same privileged removal permissions."""
+    """Restore an inactive draft using document permissions, preserving core evidence."""
     with _atomic():
         document = _load(doctype, name, modified, 2, reason)
         document.check_permission("delete")
         if document.meta.is_submittable:
             document.check_permission("cancel")
-        from credinomina_reconciliation.accounting_evidence import guard_imported_removal
-        guard_imported_removal(document, "restaurar")
+        from credinomina_reconciliation.manual_origin_link import guard_removal
+        guard_removal(document)
         values, children = {}, {}
         if doctype == ITEM:
             _item_can_reopen(document)
@@ -112,7 +112,8 @@ def undo_cancellation(doctype: str, name: str, modified: str, reason: str):
         else:
             # Imports normally remain drafts. A legacy canceled import must not
             # become an active source just because its cancellation was undone.
-            document.on_trash()  # Read-only guards for cash, closed periods and application links.
+            from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _guard_source_removal
+            _guard_source_removal(document)
             values["status"] = "Borrador"
             children["CN Source Row"] = dict(effective=0, match_status="Pendiente")
         before = _draft(document, values, children)

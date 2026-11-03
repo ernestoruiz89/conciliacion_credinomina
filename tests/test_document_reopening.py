@@ -71,37 +71,63 @@ class DocumentReopeningTests(unittest.TestCase):
             reopen.undo_cancellation(reopen.ITEM, "DOC", "STAMP", "Motivo")
         db.set_value.assert_not_called()
 
-    def test_restore_requires_delete_cancel_and_core_role_and_never_reconciles(self):
+    def test_restore_requires_document_permissions_without_core_removal_role_or_reconciliation(self):
         item = self.document(status=2)
         with patch.object(reopen, "_load", return_value=item), patch.object(frappe, "db", Mock()), \
-             patch("credinomina_reconciliation.accounting_evidence.guard_imported_removal") as role, \
+             patch("credinomina_reconciliation.accounting_evidence.guard_imported_removal", side_effect=AssertionError("Restoration invoked deletion role")) as role, \
+             patch("credinomina_reconciliation.manual_origin_link.guard_removal") as origin, \
              patch.object(reopen, "_draft", return_value="OLD") as draft, patch.object(reopen, "_audit") as audit, \
              patch("credinomina_reconciliation.complementary_cancellation.reconcile_scoped") as recalc:
             result = reopen.undo_cancellation(reopen.ITEM, "DOC", "STAMP", "Cancelación accidental")
         self.assertEqual(result, dict(name="DOC", docstatus=0))
         self.assertEqual([c.args[0] for c in item.check_permission.call_args_list], ["delete", "cancel"])
-        role.assert_called_once_with(item, "restaurar")
+        role.assert_not_called()
+        origin.assert_called_once_with(item)
         draft.assert_called_once_with(item, dict(review_status="Ajuste pendiente de confirmar"), {})
         audit.assert_called_once_with(item, "OLD", "Cancelación deshecha", "Cancelación accidental")
         recalc.assert_not_called()
         item.cancel.assert_not_called()
 
-    def test_core_role_failure_prevents_restoration(self):
+    def test_linked_origin_still_prevents_restoration(self):
         with patch.object(reopen, "_load", return_value=self.document(status=2)), patch.object(frappe, "db", Mock()) as db, \
-             patch("credinomina_reconciliation.accounting_evidence.guard_imported_removal", side_effect=frappe.PermissionError), \
+             patch("credinomina_reconciliation.manual_origin_link.guard_removal", side_effect=frappe.PermissionError), \
              patch.object(reopen, "_draft") as draft, self.assertRaises(frappe.PermissionError):
             reopen.undo_cancellation(reopen.ITEM, "DOC", "STAMP", "Motivo")
         draft.assert_not_called()
         db.rollback.assert_called_once()
 
+    def test_restoration_still_rejects_missing_delete_or_cancel_permissions(self):
+        for denied in ("delete", "cancel"):
+            item = self.document(status=2)
+            def check(permission):
+                if permission == denied:
+                    raise frappe.PermissionError
+            item.check_permission.side_effect = check
+            with self.subTest(denied=denied), patch.object(reopen, "_load", return_value=item), \
+                 patch.object(frappe, "db", Mock()), patch.object(reopen, "_draft") as draft, \
+                 self.assertRaises(frappe.PermissionError):
+                reopen.undo_cancellation(reopen.ITEM, "DOC", "STAMP", "Restaurar")
+            draft.assert_not_called()
+
     def test_legacy_import_reopens_inactive_and_checks_links(self):
         doc = self.document(reopen.IMPORT, 2)
         with patch.object(reopen, "_load", return_value=doc), patch.object(frappe, "db", Mock()), \
-             patch("credinomina_reconciliation.accounting_evidence.guard_imported_removal"), \
+             patch("credinomina_reconciliation.accounting_evidence.guard_imported_removal", side_effect=AssertionError("Restoration invoked deletion role")), \
+             patch("credinomina_reconciliation.manual_origin_link.guard_removal"), \
+             patch("credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import._guard_source_removal") as dependencies, \
              patch.object(reopen, "_draft") as draft, patch.object(reopen, "_audit"):
             reopen.undo_cancellation(reopen.IMPORT, "DOC", "STAMP", "Motivo")
-        doc.on_trash.assert_called_once_with()
+        dependencies.assert_called_once_with(doc)
+        doc.on_trash.assert_not_called()
         draft.assert_called_once_with(doc, dict(status="Borrador"), {"CN Source Row": dict(effective=0, match_status="Pendiente")})
+
+    def test_legacy_import_cannot_bypass_financial_dependency_errors(self):
+        with patch.object(reopen, "_load", return_value=self.document(reopen.IMPORT, 2)), \
+             patch.object(frappe, "db", Mock()), patch("credinomina_reconciliation.manual_origin_link.guard_removal"), \
+             patch("credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import._guard_source_removal", side_effect=ValueError("Cash linked")), \
+             patch.object(reopen, "_draft") as draft, self.assertRaisesRegex(ValueError, "Cash linked"):
+            reopen.undo_cancellation(reopen.IMPORT, "DOC", "STAMP", "Restaurar")
+        draft.assert_not_called()
 
     def test_unconfirmation_trace_reverses_each_adjustment_without_cancellation_event(self):
         item = self.document()

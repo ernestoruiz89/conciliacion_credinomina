@@ -126,14 +126,7 @@ def run():
                 assert item.docstatus == 2 and all(money(row.net_applied_usd) == money(300) for row in source.rows)
                 before_restore = document_state(source)
                 with patch("credinomina_reconciliation.accounting_evidence.has_core_removal_role", return_value=False):
-                    try:
-                        undo_cancellation(item.doctype, item.name, str(item.modified), "Sin rol")
-                    except frappe.ValidationError:
-                        pass
-                    else:
-                        raise AssertionError("Core restoration bypassed the explicit removal role")
-                assert item.reload().docstatus == 2
-                undo_cancellation(item.doctype, item.name, str(item.modified), "Cancelación accidental")
+                    undo_cancellation(item.doctype, item.name, str(item.modified), "Cancelación accidental")
                 item.reload(); source.reload()
                 assert item.docstatus == 0 and item.application_adjustment_history == links
                 assert document_state(source) == before_restore
@@ -149,7 +142,8 @@ def run():
                 stable_period = document_state(period.reload())
                 others = {doc.name: document_state(doc.reload()) for doc in deposits[1:]}
                 target_ids = [row.name for row in selected.targets]
-                undo_cancellation(selected.doctype, selected.name, str(selected.modified), "Restaurar depósito")
+                with patch("credinomina_reconciliation.accounting_evidence.has_core_removal_role", return_value=False):
+                    undo_cancellation(selected.doctype, selected.name, str(selected.modified), "Restaurar depósito")
                 selected.reload()
                 assert selected.docstatus == 0 and not money(selected.allocated_usd)
                 assert [row.name for row in selected.targets] == target_ids
@@ -189,7 +183,8 @@ def run():
             frappe.db.set_value(legacy.doctype, legacy.name, "docstatus", 2)
             frappe.db.set_value("CN Source Row", legacy.rows[0].name, "docstatus", 2)
             legacy.reload()
-            undo_cancellation(legacy.doctype, legacy.name, str(legacy.modified), "Restaurar carga antigua")
+            with patch("credinomina_reconciliation.accounting_evidence.has_core_removal_role", return_value=False):
+                undo_cancellation(legacy.doctype, legacy.name, str(legacy.modified), "Restaurar carga antigua")
             assert legacy.reload().docstatus == 0 and legacy.status == "Borrador"
             assert legacy.rows[0].docstatus == 0 and not legacy.rows[0].effective
             return dict(both_modes=True, multiple_application_links_preserved=True, split_cash_unchanged=True,
