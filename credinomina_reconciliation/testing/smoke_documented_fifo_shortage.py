@@ -12,7 +12,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_i
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation import _apply_remittance_detail
 
 
-def run(native=False):
+def run(native=False, repair_existing=False, closed=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -60,13 +60,43 @@ def run(native=False):
             other.submit(); other.reload()
             other_before = frappe.as_json(other.as_dict())
             source_ids = [row.name for row in imported.rows]
-            if native:
+            if native or repair_existing:
                 # Reproduce the already-saved partial assignment from the old
                 # implementation, before keeping the difference on the company.
                 with patch('credinomina_reconciliation.company_conversion.documented_coverage', return_value=None):
                     reconcile_deposit(deposit)
                 deposit.reload(); imported.reload()
                 assert money(imported.rows[-1].historical_balance_usd) == money(.01)
+            if repair_existing:
+                from credinomina_reconciliation.patches.v1_0 import repair_company_difference_client_haircuts as migration
+                if closed:
+                    frappe.db.set_value(period.doctype, period.name, "status", "Cerrado", update_modified=False)
+                scan = migration._pages
+                def candidates(getter, doctype, **kwargs):
+                    kwargs['filters']['parent'] = deposit.name
+                    return scan(getter, doctype, **kwargs)
+                with patch.object(migration, '_pages', side_effect=candidates), \
+                     patch('credinomina_reconciliation.deposit_reconciliation.reconcile_deposit', side_effect=AssertionError('Patch replayed cash')):
+                    repaired = migration.execute()
+                    assert repaired['repaired'] == [deposit.name], repaired
+                    assert not repaired['review'], repaired
+                    versions = frappe.db.count('Version')
+                    comments = frappe.db.count('Comment')
+                    assert migration.execute() == dict(repaired=[], review={})
+                    assert frappe.db.count('Version') == versions and frappe.db.count('Comment') == comments
+                deposit.reload(); imported.reload(); period.reload(); other.reload()
+                assert money(imported.rows[-1].historical_remitted_usd) == money(26.62)
+                assert money(imported.rows[-1].historical_balance_usd) == 0
+                assert money(deposit.allocated_usd) == money(490.52)
+                assert money(period.deposit_coverage_usd) == money(490.52)
+                assert money(period.conversion_coverage_usd) == money(.01)
+                assert money(period.pending_usd) == 0
+                assert frappe.as_json(other.as_dict()) == other_before
+                assert [row.name for row in imported.rows] == source_ids
+                if closed:
+                    assert period.status == 'Cerrado'
+                    return dict(repaired_existing=True, closed_status_preserved=True,
+                                no_reconciliation_replayed=True, company_pending=.01, cash_preserved=490.52)
             result = reconcile_deposit(deposit)
             deposit.reload(); imported.reload()
             assert result["detail_pending"] == 0, result

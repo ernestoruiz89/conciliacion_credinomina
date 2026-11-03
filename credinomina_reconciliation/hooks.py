@@ -25,10 +25,10 @@ after_install = "credinomina_reconciliation.install.after_install"
 # Embed the shared dialog in DocType metadata, including list-only sessions.
 # No public asset request/build is needed when opening the bulk importer.
 doctype_js = {
-    "CN Accounting Import": ["public/js/accounting_bulk.js", "public/js/difference_documentation.js", "public/js/row_link_details.js"],
-    "CN Remittance Allocation": ["public/js/difference_documentation.js", "public/js/row_link_details.js"],
+    "CN Accounting Import": ["public/js/accounting_bulk.js", "public/js/difference_documentation.js", "public/js/row_link_details.js", "public/js/document_reopening.js"],
+    "CN Remittance Allocation": ["public/js/difference_documentation.js", "public/js/row_link_details.js", "public/js/document_reopening.js"],
     "CN Reconciliation Period": "public/js/difference_documentation.js",
-    "CN Complementary Item": "public/js/difference_documentation.js",
+    "CN Complementary Item": ["public/js/difference_documentation.js", "public/js/document_reopening.js"],
 }
 doctype_list_js = {"CN Accounting Import": "public/js/accounting_bulk.js"}
 
