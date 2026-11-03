@@ -191,6 +191,18 @@ def _source_linked_periods(row):
     return _source_linked_periods_batch([row])[0]
 
 
+def _guard_source_removal(document):
+    """Dependency checks shared by deletion and inactive draft restoration."""
+    document._assert_no_closed_period_links(document.rows or [])
+    from credinomina_reconciliation.accounting_cash_guard import guard_cash_changes
+    guard_cash_changes(document, deleting=True)
+    from credinomina_reconciliation.complementary_exceptions import guard_verified_import
+    guard_verified_import(frappe._dict(rows=[]), document, _SOURCE_EVIDENCE_FIELDS)
+    from credinomina_reconciliation.application_adjustment_links import linked_names
+    if document.rows and linked_names([row.name for row in document.rows]):
+        frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
+
+
 class CNAccountingImport(Document):
     def autoname(self):
         self.name = new_accounting_name(accounting_prefix(self.employer, accounting_month(self.rows or [])))
@@ -201,14 +213,7 @@ class CNAccountingImport(Document):
     def on_trash(self):
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
         guard_imported_removal(self, "eliminar")
-        self._assert_no_closed_period_links(self.rows or [])
-        from credinomina_reconciliation.accounting_cash_guard import guard_cash_changes
-        guard_cash_changes(self, deleting=True)
-        from credinomina_reconciliation.complementary_exceptions import guard_verified_import
-        guard_verified_import(frappe._dict(rows=[]), self, _SOURCE_EVIDENCE_FIELDS)
-        from credinomina_reconciliation.application_adjustment_links import linked_names
-        if self.rows and linked_names([row.name for row in self.rows]):
-            frappe.throw(_("La importación tiene partidas vinculadas a sus aplicaciones; conserve el registro original."))
+        _guard_source_removal(self)
 
     def before_cancel(self):
         from credinomina_reconciliation.accounting_evidence import guard_imported_removal
