@@ -208,6 +208,42 @@ class DepositDifferenceTests(unittest.TestCase):
             self.assertNotEqual(statuses["DEP"], difference.SETTLED)
             self.assertEqual(rows["DIFF"]["match_status"], "Revisar")
 
+    def test_stale_difference_explains_why_saved_fifo_cannot_be_recomputed(self):
+        import json
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        self.setup_case(-.03)
+        self.enable_fifo()
+        previous, _, _ = self.reconcile()
+        self.doc.allocated_usd = sum(entry["amount_usd"] for entry in previous["allocations"])
+        self.doc.allocation_detail = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id=entry["claim_id"][2:],
+            fila_detalle=entry["detail_row"], importe_usd=entry["amount_usd"], origen=entry["origin"])
+            for entry in previous["allocations"]])
+        self.doc.detail_hash = "REPLACED"
+        deposits = [dict(id="DEP", amount_usd=self.doc.amount_usd, group="EMP", currency="USD", bank_currency="USD")]
+        with patch.object(frappe, "get_all", return_value=self.rows), \
+                patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]):
+            context = engine._prepare_remittance_details([self.doc], {"DEP": "DEP"}, deposits, self.claims, [], {})
+        proposed = allocate_cash(deposits, self.claims, context["instructions"], context["blocked_deposits"])
+        self.assertFalse(proposed["allocations"])
+        proposed["client_credit_context"] = context
+        original = copy.deepcopy(self.doc)
+        with self.assertRaisesRegex(frappe.ValidationError, "vuelva a clasificar / documentar"):
+            assert_preserved_allocations(self.doc, proposed, [])
+        self.assertEqual(self.doc, original)
+        # Once the difference is documented again, an imported complement
+        # without a detail row must expose its own validation failure instead.
+        self.diff.difference_basis = difference.basis(self.doc, self.rows)
+        self.claims.append(dict(id="X:IMPORTED", kind="X", group="EMP", amount_usd=46.97, accounting_source_key="KEY"))
+        manual = [dict(id="MX", deposit_id="DEP", claim_id="X:IMPORTED", amount_usd=46.97)]
+        with patch.object(frappe, "get_all", return_value=self.rows), \
+                patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]):
+            context = engine._prepare_remittance_details([self.doc], {"DEP": "DEP"}, deposits, self.claims, manual, {})
+        proposed = allocate_cash(deposits, self.claims, manual + context["instructions"], context["blocked_deposits"])
+        proposed["client_credit_context"] = context
+        with self.assertRaisesRegex(frappe.ValidationError, "vincule cada aplicación a su fila del detalle"):
+            assert_preserved_allocations(self.doc, proposed, [])
+        self.assertEqual(self.doc, original)
+
     def test_invalid_or_consumed_core_never_releases_documentary_cash(self):
         for change in ({"amount_usd": .03}, {"amount_usd": -.02}, {"accounting_source_key": ""},
                        {"group": "OTHER"}, {"period_closed": True}):
