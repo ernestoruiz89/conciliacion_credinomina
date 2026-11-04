@@ -14,7 +14,7 @@ const context = vm.createContext({window: {}, __: text => text, format_currency:
 }});
 vm.runInContext(fs.readFileSync("credinomina_reconciliation/public/js/related_pending_modal.js", "utf8"), context);
 context.window.credinominaShowRelatedPending({client_name: "Persona", applications: [
-    {type: "Aplicación", document: "IMPORT", source_row: 10, amount_usd: 100, pending_usd: .01, status: "Depósito parcial",
+    {type: "Aplicación", document: "IMPORT", date: "2026-01-31 23:59:59", source_row: 10, amount_usd: 100, pending_usd: .01, status: "Depósito parcial",
         deposits: [{document: "DEP-1", date: "2026-02-01", reference: '"<REF>'},
                    {document: "DEP/2 <x>", via_collection: true}],
         complementary_items: [{document: "CN-COMP-1", date: "2026-02-15", reference: '"<CORE>'},
@@ -24,13 +24,14 @@ context.window.credinominaShowRelatedPending({client_name: "Persona", applicatio
 assert.ok(html.includes('/app/cn-remittance-allocation/DEP-1'));
 assert.ok(html.includes('/app/cn-remittance-allocation/DEP%2F2%20%3Cx%3E'));
 assert.ok(html.includes('DEP/2 &lt;x>'));
-assert.ok(html.includes('title="2026-02-01 · &quot;&lt;REF>"'));
+assert.ok(html.includes('31/01/2026'));
+assert.ok(html.includes('title="01/02/2026 · &quot;&lt;REF>"'));
 assert.equal((html.match(/Depósitos asignados/g) || []).length, 1, "Do not show empty link blocks for unassigned applications");
 assert.equal((html.match(/Partidas complementarias vinculadas/g) || []).length, 1);
 assert.ok(html.includes('/app/cn-complementary-item/CN-COMP-1'));
 assert.ok(html.includes('/app/cn-complementary-item/CN%2FCOMP%20%3C2%3E'));
 assert.ok(html.includes('CN/COMP &lt;2>'));
-assert.ok(html.includes('title="2026-02-15 · &quot;&lt;CORE>"'));
+assert.ok(html.includes('title="15/02/2026 · &quot;&lt;CORE>"'));
 assert.ok(html.includes('vía cobranza'));
 assert.ok(html.includes('target="_blank" rel="noopener noreferrer"'));
 assert.ok(html.includes('0.01'));
