@@ -1658,6 +1658,9 @@ def _prepare_remittance_details(
     rows_by_parent = defaultdict(list)
     for row in detail_rows:
         rows_by_parent[row.parent].append(row)
+    from credinomina_reconciliation.remittance_preserved_fifo import retained_instructions
+    retained = retained_instructions(remittances, rows_by_parent, registered_ids, prior_instructions)
+    prior_instructions = [*retained, *prior_instructions]
     detail_loan_clients = None
     if client_catalog is not None:
         from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
@@ -1915,6 +1918,7 @@ def _prepare_remittance_details(
             rejected[instruction["id"]] = (plan.get("reason") if plan else "") or "La fila del detalle no pudo validar este destino manual"
     return {
         "instructions": instructions, "blocked_deposits": blocked,
+        "retained_instructions": retained,
         "contexts": contexts, "rounding_eligible": rounding_eligible,
         "rejected_instructions": rejected,
         "client_credit_reservations": {deposit_id: money_float(sum_money(credit.amount_usd for credit in client_credits
@@ -2394,7 +2398,7 @@ def _distribute_deposits(
         manual_allocations, registered_ids, deposits, claims, instructions,
         tolerance_by_employer, client_catalog=client_catalog,
     )
-    instructions.extend(detail_context["instructions"])
+    instructions = [*detail_context["retained_instructions"], *instructions, *detail_context["instructions"]]
     claims_by_id.update({claim["id"]: claim for claim in claims})
     previously_blocked = set(manually_ambiguous_deposits)
     manually_ambiguous_deposits.update(detail_context["blocked_deposits"])

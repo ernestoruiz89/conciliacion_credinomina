@@ -151,10 +151,50 @@ class FifoDetailEngineTests(unittest.TestCase):
                 patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]):
             context = engine._prepare_remittance_details([self.doc], {"DEP": "DEP"},
                 [self.deposit], self.claims, list(manual), {})
-        valid, rejected = engine._validated_remittance_instructions(context, list(manual) + context["instructions"])
+        valid, rejected = engine._validated_remittance_instructions(context,
+            context["retained_instructions"] + list(manual) + context["instructions"])
         result = allocate_cash([self.deposit], self.claims, valid, context["blocked_deposits"])
         result["instruction_results"].update(rejected)
         return context, result
+
+    def previously_paid_row(self):
+        self.rows = self.rows[:1]
+        self.rows[0].deducted_usd = 55.05
+        parts = [dict(application_id="A", event_date="2025-04-15", amount_usd=33.03)]
+        self.rows[0].matched_targets = json.dumps([dict(claim_id="H:A", amount_usd=33.03, fifo_applications=parts)])
+        self.doc.allocated_usd = 33.03
+        self.doc.allocation_detail = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="A",
+            importe_usd=33.03, origen=FIFO, fila_detalle="ROW1", aplicaciones_fifo=parts)])
+
+    def test_manual_remainder_retains_paid_fifo_once_with_original_application_parts(self):
+        self.previously_paid_row()
+        manual = [dict(id="NEW", deposit_id="DEP", claim_id="H:B", amount_usd=22.02, origin=MANUAL, detail_row="ROW1")]
+        context, result = self.run_engine(manual)
+        self.assertEqual(result["deposit_remaining"]["DEP"], 0)
+        self.assertEqual([(row["claim_id"], row["amount_usd"], row["origin"]) for row in result["allocations"]],
+                         [("H:A", 33.03, FIFO), ("H:B", 22.02, MANUAL)])
+        self.assertEqual(result["allocations"][0]["fifo_applications"][0]["application_id"], "A")
+        self.assertEqual(context["contexts"]["DEP"]["rows"][0]["targets"][0]["fifo_applications"],
+                         result["allocations"][0]["fifo_applications"])
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        assert_preserved_allocations(self.doc, result, [])
+
+    def test_overlapping_manual_target_is_not_added_to_its_own_old_fifo_portion(self):
+        self.previously_paid_row()
+        context, result = self.run_engine([dict(id="SAME", deposit_id="DEP", claim_id="H:A", amount_usd=40,
+                                              origin=MANUAL, detail_row="ROW1")])
+        self.assertEqual(context["retained_instructions"], [])
+        self.assertEqual([(row["claim_id"], row["amount_usd"]) for row in result["allocations"]], [("H:A", 40)])
+
+    def test_unproven_saved_fifo_is_not_inferred_or_silently_released(self):
+        self.previously_paid_row()
+        self.rows[0].matched_targets = "[]"
+        context, result = self.run_engine([dict(id="NEW", deposit_id="DEP", claim_id="H:B", amount_usd=22.02,
+                                              origin=MANUAL, detail_row="ROW1")])
+        self.assertEqual(context["retained_instructions"], [])
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        with patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+            assert_preserved_allocations(self.doc, result, [])
 
     def test_repeated_client_rows_share_remaining_capacity_without_double_booking(self):
         context, result = self.run_engine()

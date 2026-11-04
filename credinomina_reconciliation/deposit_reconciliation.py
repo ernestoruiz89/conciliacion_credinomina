@@ -124,14 +124,16 @@ def _legacy_manual_rows(document, allocations):
     """Resolve missing historical row IDs only from matching saved evidence."""
     amounts, targets, matches = defaultdict(lambda: money(0)), defaultdict(list), defaultdict(list)
     for entry in allocations:
-        if (entry["claim_id"].startswith("H:") and entry.get("origin") == MANUAL
+        if (entry["claim_id"].startswith(("H:", "X:")) and entry.get("origin") == MANUAL
                 and not entry.get("detail_row") and not entry.get("reclassification_operation_id")):
             amounts[entry["claim_id"]] += money(entry["amount_usd"])
     if not amounts:
         return {}
     for target in document.get("targets") or []:
-        if target.get("historical_application"):
+        if target.get("historical_application") and not target.get("complementary_item"):
             targets["H:" + target.historical_application].append(target)
+        elif target.get("complementary_item") and not target.get("historical_application"):
+            targets["X:" + target.complementary_item].append(target)
     for row in document.get("detail_rows") or []:
         saved = entries(row.get("matched_targets"))
         for match in saved:
@@ -145,8 +147,9 @@ def _legacy_manual_rows(document, allocations):
         row, match, saved = matches[claim][0]
         if (target.get("name") and target.get("detail_row") == row.name
                 and match.get("instruction_id") == target.name
-                and money(match.get("amount_usd")) == amount > 0
-                and money(target.get("amount_usd")) >= amount
+                and money(match.get("amount_usd")) == amount != 0
+                and money(target.get("amount_usd")) * amount > 0
+                and abs(money(target.get("amount_usd"))) >= abs(amount)
                 and sum((money(part.get("amount_usd")) for part in saved), money(0)) == money(row.get("linked_usd"))):
             result[claim] = row.name
     return result
