@@ -179,6 +179,25 @@ class FifoDetailEngineTests(unittest.TestCase):
         from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
         assert_preserved_allocations(self.doc, result, [])
 
+    def test_overlinked_manual_remainder_reports_confirmed_cash_and_true_available_amount(self):
+        self.previously_paid_row()
+        self.rows[0].deducted_usd = self.deposit["amount_usd"] = 71.51
+        self.doc.allocated_usd = 34.59
+        portions = [dict(application_id="A", event_date="2025-04-15", amount_usd=34.59)]
+        self.rows[0].matched_targets = json.dumps([dict(claim_id="H:A", amount_usd=34.59, fifo_applications=portions)])
+        self.doc.allocation_detail = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=34.59,
+            origen=FIFO, fila_detalle="ROW1", aplicaciones_fifo=portions)])
+        self.claims.append(application("C", "2025-05-15", 34.59))
+        context, result = self.run_engine([dict(id="NEW" + claim, deposit_id="DEP", claim_id="H:" + claim,
+            amount_usd=34.59, origin=MANUAL, detail_row="ROW1") for claim in ("B", "C")])
+        reason = context["contexts"]["DEP"]["rows"][0]["reason"]
+        self.assertIn("US$ 103.77", reason)
+        self.assertIn("FIFO: US$ 34.59", reason)
+        self.assertIn("máximo US$ 36.92", reason)
+        self.assertIn("US$ -32.26", reason)
+        self.assertEqual(result["allocations"], [])
+        self.assertEqual(self.doc.allocated_usd, 34.59)
+
     def test_positive_core_target_adds_to_paid_fifo_and_leaves_the_real_cent_pending(self):
         self.previously_paid_row()
         self.rows[0].deducted_usd = self.deposit["amount_usd"] = 26.17

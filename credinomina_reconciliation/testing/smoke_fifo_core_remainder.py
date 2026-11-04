@@ -79,6 +79,12 @@ def run(reimported=False, cross_credit=False):
                 target = dict(complementary_item=core.name)
             deposit.append("targets", dict(**target, amount_usd=13.08, detail_row=deposit.detail_rows[0].name))
             deposit.save()
+            if not reimported:
+                assert money(deposit.detail_rows[0].linked_usd) == money(26.16)
+                assert money(deposit.detail_rows[0].pending_usd) == money(.01)
+                from credinomina_reconciliation.remittance_selection import get_pending_targets
+                selection = get_pending_targets(deposit.name, detail_row_name=deposit.detail_rows[0].name)
+                assert selection["detail_available_cents"] == 1
             if reimported:
                 before_failure = document_state(deposit.reload())
                 before_row = deposit.detail_rows[0].as_dict()

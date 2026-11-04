@@ -1,5 +1,6 @@
 import unittest
 import json
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -49,6 +50,36 @@ class DetailBalancesTests(unittest.TestCase):
         self.assertEqual(linked_balance(90, [{"amount_usd":100}], [])["pending_usd"], -10)
         self.assertEqual(linked_balance(.3, [], '[{"amount_usd":0.1},{"amount_usd":0.2}]')["pending_usd"], 0)
         self.assertEqual(linked_balance(10, [], '{bad}')["pending_usd"], 10)
+
+    def test_confirmed_fifo_survives_new_targets_and_retained_cache_without_double_counting(self):
+        fifo = dict(claim_id="H:OLD", amount_usd=34.59, fifo_applications=[dict(application_id="OLD", amount_usd=34.59)])
+        manual = [dict(historical_application="NEW1", amount_usd=34.59), dict(historical_application="NEW2", amount_usd=34.59)]
+        for history in ([fifo], [fifo | {"instruction_id": "RETAINED:D:R:H:OLD"}]):
+            self.assertEqual(linked_balance(71.51, manual, history), dict(linked_usd=103.77, pending_usd=-32.26))
+            self.assertEqual(linked_balance(71.51, [], history), dict(linked_usd=34.59, pending_usd=36.92))
+            self.assertEqual(linked_balance(71.51, [dict(id="M", claim_id="H:OLD", amount_usd=34.59)], history),
+                dict(linked_usd=34.59, pending_usd=36.92))
+            self.assertEqual(linked_balance(71.51, [dict(claim_id="H:OLD", amount_usd=10)], history)["linked_usd"], 34.59)
+        # Frappe child Documents support .get(), not dictionary subscripting.
+        target = SimpleNamespace(get=dict(historical_application="NEW1", amount_usd=34.59).get)
+        self.assertEqual(linked_balance(71.51, [target], [fifo]), dict(linked_usd=69.18, pending_usd=2.33))
+
+    def test_saved_ledger_wins_over_empty_cache_and_preview_does_not_change_cash(self):
+        row = frappe._dict(name="R", amount_usd=71.51, matched_targets="[]")
+        ledger = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="OLD", fila_detalle="R",
+            importe_usd=34.59, origen="Automática FIFO")])
+        document = dict(detail_rows=[row], allocation_detail=ledger,
+            targets=[dict(detail_row="R", historical_application="NEW1", amount_usd=34.59),
+                     dict(detail_row="R", historical_application="NEW2", amount_usd=34.59)])
+        update_detail_balances(document)
+        self.assertEqual((row.linked_usd, row.pending_usd), (103.77, -32.26))
+        self.assertEqual(document["allocation_detail"], ledger)
+        document["targets"] = [dict(detail_row="R", historical_application="NEW1", amount_usd=34.59, result="Aplicada")]
+        update_detail_balances(document)
+        self.assertEqual((row.linked_usd, row.pending_usd), (69.18, 2.33))
+        document["targets"] = []
+        update_detail_balances(document)
+        self.assertEqual((row.linked_usd, row.pending_usd), (34.59, 36.92))
 
     def test_historical_partial_does_not_become_excess_due_to_unassigned_cash(self):
         period = frappe._dict(name="P", reconciliation_mode="Historica", status="Pendiente")

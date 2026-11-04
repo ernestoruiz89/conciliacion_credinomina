@@ -100,6 +100,25 @@ async function run() {
     assert.equal(rowTargets[0].amount_usd, 18.66);
     assert.equal(rowPicker.availableFor(rowPicker.data), 1);
 
+    rowTargets.length = 0;
+    detailRow.amount_usd = 71.51;
+    detailRow.matched_targets = "[]";
+    rowPicker.frm.doc.allocation_detail = JSON.stringify([{tipo: "Aplicacion historica", aplicacion_id: "OLD",
+        fila_detalle: detailRow.name, importe_usd: 34.59, origen: "Automática FIFO"}]);
+    rowPicker.data = {available_cents: 18094, detail_available_cents: 3692, rows: [
+        {id: "NEW1", historical_application: "NEW1", pending_cents: 3459},
+        {id: "NEW2", historical_application: "NEW2", pending_cents: 3459},
+    ]};
+    rowPicker.available_cents = rowPicker.availableFor(rowPicker.data);
+    assert.equal(rowPicker.available_cents, 3692, "Reserve confirmed FIFO before proposing new destinations");
+    rowPicker.selected.clear();
+    rowPicker.select(rowPicker.data.rows[0]); rowPicker.select(rowPicker.data.rows[1]);
+    assert.equal(rowPicker.selected.get("NEW1"), 3459);
+    assert.equal(rowPicker.selected.get("NEW2"), 233);
+    assert.equal(rowPicker.valid(), true);
+    rowPicker.data.detail_available_cents = 100;
+    assert.equal(rowPicker.availableFor(rowPicker.data), 100, "Use the server row cap during concurrent revalidation");
+
     const update = vm.runInContext("updateUsdEquivalent", context);
     let converted;
     update({ doc: { deposit_currency: "NIO", deposit_amount: 3653, fx_rate: 36.53 },

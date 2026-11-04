@@ -3,7 +3,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.application_deposit_links import _entries
-from credinomina_reconciliation.detail_balances import selected_links
+from credinomina_reconciliation.detail_balances import selected_links, confirmed_fifo_by_row
 from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
@@ -70,7 +70,8 @@ class Links:
 def _deposit(document, row):
     data = Links()
     manual = [target for target in document.targets or [] if target.detail_row == row.name]
-    for target in selected_links(manual, row.get("matched_targets")):
+    confirmed = confirmed_fifo_by_row(document)
+    for target in selected_links(manual, row.get("matched_targets"), confirmed.get(row.name) if confirmed is not None else None):
         claim = target.get("claim_id")
         if not claim:
             if target.get("historical_application"):
