@@ -1,5 +1,6 @@
 import frappe
 from calendar import monthrange
+from datetime import date
 from frappe import _
 from frappe.utils import cint, nowdate
 
@@ -24,6 +25,23 @@ def normalize_state_filter(value):
     return value if value in STATE_FILTERS else None
 
 
+def normalize_cutoff(value):
+    if value in (None, ""):
+        return ""
+    try:
+        return date.fromisoformat(str(value)).isoformat()
+    except (TypeError, ValueError):
+        frappe.throw(_("Indique una fecha de corte válida."))
+
+
+def filter_cutoff(records, sources, cutoff):
+    if not cutoff:
+        return records, sources
+    selected = [row for row in records if row.get("date") and str(row["date"])[:10] <= cutoff]
+    names = {row["name"] for row in selected}
+    return selected, [row for row in sources if row["name"] in names]
+
+
 def execute(filters=None):
     filters = frappe._dict(filters or {})
     raw_year = str(filters.get("year") or nowdate()[:4])
@@ -36,6 +54,7 @@ def execute(filters=None):
     selected_state = normalize_state_filter(filters.get("state"))
     if selected_state is None:
         frappe.throw(_("Seleccione un estado de conciliación válido."))
+    cutoff = normalize_cutoff(filters.get("cutoff_date"))
     drafts = bool(cint(filters.get("include_drafts")))
     doctype = TRANSACTION_DOCTYPES[kind]
     if not frappe.has_permission(doctype, "read"):
@@ -44,6 +63,9 @@ def execute(filters=None):
     scoped = {"employer": filters.employer} if filters.get("employer") else {}
     records, sources, by_name = load_transactions(kind, drafts, scoped, dates)
     progress, collections = _application_progress(records, sources, by_name) if kind == "Aplicaciones" else ({}, {})
+    # Resolve current shared coverage using the full annual context first.
+    # The cutoff limits transaction dates, rather than replaying past balances.
+    records, sources = filter_cutoff(records, sources, cutoff)
     user = str(filters.get("reconciled_by") or "").strip()
     if user:
         records, sources = filter_user(kind, records, sources, collections, user)
@@ -57,6 +79,8 @@ def execute(filters=None):
     data = monthly_counts(records, year, amounts)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
+        if cutoff:
+            row["_detail_filters"]["cutoff_date"] = cutoff
         if selected_state:
             row["_detail_filters"]["state"] = selected_state
         if user:
@@ -88,6 +112,8 @@ def execute(filters=None):
         "La atribución inicial usa el último editor del documento; las operaciones posteriores registran usuario, fecha e importe por asignación.")
     if kind in complementary_transactions.KINDS:
         message += " " + _("Compensaciones confirmadas y tratamientos ya documentados se incluyen aunque el documento permanezca en borrador.")
+    if cutoff:
+        message += " " + _("Fecha de corte: {0}. Incluye transacciones hasta esa fecha dentro del año seleccionado; el estado y la cobertura son los actuales.").format(cutoff)
     summary = transaction_summary(records)
     return columns(), data, message, None, summary
 
@@ -227,7 +253,7 @@ def columns():
 
 @frappe.whitelist()
 def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0,
-                     only_differences=0, reconciled_by=""):
+                     only_differences=0, reconciled_by="", cutoff_date=""):
     """Read-only detail of one cell, with the same inclusion rules as the report."""
     from credinomina_reconciliation.rounding import money, money_float
 
@@ -237,6 +263,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     if transaction_type not in TRANSACTION_DOCTYPES or normalized_state is None:
         frappe.throw(_("Tipo de transacción o estado inválido."))
     state = normalized_state
+    cutoff = normalize_cutoff(cutoff_date)
     doctype = TRANSACTION_DOCTYPES[transaction_type]
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("No tiene permiso para consultar estas transacciones."), frappe.PermissionError)
@@ -249,6 +276,7 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
     context_dates = [f"{year}-01-01", f"{year}-12-31"] if transaction_type == "Aplicaciones" else dates
     records, sources, parents = load_transactions(transaction_type, bool(cint(include_drafts)), scope, context_dates, detail=True)
     progress, collections = _application_progress(records, sources, parents) if transaction_type == "Aplicaciones" else ({}, {})
+    records, sources = filter_cutoff(records, sources, cutoff)
     if transaction_type == "Aplicaciones":
         sources = [row for row in sources if dates[0] <= str(row.get("event_date") or "")[:10] <= dates[1]]
         names = {row.name for row in sources}

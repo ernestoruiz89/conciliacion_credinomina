@@ -8,6 +8,9 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
 const report = context.frappe.query_reports["Transacciones por Empresa"];
 const filters = Object.fromEntries(report.filters.map(field => [field.fieldname, field]));
 assert.equal(filters.year.default, 2026);
+assert.equal(filters.cutoff_date.fieldtype, "Date");
+assert.equal(filters.cutoff_date.label, "Fecha de corte");
+assert.ok(!filters.cutoff_date.reqd);
 assert.equal(filters.transaction_type.default, "Aplicaciones");
 assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable");
 assert.equal(filters.state.default, "Todos");
@@ -46,10 +49,11 @@ for (const [percentage, halfCovered, color] of [[49.99, false, "#fb923c"], [50, 
 }
 assert.ok(formatter(5, "m04", {m04_state: "Parcial", m04_percentage: null, m04_half_covered: false}).includes("Porcentaje del importe no disponible"));
 assert.ok(formatter(5, "m04", {m04_state: "Conciliado", m04_percentage: 100, m04_half_covered: true}).includes("#dcfce7"));
-const clickable = formatter(5, "m04", {m04_state: "Revisar distribución", _detail_filters: {year: 2025, employer: 'A"<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución"}});
+const clickable = formatter(5, "m04", {m04_state: "Revisar distribución", _detail_filters: {year: 2025, employer: 'A"<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución", cutoff_date: "2025-04-15"}});
 assert.ok(clickable.startsWith('<button type="button"'));
 assert.ok(clickable.includes("cn-month-transactions"));
 assert.ok(clickable.includes("&quot;month&quot;:4"));
+assert.ok(clickable.includes("&quot;cutoff_date&quot;:&quot;2025-04-15&quot;"));
 assert.ok(clickable.includes("&quot;state&quot;:&quot;Revisar distribución&quot;"));
 assert.ok(!clickable.includes("<script>"));
 assert.ok(!formatter(0, "m04", {_detail_filters: {year: 2025}}).includes("<button"));

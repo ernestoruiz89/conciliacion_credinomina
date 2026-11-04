@@ -2,6 +2,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
     filters: [
         {fieldname: "year", label: __("Año"), fieldtype: "Int", reqd: 1,
             default: Number(frappe.datetime.get_today().slice(0, 4))},
+        {fieldname: "cutoff_date", label: __("Fecha de corte"), fieldtype: "Date",
+            description: __("Incluye transacciones hasta esta fecha dentro del año seleccionado. Estado y cobertura actuales.")},
         {fieldname: "transaction_type", label: __("Tipo de transacción"), fieldtype: "Select", reqd: 1,
             options: "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable", default: "Aplicaciones"},
         {fieldname: "state", label: __("Estado de conciliación"), fieldtype: "Select",
@@ -138,7 +140,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         dialog = new frappe.ui.Dialog({
             title: __("Transacciones del mes"), size: "extra-large",
             fields: [
-                {fieldname: "context", fieldtype: "HTML", options: `<p style="font-size:16px"><strong>${esc(args.employer || __("Sin empresa identificada"))}</strong> · ${__(months[args.month - 1])} ${esc(args.year)} · ${esc(args.transaction_type)}${Number(args.include_drafts) ? ` · ${__("Incluye borradores")}` : ""}</p>`},
+                {fieldname: "context", fieldtype: "HTML", options: `<p style="font-size:16px"><strong>${esc(args.employer || __("Sin empresa identificada"))}</strong> · ${__(months[args.month - 1])} ${esc(args.year)} · ${esc(args.transaction_type)}${Number(args.include_drafts) ? ` · ${__("Incluye borradores")}` : ""}${args.cutoff_date ? ` · ${__("Fecha de corte")}: ${esc(frappe.datetime.str_to_user(args.cutoff_date))}` : ""}</p>`},
                 {fieldname: "state", label: __("Estado"), fieldtype: "Select", default: args.state || "",
                     options: "\nConciliado\nParcial\nPendiente\nRevisar distribución"},
                 {fieldname: "only_differences", label: __("Solo con diferencias"), fieldtype: "Check", default: 0,
