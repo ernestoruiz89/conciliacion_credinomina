@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.rounding import money, money_float
-from credinomina_reconciliation.allocation_origin import UNRECORDED
+from credinomina_reconciliation.allocation_origin import MANUAL, UNRECORDED
 from credinomina_reconciliation.reconciliation_scope import document_state
 from credinomina_reconciliation.remittance_periods import selected_periods
 from credinomina_reconciliation.parsers import clean_text
@@ -120,14 +120,49 @@ def stored_entries(deposit):
     return rows
 
 
-def _link_amounts(allocations, deposit_name):
+def _legacy_manual_rows(document, allocations):
+    """Resolve missing historical row IDs only from matching saved evidence."""
+    amounts, targets, matches = defaultdict(lambda: money(0)), defaultdict(list), defaultdict(list)
+    for entry in allocations:
+        if (entry["claim_id"].startswith("H:") and entry.get("origin") == MANUAL
+                and not entry.get("detail_row") and not entry.get("reclassification_operation_id")):
+            amounts[entry["claim_id"]] += money(entry["amount_usd"])
+    if not amounts:
+        return {}
+    for target in document.get("targets") or []:
+        if target.get("historical_application"):
+            targets["H:" + target.historical_application].append(target)
+    for row in document.get("detail_rows") or []:
+        saved = entries(row.get("matched_targets"))
+        for match in saved:
+            if match.get("claim_id") in amounts:
+                matches[match["claim_id"]].append((row, match, saved))
+    result = {}
+    for claim, amount in amounts.items():
+        if len(targets[claim]) != 1 or len(matches[claim]) != 1:
+            continue  # Shared or unidentified legacy cash requires explicit review.
+        target = targets[claim][0]
+        row, match, saved = matches[claim][0]
+        if (target.get("name") and target.get("detail_row") == row.name
+                and match.get("instruction_id") == target.name
+                and money(match.get("amount_usd")) == amount > 0
+                and money(target.get("amount_usd")) >= amount
+                and sum((money(part.get("amount_usd")) for part in saved), money(0)) == money(row.get("linked_usd"))):
+            result[claim] = row.name
+    return result
+
+
+def _link_amounts(allocations, deposit_name, manual_rows=None):
     amounts = defaultdict(lambda: money(0))
     for entry in allocations:
         if entry["deposit_id"] != deposit_name:
             continue
         if entry.get("company_conversion"):
             continue  # Employer FX evidence is not a loan or imported-core cash link.
-        key = (entry["claim_id"], entry.get("detail_row") or "",
+        detail_row = entry.get("detail_row") or ""
+        if not detail_row and entry.get("origin") == MANUAL and not entry.get("reclassification_operation_id"):
+            detail_row = (manual_rows or {}).get(entry["claim_id"], "")
+        key = (entry["claim_id"], detail_row,
                entry.get("reclassification_operation_id") or "")
         parts = entry.get("fifo_applications") if entry["claim_id"].startswith("C:") else None
         if parts:
@@ -149,8 +184,9 @@ def assert_preserved_allocations(document, allocation, periods):
     guards. Throwing here aborts all intermediate distributor writes too.
     """
     previous, _coverage = frozen_cash([document], periods, [])
-    old = _link_amounts(previous, document.name)
-    new = _link_amounts(allocation["allocations"], document.name)
+    manual_rows = _legacy_manual_rows(document, previous)
+    old = _link_amounts(previous, document.name, manual_rows)
+    new = _link_amounts(allocation["allocations"], document.name, manual_rows)
     for key, amount in old.items():
         assigned = new.get(key, money(0))
         if amount * assigned <= 0 or abs(assigned) < abs(amount):
