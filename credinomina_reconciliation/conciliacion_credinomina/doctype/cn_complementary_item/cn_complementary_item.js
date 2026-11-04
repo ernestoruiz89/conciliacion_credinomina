@@ -216,7 +216,7 @@ async function cn_link_deposit(frm) {
                 <div>${esc(__("Disponible del depósito"))}: ${esc(format_currency(context.cash_usd, "USD", 2))}</div>
                 ${context.existing ? `<p>${esc(__("Esta partida ya está vinculada. Abra el depósito para revisar o modificar el destino existente."))}</p>` : ""}</div>`);
             dialog.set_df_property("detail_row", "options", [{value: "", label: __("Sin vincular a una fila del detalle")},
-                ...context.rows.map(row => ({value: row.name, label: `${row.idx}. ${row.client_name || ""} · ${row.loan_number || ""} · ${format_currency(row.amount_usd, "USD", 2)}`}))]);
+                ...context.rows.map(row => ({value: row.name, label: `${row.idx}. ${row.client_name || ""} · ${row.loan_number || ""} · ${__("Importe")}: ${format_currency(row.amount_usd, "USD", 2)} · ${__("Importe pendiente")}: ${row.pending_usd == null ? "—" : format_currency(row.pending_usd, "USD", 2)}`}))]);
             await dialog.set_value("amount_usd", context.suggested_usd || null);
             if (!context.existing && context.available_usd > 0) dialog.enable_primary_action();
         } catch (error) {
@@ -567,7 +567,7 @@ frappe.ui.form.on("CN Complementary Item", {
         const editableLoan = !frm.doc.generic_distribution && !frm.doc.registration_exception
             && frm.doc.subcategory_effect !== "CxC al Empleado" && frm.doc.review_action === "Partida de depósito"
             && ["Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"].includes(frm.doc.category);
-        frm.set_df_property("loan_number", "read_only", compensated || frm.doc.receivable_origin
+        for (const field of ["loan_number", "client_number"]) frm.set_df_property(field, "read_only", compensated || frm.doc.receivable_origin
             || frm.doc.docstatus === 1 && !editableLoan ? 1 : 0);
         if (compensated) frm.set_df_property("reference", "read_only", 1);
         if (!frm.is_new() && (betweenItems || compensated)) {

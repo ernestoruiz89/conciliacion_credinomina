@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run(reimported=False, cross_credit=False):
+def run(reimported=False, cross_credit=False, correct_client=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -73,12 +73,31 @@ def run(reimported=False, cross_credit=False):
                     reference=marker, posting_date="2025-11-21", description="Partida del core para el remanente",
                     accounting_source_key=marker, source_date="2025-11-21", source_currency="USD", source_debit=13.08,
                     source_credit=0, source_client_name=client.client_name))
+                if correct_client:
+                    core.client_number = client.client_name
+                    core.loan_number = marker
                 with imported_item(marker):
                     core.insert()
                 core.submit()
                 target = dict(complementary_item=core.name)
             deposit.append("targets", dict(**target, amount_usd=13.08, detail_row=deposit.detail_rows[0].name))
             deposit.save()
+            if correct_client:
+                before_correction = document_state(deposit.reload())
+                before_source = document_state(source.reload())
+                field = frappe.get_meta(core.doctype).get_field("client_number")
+                allowed = field.allow_on_submit
+                field.allow_on_submit = 1  # Exercise the JSON schema before bench migrate.
+                try:
+                    core.client_number = client.client_number
+                    core.save()
+                finally:
+                    field.allow_on_submit = allowed
+                assert core.reload().client_number == client.client_number
+                assert money(core.amount_usd) == money(13.08)
+                assert document_state(deposit.reload()) == before_correction
+                assert document_state(source.reload()) == before_source
+                assert document_state(fixed.reload()) == fixed_state
             if not reimported:
                 assert money(deposit.detail_rows[0].linked_usd) == money(26.16)
                 assert money(deposit.detail_rows[0].pending_usd) == money(.01)
@@ -140,6 +159,6 @@ def run(reimported=False, cross_credit=False):
                     assert money(source.reload().rows[1].historical_remitted_usd) == money(13.08)
             return dict(confirmed_fifo=13.08, positive_core=13.08, distributed=26.16, remaining=.01,
                 reimport_recovered=reimported, cross_credit=cross_credit, repeated_without_duplicates=True,
-                other_deposit_unchanged=True, rolled_back=True)
+                client_number_corrected=correct_client, other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()
