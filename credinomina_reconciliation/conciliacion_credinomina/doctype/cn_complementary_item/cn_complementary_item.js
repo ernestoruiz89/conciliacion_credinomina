@@ -23,9 +23,14 @@ async function cn_render_complementary_balance(frm) {
         cn_hide_exhausted_actions(frm, value);
         frm.toolbar?.set_indicator?.();
         const cells = [["Importe original US$", value.original_usd], [value.used_label + " US$", value.used_usd], ["Pendiente de conciliar US$", value.pending_usd]];
+        if (cn_can_compensate_remainder(frm.doc) && value.compensated_usd) {
+            cells.splice(1, 1,
+                [frm.doc.category === "Ajuste de aplicación" ? "Ajuste aplicado US$" : "Distribuido en depósitos US$", Number(value.used_usd) - Number(value.compensated_usd)],
+                ["Remanente compensado US$", value.compensated_usd]);
+        }
         const receivableSum = field => value.receivable_companies.some(row => row[field] == null) ? "N/D"
             : format_currency(value.receivable_companies.reduce((sum, row) => sum + Number(row[field]), 0), "USD", 2);
-        wrapper.html(`<div class="row">${cells.map(([label, amount]) => `<div class="col-sm-4"><div class="text-muted">${esc(__(label))}</div><strong>${esc(format_currency(amount, "USD", 2))}</strong></div>`).join("")}</div>
+        wrapper.html(`<div class="row">${cells.map(([label, amount]) => `<div class="col-sm-${12 / cells.length}"><div class="text-muted">${esc(__(label))}</div><strong>${esc(format_currency(amount, "USD", 2))}</strong></div>`).join("")}</div>
             <div class="row mt-3">${[["Conciliación", value.reconciliation_state || value.financial_status], ["Registro contable", value.accounting_status],
                 ["Gestión", value.management_pending_usd == null ? "No aplica" : `${value.management_status} · ${format_currency(value.management_pending_usd, "USD", 2)} por gestionar`]]
                 .map(([label, status]) => `<div class="col-sm-4"><div class="text-muted">${esc(__(label))}</div><strong>${esc(__(status))}</strong></div>`).join("")}</div>
@@ -578,10 +583,11 @@ frappe.ui.form.on("CN Complementary Item", {
                 if (!frm.doc.receivable_origin) frm.add_custom_button(__("Corregir fecha de compensación"), () => cn_correct_compensation_date(frm), __("Más acciones"));
             }
         }
-        if ((documentedCredit || ((frm.doc.docstatus === 0 || betweenItems)
+        const remainder = cn_can_compensate_remainder(frm.doc);
+        if ((remainder || documentedCredit || ((frm.doc.docstatus === 0 || betweenItems)
             && !["Ajuste de aplicación", "Saldo a favor de la empresa", "Saldo a favor del cliente"].includes(frm.doc.category)
             && !frm.doc.registered_deposit)) && !frm.is_new() && frm.get_perm(0, "submit") && frm.get_perm(0, "write")
-            && !frm.doc.related_application && !frm.doc.registration_exception
+            && (remainder || !frm.doc.related_application) && !frm.doc.registration_exception
             && !frm.doc.credit_usage_issue
             && (documentedCredit ? (frm.doc.credit_pending_usd > 0 || (frm.doc.credit_history && frm.doc.credit_history !== "[]"
                 && (!compensated || frm.doc.compensation_pending_usd > 0))) : (!compensated || frm.doc.compensation_pending_usd > 0))) {
@@ -1311,6 +1317,14 @@ function cn_reconcile_reclassification(frm) {
     dialog.show();
 }
 
+function cn_can_compensate_remainder(doc) {
+    return doc.docstatus === 1 && doc.accounting_source_key
+        && ["Ajuste de aplicación", "Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"].includes(doc.category)
+        && ["Ajuste de aplicación", "Partida de depósito"].includes(doc.review_action)
+        && !doc.registered_deposit && !doc.origin_deposit && !doc.receivable_origin && !doc.generic_distribution
+        && !doc.registration_exception;
+}
+
 async function cn_compensate_items_dialog(frm) {
     if (frm.is_dirty()) await frm.save();
     let preview = null;
@@ -1327,6 +1341,14 @@ async function cn_compensate_items_dialog(frm) {
             {fieldtype: "Link", fieldname: "counterpart", label: __("Partida a compensar"), options: "CN Complementary Item", reqd: 1,
                 get_query: () => {
                     const credit = ["Saldo a favor del cliente", "Saldo a favor de la empresa"].includes(frm.doc.category);
+                    if (cn_can_compensate_remainder(frm.doc)) return {filters: {
+                        name: ["!=", frm.doc.name], docstatus: 1, employer: frm.doc.employer,
+                        category: ["in", ["Ajuste de aplicación", "Cobranza administrativa", "Otros ingresos", "Ajuste de conciliación"]],
+                        review_action: ["in", ["Ajuste de aplicación", "Partida de depósito"]],
+                        accounting_source_key: ["is", "set"], origin_deposit: ["is", "not set"],
+                        registration_exception: ["is", "not set"], registered_deposit: ["is", "not set"],
+                        generic_distribution: 0, receivable_origin: ["is", "not set"], pending_usd: [">", 0],
+                    }};
                     return {filters: {name: ["!=", frm.doc.name], docstatus: ["!=", 2],
                         registration_exception: ["is", "not set"],
                         origin_deposit: ["is", "not set"],
@@ -1377,6 +1399,7 @@ async function cn_compensate_items_dialog(frm) {
                         ${esc(item.employer || __("Empresa sin identificar"))}<br>${__("Asiento")}: ${esc(item.voucher || __("Pendiente"))}</p>
                         ${item.client_name || item.client_number ? `<p>${esc(item.client_name)}${item.client_number ? ` · ${__("Nro. Cliente")}: ${esc(item.client_number)}` : ""}</p>` : ""}
                         <p>${esc(item.description)}</p><div>${__("Original US$")}: ${esc(format_currency(item.original_usd, "USD"))}</div>
+                        ${item.assigned_usd ? `<div>${__("Ya aplicado / distribuido US$")}: ${esc(format_currency(item.assigned_usd, "USD"))}</div>` : ""}
                         <div>${__("Compensado US$")}: ${esc(format_currency(item.compensated_usd, "USD"))}</div>
                         <strong>${__(item.is_credit ? "Sin vínculo contable US$" : "Pendiente US$")}: ${esc(format_currency(item.pending_usd, "USD"))}</strong>
                         ${item.is_credit ? `<p class="mt-2">${__("Saldo disponible US$")}: ${esc(format_currency(item.management_pending_usd, "USD"))}</p>` : ""}</div></div>`).join("");

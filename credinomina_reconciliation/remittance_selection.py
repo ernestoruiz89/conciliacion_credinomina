@@ -208,7 +208,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
         fields=["name", "docstatus", "allocation_detail"], limit_page_length=0,
     )
     items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "origin_deposit": ["is", "not set"], "category": ["not in", ["Saldo a favor de la empresa", "Saldo a favor del cliente", TOLERANCE_CATEGORY, "Ajuste de aplicación", "Compensación entre partidas", "Vinculado a depósito"]]},
-        fields=["name", "reference", "amount_usd", "employer", "period",
+        fields=["name", "reference", "amount_usd", "compensated_usd", "employer", "period",
                 "client_number", "loan_number", "legacy_installment_number as installment_number", "description", "source_client_name",
                 "credit_client", "voucher", "generic_distribution"],
         limit_page_length=0)
@@ -216,8 +216,9 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
     from credinomina_reconciliation.complementary_distribution import attach_company_scopes, company_scope
     attach_company_scopes(items)
     complementary = defaultdict(lambda: money(0))
+    from credinomina_reconciliation.complementary_remainders import cash_capacity
     for (row_name, _reference), linked in linked_items.items():
-        complementary[row_name] += sum((money(item.amount_usd) for item in linked), money(0))
+        complementary[row_name] += sum((cash_capacity(item) for item in linked), money(0))
 
     def period_label(period):
         dates = (display_date(period.historical_application_date)
@@ -299,7 +300,7 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
             "filter_period": item.period or "", "period_label": period_label(period) if period else "Sin período",
             "period_date": period_date(period),
             "reference": " · ".join(str(v) for v in [item.reference, item.voucher] if v),
-            "due_usd": float(money(item.amount_usd))})
+            "due_usd": float(cash_capacity(item))})
     if detail_row and detail_client:
         from credinomina_reconciliation.paying_employers import choose_detail_client
 
