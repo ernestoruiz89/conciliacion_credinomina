@@ -222,6 +222,14 @@ def assert_preserved_allocations(document, allocation, periods):
     for key, amount in old.items():
         assigned = new.get(key, money(0))
         if amount * assigned <= 0 or abs(assigned) < abs(amount):
+            # A stale company difference blocks every detail row, including
+            # automatic FIFO rows with no manual instruction to explain it.
+            context = (allocation.get("client_credit_context") or {}).get("contexts", {}).get(document.name, {})
+            difference_error = (context.get("difference") or {}).get("error")
+            if difference_error:
+                frappe.throw(_("No se pudo conciliar el depósito {0}. Se conservaron las asignaciones "
+                    "confirmadas y no se guardó ningún cambio.").format(escape_html(document.name))
+                    + "<br><br>" + escape_html(str(difference_error)))
             # Explain rejected row instructions before suggesting withdrawal of
             # already confirmed cash; a missing authorization is not an undo.
             results = allocation.get("instruction_results") or {}

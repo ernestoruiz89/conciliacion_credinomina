@@ -92,6 +92,29 @@ class SingleDepositTests(unittest.TestCase):
         self.assertNotIn("<img", message)
         self.assertNotIn("Unrelated rejection", message)
 
+    def test_blocked_fifo_reports_its_company_difference_error_without_suggesting_undo(self):
+        doc = frappe._dict(name="D", allocated_usd=39.15, targets=[], allocation_detail=json.dumps([
+            dict(tipo="Aplicacion historica", aplicacion_id="A", fila_detalle="R", importe_usd=39.15,
+                 origen="Automática FIFO")]))
+        original = copy.deepcopy(doc)
+        reason = 'La diferencia documentada cambió; vuelva a clasificar / documentar antes de conciliar <detalle>'
+        result = dict(allocations=[], instruction_results={}, client_credit_context=dict(contexts={
+            "D": dict(difference=dict(error=reason)), "OTHER": dict(difference=dict(error="Otra diferencia"))}))
+        with patch.object(frappe, "throw", side_effect=ValueError) as reject, self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(doc, result, [])
+        message = reject.call_args.args[0]
+        self.assertIn("vuelva a clasificar / documentar", message)
+        self.assertIn("&lt;detalle&gt;", message)
+        self.assertNotIn("Desconciliar", message)
+        self.assertNotIn("Otra diferencia", message)
+        self.assertEqual(doc, original)
+        # A valid difference or another deposit's error never authorizes moving
+        # existing cash, and cannot hide a genuine preservation conflict.
+        result["client_credit_context"]["contexts"]["D"]["difference"]["error"] = ""
+        with patch.object(frappe, "throw", side_effect=ValueError) as reject, self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(doc, result, [])
+        self.assertIn("Use Desconciliar", reject.call_args.args[0])
+
     def test_legacy_signed_complementary_metadata_preserves_amount_sign_and_destination(self):
         for amount in (526.55, -.01):
             with self.subTest(amount=amount):
