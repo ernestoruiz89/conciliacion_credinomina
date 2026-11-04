@@ -124,6 +124,7 @@ def stored_entries(deposit):
 def _legacy_manual_rows(document, allocations):
     """Resolve missing historical row IDs only from matching saved evidence."""
     amounts, targets, matches = defaultdict(lambda: money(0)), defaultdict(list), defaultdict(list)
+    row_targets, rows, empty_cache = defaultdict(list), {}, set()
     for entry in allocations:
         if (entry["claim_id"].startswith(("H:", "X:")) and entry.get("origin") == MANUAL
                 and not entry.get("detail_row") and not entry.get("reclassification_operation_id")):
@@ -131,20 +132,47 @@ def _legacy_manual_rows(document, allocations):
     if not amounts:
         return {}
     for target in document.get("targets") or []:
+        if target.get("detail_row"):
+            row_targets[target.detail_row].append(target)
         if target.get("historical_application") and not target.get("complementary_item"):
             targets["H:" + target.historical_application].append(target)
         elif target.get("complementary_item") and not target.get("historical_application"):
             targets["X:" + target.complementary_item].append(target)
     for row in document.get("detail_rows") or []:
+        rows[row.name] = row
+        raw = row.get("matched_targets")
+        try:
+            parsed = json.loads(raw or "[]") if isinstance(raw, str) else raw or []
+            if parsed == []:
+                empty_cache.add(row.name)
+        except (TypeError, ValueError):
+            pass  # Invalid or conflicting cache data is not proof of an empty cache.
         saved = entries(row.get("matched_targets"))
         for match in saved:
             if match.get("claim_id") in amounts:
                 matches[match["claim_id"]].append((row, match, saved))
     result = {}
     for claim, amount in amounts.items():
-        if len(targets[claim]) != 1 or len(matches[claim]) != 1:
+        if len(targets[claim]) != 1:
             continue  # Shared or unidentified legacy cash requires explicit review.
         target = targets[claim][0]
+        if not matches[claim] and claim.startswith("H:") and target.get("detail_row") in empty_cache:
+            row = rows[target.detail_row]
+            peers = row_targets[row.name]
+            # Old applied targets are authoritative when the display cache was
+            # cleared. Every target in the row must still match recorded cash;
+            # a new, resized or pending target cannot supply this proof.
+            if (peers and all(peer.get("name") and peer.get("result") == "Aplicada"
+                    and peer.get("historical_application") and not peer.get("complementary_item")
+                    and len(targets["H:" + peer.historical_application]) == 1
+                    and money(peer.get("amount_usd")) > 0
+                    and money(peer.get("amount_usd")) == amounts.get("H:" + peer.historical_application)
+                    for peer in peers)
+                    and sum((money(peer.amount_usd) for peer in peers), money(0)) == money(row.get("linked_usd"))):
+                result[claim] = row.name
+            continue
+        if len(matches[claim]) != 1:
+            continue
         row, match, saved = matches[claim][0]
         if (target.get("name") and target.get("detail_row") == row.name
                 and match.get("instruction_id") == target.name
