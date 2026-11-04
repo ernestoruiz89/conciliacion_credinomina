@@ -216,7 +216,7 @@ async function cn_link_deposit(frm) {
                 <div>${esc(__("Disponible del depósito"))}: ${esc(format_currency(context.cash_usd, "USD", 2))}</div>
                 ${context.existing ? `<p>${esc(__("Esta partida ya está vinculada. Abra el depósito para revisar o modificar el destino existente."))}</p>` : ""}</div>`);
             dialog.set_df_property("detail_row", "options", [{value: "", label: __("Sin vincular a una fila del detalle")},
-                ...context.rows.map(row => ({value: row.name, label: `${row.idx}. ${row.client_name || ""} · ${row.loan_number || ""} · ${__("Importe")}: ${format_currency(row.amount_usd, "USD", 2)} · ${__("Importe pendiente")}: ${row.pending_usd == null ? "—" : format_currency(row.pending_usd, "USD", 2)}`}))]);
+                ...context.rows.filter(row => Number(row.pending_usd) > 0).map(row => ({value: row.name, label: `${row.idx}. ${row.client_name || ""} · ${row.loan_number || ""} · ${__("Importe")}: ${format_currency(row.amount_usd, "USD", 2)} · ${__("Importe pendiente")}: ${format_currency(row.pending_usd, "USD", 2)}`}))]);
             await dialog.set_value("amount_usd", context.suggested_usd || null);
             if (!context.existing && context.available_usd > 0) dialog.enable_primary_action();
         } catch (error) {
@@ -234,7 +234,7 @@ async function cn_link_deposit(frm) {
             description: __("Puede vincular un importe parcial. Positivo consume depósito; negativo documenta un faltante. La partida confirmada conserva su signo.")},
         {fieldname: "detail_row", fieldtype: "Select", label: __("Fila del detalle (opcional)"),
             options: [{value: "", label: __("Sin vincular a una fila del detalle")}],
-            description: __("Seleccione la fila del cliente cuando la partida deba explicar ese pago.")},
+            description: __("Solo se muestran filas de clientes con importe pendiente mayor que cero. Seleccione una fila cuando la partida deba explicar ese pago.")},
         ...(draft ? [
             {fieldtype: "Section Break", label: __("Confirmación de la partida")},
             {fieldname: "category", fieldtype: "Select", label: __("Concepto"), reqd: 1,
@@ -574,8 +574,8 @@ frappe.ui.form.on("CN Complementary Item", {
             frm.add_custom_button(__("Consultar saldo a fecha"), () => cn_compensation_balance_dialog(frm));
             if (compensated && frm.get_perm(0, "submit") && frm.get_perm(0, "write")) {
                 if (!frm.doc.receivable_origin) frm.add_custom_button(__("Eliminar compensación del historial"), () => cn_delete_complementary_history(frm, "compensation"), __("Más acciones"));
-                frm.add_custom_button(__("Revertir compensación"), () => cn_reverse_compensation(frm));
-                if (!frm.doc.receivable_origin) frm.add_custom_button(__("Corregir fecha de compensación"), () => cn_correct_compensation_date(frm));
+                frm.add_custom_button(__("Revertir compensación"), () => cn_reverse_compensation(frm), __("Más acciones"));
+                if (!frm.doc.receivable_origin) frm.add_custom_button(__("Corregir fecha de compensación"), () => cn_correct_compensation_date(frm), __("Más acciones"));
             }
         }
         if ((documentedCredit || ((frm.doc.docstatus === 0 || betweenItems)

@@ -125,6 +125,7 @@ def _legacy_manual_rows(document, allocations):
     """Resolve missing historical row IDs only from matching saved evidence."""
     amounts, targets, matches = defaultdict(lambda: money(0)), defaultdict(list), defaultdict(list)
     row_targets, rows, empty_cache = defaultdict(list), {}, set()
+    recorded_claims = {entry["claim_id"] for entry in allocations}
     for entry in allocations:
         if (entry["claim_id"].startswith(("H:", "X:")) and entry.get("origin") == MANUAL
                 and not entry.get("detail_row") and not entry.get("reclassification_operation_id")):
@@ -159,15 +160,23 @@ def _legacy_manual_rows(document, allocations):
         if not matches[claim] and claim.startswith("H:") and target.get("detail_row") in empty_cache:
             row = rows[target.detail_row]
             peers = row_targets[row.name]
+            def peer_claim(peer):
+                if peer.get("historical_application") and not peer.get("complementary_item"):
+                    return "H:" + peer.historical_application
+                if peer.get("complementary_item") and not peer.get("historical_application"):
+                    return "X:" + peer.complementary_item
+                return ""
+            applied = [peer for peer in peers if peer.get("result") == "Aplicada"]
+            pending = [peer for peer in peers if peer.get("result") != "Aplicada"]
             # Old applied targets are authoritative when the display cache was
-            # cleared. Every target in the row must still match recorded cash;
-            # a new, resized or pending target cannot supply this proof.
-            if (peers and all(peer.get("name") and peer.get("result") == "Aplicada"
-                    and peer.get("historical_application") and not peer.get("complementary_item")
-                    and len(targets["H:" + peer.historical_application]) == 1
-                    and money(peer.get("amount_usd")) > 0
+            # cleared. Newly planned claims supply no proof of old cash and may
+            # coexist only if they have never been allocated in this deposit.
+            if (applied and all(peer.get("name") and peer_claim(peer)
+                    and len(targets[peer_claim(peer)]) == 1 and money(peer.get("amount_usd")) > 0 for peer in peers)
+                    and all(peer.get("historical_application") and not peer.get("complementary_item")
                     and money(peer.get("amount_usd")) == amounts.get("H:" + peer.historical_application)
-                    for peer in peers)
+                    for peer in applied)
+                    and all(peer.get("result") in (None, "", "Pendiente") and peer_claim(peer) not in recorded_claims for peer in pending)
                     and sum((money(peer.amount_usd) for peer in peers), money(0)) == money(row.get("linked_usd"))):
                 result[claim] = row.name
             continue
