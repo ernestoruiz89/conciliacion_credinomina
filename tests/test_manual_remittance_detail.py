@@ -117,7 +117,7 @@ class ManualRemittanceDetailTests(unittest.TestCase):
                    for name, item, amount in (("T1", "GOOD", 50), ("T2", "BAD", -10))]
         employers = [Row(name="EMP", employer_name="EMP", employer_code="EMP")]
         context = dict(instructions=[], contexts={"DEP": dict(rows=[], status="Distribución manual")},
-                       blocked_deposits={"DEP"}, rounding_eligible=set())
+                       retained_instructions=[], blocked_deposits={"DEP"}, rounding_eligible=set())
         with patch.object(frappe, "get_all", side_effect=lambda doctype, **kwargs: targets if doctype == "CN Remittance Target" else employers), \
              patch.object(frappe, "db", Mock()), \
              patch.object(source, "resolved_deposit_employer", return_value=("EMP", False)), \
@@ -169,8 +169,8 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.assertEqual(self.claims[1]['references'], ['0010143635'])
         self.assertEqual(self.reconcile()[1]['allocations'], result['allocations'])
 
-    def test_distinct_references_still_require_client_credit_company_and_valid_amount(self):
-        for change in ({'client': 'OTHER'}, {'client_number': 'OTHER'}, {'loan_number': '1120-2'},
+    def test_distinct_references_still_require_client_company_and_valid_amount(self):
+        for change in ({'client': 'OTHER'}, {'client_number': 'OTHER'}, {'loan_number': ''},
                        {'group': 'OTHER'}, {'national_id': 'OTHER'}, {'period': 'OTHER'}):
             with self.subTest(change=change):
                 self.setup_distinct_references()
@@ -181,6 +181,48 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         self.setup_distinct_references()
         self.manual[1]['amount_usd'] = .49
         self.assertEqual(manual_detail_targets(self.row, self.claims, self.manual, 765.07, 'EMP', 'APRIL')[0], [])
+
+    def test_manual_cross_credit_preserves_imported_loan_and_documents_real_destination(self):
+        self.setup_distinct_references()
+        self.claims[1]['loan_number'] = '13316-1'
+        self.row.installment_number = 'SOURCE-QUOTA'
+        self.claims[1]['installment_number'] = 'TARGET-QUOTA'
+        targets, reason = manual_detail_targets(self.row, self.claims, self.manual, 765.07, 'EMP', 'APRIL')
+        self.assertEqual([t['amount_usd'] for t in targets], [764.59, .48])
+        self.assertIn('otros créditos del mismo cliente seleccionados manualmente', reason)
+        self.assertIn('001120-1 → 13316-1', reason)
+        self.assertEqual(self.row.loan_number, '001120-1')
+        # A row entirely applied to another credit must keep its original loan,
+        # including after the summary writer learns just one destination loan.
+        self.manual = [self.manual[1] | {'amount_usd': 765.07}]
+        self.claims[1]['amount_usd'] = 765.07
+        _, result, _, saved = self.reconcile(descriptions={'H:B': {'loan_number': '13316-1'}})
+        self.assertEqual(result['allocations'][0]['claim_id'], 'H:B')
+        self.assertNotIn('loan_number', saved)
+        self.assertIn('001120-1 → 13316-1', saved['match_reason'])
+
+    def test_cross_credit_requires_strong_same_person_identity_and_company_for_each_kind(self):
+        for kind in ('H', 'C', 'X'):
+            self.setup_distinct_references()
+            self.row.national_id = 'NATIONAL'
+            self.row.employee_number = 'EMPLOYEE'
+            claim = self.claims[1] | dict(id=kind + ':B', kind=kind, loan_number='13316-1')
+            manual = [self.manual[1] | dict(claim_id=kind + ':B')]
+            self.assertTrue(manual_detail_targets(self.row, [claim], manual, .48, 'EMP', 'APRIL')[0])
+            for changes in ({'client': 'OTHER'}, {'client_number': 'OTHER'}, {'national_id': 'OTHER'},
+                            {'employee_number': 'OTHER'}, {'group': 'OTHER'}, {'loan_number': ''},
+                            {'client': '', 'client_number': '', 'client_name': self.row.client_name}):
+                with self.subTest(kind=kind, changes=changes):
+                    self.assertFalse(manual_detail_targets(self.row, [claim | changes], manual, .48, 'EMP', 'APRIL')[0])
+            self.assertFalse(manual_detail_targets(self.row, [claim], manual, .47, 'EMP', 'APRIL')[0])
+            self.assertFalse(manual_detail_targets(self.row, [claim | {'period': 'CLOSED', 'period_closed': True}],
+                manual, .48, 'EMP', 'APRIL', allow_other_periods=True)[0])
+
+    def test_cross_credit_is_not_selected_automatically(self):
+        self.setup_distinct_references()
+        self.claims[1]['loan_number'] = '13316-1'
+        targets, _ = suggest_detail_targets(self.row, [self.claims[1]], .48, 'EMP', 'APRIL', apply_fifo=True)
+        self.assertEqual(targets, [])
 
     def test_reference_override_requires_explicit_identity_not_just_name_or_loan(self):
         self.setup_distinct_references()

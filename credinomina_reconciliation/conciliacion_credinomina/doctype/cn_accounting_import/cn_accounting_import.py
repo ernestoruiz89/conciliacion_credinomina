@@ -2001,7 +2001,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     summary = "; ".join(credit.name for credit in plan["client_credits"] if credit.category == category)
                     updates["match_reason"] += "; {0} documentado: US$ {1} ({2}); gestión independiente".format(category, plan[field], summary)
                     updates["matched_targets_summary"] += "\n{0}: US$ {1} — {2}. No aplicado al crédito.".format(category, plan[field], summary)
-                if len(target_loans) == 1 and not unidentified_application:
+                if len(target_loans) == 1 and not unidentified_application and not clean_text(plan["row"].get("loan_number")):
                     updates["loan_number"] = next(iter(target_loans))
                 if money(updates["pending_usd"]) > 0 and targets:
                     # Applying every FIFO instruction does not settle a row

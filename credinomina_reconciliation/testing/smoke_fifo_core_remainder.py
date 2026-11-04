@@ -1,4 +1,4 @@
-"""A positive core counterpart adds to confirmed FIFO without replaying it."""
+"""An explicit remainder destination adds to confirmed FIFO without replaying it."""
 import json
 from unittest.mock import patch
 
@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run(reimported=False):
+def run(reimported=False, cross_credit=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -29,6 +29,12 @@ def run(reimported=False):
                     event_date="2025-08-15", currency="USD", amount=18.08, amount_usd=18.08, effective=1,
                     client=client.name, client_number=client.name, client_name=client.client_name, loan_number=marker,
                     processing_route="Historica", historical_period=period.name)])).insert()
+            if cross_credit:
+                source.append("rows", dict(source_key=marker + "-OTHER", event_type="Aplicacion",
+                    event_date="2025-08-30", currency="USD", amount=13.08, amount_usd=13.08, effective=1,
+                    client=client.name, client_number=client.name, client_name=client.client_name, loan_number=marker + "-OTHER",
+                    processing_route="Historica", historical_period=period.name))
+                source.save()
             _reconcile_sources(company.name, preserve_deposits=True)
             fixed = frappe.get_doc(dict(doctype="CN Remittance Allocation", employer=company.name,
                 deposit_reference=marker + "FIXED", deposit_date="2025-09-01", deposit_currency="USD", deposit_amount=5,
@@ -58,15 +64,20 @@ def run(reimported=False):
                 frappe.get_doc(dict(doctype="Version", ref_doctype=deposit.doctype, docname=deposit.name,
                     data=json.dumps(dict(changed=[["detail_status", "Parcial", "Cargado"]],
                         removed=[["detail_rows", removed]], added=[["detail_rows", deposit.detail_rows[0].as_dict()]]), default=str))).insert(ignore_permissions=True)
-            core = frappe.get_doc(dict(doctype="CN Complementary Item", employer=company.name, category="Otros ingresos",
-                review_action="Partida de depósito", amount_reviewed=1, currency="USD", amount=13.08,
-                reference=marker, posting_date="2025-11-21", description="Partida del core para el remanente",
-                accounting_source_key=marker, source_date="2025-11-21", source_currency="USD", source_debit=13.08,
-                source_credit=0, source_client_name=client.client_name))
-            with imported_item(marker):
-                core.insert()
-            core.submit()
-            deposit.append("targets", dict(complementary_item=core.name, amount_usd=13.08, detail_row=deposit.detail_rows[0].name))
+            core = None
+            if cross_credit:
+                target = dict(historical_application=source.rows[1].name)
+            else:
+                core = frappe.get_doc(dict(doctype="CN Complementary Item", employer=company.name, category="Otros ingresos",
+                    review_action="Partida de depósito", amount_reviewed=1, currency="USD", amount=13.08,
+                    reference=marker, posting_date="2025-11-21", description="Partida del core para el remanente",
+                    accounting_source_key=marker, source_date="2025-11-21", source_currency="USD", source_debit=13.08,
+                    source_credit=0, source_client_name=client.client_name))
+                with imported_item(marker):
+                    core.insert()
+                core.submit()
+                target = dict(complementary_item=core.name)
+            deposit.append("targets", dict(**target, amount_usd=13.08, detail_row=deposit.detail_rows[0].name))
             deposit.save()
             if reimported:
                 before_failure = document_state(deposit.reload())
@@ -96,22 +107,33 @@ def run(reimported=False):
             assert deposit.targets[0].result == "Aplicada"
             assert money(source.rows[0].historical_remitted_usd) == money(18.08)
             assert document_state(fixed.reload()) == fixed_state
+            if cross_credit:
+                assert deposit.detail_rows[0].loan_number == marker
+                assert money(source.rows[1].historical_remitted_usd) == money(13.08)
+                assert "otros créditos del mismo cliente seleccionados manualmente" in deposit.detail_rows[0].match_reason
+                assert any(entry.get("credito") == marker + "-OTHER" for entry in ledger)
             if reimported:
                 assert deposit.detail_rows[0].loan_number == marker
                 assert len(frappe.get_all("Version", filters={"ref_doctype": deposit.doctype, "docname": deposit.name,
                     "data": ["like", '%Recuperar trazabilidad de detalle reimportado%']}, pluck="name")) == 1
             from credinomina_reconciliation.complementary_balances import load_balances
-            balance = load_balances([core])[core.name]
-            assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
+            if core:
+                balance = load_balances([core])[core.name]
+                assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
             for _ in range(2):
                 reconcile_deposit(deposit); deposit.reload()
                 assert json.loads(deposit.allocation_detail) == ledger
                 assert money(deposit.allocated_usd) == money(26.16)
                 assert money(deposit.detail_rows[0].pending_usd) == money(.01)
                 assert document_state(fixed.reload()) == fixed_state
-                balance = load_balances([core])[core.name]
-                assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
+                if core:
+                    balance = load_balances([core])[core.name]
+                    assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
+                if cross_credit:
+                    assert deposit.detail_rows[0].loan_number == marker
+                    assert money(source.reload().rows[1].historical_remitted_usd) == money(13.08)
             return dict(confirmed_fifo=13.08, positive_core=13.08, distributed=26.16, remaining=.01,
-                reimport_recovered=reimported, repeated_without_duplicates=True, other_deposit_unchanged=True, rolled_back=True)
+                reimport_recovered=reimported, cross_credit=cross_credit, repeated_without_duplicates=True,
+                other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()
