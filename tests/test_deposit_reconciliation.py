@@ -33,6 +33,46 @@ class SingleDepositTests(unittest.TestCase):
             entry.pop("detail_row")
         scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
 
+    def test_empty_display_cache_can_be_rebuilt_from_exact_fully_applied_saved_targets(self):
+        doc, ledger = self.legacy_manual_deposit()
+        doc.detail_rows[0].matched_targets = "[]"
+        for target in doc.targets:
+            target.result = "Aplicada"
+        original = copy.deepcopy(doc)
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+        self.assertEqual(doc, original)
+        ledger[0]["amount_usd"] = 25.99
+        with patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_empty_cache_does_not_prove_pending_resized_shared_or_conflicting_targets(self):
+        changes = [lambda d: d.targets[0].update(result="Pendiente"),
+            lambda d: d.targets[0].update(amount_usd=27),
+            lambda d: d.targets.append(copy.deepcopy(d.targets[0])),
+            lambda d: d.detail_rows[0].update(linked_usd=40),
+            lambda d: d.detail_rows[0].update(matched_targets='[{"claim_id":"H:OTHER","amount_usd":49.48}]'),
+            lambda d: d.detail_rows[0].update(matched_targets="invalid")]
+        for change in changes:
+            doc, ledger = self.legacy_manual_deposit()
+            doc.detail_rows[0].matched_targets = "[]"
+            for target in doc.targets:
+                target.result = "Aplicada"
+            change(doc)
+            with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_applied_cent_targets_with_empty_cache_keep_their_partial_coverage(self):
+        doc = frappe._dict(name="D", allocated_usd=.03,
+            targets=[frappe._dict(name="T" + name, historical_application=name, amount_usd=.01,
+                detail_row="R", result="Aplicada") for name in ("A", "B", "C")],
+            detail_rows=[frappe._dict(name="R", amount_usd=22.44, linked_usd=.03, pending_usd=22.41, matched_targets="[]")],
+            allocation_detail=json.dumps([dict(tipo="Aplicacion historica", aplicacion_id=name,
+                importe_usd=.01, origen="Selección manual") for name in ("A", "B", "C")]))
+        ledger = [dict(deposit_id="D", claim_id="H:" + name, amount_usd=.01, detail_row="R",
+                       origin="Selección manual") for name in ("A", "B", "C")]
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+        self.assertEqual(doc.detail_rows[0].pending_usd, 22.41)
+
     def test_legacy_metadata_proof_does_not_allow_less_cash_another_application_or_row(self):
         for change in (dict(amount_usd=25.99), dict(claim_id="H:OTHER"), dict(detail_row="OTHER")):
             doc, ledger = self.legacy_manual_deposit()

@@ -10,7 +10,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run(manual_remainder=False):
+def run(manual_remainder=False, empty_cache=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -87,6 +87,11 @@ def run(manual_remainder=False):
                     if entry.get("origen") == "Selección manual":
                         entry.pop("fila_detalle", None)
                 frappe.db.set_value(deposit.doctype, deposit.name, "allocation_detail", json.dumps(saved))
+                if empty_cache:
+                    for target in deposit.targets:
+                        if target.historical_application:
+                            frappe.db.set_value("CN Remittance Detail", target.detail_row,
+                                dict(matched_targets="[]", matched_targets_summary="", match_status="Revisar"), update_modified=False)
                 deposit.reload()
             legacy_ledger()
             reconcile_deposit(deposit); deposit.reload()
@@ -123,6 +128,7 @@ def run(manual_remainder=False):
             assert document_state(fixed.reload()) == fixed_state
             return dict(legacy_manual_links_preserved=True, fifo_cash_preserved=True, metadata_completed=True,
                 added_only_remaining_cash=15.52, fifo_plus_manual_remainder=manual_remainder,
-                core_metadata_completed=bool(core_amount), repeated_reconciliation_preserved=True, other_deposit_unchanged=True, rolled_back=True)
+                core_metadata_completed=bool(core_amount), empty_cache_rebuilt=empty_cache,
+                repeated_reconciliation_preserved=True, other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()
