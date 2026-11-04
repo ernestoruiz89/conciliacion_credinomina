@@ -46,11 +46,13 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.equal(clicked.include_drafts, 1);
     report.show_month_detail = originalOpen;
 
-    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución", reconciled_by: "ana@example.com"});
+    const dialog = report.show_month_detail({year: 2025, month: 4, employer: 'A<script>', transaction_type: "Aplicaciones", include_drafts: 0, state: "Revisar distribución", reconciled_by: "ana@example.com", cutoff_date: "2025-04-30"});
     assert.ok(dialog.visible);
     assert.ok(dialog.html.includes("Cargando"));
     assert.ok(!dialog.fields[0].options.includes("<script>"));
     assert.equal(calls[0].args.month, 4);
+    assert.equal(calls[0].args.cutoff_date, "2025-04-30");
+    assert.ok(dialog.fields[0].options.includes("Fecha de corte: LOCAL(2025-04-30)"));
     assert.equal(calls[0].args.state, "Revisar distribución");
     assert.equal(dialog.fields[1].default, "Revisar distribución");
     assert.equal(dialog.fields.find(field => field.fieldname === "only_differences").default, 0);
@@ -84,6 +86,7 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
     assert.ok(dialog.html.includes('todas las páginas'));
     dialog.handlers[".cn-detail-next"]();
     assert.equal(calls.at(-1).args.start, 100);
+    assert.equal(calls.at(-1).args.cutoff_date, "2025-04-30");
     dialog.handlers[".cn-detail-next"]();
     assert.equal(requests.length, 1); // Ignore double-click while loading.
     const stale = requests.shift();
