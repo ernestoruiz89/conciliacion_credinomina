@@ -20,7 +20,12 @@ context.window.credinominaShowRelatedPending({client_name: "Persona", applicatio
         complementary_items: [{document: "CN-COMP-1", date: "2026-02-15", reference: '"<CORE>'},
                               {document: "CN/COMP <2>"}]},
     {type: "Aplicación", document: "UNASSIGNED", amount_usd: 50, pending_usd: 50},
-], rows: []});
+], rows: [
+    {type: "Partida complementaria", document: "CORE-DEBIT", direction: "Débito", date: "2026-02-15", amount_usd: 13.08, pending_usd: 13.08},
+    {type: "Partida complementaria", document: "CORE-CREDIT", direction: "Crédito", date: "2026-02-15", amount_usd: 20, pending_usd: 20},
+]});
+assert.ok(html.includes('Partida complementaria · <strong>Débito</strong>'));
+assert.ok(html.includes('Partida complementaria · <strong>Crédito</strong>'));
 assert.ok(html.includes('/app/cn-remittance-allocation/DEP-1'));
 assert.ok(html.includes('/app/cn-remittance-allocation/DEP%2F2%20%3Cx%3E'));
 assert.ok(html.includes('DEP/2 &lt;x>'));

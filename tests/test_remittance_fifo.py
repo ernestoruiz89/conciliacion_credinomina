@@ -179,6 +179,34 @@ class FifoDetailEngineTests(unittest.TestCase):
         from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
         assert_preserved_allocations(self.doc, result, [])
 
+    def test_positive_core_target_adds_to_paid_fifo_and_leaves_the_real_cent_pending(self):
+        self.previously_paid_row()
+        self.rows[0].deducted_usd = self.deposit["amount_usd"] = 26.17
+        self.doc.allocated_usd = 13.08
+        parts = [dict(application_id="A", event_date="2025-04-15", amount_usd=13.08)]
+        self.rows[0].matched_targets = json.dumps([dict(claim_id="H:A", amount_usd=13.08, fifo_applications=parts)])
+        self.doc.allocation_detail = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=13.08,
+            origen=FIFO, fila_detalle="ROW1", aplicaciones_fifo=parts)])
+        self.claims = [application("A", "2025-04-15", 13.08),
+            dict(id="X:CORE", kind="X", group="EMP", period="", amount_usd=13.08)]
+        context, result = self.run_engine([dict(id="CORE-TARGET", deposit_id="DEP", claim_id="X:CORE", amount_usd=13.08,
+                                              origin=MANUAL, detail_row="ROW1")])
+        self.assertEqual([(row["claim_id"], row["amount_usd"]) for row in result["allocations"]],
+                         [("H:A", 13.08), ("X:CORE", 13.08)])
+        self.assertEqual(result["deposit_remaining"]["DEP"], .01)
+        self.assertEqual(result["instruction_results"]["CORE-TARGET"], "Aplicada")
+        self.assertEqual(len(context["retained_instructions"]), 1)
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        assert_preserved_allocations(self.doc, result, [])
+
+    def test_negative_core_target_does_not_restore_an_isolated_positive_side(self):
+        self.previously_paid_row()
+        self.claims.append(dict(id="X:NEGATIVE", kind="X", group="EMP", period="", amount_usd=-.01))
+        context, result = self.run_engine([dict(id="NEGATIVE", deposit_id="DEP", claim_id="X:NEGATIVE", amount_usd=-.01,
+                                              origin=MANUAL, detail_row="ROW1")])
+        self.assertEqual(context["retained_instructions"], [])
+        self.assertEqual(result["allocations"], [])
+
     def test_overlapping_manual_target_is_not_added_to_its_own_old_fifo_portion(self):
         self.previously_paid_row()
         context, result = self.run_engine([dict(id="SAME", deposit_id="DEP", claim_id="H:A", amount_usd=40,

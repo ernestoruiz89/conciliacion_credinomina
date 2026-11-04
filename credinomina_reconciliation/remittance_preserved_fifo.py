@@ -26,9 +26,9 @@ def retained_instructions(remittances, rows_by_parent, registered_ids, instructi
                 grouped[(entry["fila_detalle"], "H:" + str(entry.get("aplicacion_id") or ""))].append(entry)
         for (row_name, claim), saved in grouped.items():
             requested = manual[(deposit_id, row_name)]
-            # Overlapping claims, signed groups and ambiguous old portions keep
+            # Overlapping claims, signed row targets and ambiguous old portions keep
             # their existing validation/undo path; never infer a redistribution.
-            if (len(saved) != 1 or any(not item["claim_id"].startswith("H:") or money(item["amount_usd"]) <= 0
+            if (len(saved) != 1 or any(not item["claim_id"].startswith(("H:", "X:")) or money(item["amount_usd"]) <= 0
                                       for item in requested) or claim in {item["claim_id"] for item in requested}):
                 continue
             entry = saved[0]
