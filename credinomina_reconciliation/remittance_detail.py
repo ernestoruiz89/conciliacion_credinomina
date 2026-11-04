@@ -214,7 +214,12 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     assigned = sum_money(target['amount_usd'] for target in targets)
     if assigned != money(amount_usd) and not (0 < assigned < money(amount_usd)
             and any(instruction.get("allow_partial") for instruction in instructions)):
-        return [], f"Los destinos vinculados suman US$ {assigned:.2f}; la fila requiere US$ {money(amount_usd):.2f}. Ajuste los importes vinculados (diferencia US$ {money(amount_usd) - assigned:.2f})."
+        retained = sum_money(entry['amount_usd'] for entry in instructions if str(entry.get('id') or '').startswith('RETAINED:'))
+        explanation = (f"Ya conciliado y conservado por FIFO: US$ {retained:.2f}; destinos manuales: US$ {assigned - retained:.2f}. "
+            f"Los destinos manuales pueden sumar como máximo US$ {max(money(amount_usd) - retained, money(0)):.2f}. " if retained > 0 else "")
+        label = row.get('source_row') or row.get('idx') or row.get('name') or 'sin identificar'
+        return [], (f"Fila {label}: Los destinos vinculados suman US$ {assigned:.2f}; la fila requiere US$ {money(amount_usd):.2f}. "
+            + explanation + f"Ajuste los importes vinculados (diferencia US$ {money(amount_usd) - assigned:.2f}); no se redujeron las asignaciones confirmadas.")
     reason = "Conciliación manual: destinos vinculados y validados contra la fila del detalle"
     if assigned < money(amount_usd):
         reason += f"; pendiente de distribuir US$ {money(amount_usd) - assigned:.2f}"

@@ -1565,6 +1565,16 @@ function updateDetailPendingAmounts(frm) {
     // Values have already been rounded to cents by the server. Use integer
     // cents for the immediate preview, without marking the form dirty.
     const cents = value => Math.round((Number(value || 0) + Number.EPSILON) * 100);
+    const confirmed = new Map();
+    let ledger = [];
+    try { ledger = typeof frm.doc.allocation_detail === "string" ? JSON.parse(frm.doc.allocation_detail || "[]")
+        : frm.doc.allocation_detail || []; } catch (_) { /* Server validates financial evidence. */ }
+    for (const entry of Array.isArray(ledger) ? ledger : []) {
+        if (entry?.origen !== "Automática FIFO" || entry.tipo !== "Aplicacion historica" ||
+            !entry.fila_detalle || !entry.aplicacion_id || entry.reclassification_operation_id || cents(entry.importe_usd) <= 0) continue;
+        if (!confirmed.has(entry.fila_detalle)) confirmed.set(entry.fila_detalle, []);
+        confirmed.get(entry.fila_detalle).push({claim_id: `H:${entry.aplicacion_id}`, amount_usd: entry.importe_usd});
+    }
     let changed = false;
     for (const row of frm.doc.detail_rows || []) {
         if (row.row_kind !== "Diferencia documentada") {
@@ -1572,7 +1582,22 @@ function updateDetailPendingAmounts(frm) {
             try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }
             const known = Array.isArray(matched) ? matched.filter(entry => entry && typeof entry === "object") : [];
             const internal = known.filter(entry => String(entry.instruction_id || "").startsWith("RECLASS:"));
-            const entries = (manual.get(row.name) || known.filter(entry => !entry.instruction_id)).concat(internal);
+            const requested = manual.get(row.name) || [];
+            const ids = new Set(requested.map(entry => entry.id || entry.instruction_id));
+            const entries = requested.concat(internal.filter(entry => !ids.has(entry.instruction_id)));
+            const claim = entry => entry.claim_id?.startsWith("H:") ? entry.claim_id
+                : entry.historical_application ? `H:${entry.historical_application}` : "";
+            const instructed = new Map();
+            for (const entry of requested) instructed.set(claim(entry), (instructed.get(claim(entry)) || 0) + cents(entry.amount_usd));
+            const automatic = confirmed.get(row.name) || known.filter(entry =>
+                (!entry.instruction_id || String(entry.instruction_id).startsWith("RETAINED:")) &&
+                (!requested.length || claim(entry) && entry.fifo_applications));
+            for (const entry of automatic) {
+                const amount = cents(entry.amount_usd), key = claim(entry);
+                const overlap = key && amount > 0 ? Math.min(Math.max(instructed.get(key) || 0, 0), amount) : 0;
+                instructed.set(key, (instructed.get(key) || 0) - overlap);
+                if (amount !== overlap) entries.push({...entry, amount_usd: (amount - overlap) / 100});
+            }
             const linked = entries.reduce((sum, entry) => sum + cents(entry.amount_usd), 0);
             const pending = cents(row.amount_usd) - linked - cents(row.client_credit_usd) - cents(row.company_credit_usd);
             if (row.linked_usd !== linked / 100 || row.pending_usd !== pending / 100) {
@@ -1601,9 +1626,13 @@ function remittanceIssues(doc, dirty = false) {
         add("FIFO necesita al menos un período seleccionado en Períodos a conciliar.", "detail_periods");
     }
     for (const row of rows) {
-        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
         const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
             row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
+        if (row.row_kind !== "Diferencia documentada" && Number(row.pending_usd) < -0.005) {
+            add(`${label}: los vínculos superan el importe de la fila en US$ ${remittanceMoney(-row.pending_usd)}. Ajuste los destinos manuales; las asignaciones confirmadas se conservan.`, "targets");
+            continue;
+        }
+        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
     }
     const hints = {
@@ -1963,7 +1992,8 @@ class RemittanceTargetPicker {
         const pending = Number.isFinite(Number(detailRow.pending_usd))
             ? Number(toScaledInteger(detailRow.pending_usd, 2))
             : Number(toScaledInteger(detailRow.amount_usd, 2));
-        return Math.max(0, Math.min(available, pending));
+        const serverPending = Number.isFinite(Number(data.detail_available_cents)) ? Number(data.detail_available_cents) : pending;
+        return Math.max(0, Math.min(available, pending, serverPending));
     }
 
     escape(value) { return frappe.utils.escape_html(String(value || "")); }

@@ -359,6 +359,12 @@ def get_pending_targets(remittance_name, targets=None, detail_row_name=None, sel
     result["allowed_employers"] = allowed
     result["modified"] = str(doc.modified)
     if detail_row and detail_client:
+        from credinomina_reconciliation.detail_balances import confirmed_fifo_by_row, linked_balance
+        confirmed = confirmed_fifo_by_row(doc)
+        balance = linked_balance(detail_row.amount_usd, [target for target in targets if target.get("detail_row") == detail_row.name],
+            detail_row.get("matched_targets"), confirmed.get(detail_row.name) if confirmed is not None else None)
+        pending = money(balance["pending_usd"]) - money(detail_row.get("client_credit_usd")) - money(detail_row.get("company_credit_usd"))
+        result["detail_available_cents"] = max(int(pending * 100), 0)
         result["detail_row"] = detail_row.name
         result["detail_client"] = {
             "name": detail_client["name"],

@@ -64,4 +64,34 @@ context.updateDetailPendingAmounts(partialForm);
 assert.equal(partial.linked_usd, 2, 'Removing a manual target cannot remove a core link');
 assert.equal(partial.linked_total_usd, 3);
 assert.ok(refreshed > 0);
+const fifoRow = {name: "F", source_row: 2, amount_usd: 71.51, matched_targets: "[]", match_status: "Conciliada"};
+const fifoLedger = JSON.stringify([{tipo: "Aplicacion historica", aplicacion_id: "OLD", fila_detalle: "F",
+    importe_usd: 34.59, origen: "Automática FIFO"}]);
+const fifoForm = {doc: {detail_rows: [fifoRow], allocation_detail: fifoLedger, targets: [
+    {detail_row: "F", historical_application: "NEW1", amount_usd: 34.59},
+    {detail_row: "F", historical_application: "NEW2", amount_usd: 34.59},
+]}, refresh_field() {}};
+context.updateDetailPendingAmounts(fifoForm);
+assert.equal(fifoRow.linked_usd, 103.77);
+assert.equal(fifoRow.pending_usd, -32.26);
+assert.equal(fifoForm.doc.allocation_detail, fifoLedger, "Preview cannot change financial allocations");
+context.remittanceCashAmounts = () => ({pending: 0});
+context.remittancePresentation = () => ({reconciled: true});
+assert.ok(context.remittanceIssues({...fifoForm.doc, docstatus: 1}).some(issue => issue.text.includes(context.remittanceMoney(32.26))),
+    "Show overlinked rows even when their last reconciliation status was Conciliada");
+fifoForm.doc.targets = [{detail_row: "F", historical_application: "NEW1", amount_usd: 34.59, result: "Aplicada"}];
+context.updateDetailPendingAmounts(fifoForm);
+assert.equal(fifoRow.linked_usd, 69.18);
+assert.equal(fifoRow.pending_usd, 2.33, "Confirmed FIFO plus a manual application leaves the real remaining balance");
+fifoForm.doc.targets = [{detail_row: "F", historical_application: "OLD", amount_usd: 34.59}];
+context.updateDetailPendingAmounts(fifoForm);
+assert.equal(fifoRow.linked_usd, 34.59, "The same FIFO claim is counted once");
+fifoForm.doc.targets = [];
+context.updateDetailPendingAmounts(fifoForm);
+assert.equal(fifoRow.pending_usd, 36.92, "Removing new targets preserves confirmed cash");
+fifoForm.doc.allocation_detail = "";
+fifoRow.matched_targets = JSON.stringify([{claim_id: "H:OLD", amount_usd: 34.59,
+    instruction_id: "RETAINED:D:F:H:OLD", fifo_applications: [{application_id: "OLD", amount_usd: 34.59}]}]);
+context.updateDetailPendingAmounts(fifoForm);
+assert.equal(fifoRow.pending_usd, 36.92, "Retained metadata is automatic cash, not a removed manual target");
 console.log("OK: partial manual coverage, no double count, removed links, signed pending and automatic destinations.");
