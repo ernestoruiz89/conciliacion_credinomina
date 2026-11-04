@@ -83,6 +83,8 @@ def get_context(item_name: str, deposit_name: str):
     deposit = frappe.get_doc("CN Remittance Allocation", deposit_name)
     _check_deposit(item, deposit)
     available, cash, existing = _capacity(item, deposit)
+    from credinomina_reconciliation.detail_balances import update_detail_balances
+    update_detail_balances(deposit)
     sign = -1 if money(item.amount_usd) < 0 else 1
     return {"item_modified": str(item.modified), "deposit_modified": str(deposit.modified),
             "available_usd": money_float(available), "cash_usd": money_float(cash), "existing": existing,
@@ -91,7 +93,7 @@ def get_context(item_name: str, deposit_name: str):
             "date": str(deposit.deposit_date), "employer": deposit.employer,
             "rows": [{"name": row.name, "idx": row.idx, "client_name": row.client_name,
                       "client_number": row.client_number, "loan_number": row.loan_number,
-                      "amount_usd": row.amount_usd} for row in deposit.detail_rows or []]}
+                      "amount_usd": row.amount_usd, "pending_usd": row.pending_usd} for row in deposit.detail_rows or []]}
 
 
 @frappe.whitelist(methods=["POST"])
