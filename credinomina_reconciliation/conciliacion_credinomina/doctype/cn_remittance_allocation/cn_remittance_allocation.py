@@ -687,8 +687,17 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     from credinomina_reconciliation.client_credit import guard_detail_replacement
     from credinomina_reconciliation.remittance_detail import detail_amount_usd
     from credinomina_reconciliation.rounding import sum_money
-    guard_detail_replacement(document)
     detail_hash = file_sha256(content)
+    if (document.detail_hash == detail_hash and document.get("detail_rows")
+            and document.get("detail_source_file") == source_url):
+        # Importing identical bytes must not replace child identities, confirmed
+        # client/credit choices, manual links or reconciliation evidence.
+        return
+    guard_detail_replacement(document)
+    from credinomina_reconciliation.deposit_reconciliation import entries
+    if document.get("detail_rows") and any(entry.get("fila_detalle") for entry in entries(document.get("allocation_detail"))):
+        frappe.throw(_("El depósito tiene filas conciliadas. Conserve el archivo actual; para reemplazarlo por uno distinto, "
+            "desconcilie explícitamente el depósito antes de cambiar su detalle."))
     previous_reasons = {}
     if document.detail_hash == detail_hash:
         for row in document.detail_rows or []:

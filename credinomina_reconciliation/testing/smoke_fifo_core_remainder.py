@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run():
+def run(reimported=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -39,11 +39,25 @@ def run():
                 deposit_reference=marker, deposit_date="2025-09-15", deposit_currency="USD", deposit_amount=26.17,
                 apply_fifo=1, detail_file=f"/private/files/{marker}.xlsx", detail_source_file=f"/private/files/{marker}.xlsx",
                 detail_hash="TEST", detail_periods=[dict(period=period.name)],
-                detail_rows=[dict(client=client.name, client_number=client.name, client_name=client.client_name,
+                detail_rows=[dict(source_row=2, client=client.name, client_number=client.name, client_name=client.client_name,
                     loan_number=marker, employer=company.name, deducted_usd=26.17, amount_usd=26.17)])).insert()
             deposit.submit(); reconcile_deposit(deposit); deposit.reload()
             assert money(deposit.allocated_usd) == money(13.08)
             original = json.loads(deposit.allocation_detail)
+            if reimported:
+                # Simulate the former importer: identical file, new child ID,
+                # lost resolved credit and cleared matching cache, while the
+                # confirmed ledger and source payment still reference OLD.
+                removed = deposit.detail_rows[0].as_dict()
+                new_name = frappe.generate_hash(length=10)
+                frappe.db.sql("UPDATE `tabCN Remittance Detail` SET name=%s WHERE parent=%s AND name=%s",
+                    (new_name, deposit.name, removed["name"]))
+                frappe.db.set_value("CN Remittance Detail", new_name,
+                    dict(loan_number="", matched_targets="[]", linked_usd=0, pending_usd=26.17), update_modified=False)
+                deposit.reload()
+                frappe.get_doc(dict(doctype="Version", ref_doctype=deposit.doctype, docname=deposit.name,
+                    data=json.dumps(dict(changed=[["detail_status", "Parcial", "Cargado"]],
+                        removed=[["detail_rows", removed]], added=[["detail_rows", deposit.detail_rows[0].as_dict()]]), default=str))).insert(ignore_permissions=True)
             core = frappe.get_doc(dict(doctype="CN Complementary Item", employer=company.name, category="Otros ingresos",
                 review_action="Partida de depósito", amount_reviewed=1, currency="USD", amount=13.08,
                 reference=marker, posting_date="2025-11-21", description="Partida del core para el remanente",
@@ -54,6 +68,24 @@ def run():
             core.submit()
             deposit.append("targets", dict(complementary_item=core.name, amount_usd=13.08, detail_row=deposit.detail_rows[0].name))
             deposit.save()
+            if reimported:
+                before_failure = document_state(deposit.reload())
+                before_row = deposit.detail_rows[0].as_dict()
+                versions = frappe.db.count("Version", {"ref_doctype": deposit.doctype, "docname": deposit.name})
+                frappe.db.savepoint("reimport_recovery_failure")
+                try:
+                    with patch("credinomina_reconciliation.deposit_reconciliation.assert_preserved_allocations",
+                               side_effect=RuntimeError("Injected failure after recovery")):
+                        reconcile_deposit(deposit)
+                    raise AssertionError("Expected injected failure")
+                except RuntimeError as error:
+                    assert "Injected failure" in str(error)
+                    frappe.db.rollback(save_point="reimport_recovery_failure")
+                assert document_state(deposit.reload()) == before_failure
+                assert deposit.detail_rows[0].as_dict() == before_row
+                assert frappe.db.count("Version", {"ref_doctype": deposit.doctype, "docname": deposit.name}) == versions
+                assert document_state(fixed.reload()) == fixed_state
+                original[0]["fila_detalle"] = deposit.detail_rows[0].name
             reconcile_deposit(deposit); deposit.reload(); source.reload()
             ledger = json.loads(deposit.allocation_detail)
             fifo = [entry for entry in ledger if entry.get("aplicacion_id") == source.rows[0].name]
@@ -64,6 +96,10 @@ def run():
             assert deposit.targets[0].result == "Aplicada"
             assert money(source.rows[0].historical_remitted_usd) == money(18.08)
             assert document_state(fixed.reload()) == fixed_state
+            if reimported:
+                assert deposit.detail_rows[0].loan_number == marker
+                assert len(frappe.get_all("Version", filters={"ref_doctype": deposit.doctype, "docname": deposit.name,
+                    "data": ["like", '%Recuperar trazabilidad de detalle reimportado%']}, pluck="name")) == 1
             from credinomina_reconciliation.complementary_balances import load_balances
             balance = load_balances([core])[core.name]
             assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
@@ -76,6 +112,6 @@ def run():
                 balance = load_balances([core])[core.name]
                 assert money(balance["used_usd"]) == money(13.08) and not money(balance["pending_usd"])
             return dict(confirmed_fifo=13.08, positive_core=13.08, distributed=26.16, remaining=.01,
-                repeated_without_duplicates=True, other_deposit_unchanged=True, rolled_back=True)
+                reimport_recovered=reimported, repeated_without_duplicates=True, other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()
