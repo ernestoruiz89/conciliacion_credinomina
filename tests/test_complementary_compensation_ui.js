@@ -35,7 +35,7 @@ const context = vm.createContext({window: {}, __: text => text, format_currency:
 const base = path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_complementary_item");
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item.js"), "utf8"), context);
 vm.runInContext(fs.readFileSync(path.join(base, "cn_complementary_item_list.js"), "utf8"), context);
-const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_date: postingDates.A},
+const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", amount_usd: 100, posting_date: postingDates.A},
     is_new: () => false, is_dirty: () => true, get_perm: () => allow, trigger() {}, page: {add_menu_item() {}},
     set_df_property: (field, prop, value) => { properties[field + ":" + prop] = value; },
     add_custom_button: (label, handler) => {actions[label] = handler;},
@@ -78,7 +78,7 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_
     assert.equal(confirmation.args.request_key, "key");
     assert.equal(confirmation.args.amount_usd, 30);
     assert.ok(calls.includes("reload"));
-    frm.doc = {name: "A", docstatus: 1, category: "Compensación entre partidas", compensations: [{}], compensation_pending_usd: 70};
+    frm.doc = {name: "A", docstatus: 1, category: "Compensación entre partidas", pending_usd: 70, compensations: [{}], compensation_pending_usd: 70};
     events.refresh(frm);
     assert.equal(properties["amount:read_only"], 1);
     assert.equal(typeof actions["Consultar saldo a fecha"], "function");
@@ -98,6 +98,20 @@ const frm = {doc: {name: "A", docstatus: 0, category: "Por clasificar", posting_
     const indicator = context.frappe.listview_settings["CN Complementary Item"].get_indicator({category: frm.doc.category, compensation_status: "Compensada totalmente", reconciliation_status:"Conciliado", _cn_balance:{state:"Conciliado"}});
     assert.equal(indicator[1], "green");
     allow = true;
+    frm.doc = {name: "REMAINDER", docstatus: 1, category: "Ajuste de aplicación", review_action: "Ajuste de aplicación",
+        accounting_source_key: "core", related_application: "APP", employer: "EMP", pending_usd: .01, amount_usd: 1929.35};
+    events.refresh(frm);
+    assert.equal(typeof actions["Compensar con otra partida"], "function", "Allow only the unused remainder of a confirmed adjustment");
+    await actions["Compensar con otra partida"]();
+    const remainderFilters = dialog.fields.find(field => field.fieldname === "counterpart").get_query().filters;
+    assert.equal(remainderFilters.docstatus, 1);
+    assert.equal(remainderFilters.employer, "EMP");
+    assert.ok(remainderFilters.category[1].includes("Ajuste de conciliación"));
+    assert.equal(remainderFilters.pending_usd[1], 0);
+    delete actions["Compensar con otra partida"];
+    frm.doc.pending_usd = 0;
+    events.refresh(frm);
+    assert.equal(actions["Compensar con otra partida"], undefined);
     frm.doc = {name: "CREDIT", docstatus: 1, category: "Saldo a favor del cliente", employer: "EMP",
         registered_deposit: "DEP", result: "Saldo a favor documentado", credit_pending_usd: 20};
     events.refresh(frm);

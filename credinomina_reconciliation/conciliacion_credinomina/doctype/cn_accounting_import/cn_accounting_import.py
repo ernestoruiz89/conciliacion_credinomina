@@ -961,7 +961,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=True, 
         "CN Complementary Item",
         filters={"docstatus": 1, "origin_deposit": ["is", "not set"], "category": ["not in", [COMPANY_CREDIT, CLIENT_CREDIT, TOLERANCE_CATEGORY, APPLICATION_ADJUSTMENT, "Compensación entre partidas", "Vinculado a depósito"]], **company_filters},
         fields=[
-            "name", "reference", "amount_usd", "employer", "period",
+            "name", "reference", "amount_usd", "compensated_usd", "employer", "period",
             "client_number", "loan_number", "legacy_installment_number as installment_number",
             "generic_distribution", "receivable_origin", "category", "subcategory_effect", "docstatus", "accounting_source_key",
         ],
@@ -2114,10 +2114,11 @@ def _distribute_deposits(
         for item in items
     }
     complementary_totals = defaultdict(float)
+    from credinomina_reconciliation.complementary_remainders import cash_capacity
     for item in complementary_items:
         target_name = complementary_target.get(item.name)
         if target_name:
-            complementary_totals[target_name] += flt(item.amount_usd)
+            complementary_totals[target_name] += float(cash_capacity(item))
 
     deposits = []
     from credinomina_reconciliation.paying_employers import load_payer_map, allowed_employers, permits_claim
@@ -2229,7 +2230,7 @@ def _distribute_deposits(
         )
     for item in complementary_items:
         claims.append(
-            {"id": "X:" + item.name, "amount_usd": flt(item.amount_usd),
+            {"id": "X:" + item.name, "amount_usd": float(cash_capacity(item)),
              "kind": "X", "client_number": item.client_number,
              "accounting_source_key": item.get("accounting_source_key"),
              "period_closed": item.period in closed_periods,

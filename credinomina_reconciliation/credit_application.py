@@ -209,15 +209,16 @@ def rebuild_destination(period):
             'employer': ['in', reconciliation_companies(period.employer)], 'origin_deposit': ['is', 'not set'],
             'category': ['not in', [*CREDIT_CATEGORIES, engine.TOLERANCE_CATEGORY, engine.APPLICATION_ADJUSTMENT,
                                    'Compensación entre partidas', 'Vinculado a depósito']]},
-            fields=['name', 'reference', 'amount_usd', 'employer', 'period', 'client_number', 'loan_number',
+            fields=['name', 'reference', 'amount_usd', 'compensated_usd', 'employer', 'period', 'client_number', 'loan_number',
                     'legacy_installment_number as installment_number', 'generic_distribution', 'receivable_origin', 'category',
                     'subcategory_effect', 'docstatus', 'accounting_source_key'], limit_page_length=0)
         evidence_periods = engine._load_open_periods(['in', reconciliation_companies(period.employer)])
         mapping = engine._allocate_complementary_items(complements, evidence_periods)
+        from credinomina_reconciliation.complementary_remainders import cash_capacity
         for (target, _reference), items in mapping.items():
             for item in items:
                 complementary_target[item.name] = target
-                complementary_totals[target] += money_float(item.amount_usd)
+                complementary_totals[target] += money_float(cash_capacity(item))
     deposits = _related_cash([], [period], rows, complements)
     extra = {entry.get('periodo') for deposit in deposits for entry in json.loads(deposit.allocation_detail or '[]')}
     evidence = [period, *(frappe.get_doc('CN Reconciliation Period', name) for name in extra - {None, '', period.name})]

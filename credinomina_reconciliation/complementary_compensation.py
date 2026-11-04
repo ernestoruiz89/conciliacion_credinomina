@@ -1,5 +1,6 @@
 """Dated, paired offsets of accounting evidence; never cash or loan payments."""
 import re
+from functools import wraps
 from uuid import uuid4, uuid5, NAMESPACE_URL
 
 import frappe
@@ -11,6 +12,7 @@ from credinomina_reconciliation.client_credit import CREDIT_CATEGORIES, RESULT a
 from credinomina_reconciliation.client_identity import name_key
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, clean_text
 from credinomina_reconciliation import credit_usage
+from credinomina_reconciliation.complementary_remainders import is_remainder, used_elsewhere
 
 CATEGORY = "Compensación entre partidas"
 DOCTYPE = "CN Complementary Item"
@@ -18,7 +20,21 @@ _WRITE_TOKEN = object()
 _ENTRY_FIELDS = ("name", "usd_currency", "operation_id", "counterpart", "compensation_date", "amount_usd", "reason", "confirmed_by", "confirmed_on", "entry_key", "reverses_operation_id", "corrects_operation_id", *credit_usage.EFFECT_FIELDS)
 _FROZEN_FIELDS = ("category", "review_action", "amount", "currency", "fx_rate", "posting_date", "employer", "period",
                   "related_application", "related_import", "registered_deposit", "client_number", "loan_number", "description", "reference",
-                  "credit_client", "credit_detail_row")
+                  "credit_client", "credit_detail_row", "application_adjustment_usd", "application_adjustment_history",
+                  "adjustment_periods", "adjustment_collection_rows")
+
+
+def _atomic(function):
+    @wraps(function)
+    def write(*args, **kwargs):
+        point = "cn_offset_" + uuid4().hex
+        frappe.db.savepoint(point)
+        try:
+            return function(*args, **kwargs)
+        except Exception:
+            frappe.db.rollback(save_point=point)
+            raise
+    return write
 
 
 def _origin_date(doc):
@@ -30,8 +46,10 @@ def balance(doc, as_of_date=None):
     original = abs(money(doc.get("amount_usd"))) if getdate(_origin_date(doc)) <= cutoff else money(0)
     compensated = sum_money(row.amount_usd for row in doc.get("compensations", [])
                             if getdate(row.compensation_date) <= cutoff)
-    pending = original - compensated
+    assigned = used_elsewhere(doc, cutoff) if getdate(_origin_date(doc)) <= cutoff else money(0)
+    pending = original - assigned - compensated
     return {"original_usd": money_float(original), "compensated_usd": money_float(compensated),
+            "assigned_usd": money_float(assigned),
             "pending_usd": money_float(pending), "status": "Compensada totalmente" if compensated and not pending
             else "Compensada parcialmente" if compensated else "Sin compensar"}
 
@@ -43,7 +61,7 @@ def guard_document(doc, previous=None):
     old = previous.get("compensations", []) if previous else []
     current = doc.get("compensations", [])
     def normalized(field, value):
-        if field in {"amount", "amount_usd", "fx_rate"}:
+        if field in {"amount", "amount_usd", "fx_rate", "application_adjustment_usd"}:
             return decimal_value(value)
         if value and field in {"posting_date", "compensation_date"}:
             return getdate(value)
@@ -75,7 +93,7 @@ def update_totals(doc, previous=None):
     doc.compensated_usd = values["compensated_usd"] if values else 0
     doc.compensation_pending_usd = values["pending_usd"] if values else 0
     doc.compensation_status = values["status"] if values else ""
-    if values and doc.category not in CREDIT_CATEGORIES:
+    if values and doc.category == CATEGORY:
         doc.review_status = values["status"]
     if doc.category in CREDIT_CATEGORIES and doc.docstatus == 1 and doc.get('result') == CREDIT_RESULT:
         doc.update(credit_usage.totals(doc, allow_review=doc.flags.get('compensation_write_token') is _WRITE_TOKEN))
@@ -105,6 +123,17 @@ def _eligible(doc):
             frappe.throw(_("El saldo a favor ya tiene un asiento verificado en su excepción; no lo compense nuevamente."))
         # Consume available credit without changing its original deposit or
         # claiming that the offset was a refund or a new loan payment.
+        return
+    if is_remainder(doc):
+        from credinomina_reconciliation.imported_complement_amount import ledger_magnitude
+        if (doc.get("registered_deposit") or doc.get("receivable_origin") or doc.get("generic_distribution")
+                or doc.get("review_action") not in {"Ajuste de aplicación", "Partida de depósito"}
+                or ledger_magnitude(doc) != abs(money(doc.amount_usd))):
+            frappe.throw(_("La partida no tiene evidencia válida para compensar únicamente su remanente."))
+        periods = set(frappe.parse_json(doc.get("adjustment_periods") or "[]")) | {doc.get("period")}
+        for period in periods - {None, ""}:
+            if frappe.db.get_value("CN Reconciliation Period", period, "status") == "Cerrado":
+                frappe.throw(_("La partida pertenece a un período cerrado. Reábralo antes de compensar."))
         return
     if doc.docstatus == 2 or (doc.docstatus == 1 and doc.category != CATEGORY) or doc.category in {"Ajuste de aplicación", "Diferencia por tolerancia"}:
         frappe.throw(_("Seleccione un borrador, una partida en compensación o un saldo a favor confirmado; no ajustes de aplicación ni tolerancias."))
@@ -138,6 +167,25 @@ def _validate_pair(left, right):
         frappe.throw(_("Seleccione una partida diferente."))
     for doc in (left, right):
         _eligible(doc)
+    if any(is_remainder(doc) for doc in (left, right)):
+        if not all(is_remainder(doc) for doc in (left, right)):
+            frappe.throw(_("Compense el remanente con otra partida importada y confirmada que conserve su tratamiento."))
+        if not left.employer or left.employer == "NO IDENTIFICADA" or left.employer != right.employer:
+            frappe.throw(_("Identifique la misma empresa en ambas partidas antes de compensar sus remanentes."))
+        if not left.source_account or left.source_account != right.source_account:
+            frappe.throw(_("Los remanentes deben corresponder a la misma cuenta contable original."))
+        matched = False
+        for field, normalize in (("client_number", canonical_identifier), ("loan_number", canonical_credit_number)):
+            a, b = clean_text(left.get(field)), clean_text(right.get(field))
+            if a and b:
+                if normalize(a) != normalize(b):
+                    frappe.throw(_("El cliente o crédito no coincide entre los remanentes."))
+                matched = True
+        if not matched:
+            a = name_key(left.get("client_name") or left.get("source_client_name"))
+            b = name_key(right.get("client_name") or right.get("source_client_name"))
+            if not a or a != b:
+                frappe.throw(_("Identifique el mismo cliente en ambas partidas antes de compensar sus remanentes."))
     credits = [doc for doc in (left, right) if doc.category in CREDIT_CATEGORIES]
     if credits:
         if len(credits) != 1:
@@ -198,6 +246,9 @@ def _load_pair(item_name, counterpart, permission="write"):
         doc.check_permission(permission)
         preflight.append(doc)
     lock_recovery_origins(preflight)
+    if any(is_remainder(doc) for doc in preflight):
+        from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
+        lock_cash_pool({doc.employer for doc in preflight if doc.employer})
     # Stable parent lock order + current child reads prevent double consumption.
     docs = {}
     for name in sorted({item_name, counterpart}):
@@ -245,7 +296,9 @@ def _credit_metadata(docs, effect=None, entry_id=None):
 def _available(doc):
     if doc.category in CREDIT_CATEGORIES:
         return credit_usage.totals(doc)['credit_pending_usd']
-    return balance(doc)['pending_usd']
+    values = balance(doc)
+    reserved = used_elsewhere(doc, reserve=True)
+    return money(values['pending_usd']) - max(reserved - money(values['assigned_usd']), money(0))
 
 
 def _summary(doc, as_of_date=None):
@@ -259,6 +312,7 @@ def _summary(doc, as_of_date=None):
 
 
 @frappe.whitelist(methods=["POST"])
+@_atomic
 def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, reason, request_key,
                          credit_effect=None, credit_management_entry=None):
     if not re.fullmatch(r"[a-f0-9]{32}", request_key or ""):
@@ -292,6 +346,8 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
         capacity = balance(doc)['pending_usd'] if metadata['credit_effect'] == credit_usage.DOCUMENTARY else _available(doc)
         if amount > money(capacity):
             frappe.throw(_("El importe supera el saldo pendiente de {0}.").format(doc.name))
+        if is_remainder(doc):
+            _validate_correction_timeline(doc, [dict(compensation_date=date, amount_usd=amount)])
         _validate_credit_timeline(doc, [dict(compensation_date=date, amount_usd=amount, **metadata)])
         if any(getdate(row.compensation_date) > date for row in doc.get("compensations", [])):
             frappe.throw(_("La fecha no puede preceder a una compensación ya registrada en esta partida. Para corregir una fecha, use Corregir fecha de compensación, incluso si ya revirtió la operación."))
@@ -300,7 +356,7 @@ def confirm_compensation(item_name, counterpart, amount_usd, compensation_date, 
     # No explicit commit: both halves and their Version records share one transaction.
     for index, doc in enumerate(sorted((left, right), key=lambda item: item.name)):
         other = right if doc.name == left.name else left
-        if doc.category not in CREDIT_CATEGORIES:
+        if doc.category not in CREDIT_CATEGORIES and not is_remainder(doc):
             doc.category = doc.review_action = CATEGORY
         doc.append("compensations", {"operation_id": request_key, "entry_key": f"{request_key}-{index}",
             "counterpart": other.name, "compensation_date": date, "amount_usd": money_float(amount),
@@ -363,9 +419,12 @@ def _validate_correction_timeline(doc, additions):
     used = money(0)
     for day, change in sorted(changes.items()):
         used += change
-        capacity = abs(money(doc.amount_usd)) if day >= getdate(_origin_date(doc)) else money(0)
+        capacity = (abs(money(doc.amount_usd)) - used_elsewhere(doc, day, reserve=True)
+                    if day >= getdate(_origin_date(doc)) else money(0))
         if used < 0 or used > capacity:
             frappe.throw(_("La corrección deja un saldo compensado inválido en {0} al {1}. Revise las demás compensaciones.").format(doc.name, day))
+    if is_remainder(doc) and used + used_elsewhere(doc, reserve=True) > abs(money(doc.amount_usd)):
+        frappe.throw(_("El remanente de {0} ya está asignado o reservado. Se conservaron sus vínculos.").format(doc.name))
 
 
 def _validate_credit_timeline(doc, additions):
@@ -374,6 +433,7 @@ def _validate_credit_timeline(doc, additions):
 
 
 @frappe.whitelist(methods=["POST"])
+@_atomic
 def correct_compensation_date(item_name, operation_id, compensation_date, reason, request_key):
     """Replace an effective date with paired append-only neutralizing entries.
 
@@ -458,6 +518,7 @@ def correct_compensation_date(item_name, operation_id, compensation_date, reason
 
 
 @frappe.whitelist(methods=["POST"])
+@_atomic
 def reverse_compensation(item_name, operation_id, reversal_date, reason, request_key):
     """Append the opposite entry to both ledgers in one transaction."""
     if not re.fullmatch(r"[a-f0-9]{32}", request_key or "") or request_key == operation_id:

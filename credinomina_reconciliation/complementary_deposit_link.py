@@ -54,7 +54,8 @@ def _capacity(item, deposit):
     }, fields=["parent", "amount_usd"], limit_page_length=0):
         planned[row.parent] += abs(money(row.amount_usd))
     reserved = sum_money(max(paid[name], planned[name]) for name in paid.keys() | planned.keys())
-    available = max(abs(money(item.amount_usd)) - reserved, money(0))
+    from credinomina_reconciliation.complementary_remainders import cash_capacity
+    available = max(abs(cash_capacity(item)) - reserved, money(0))
     credits = sum_money(row.amount_usd for row in load_credits([deposit.name]))
     cash = pending_selection([], [deposit.as_dict()], deposit.name, money(deposit.amount_usd) - credits,
                              [row.as_dict() for row in deposit.targets or []])

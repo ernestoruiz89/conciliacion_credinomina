@@ -81,7 +81,10 @@ def prepare_deposit_treatment(doc, previous=None):
     special = {"Ajuste de aplicación", "Compensación entre partidas"}
     if previous and previous.docstatus == 1 and previous.category in special:
         frappe.throw(_("No se puede convertir un ajuste confirmado en partida de depósito. Cancele el ajuste por su procedimiento antes de cambiar el tratamiento."))
-    if doc.get("compensations"):
+    from credinomina_reconciliation.complementary_remainders import is_remainder
+    preserved = (previous and is_remainder(previous) and is_remainder(doc)
+                 and previous.category == doc.category and previous.review_action == doc.review_action)
+    if doc.get("compensations") and not preserved:
         frappe.throw(_("Una partida con compensaciones confirmadas no puede convertirse en partida de depósito."))
     # Submitted deposit complements created before this change retain their
     # historical descriptive links. Only drafts / first submission are reset.

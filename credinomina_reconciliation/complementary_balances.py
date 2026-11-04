@@ -83,7 +83,9 @@ def financial_balance(item, distributions=()):
     elif category == "Ajuste de aplicación":
         kind = "Ajuste aplicado"
         from credinomina_reconciliation.application_adjustment_links import total
-        used = total(item) if confirmed else money(0)
+        used = total(item) + money(item.get("compensated_usd")) if confirmed else money(0)
+        if money(item.get("compensated_usd")):
+            kind = "Ajuste aplicado y remanente compensado"
         pending = abs(original) - used
         state = "Conciliada" if not pending else "Parcial" if used else "Pendiente de confirmar"
     elif category == "Diferencia por tolerancia":
@@ -97,7 +99,9 @@ def financial_balance(item, distributions=()):
     elif category in CASH_CATEGORIES:
         kind = "Distribuido en depósitos"
         assigned = sum((money(row.get("amount_usd")) for row in distributions), money(0))
-        used = assigned if original >= 0 else -assigned
+        used = (assigned if original >= 0 else -assigned) + money(item.get("compensated_usd"))
+        if money(item.get("compensated_usd")):
+            kind = "Distribuido en depósitos y remanente compensado"
         pending = abs(original) - used
         state = "Conciliada" if not pending and confirmed else "Parcial" if used else "Pendiente" if confirmed else "Pendiente de confirmar"
     if pending < 0 or used < 0 or (amount_issue and item.get('docstatus') != 2):
@@ -107,6 +111,7 @@ def financial_balance(item, distributions=()):
         state, management = 'Revisar distribución', None
     return {"name": item.get("name"), "original_usd": money_float(original), "used_usd": money_float(used),
             "pending_usd": money_float(pending), "financial_status": state, "used_label": kind,
+            "compensated_usd": money_float(money(item.get("compensated_usd"))),
             "accounting_status": item.get("accounting_status") or "Pendiente de registro",
             "management_pending_usd": money_float(management) if management is not None else None,
             "management_status": (management_status or item.get("credit_management_status") or "Pendiente") if management is not None else "",
