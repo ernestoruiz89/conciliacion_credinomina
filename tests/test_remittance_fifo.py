@@ -186,6 +186,22 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual(context["retained_instructions"], [])
         self.assertEqual([(row["claim_id"], row["amount_usd"]) for row in result["allocations"]], [("H:A", 40)])
 
+    def test_outside_period_error_explains_authorization_instead_of_suggesting_undo(self):
+        self.previously_paid_row()
+        self.claims[1]["period"] = "OTHER-PERIOD"
+        manual = [dict(id="NEW", deposit_id="DEP", claim_id="H:B", amount_usd=22.02, origin=MANUAL, detail_row="ROW1")]
+        self.doc.targets = [frappe._dict(name="NEW", detail_row="ROW1", historical_application="B")]
+        _, result = self.run_engine(manual)
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        with patch.object(frappe, "throw", side_effect=ValueError) as reject, self.assertRaises(ValueError):
+            assert_preserved_allocations(self.doc, result, [])
+        message = reject.call_args.args[0]
+        self.assertIn("OTHER-PERIOD", message)
+        self.assertIn("Permitir vínculos manuales con períodos distintos a los seleccionados", message)
+        self.assertIn("Guarde el depósito y vuelva a conciliar", message)
+        self.assertNotIn("Use Desconciliar", message)
+        self.assertEqual(self.doc.allocated_usd, 33.03)
+
     def test_unproven_saved_fifo_is_not_inferred_or_silently_released(self):
         self.previously_paid_row()
         self.rows[0].matched_targets = "[]"

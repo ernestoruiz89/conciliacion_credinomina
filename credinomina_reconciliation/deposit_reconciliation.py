@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.utils import escape_html
 
 from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.allocation_origin import MANUAL, UNRECORDED
@@ -193,6 +194,16 @@ def assert_preserved_allocations(document, allocation, periods):
     for key, amount in old.items():
         assigned = new.get(key, money(0))
         if amount * assigned <= 0 or abs(assigned) < abs(amount):
+            # Explain rejected row instructions before suggesting withdrawal of
+            # already confirmed cash; a missing authorization is not an undo.
+            results = allocation.get("instruction_results") or {}
+            reasons = list(dict.fromkeys(str(results[target.name]) for target in document.get("targets") or []
+                if key[1] and target.get("detail_row") == key[1]
+                and results.get(target.get("name")) not in (None, "", "Aplicada", "Pendiente")))
+            if reasons:
+                frappe.throw(_("No se pudo conciliar el depósito {0} porque un destino manual fue rechazado. "
+                    "Se conservaron las asignaciones confirmadas y no se guardó ningún cambio.").format(escape_html(document.name))
+                    + "<br><br>" + "<br>".join(escape_html(reason) for reason in reasons[:3]))
             frappe.throw(_("La conciliación cambiaría una asignación ya confirmada del depósito {0}. "
                 "Use Desconciliar en la fila o en el depósito antes de modificar sus vínculos. No se guardó ningún cambio.").format(document.name))
 

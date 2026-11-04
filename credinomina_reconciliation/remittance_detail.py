@@ -170,7 +170,9 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         claim_period = clean_text(claim.get("period"))
         if periods and claim_period not in periods and not (claim.get("kind") == "X" and not claim_period):
             if not allow_other_periods:
-                return [], f"{_destination_label(claim)}: el período {claim_period or 'sin identificar'} está fuera de los períodos del detalle. Revise Períodos a conciliar o autorice otros períodos."
+                return [], (f"{_destination_label(claim)}: el período {claim_period or 'sin identificar'} está fuera de los períodos del detalle. "
+                    "Incluya ese período en Períodos a conciliar o active «Permitir vínculos manuales con períodos distintos a los seleccionados». "
+                    "Guarde el depósito y vuelva a conciliar. Se mantienen las validaciones de empresa, cliente, crédito, importe y período abierto.")
             if not claim_period or claim.get("period_closed"):
                 return [], f"{_destination_label(claim)}: el período no está abierto. Reabra o corrija el período antes de vincular."
             other_periods.add(claim_period)

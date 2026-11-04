@@ -40,6 +40,18 @@ class SingleDepositTests(unittest.TestCase):
             with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
                 scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
 
+    def test_rejected_target_message_is_escaped_and_limited_to_the_affected_row(self):
+        doc, ledger = self.legacy_manual_deposit()
+        ledger[0]["amount_usd"] = 25
+        result = dict(allocations=ledger, instruction_results={"TA": '<img src=x onerror="alert(1)">', "OTHER": "Unrelated rejection"})
+        doc.targets.append(frappe._dict(name="OTHER", detail_row="ANOTHER-ROW"))
+        with patch.object(frappe, "throw", side_effect=ValueError) as reject, self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(doc, result, [])
+        message = reject.call_args.args[0]
+        self.assertIn("&lt;img", message)
+        self.assertNotIn("<img", message)
+        self.assertNotIn("Unrelated rejection", message)
+
     def test_legacy_signed_complementary_metadata_preserves_amount_sign_and_destination(self):
         for amount in (526.55, -.01):
             with self.subTest(amount=amount):
