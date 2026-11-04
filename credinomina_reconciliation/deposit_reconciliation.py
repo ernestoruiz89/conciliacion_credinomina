@@ -328,6 +328,8 @@ def reconcile_deposit(document, progress=None, undo=False):
         }, limit_page_length=1):
             frappe.throw(_("Cancele los saldos a favor vinculados antes de desconciliar el depósito."))
     else:
+        from credinomina_reconciliation.remittance_detail_recovery import recover_reimported_detail
+        recover_reimported_detail(document)
         document._validate_deposit()
     imports = engine.load_scoped_imports(companies)
     source_rows = [row for imported in imports for row in imported.rows]

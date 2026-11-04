@@ -1342,14 +1342,26 @@ function toggleRemittanceDetailActions(frm) {
 }
 
 async function importRemittanceDetail(frm) {
-    if (frm.is_dirty()) await frm.save();
-    await frappe.call({
-        method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.import_remittance_detail",
-        args: { remittance_name: frm.doc.name },
-        freeze: true,
-        freeze_message: __("Cargando detalle del depósito…"),
-    });
-    await frm.reload_doc();
+    if (frm.__loading_deposit_detail) return;
+    frm.__loading_deposit_detail = true;
+    try {
+        const confirmed = await new Promise(resolve => frappe.confirm(
+            __("¿Desea cargar el detalle del depósito desde el archivo adjunto? Si el archivo ya está cargado y no ha cambiado, se conservarán sus filas y vínculos."),
+            () => resolve(true), () => resolve(false),
+            __("Cargar detalle"), __("Cancelar"),
+        ));
+        if (!confirmed) return;
+        if (frm.is_dirty()) await frm.save();
+        await frappe.call({
+            method: "credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation.cn_remittance_allocation.import_remittance_detail",
+            args: { remittance_name: frm.doc.name },
+            freeze: true,
+            freeze_message: __("Cargando detalle del depósito…"),
+        });
+        await frm.reload_doc();
+    } finally {
+        frm.__loading_deposit_detail = false;
+    }
 }
 
 async function showRemittanceComplementaryItems(frm) {
