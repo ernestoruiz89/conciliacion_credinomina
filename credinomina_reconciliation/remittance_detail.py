@@ -110,15 +110,25 @@ def _destination_label(claim):
 
 
 def _manual_application_identity_matches(row, claim, employer):
-    """Only explicit application links may cross references with proven identity."""
-    if claim.get("kind") != "H" or not clean_text(row.get("loan_number")):
+    """Explicit links may cross credits only with proven client and company."""
+    loan, target_loan = clean_text(row.get("loan_number")), clean_text(claim.get("loan_number"))
+    if claim.get("kind") not in {"H", "C", "X"} or not loan or not target_loan:
         return False
     if clean_text(row.get("employer") or employer) != clean_text(claim.get("group")):
         return False
     same_client = (bool(row.get("client") and row.get("client") == claim.get("client"))
                    or any(_same_id(row.get(field), claim.get(field))
                           for field in ("client_number", "national_id", "employee_number")))
-    return same_client and _candidate_matches(row, claim, check_reference=False)
+    if not same_client:
+        return False
+    if canonical_credit_number(loan) != canonical_credit_number(target_loan):
+        # A quota/reference from the original credit does not identify a quota
+        # on another credit. Keep all person/company conflict checks, and never
+        # alter the imported row or enable this relaxation for automatic FIFO.
+        identity = dict(row, loan_number=target_loan)
+        identity.pop("installment_number", None)
+        return _candidate_matches(identity, claim, check_reference=False)
+    return claim.get("kind") == "H" and _candidate_matches(row, claim, check_reference=False)
 
 
 def _unidentified_complement_link(row, claim, instruction):
@@ -159,6 +169,7 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     targets = []
     unidentified_complements = []
     different_references = []
+    different_credits = []
     other_periods = set()
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
@@ -188,7 +199,10 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         elif not _candidate_matches(row, claim):
             if not _manual_application_identity_matches(row, claim, employer):
                 return [], f"{_destination_label(claim)}: {_candidate_mismatch(row, claim)}"
-            different_references.append(claim["id"].removeprefix("H:"))
+            if canonical_credit_number(row.get("loan_number")) != canonical_credit_number(claim.get("loan_number")):
+                different_credits.append(f"{_destination_label(claim)} ({row['loan_number']} → {claim['loan_number']})")
+            else:
+                different_references.append(claim["id"].removeprefix("H:"))
         if not money(instruction['amount_usd']):
             return [], f"{_destination_label(claim)}: indique un importe distinto de cero para el vínculo."
         if money(instruction['amount_usd']) < 0 and claim.get('kind') != 'X':
@@ -208,6 +222,8 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         reason += "; referencias distintas aceptadas con cliente, crédito y empresa coincidentes: " + ", ".join(
             dict.fromkeys(different_references)
         )
+    if different_credits:
+        reason += "; otros créditos del mismo cliente seleccionados manualmente: " + ", ".join(dict.fromkeys(different_credits))
     if other_periods:
         reason += "; vínculo autorizado con otros períodos: " + ", ".join(sorted(other_periods))
     if unidentified_complements:
