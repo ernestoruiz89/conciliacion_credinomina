@@ -98,7 +98,7 @@ def run():
                 reconcile_deposit(deposit); deposit.reload(); imported.reload()
                 assert money(deposit.allocated_usd) == 40
                 assert money(imported.rows[0].historical_remitted_usd) == 90
-                assert deposit.detail_rows[0].match_status == 'Pendiente manual'
+                assert deposit.detail_rows[0].match_status == 'Revisar: Pendiente manual'
             return dict(shared_application_rows=True, signed_counterpart_released_together=True,
                 other_row_and_deposit_unchanged=True, no_automatic_reselection=True, rolled_back=True)
     finally:

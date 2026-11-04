@@ -61,6 +61,30 @@ class SingleDepositTests(unittest.TestCase):
             with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
                 scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
 
+    def test_empty_legacy_cache_can_preserve_applied_cash_while_adding_a_new_manual_claim(self):
+        doc, ledger = self.legacy_manual_deposit()
+        doc.detail_rows[0].matched_targets = "[]"
+        for target in doc.targets:
+            target.result = "Aplicada"
+        doc.targets.append(frappe._dict(name="NEW", historical_application="C", detail_row="R", amount_usd=16.05, result=None))
+        doc.detail_rows[0].linked_usd = 65.53
+        new_cash = dict(deposit_id="D", claim_id="H:C", amount_usd=16.05, origin="Selección manual", detail_row="R")
+        original = copy.deepcopy(doc)
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger + [new_cash]}, [])
+        self.assertEqual(doc, original)
+        # New instructions never authorize reducing or changing the old claims.
+        for changed in (dict(amount_usd=25.99), dict(claim_id="H:OTHER"), dict(detail_row="OTHER")):
+            proposed = copy.deepcopy(ledger + [new_cash]); proposed[0].update(changed)
+            with self.subTest(changed=changed), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(doc, {"allocations": proposed}, [])
+        # A pending target that already has recorded cash cannot masquerade as
+        # a new claim in order to reattribute that previous allocation.
+        raw = json.loads(doc.allocation_detail)
+        raw.append(dict(tipo="Aplicacion historica", aplicacion_id="C", importe_usd=16.05, origen="Selección manual", fila_detalle="OTHER"))
+        doc.allocation_detail = json.dumps(raw); doc.allocated_usd = 65.53
+        with patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+            scoped.assert_preserved_allocations(doc, {"allocations": ledger + [new_cash]}, [])
+
     def test_applied_cent_targets_with_empty_cache_keep_their_partial_coverage(self):
         doc = frappe._dict(name="D", allocated_usd=.03,
             targets=[frappe._dict(name="T" + name, historical_application=name, amount_usd=.01,

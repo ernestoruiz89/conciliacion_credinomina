@@ -1577,6 +1577,12 @@ function updateDetailPendingAmounts(frm) {
     }
     let changed = false;
     for (const row of frm.doc.detail_rows || []) {
+        const state = String(row.match_status || "").trim();
+        if (!["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(state)
+                && state !== "Revisar" && !state.startsWith("Revisar:") && !state.startsWith("Revisar ")) {
+            row.match_status = `Revisar: ${state || "Pendiente"}`;
+            changed = true;
+        }
         if (row.row_kind !== "Diferencia documentada") {
             let matched = [];
             try { matched = JSON.parse(row.matched_targets || "[]"); } catch (_) { /* No valid automatic links. */ }

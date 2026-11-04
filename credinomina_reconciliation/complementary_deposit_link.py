@@ -93,7 +93,8 @@ def get_context(item_name: str, deposit_name: str):
             "date": str(deposit.deposit_date), "employer": deposit.employer,
             "rows": [{"name": row.name, "idx": row.idx, "client_name": row.client_name,
                       "client_number": row.client_number, "loan_number": row.loan_number,
-                      "amount_usd": row.amount_usd, "pending_usd": row.pending_usd} for row in deposit.detail_rows or []]}
+                      "amount_usd": row.amount_usd, "pending_usd": row.pending_usd} for row in deposit.detail_rows or []
+                     if row.get("row_kind") != "Diferencia documentada" and money(row.amount_usd) > 0 and money(row.pending_usd) > 0]}
 
 
 @frappe.whitelist(methods=["POST"])

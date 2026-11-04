@@ -1944,6 +1944,7 @@ def _validated_remittance_instructions(context, instructions):
 def _sync_remittance_details(context, allocation, claims=()):
     from credinomina_reconciliation.remittance_target_summary import describe_targets, load_target_descriptions
     from credinomina_reconciliation.detail_balances import linked_balance
+    from credinomina_reconciliation.remittance_detail_status import review_status
 
     descriptions = load_target_descriptions([
         target for state in context["contexts"].values()
@@ -2012,6 +2013,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
+                updates["match_status"] = review_status(updates["match_status"])
                 frappe.db.set_value(
                     "CN Remittance Detail", plan["row"].name,
                     updates,

@@ -78,7 +78,7 @@ class DepositDifferenceTests(unittest.TestCase):
         self.assertEqual(result["deposit_remaining"]["DEP"], 0)
         self.assertEqual(result["claim_remaining"], {"H:0": 0, "H:1": .03})
         self.assertEqual(rows["R1"]["pending_usd"], .03)
-        self.assertEqual(rows["R1"]["match_status"], "Cobertura parcial; diferencia de empresa")
+        self.assertEqual(rows["R1"]["match_status"], "Revisar: Cobertura parcial; diferencia de empresa")
         self.assertEqual(rows["DIFF"]["pending_usd"], -.03)
         self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .03)
         self.assertEqual(result["allocations"][1]["fifo_applications"][0]["amount_usd"], 39.97)
@@ -341,7 +341,7 @@ class DepositDifferenceTests(unittest.TestCase):
         self.rows[0].manual_reconciliation_required=1
         result, statuses, rows=self.reconcile()
         self.assertEqual([a['claim_id'] for a in result['allocations']],['H:1'])
-        self.assertEqual(rows['R0']['match_status'],'Pendiente manual')
+        self.assertEqual(rows['R0']['match_status'],'Revisar: Pendiente manual')
         self.assertEqual(result['deposit_remaining']['DEP'],60)
         manual=[dict(id='M1',deposit_id='DEP',claim_id='H:0',amount_usd=60,detail_row='R0',origin='Manual')]
         result, statuses, rows=self.reconcile(manual)

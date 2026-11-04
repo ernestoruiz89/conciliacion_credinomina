@@ -3,6 +3,7 @@ import json
 from collections import defaultdict
 
 from credinomina_reconciliation.rounding import money, money_float, sum_money
+from credinomina_reconciliation.remittance_detail_status import review_status
 
 
 def confirmed_fifo_by_row(document):
@@ -89,6 +90,7 @@ def update_detail_balances(document):
         if target.get("detail_row"):
             by_row[target.get("detail_row")].append(target)
     for row in document.get("detail_rows") or []:
+        row.update(dict(match_status=review_status(row.get("match_status"))))
         if row.get("row_kind") == "Diferencia documentada":
             continue
         row.update(linked_balance(row.get("amount_usd"), by_row[row.get("name")], row.get("matched_targets"),

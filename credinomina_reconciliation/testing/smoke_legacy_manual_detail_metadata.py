@@ -10,7 +10,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run(manual_remainder=False, empty_cache=False):
+def run(manual_remainder=False, empty_cache=False, pending_peer=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -56,6 +56,8 @@ def run(manual_remainder=False, empty_cache=False):
                 core.submit()
             details = ((clients[0], "A", 49.48), (clients[1], "AUTO", 50.52), (clients[2], "CORE", core_amount)) if manual_remainder else (
                        (clients[0], "A", 49.48), (clients[1], "AUTO", 35), (clients[2], "LATE", 15.52))
+            if pending_peer:
+                details = ((clients[0], "A", 65), (clients[1], "AUTO", 35))
             deposit = frappe.get_doc(dict(doctype="CN Remittance Allocation", employer=company.name,
                 deposit_reference=marker, deposit_date="2025-12-18", deposit_currency="USD", deposit_amount=100 + core_amount,
                 detail_file=f"/private/files/{marker}.xlsx", detail_source_file=f"/private/files/{marker}.xlsx",
@@ -98,13 +100,13 @@ def run(manual_remainder=False, empty_cache=False):
             assert signature(json.loads(deposit.allocation_detail)) == signature(original)
             assert money(deposit.allocated_usd) == money(84.48 + core_amount)
             legacy_ledger()
-            late = application("LATE", clients[1] if manual_remainder else clients[2], periods[1] if manual_remainder else periods[0],
+            late = application("LATE", clients[0] if pending_peer else clients[1] if manual_remainder else clients[2], periods[1] if manual_remainder else periods[0],
                                15.52, loan_suffix="AUTO" if manual_remainder else None)
             _reconcile_sources(company.name, preserve_deposits=True)
             deposit.reload()
-            if manual_remainder:
+            if manual_remainder or pending_peer:
                 deposit.append("targets", dict(historical_application=late.rows[0].name, amount_usd=15.52,
-                    detail_row=deposit.detail_rows[1].name))
+                    detail_row=deposit.detail_rows[0 if pending_peer else 1].name))
                 deposit.save()
             reconcile_deposit(deposit); deposit.reload()
             current = json.loads(deposit.allocation_detail)
@@ -114,7 +116,7 @@ def run(manual_remainder=False, empty_cache=False):
             before, after = portions(original), portions(current)
             assert all(after[key] == amount for key, amount in before.items())
             assert money(deposit.allocated_usd) == money(100 + core_amount) and not money(deposit.unallocated_usd)
-            assert after[(late.rows[0].name, deposit.detail_rows[1 if manual_remainder else 2].name)] == money(15.52)
+            assert after[(late.rows[0].name, deposit.detail_rows[0 if pending_peer else 1 if manual_remainder else 2].name)] == money(15.52)
             for entry in current:
                 if entry.get("origen") == "Selección manual":
                     target = next(target for target in deposit.targets if entry.get("aplicacion_id")
@@ -128,7 +130,7 @@ def run(manual_remainder=False, empty_cache=False):
             assert document_state(fixed.reload()) == fixed_state
             return dict(legacy_manual_links_preserved=True, fifo_cash_preserved=True, metadata_completed=True,
                 added_only_remaining_cash=15.52, fifo_plus_manual_remainder=manual_remainder,
-                core_metadata_completed=bool(core_amount), empty_cache_rebuilt=empty_cache,
+                core_metadata_completed=bool(core_amount), empty_cache_rebuilt=empty_cache, pending_peer_preserved=pending_peer,
                 repeated_reconciliation_preserved=True, other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()

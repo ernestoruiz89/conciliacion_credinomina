@@ -113,7 +113,7 @@ def unreconcile_row(remittance_name, detail_row_name, modified):
     values.update(coverage_totals({**doc.as_dict(), **values}))
     frappe.db.set_value(doc.doctype, doc.name, values)
     frappe.db.set_value(row.doctype, row.name, dict(
-        manual_reconciliation_required=1, match_status="Pendiente manual",
+        manual_reconciliation_required=1, match_status="Revisar: Pendiente manual",
         match_reason=_("Fila desconciliada. Seleccione los destinos manualmente; la conciliación automática está desactivada para esta fila."),
         matched_targets="[]", matched_targets_summary="", linked_usd=0,
         pending_usd=money_float(money(row.amount_usd) - money(row.client_credit_usd) - money(row.company_credit_usd))), update_modified=False)

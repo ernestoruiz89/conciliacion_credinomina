@@ -70,7 +70,7 @@ def run():
                 assert other_deposit.allocation_detail==other_deposit_journal and money(other_deposit.allocated_usd)==40
                 reconcile_deposit(deposit);deposit.reload()
                 assert money(deposit.allocated_usd)==40
-                assert deposit.detail_rows[0].match_status=='Pendiente manual'
+                assert deposit.detail_rows[0].match_status=='Revisar: Pendiente manual'
                 deposit.append('targets',dict(historical_application=imported.rows[0].name,amount_usd=60,detail_row=selected))
                 deposit.save();reconcile_deposit(deposit);deposit.reload()
                 assert money(deposit.allocated_usd)==100
