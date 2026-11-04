@@ -11,7 +11,7 @@ from credinomina_reconciliation.rounding import money
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
 
 
-def run(reimported=False, cross_credit=False, correct_client=False):
+def run(reimported=False, cross_credit=False, correct_client=False, repair_client_numbers=False):
     if frappe.local.site != "cn-reconciliation-test.local":
         raise RuntimeError("Solo para cn-reconciliation-test.local")
     frappe.set_user("Administrator")
@@ -75,6 +75,9 @@ def run(reimported=False, cross_credit=False, correct_client=False):
                     source_credit=0, source_client_name=client.client_name))
                 if correct_client:
                     core.client_number = client.client_name
+                    core.loan_number = marker
+                elif repair_client_numbers:
+                    core.client_number = client.client_number
                     core.loan_number = marker
                 with imported_item(marker):
                     core.insert()
@@ -157,8 +160,12 @@ def run(reimported=False, cross_credit=False, correct_client=False):
                 if cross_credit:
                     assert deposit.detail_rows[0].loan_number == marker
                     assert money(source.reload().rows[1].historical_remitted_usd) == money(13.08)
+            if repair_client_numbers:
+                from credinomina_reconciliation.testing.smoke_complementary_client_number_repair import exercise
+                exercise(core, client, deposit, source, period, fixed)
             return dict(confirmed_fifo=13.08, positive_core=13.08, distributed=26.16, remaining=.01,
                 reimport_recovered=reimported, cross_credit=cross_credit, repeated_without_duplicates=True,
-                client_number_corrected=correct_client, other_deposit_unchanged=True, rolled_back=True)
+                client_number_corrected=correct_client, client_number_patch_verified=repair_client_numbers,
+                other_deposit_unchanged=True, rolled_back=True)
     finally:
         frappe.db.rollback()
