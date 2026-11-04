@@ -1,4 +1,5 @@
 import json
+import copy
 import unittest
 from unittest.mock import Mock, patch
 
@@ -7,6 +8,72 @@ from credinomina_reconciliation import deposit_reconciliation as scoped
 
 
 class SingleDepositTests(unittest.TestCase):
+    def legacy_manual_deposit(self):
+        targets = [frappe._dict(name="T" + name, historical_application=name, detail_row="R", amount_usd=amount)
+                   for name, amount in (("A", 26), ("B", 23.48))]
+        row = frappe._dict(name="R", linked_usd=49.48, matched_targets=json.dumps([
+            dict(claim_id="H:" + target.historical_application, amount_usd=target.amount_usd, instruction_id=target.name)
+            for target in targets]))
+        doc = frappe._dict(name="D", allocated_usd=49.48, targets=targets, detail_rows=[row], allocation_detail=json.dumps([
+            dict(tipo="Aplicacion historica", aplicacion_id=target.historical_application, importe_usd=target.amount_usd,
+                 origen="Selección manual") for target in targets]))
+        ledger = [dict(deposit_id="D", claim_id="H:" + target.historical_application, amount_usd=target.amount_usd,
+                       origin="Selección manual", detail_row="R") for target in targets]
+        return doc, ledger
+
+    def test_legacy_manual_metadata_completion_preserves_same_applications_and_amounts(self):
+        doc, ledger = self.legacy_manual_deposit()
+        original = copy.deepcopy(doc)
+        with patch.object(frappe, "db", Mock()) as db:
+            scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+        self.assertEqual(doc, original)
+        db.set_value.assert_not_called()
+        # A repeat that still lacks the metadata also preserves its old links.
+        for entry in ledger:
+            entry.pop("detail_row")
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_legacy_metadata_proof_does_not_allow_less_cash_another_application_or_row(self):
+        for change in (dict(amount_usd=25.99), dict(claim_id="H:OTHER"), dict(detail_row="OTHER")):
+            doc, ledger = self.legacy_manual_deposit()
+            ledger[0].update(change)
+            with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_legacy_partial_manual_target_uses_recorded_cash_not_the_requested_amount(self):
+        doc, ledger = self.legacy_manual_deposit()
+        doc.targets[0].amount_usd = 30
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+        # Several stored portions of one confirmed instruction still total 26.
+        original = json.loads(doc.allocation_detail)
+        original[0]["importe_usd"] = 10
+        original.append(dict(original[0], importe_usd=16))
+        doc.allocation_detail = json.dumps(original)
+        scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_legacy_fifo_or_reclassification_provenance_is_not_treated_as_manual_metadata(self):
+        for values in (dict(origen="Automática FIFO"), dict(reclassification_operation_id="OP")):
+            doc, ledger = self.legacy_manual_deposit()
+            original = json.loads(doc.allocation_detail)
+            original[0].update(values)
+            doc.allocation_detail = json.dumps(original)
+            with self.subTest(values=values), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
+    def test_missing_ambiguous_or_inconsistent_saved_proof_cannot_reassign_legacy_cash(self):
+        changes = [lambda d: d.targets[0].update(detail_row="OTHER"),
+            lambda d: d.targets[0].update(name="NEW"),
+            lambda d: d.targets.append(copy.deepcopy(d.targets[0])),
+            lambda d: d.detail_rows.append(copy.deepcopy(d.detail_rows[0])),
+            lambda d: d.detail_rows[0].update(matched_targets="broken"),
+            lambda d: d.detail_rows[0].update(linked_usd=49),
+            lambda d: d.targets[0].update(amount_usd=25)]
+        for change in changes:
+            doc, ledger = self.legacy_manual_deposit()
+            change(doc)
+            with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+
     def test_duplicate_collection_keys_cannot_move_recorded_cash_to_the_last_child(self):
         deposit = frappe._dict(name='D', allocated_usd=100, allocation_detail=json.dumps([
             dict(tipo='Cobranza', periodo='P', fila_id='K', importe_usd=100)]))
