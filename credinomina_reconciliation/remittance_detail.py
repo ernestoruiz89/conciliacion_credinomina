@@ -193,6 +193,7 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
             return [], f"{_destination_label(claim)}: el importe debe ser positivo; solo las partidas complementarias admiten importes negativos."
         targets.append({"claim_id": claim["id"], "amount_usd": money_float(instruction["amount_usd"]),
                         "instruction_id": instruction["id"],
+                        **({"fifo_applications": instruction["fifo_applications"]} if instruction.get("fifo_applications") else {}),
                         **({"group": instruction["group"]} if generic else {})})
     assigned = sum_money(target['amount_usd'] for target in targets)
     if assigned != money(amount_usd) and not (0 < assigned < money(amount_usd)

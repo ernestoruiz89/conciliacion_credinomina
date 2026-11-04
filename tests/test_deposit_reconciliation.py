@@ -40,6 +40,27 @@ class SingleDepositTests(unittest.TestCase):
             with self.subTest(change=change), patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
                 scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
 
+    def test_legacy_signed_complementary_metadata_preserves_amount_sign_and_destination(self):
+        for amount in (526.55, -.01):
+            with self.subTest(amount=amount):
+                doc, ledger = self.legacy_manual_deposit()
+                doc.targets.append(frappe._dict(name="TX", complementary_item="CORE", detail_row="CORE-ROW", amount_usd=amount))
+                doc.detail_rows.append(frappe._dict(name="CORE-ROW", linked_usd=amount, matched_targets=json.dumps([
+                    dict(claim_id="X:CORE", instruction_id="TX", amount_usd=amount)])))
+                raw = json.loads(doc.allocation_detail)
+                raw.append(dict(tipo="Partida complementaria", partida="CORE", importe_usd=amount, origen="Selección manual"))
+                doc.allocation_detail = json.dumps(raw)
+                doc.allocated_usd += amount
+                ledger.append(dict(deposit_id="D", claim_id="X:CORE", amount_usd=amount,
+                    detail_row="CORE-ROW", origin="Selección manual"))
+                scoped.assert_preserved_allocations(doc, {"allocations": ledger}, [])
+                for changes in (dict(amount_usd=-amount), dict(claim_id="X:OTHER"), dict(detail_row="OTHER"),
+                                dict(amount_usd=0 if abs(amount) < .02 else amount / 2)):
+                    altered = copy.deepcopy(ledger)
+                    altered[-1].update(changes)
+                    with patch.object(frappe, "throw", side_effect=ValueError), self.assertRaises(ValueError):
+                        scoped.assert_preserved_allocations(doc, {"allocations": altered}, [])
+
     def test_legacy_partial_manual_target_uses_recorded_cash_not_the_requested_amount(self):
         doc, ledger = self.legacy_manual_deposit()
         doc.targets[0].amount_usd = 30
