@@ -5,7 +5,8 @@ from frappe.utils import cint
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.parsers import collection_comment
 from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
-from credinomina_reconciliation.reconciliation_deposit_detail import load as load_deposit_details
+from credinomina_reconciliation.reconciliation_pending_detail import load as load_pending_detail
+from credinomina_reconciliation.report_employers import selected_employers
 
 
 def execute(filters=None):
@@ -14,6 +15,9 @@ def execute(filters=None):
     for fieldname in ("employer", "status", "reconciliation_mode"):
         if filters.get(fieldname):
             conditions[fieldname] = filters[fieldname]
+    companies = selected_employers(filters)
+    if companies:
+        conditions['employer'] = ['in', companies]
     if filters.get("period"):
         conditions["name"] = filters.period
     if filters.from_month and filters.to_month:
@@ -59,8 +63,7 @@ def execute(filters=None):
             "cxc_difference_comment",
         ],
     ))
-    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]),
-                                 load_deposit_details(data))
+    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
     if filters.get("view") == "Detalle":
         add_portfolio_status(data, detail)
         for row in detail:
@@ -70,16 +73,25 @@ def execute(filters=None):
                     ("cxc_difference_comment", "Diferencias CXC"),
                 ) if (text := collection_comment(row.get(field)))
             )
+        pending = load_pending_detail(data, filters)
+        # Unassociated receipts must not be assigned an invented reporting period.
+        associated = [row for row in pending if row.get('name')]
+        if associated:
+            add_portfolio_status(data, associated)
+        detail.extend(pending)
     rows = detail if filters.get("view") == "Detalle" else summary
     if cint(filters.get("only_differences")):
         rows = [row for row in rows if row["has_difference"]]
     # Frappe totals treat unknown amounts as zero. Suppress that misleading total.
     incomplete = any(row[field] is None for row in rows
-                     for field in ("application_usd", "deposit_usd", "open_usd", "detail_received_usd", "detail_unassigned_usd"))
+                     for field in ("application_usd", "deposit_usd", "open_usd", "cash_adjustment_usd"))
     incomplete = incomplete or any(row["collection_usd"] is None and row["collection_control"] != "No aplica"
                                    for row in rows)
     message = _("Totales omitidos: hay importes no determinables. Revise las observaciones.") if incomplete else None
-    return get_columns(filters.get("view") == "Detalle"), rows, message, None, None, incomplete
+    independent = any(row.get('_pending_receipt') for row in rows)
+    if independent and not incomplete:
+        message = _("Totales omitidos: el detalle incluye remanentes independientes pendientes de aplicar; no se suman como cobertura de las aplicaciones.")
+    return get_columns(filters.get("view") == "Detalle"), rows, message, None, None, incomplete or independent
 
 
 def get_summary_columns():
@@ -105,12 +117,10 @@ def get_columns(detail=False):
         ("collection_usd", "Cobranza enviada US$", 155),
         ("application_usd", "Aplicación neta US$", 150),
         ("collection_difference_usd", "Cobranza − aplicación US$", 185),
-        ("deposit_usd", "Depósito asignado US$", 165),
-        ("detail_received_usd", "Importe del detalle US$", 175),
-        ("detail_unassigned_usd", "Detalle sin distribuir US$", 185),
+        ("deposit_usd", "Depósito asignado / pendiente US$" if detail else "Depósito asignado US$", 190 if detail else 165),
         ("deposit_difference_usd", "Aplicación − depósito US$", 185),
         ("credit_used_usd", "Saldo a favor utilizado US$", 180),
-        ("cash_adjustment_usd", "Ajustes de conciliación US$", 185),
+        ("cash_adjustment_usd", "Complementarias / ajustes US$" if detail else "Ajustes de conciliación US$", 185),
         ("conversion_usd", "Diferencia de empresa US$", 190),
         ("open_usd", "Pendiente por cubrir US$", 175),
     ))

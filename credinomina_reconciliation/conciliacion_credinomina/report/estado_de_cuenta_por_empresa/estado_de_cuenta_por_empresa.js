@@ -31,6 +31,8 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         {fieldname: "compact_view", label: __("Vista compacta"), fieldtype: "Check", default: 1,
             description: __("En detalle muestra importes con signo y un único saldo al pie. Desmarque para ver el desglose y la trazabilidad de las partidas.")},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
+        {fieldname: "include_paying_companies", label: __("Incluir empresas que paga"), fieldtype: "Check", default: 0,
+            description: __("Incluye la empresa seleccionada y las empresas que tiene registradas para pagar. Cada fila conserva su empresa.")},
         {fieldname: "cutoff_date", label: __("Corte histórico al"), fieldtype: "Date",
             description: __("Opcional. Vacío muestra saldos actuales; con fecha excluye operaciones posteriores al corte.")},
         {fieldname: "from_date", label: __("Origen desde"), fieldtype: "Date"},
@@ -74,7 +76,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             const bridge = report.get_filter_value("view_mode") === "Conciliación";
             frappe.query_reports["Estado de Cuenta por Empresa"].filters.forEach(({fieldname:name}) => {
                 const control = report.get_filter(name);
-                control.$wrapper.toggle(bridge ? ["view_mode", "compact_view", "employer", "cutoff_date"].includes(name)
+                control.$wrapper.toggle(bridge ? ["view_mode", "compact_view", "employer", "include_paying_companies", "cutoff_date"].includes(name)
                     : !advanced.includes(name) || expanded || Boolean(control.get_value()));
             });
         };
@@ -96,10 +98,10 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
             }
             if (detail.view_mode === "Conciliación") {
                 return report.set_filter_value({...frappe.query_reports["Estado de Cuenta por Empresa"].bridge_reset(),
-                    view_mode:"Conciliación", employer:detail.employer || ""});
+                    view_mode:"Conciliación", employer:detail.employer || "", include_paying_companies:0});
             }
             report.set_filter_value({view_mode: "Detalle", employer: detail.employer || "", component: detail.component || "",
-                statement_scope: detail.statement_scope || "Gestión", accounting_queue: detail.accounting_queue ? 1 : 0});
+                statement_scope: detail.statement_scope || "Gestión", accounting_queue: detail.accounting_queue ? 1 : 0, include_paying_companies:0});
         });
         report.page.add_inner_button(__("Volver al resumen"), () => {
             const filters = report.cn_summary_filters || {view_mode: "Resumen", component: ""};

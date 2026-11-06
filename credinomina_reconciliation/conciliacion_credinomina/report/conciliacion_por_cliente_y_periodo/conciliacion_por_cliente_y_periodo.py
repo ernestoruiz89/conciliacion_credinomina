@@ -5,7 +5,28 @@ from frappe.utils import cint
 
 from credinomina_reconciliation.parsers import collection_comment
 from credinomina_reconciliation.rounding import money, money_float, sum_money
-from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion.resumen_de_conciliacion import execute as reconciliation_detail
+from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
+from credinomina_reconciliation.reconciliation_deposit_detail import load as load_deposit_details
+
+
+def load_detail(period):
+    """Load this report's receipt context independently of Resumen de Conciliacion."""
+    data = period.as_dict()
+    data['collection_cycle'] = data.get('collection_cycle') or ('Mensual' if data.get('reconciliation_mode') != 'Historica' else '')
+    data['closure_state'] = 'Cerrado' if data.get('status') == 'Cerrado' else 'Abierto'
+    data['usd_currency'] = 'USD'
+    collections = [] if data.get('reconciliation_mode') == 'Historica' else (data.get('collection_rows') or [])
+    details = build_views([data], collections, load_direct_applications([period.name]), load_deposit_details([data]))[1]
+    add_portfolio_status([data], details)
+    for row in details:
+        comments = []
+        for field, label in (('comments', 'Comentarios'), ('application_comment', 'Aplicación'),
+                             ('cxc_difference_comment', 'Diferencias CXC')):
+            text = collection_comment(row.get(field))
+            if text:
+                comments.append(f'{_(label)}: {text}')
+        row['comments'] = '\n'.join(comments)
+    return details
 
 
 def project(details, period, filters=None):
@@ -68,15 +89,13 @@ def execute(filters=None):
         frappe.throw(_('Seleccione un período para consultar el reporte.'))
     period = frappe.get_doc('CN Reconciliation Period', filters.period)
     period.check_permission('read')
-    source_report = reconciliation_detail(dict(period=period.name, view='Detalle'))
-    details, message = source_report[1], source_report[2]
+    details = load_detail(period)
+    message = None
     rows = project(details, period.as_dict(), filters)
     incomplete = any(detail.get('_detail_unavailable') for detail in details) or any(
         row[field] is None for row in rows for field in ('bank_usd', 'applied_usd', 'pending_usd'))
     if incomplete:
         message = _('Totales omitidos: hay importes no determinables. Revise la columna Detalle.')
-    elif message:
-        message = _('Hay observaciones en la conciliación de origen. Revise la columna Detalle.')
     totals = [] if incomplete else [dict(label=_(label), value=money_float(sum_money(row[field] for row in rows)),
         datatype='Currency', currency='USD') for field, label in (
             ('bank_usd', 'Banco US$'), ('applied_usd', 'Aplicado US$'), ('pending_usd', 'Importe pendiente US$'))]
