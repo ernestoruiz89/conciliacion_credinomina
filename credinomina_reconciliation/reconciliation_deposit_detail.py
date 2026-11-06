@@ -120,7 +120,8 @@ def load(periods):
         deposits.update({row['name']: row for row in found})
     details = list(child_records('CN Remittance Detail', deposits, 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'source_row', 'row_kind', 'employer', 'client', 'client_number', 'client_name', 'national_id',
-                'loan_number', 'amount_usd', 'client_credit_usd', 'company_credit_usd']))
+                'loan_number', 'amount_usd', 'client_credit_usd', 'company_credit_usd',
+                'comments', 'application_comment', 'difference_reason', 'difference_notes']))
     period_links = list(child_records('CN Remittance Period', deposits, 'CN Remittance Allocation', 'detail_periods',
                                      fields=['parent', 'period']))
     return build(periods, list(deposits.values()), details, period_links)

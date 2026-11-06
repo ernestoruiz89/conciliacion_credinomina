@@ -1,6 +1,18 @@
 frappe.ui.form.on("CN Client", {
     refresh(frm) {
         if (frm.is_new()) return;
+        if (frm.doc.client_number && frm.doc.employer) {
+            frm.add_custom_button(__("Ver Estado de Cuenta Operativo"), () => {
+                if (frm.is_dirty()) {
+                    frappe.msgprint(__("Guarde o recargue los cambios del cliente antes de consultar su estado de cuenta."));
+                    return;
+                }
+                frappe.set_route("query-report", "Estado de Cuenta Operativo", {
+                    client_number: String(frm.doc.client_number), employer: frm.doc.employer,
+                    detailed_columns: 1, only_open: 0,
+                });
+            });
+        }
         const button = frm.add_custom_button(__("Ver partidas vinculadas"), () => showClientRelatedPending(frm, button));
     },
 });

@@ -35,7 +35,7 @@ def run():
                 apply_fifo=1, detail_periods=[dict(period=period.name)],
                 detail_rows=[dict(source_row=2, employer=company.name, client=client.name,
                     client_number=client.client_number, client_name=client.client_name, loan_number='999999-1',
-                    deducted_usd=40, amount_usd=40)])).insert()
+                    deducted_usd=40, amount_usd=40, comments='Comentario documentado de prueba')])).insert()
             deposit.submit()
             reconcile_deposit(deposit)
             assert money(deposit.reload().allocated_usd) == 20, dict(allocated=deposit.allocated_usd,
@@ -55,8 +55,19 @@ def run():
                 if view == 'Detalle':
                     assert row['client_name'] == 'Juan prueba'
                 assert before == [document_state(doc.reload()) for doc in documents]
+            from credinomina_reconciliation.conciliacion_credinomina.report.conciliacion_por_cliente_y_periodo.conciliacion_por_cliente_y_periodo import execute as client_report
+            columns, client_rows, message, chart, totals, skip_total = client_report(dict(period=period.name))
+            assert len(client_rows) == 1, client_rows
+            client_row = client_rows[0]
+            assert (client_row['bank_usd'], client_row['applied_usd'], client_row['pending_usd']) == (40, 20, 20)
+            assert 'Comentario documentado de prueba' in client_row['comment']
+            assert 'reembolso' not in client_row['comment'].casefold()
+            assert client_row['state'] == 'Revisar' and client_row['row_number'] == 1
+            assert [total['value'] for total in totals] == [40, 20, 20]
+            assert before == [document_state(doc.reload()) for doc in documents]
             return dict(detail_received_usd=40, assigned_usd=20, unassigned_usd=20,
-                        application_pending_usd=0, visible_in_both_views=True, saved_reconciliation_unchanged=True,
+                        application_pending_usd=0, visible_in_both_views=True, client_period_report_verified=True,
+                        saved_reconciliation_unchanged=True,
                         rollback=True)
     finally:
         frappe.db.rollback()
