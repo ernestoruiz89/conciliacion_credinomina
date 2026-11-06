@@ -1,6 +1,10 @@
 frappe.query_reports["Resumen de Conciliacion"] = {
     filters: [
-        { fieldname: "view", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle", default: "Resumen", reqd: 1 },
+        { fieldname: "view", label: __("Vista"), fieldtype: "Select", options: "Resumen\nDetalle\nDetalle por Cliente", default: "Resumen", reqd: 1 },
+        { fieldname: "show_month", label: __("Mostrar columna mes"), fieldtype: "Check", default: 0,
+            depends_on: "eval:doc.view == 'Detalle por Cliente'" },
+        { fieldname: "show_period", label: __("Mostrar columna período"), fieldtype: "Check", default: 0,
+            depends_on: "eval:doc.view == 'Detalle por Cliente'" },
         { fieldname: "period", label: __("Período"), fieldtype: "Link", options: "CN Reconciliation Period" },
         { fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer" },
         { fieldname: "include_paying_companies", label: __("Incluir empresas que paga"), fieldtype: "Check", default: 0,
@@ -21,14 +25,17 @@ frappe.query_reports["Resumen de Conciliacion"] = {
         $("<p></p>").text(__("En Detalle, la columna Comentarios reúne los comentarios de cobranza, de aplicación y de diferencias CXC del período por crédito, con sus etiquetas y sin repetir textos iguales de cada campo. Los campos vacíos se omiten. El estado del crédito corresponde a la cartera importada, activa y accesible más reciente del mes de la fecha de corte del período o anterior; en períodos históricos se usa el mes del período. Si falta el corte o el crédito, o existe una duplicidad o diferencia de empresa, la columna indica esa situación.")).appendTo(help);
         help.prependTo(report.page.main);
         $("<p></p>").text(__("Detalle también muestra líneas independientes de depósitos y partidas complementarias con importe pendiente de aplicar. Control cobertura las identifica como Revisar: pendiente de aplicar. En esas líneas, Depósito asignado / pendiente muestra solo el efectivo sin asignar; Complementarias / ajustes muestra el remanente de la partida, con signo débito positivo y crédito negativo para el core. Estos remanentes no son aplicaciones pagadas ni reducen Pendiente por cubrir. Observaciones identifica el documento, la fecha y cualquier falta de atribución a un cliente o período. Los orígenes contables ya vinculados a un depósito se excluyen para no duplicar el efectivo.")).appendTo(help);
+        $("<p></p>").text(__("Detalle por Cliente consolida los créditos y períodos en una fila por número de cliente; si aparece en varias empresas, sus nombres se reúnen en la columna Empresa. Depósito no asignado y Partida no asignada muestran los remanentes por separado; no reducen el pendiente por cubrir. Partida no asignada suma valores absolutos para que los débitos y créditos pendientes no se oculten entre sí; Observaciones conserva su signo y origen. Mes y Período están ocultos por defecto; al activarlos muestran los valores reunidos en la misma fila, sin repetir el cliente. Los importes sin cliente identificado se conservan aparte y los importes no determinables no se presentan como cero.")).appendTo(help);
     },
     get_datatable_options(options) { return {...options, dynamicRowHeight: true}; },
     formatter(value, row, column, data, default_formatter) {
-        if (data && column.fieldname === "comments") {
+        if (data && (column.fieldname === "comments" || data._client_consolidated &&
+                ["observations", "first_exception_comment", "difference_reason"].includes(column.fieldname))) {
             return value ? `<div style="white-space:pre-wrap;overflow-wrap:anywhere">${frappe.utils.escape_html(String(value))}</div>` : "";
         }
         const fields = ["collection_usd", "application_usd", "collection_difference_usd", "deposit_usd",
-            "deposit_difference_usd", "credit_used_usd", "cash_adjustment_usd", "conversion_usd", "open_usd"];
+            "deposit_difference_usd", "credit_used_usd", "cash_adjustment_usd", "conversion_usd", "open_usd",
+            "deposit_unallocated_usd", "complementary_unallocated_usd"];
         if (data && fields.includes(column.fieldname) && data[column.fieldname] == null) {
             const notApplicable = data.collection_control === "No aplica" &&
                 ["collection_usd", "collection_difference_usd"].includes(column.fieldname);
