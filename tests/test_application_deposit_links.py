@@ -101,7 +101,7 @@ class ApplicationDepositLinksTests(unittest.TestCase):
         with patch.object(related, "_application_rows", return_value=result), \
              patch.object(related, "_deposit_rows", return_value=[]), patch.object(related, "_complementary_rows", return_value=[]):
             # Existing shared endpoint still carries the same links for modal callers.
-            data = related._related_pending("EMPRESA", dict(identity, client_name="Persona", client_number="1"))
+            data = related._related_pending("EMPRESA", dict(identity, client_name="Persona", client_number="1", national_id=""))
         self.assertEqual(data["applications"][0]["deposits"], assigned)
 
 

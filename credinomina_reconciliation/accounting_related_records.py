@@ -98,28 +98,50 @@ def _application_rows(employer, identity):
             'name': ['in', parent_names[offset:offset + PAGE_SIZE]],
             'employer': employer, 'docstatus': ['!=', 2]}, fields=['name']))
 
+    visible = [row for row in matched if row.parent in readable]
+    progress = _operative_progress(employer) if any(not row.historical_period for row in visible) else {}
     settled = {'Depósito conciliado', 'Aplicación compensada', 'Conciliada: depósito + ajuste'}
     result = []
-    for row in matched:
-        if row.parent not in readable or row.deposit_match_status in settled:
-            continue
+    for row in visible:
         net = money(row.net_applied_usd if row.net_applied_usd is not None else
                     money(row.amount_usd) - money(row.application_adjustment_usd))
         historical = bool(row.historical_period)
-        pending = money(row.historical_balance_usd) if historical else None
-        if historical and pending <= 0:
-            continue
-        if net <= 0:
-            continue
+        status = row.deposit_match_status or 'Pendiente'
+        observations = []
+        if historical:
+            pending = money(row.historical_balance_usd)
+            if status in settled or pending <= 0 or net <= 0:
+                continue
+        else:
+            current = progress.get(row.name)
+            if current is None:
+                if net <= 0:
+                    continue
+                pending = None
+                observations = [_('Importación pendiente de procesar o evidencia de conciliación no disponible.')]
+            else:
+                # The saved label does not prove cash coverage. Use the same
+                # audited monetary snapshot as Transacciones por Empresa.
+                net = current['net_usd']
+                pending = current['pending_usd']
+                observations = current['observations']
+                if current['state'] == 'Conciliado':
+                    continue
+                if current['state'] == 'Revisar distribución':
+                    pending, status = None, 'Revisar distribución'
+                elif money(current['assigned_usd']) > 0:
+                    status = 'Depósito parcial'
+                else:
+                    status = 'Parcial' if current['state'] == 'Parcial' else 'Sin depósito'
         result.append(dict(type='Aplicación', document=row.parent,
             date=str(row.event_date or ''), reference=row.reference or '',
             source_row=row.source_row, row_name=row.name,
             period=row.historical_period or row.collection_period or '',
             difference_reason=row.difference_reason or '',
             client_name=row.client_name or '', loan_number=row.loan_number or '',
-            amount_usd=money_float(net),
+            amount_usd=money_float(net) if net is not None else None,
             pending_usd=money_float(pending) if pending is not None else None,
-            status=row.deposit_match_status or 'Pendiente'))
+            status=status, observations=observations))
     from credinomina_reconciliation.application_deposit_links import load_links
     from credinomina_reconciliation.application_complementary_links import load_links as load_complementary_links
     sources = [candidates[row['row_name']] for row in result]
@@ -129,6 +151,19 @@ def _application_rows(employer, identity):
         row['deposits'] = deposits.get(row['row_name'], [])
         row['complementary_items'] = complementary_items.get(row['row_name'], [])
     return result
+
+
+def _operative_progress(employer):
+    """Read complete shared coverage before filtering to one customer's rows."""
+    from credinomina_reconciliation.application_context import load_application_context
+    from credinomina_reconciliation.company_transactions import application_progress_index
+
+    try:
+        sources, imports, _periods, collections, _employers = load_application_context(employer=employer)
+    except frappe.PermissionError:
+        # Reading an import does not grant access to its cash dependencies.
+        return {}
+    return application_progress_index(sources, imports, collections)
 
 
 def _deposit_rows(employer, identity):
