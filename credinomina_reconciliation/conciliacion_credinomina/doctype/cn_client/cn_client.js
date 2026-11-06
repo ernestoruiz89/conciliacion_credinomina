@@ -34,8 +34,6 @@ async function showClientRelatedPending(frm, button) {
             freeze_message: __("Consultando partidas pendientes del cliente…"),
         });
         if (frm.doc.name !== client || frm.doc.employer !== employer || frm.is_dirty()) return;
-        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
-        if (frm.doc.name !== client || frm.doc.employer !== employer || frm.is_dirty()) return;
         window.credinominaShowRelatedPending({...response.message, client});
     } catch (error) {
         if (frm.doc.name === client && frm.doc.employer === employer) {

@@ -15,6 +15,16 @@ const show = data => {
     assert.equal(JSON.stringify(data), before, 'Displaying totals must not rewrite pending amounts or assignments');
     const footers = [...html.matchAll(/<tfoot>([\s\S]*?)<\/tfoot>/g)].map(match => match[1]);
     assert.equal(footers.length, 2, 'Each pending table has its own footer');
+    const summaryStart = html.indexOf('class="cn-related-pending-summary"');
+    const tablesStart = html.indexOf('<table');
+    assert.ok(summaryStart >= 0 && summaryStart < tablesStart, 'Totals must be visible above the scrollable tables');
+    for (const [index, suffix] of ['applications', 'sources'].entries()) {
+        const match = new RegExp('class="cn-related-pending-summary-' + suffix + '"[^>]*>([^<]*)</strong>').exec(html);
+        assert.equal(match[1], value(footers[index]), 'Summary and footer must display the same pending total');
+        assert.ok(match.index < tablesStart, 'Both totals must appear before the table scroll areas');
+    }
+    assert.equal((html.match(/class="cn-related-pending-difference-value"/g) || []).length, 1);
+    assert.ok(html.indexOf('class="cn-related-pending-difference-value"') < tablesStart);
     return footers;
 };
 const value = footer => /class="text-right cn-related-pending-total"[^>]*>([^<]*)<\/td>/.exec(footer)[1];
@@ -69,4 +79,9 @@ footers = show({applications:[],rows:[]});
 assert.equal(value(footers[0]), '0.00');
 assert.equal(value(footers[1]), '0.00');
 assert.equal(difference(), '0.00');
+footers = show({applications: Array.from({length:5}, () => ({type:'Aplicación', pending_usd:24.69})),
+    rows:[44.79, 0.01, 0.01, 0.01, 0.01, 22.40].map(pending_usd => ({type:'Depósito', pending_usd}))});
+assert.equal(value(footers[0]), '123.45');
+assert.equal(value(footers[1]), '67.23');
+assert.equal(difference(), '56.22');
 console.log('OK: pending totals, signed net difference, cents, unknown balances and read-only rendering.');

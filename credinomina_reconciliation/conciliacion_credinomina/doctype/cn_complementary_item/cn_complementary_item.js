@@ -703,7 +703,6 @@ async function cn_show_related_pending(frm) {
             data = await cn_choose_related_client(frm.doc.name, data, isCurrent, completeClient);
             if (!data || !isCurrent()) return;
         }
-        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
         if (!isCurrent()) return;
         window.credinominaShowRelatedPending({...data, context: data.context || context,
             ...(data.client_completion?.available ? {on_complete_client: () =>

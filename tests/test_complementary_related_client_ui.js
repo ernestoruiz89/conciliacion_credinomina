@@ -10,20 +10,19 @@ for (const key of ["client_name", "source_client_name", "client_number", "loan_n
 }
 assert.equal(vm.runInNewContext(field.depends_on.slice(5), {doc: {client_name: "  "}}), false);
 const handlers = {}, messages = [], calls = [], shown = [];
-let complete, requireComplete, dirty = false, fresh = false, disabled = false, fail = false;
+let complete, dirty = false, fresh = false, disabled = false, fail = false;
 const context = vm.createContext({__: text => text, window: {credinominaShowRelatedPending: result => shown.push(result)},
     frappe: {ui: {form: {on(doctype, events) {handlers[doctype] = events;}}},
         msgprint: text => messages.push(text), call(args) {
             calls.push(args);
             if (fail) return Promise.reject(Error("Identidad ambigua"));
             return new Promise(resolve => {complete = resolve;});
-        }, require: () => new Promise(resolve => {requireComplete = resolve;})}});
+        }, require() {throw Error('The related-pending modal must be embedded in DocType metadata');}}});
 vm.runInContext(fs.readFileSync(directory + "cn_complementary_item.js", "utf8"), context);
 const frm = {doc: {name: "ITEM", modified: "V1", loan_number: "13682-1"},
     is_new: () => fresh, is_dirty: () => dirty,
     fields_dict: {view_related_pending: {$input: {prop(_name, value) {disabled = value;}}}}};
 const click = () => handlers["CN Complementary Item"].view_related_pending(frm);
-const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
     dirty = true; await click(); assert.equal(calls.length, 0);
     dirty = false; fresh = true; await click(); assert.equal(calls.length, 0); fresh = false;
@@ -31,15 +30,14 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     assert.equal(disabled, true);
     assert.equal(calls[0].args.item_name, "ITEM");
     complete({message: {employer: "LALA", client: "7593", applications: [], rows: []}});
-    await tick(); requireComplete(); await pending;
+    await pending;
     assert.equal(shown.length, 1);
     assert.equal(shown[0].context.complementary_item, "ITEM");
     assert.equal(shown[0].client, "7593");
     assert.equal(disabled, false);
     pending = click(); frm.doc.name = "OTHER"; complete({message: {client: "STALE"}}); await pending;
     assert.equal(shown.length, 1, "Navigating to another document must discard stale results");
-    pending = click(); complete({message: {client: "STALE2"}}); await tick();
-    frm.doc.loan_number = "OTHER-LOAN"; requireComplete(); await pending;
+    pending = click(); frm.doc.loan_number = "OTHER-LOAN"; complete({message: {client: "STALE2"}}); await pending;
     assert.equal(shown.length, 1, "Discard late results when identifiers change");
     fail = true; await assert.rejects(click(), /Identidad ambigua/);
     assert.equal(disabled, false); assert.equal(frm._cn_related_pending_loading, false);

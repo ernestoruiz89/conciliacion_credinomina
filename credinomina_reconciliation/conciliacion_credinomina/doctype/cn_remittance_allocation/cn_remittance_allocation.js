@@ -838,7 +838,6 @@ async function showRemittanceRelatedPending(frm, cdt, cdn) {
             method: "credinomina_reconciliation.accounting_related_records.get_related_pending_for_remittance",
             args: {remittance_name: frm.doc.name, detail_row_name: cdn},
         });
-        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
         window.credinominaShowRelatedPending(response.message || {});
     } catch (error) {
         frappe.msgprint(__("No se pudieron consultar los registros relacionados. Revise sus permisos o vuelva a intentar."));
@@ -1984,7 +1983,7 @@ class RemittanceTargetPicker {
             <p class="text-muted">Seleccione partidas y ajuste los importes si el pago es parcial.
             Puede combinar períodos; no se limita por la fecha del depósito.
             Los resultados se ordenan por fecha del período, del más antiguo al más reciente; las partidas sin período quedan al final.
-            Los saldos corresponden a la última conciliación; se excluyen períodos cerrados y destinos ya agregados.</p>`);
+            Los saldos descuentan lo ya conciliado y lo reservado en los destinos existentes. Puede agregar varios destinos a una aplicación hasta cubrir su saldo; se excluyen períodos cerrados.</p>`);
         this.dialog.fields_dict.search.$input.on("input", () => this.filter());
         const wrapper = this.dialog.fields_dict.items.$wrapper;
         wrapper.on("change", "[data-select]", event => {
@@ -2111,7 +2110,8 @@ class RemittanceTargetPicker {
                     <div class="small">${this.escape(row.reference)}</div></td>
                 <td class="text-right text-nowrap">${row.applied_cents == null ? '<span title="No corresponde a una aplicación en el core">—</span>' : this.currency(row.applied_cents)}</td>
                 <td class="text-right text-nowrap">${this.currency(row.assigned_cents)}</td>
-                <td class="text-right text-nowrap">${this.currency(row.pending_cents)}</td>
+                <td class="text-right text-nowrap">${this.currency(row.pending_cents)}
+                    ${row.reserved_cents > 0 ? `<div class="small text-muted">US$ ${this.currency(row.reserved_cents)} reservados en destinos</div>` : ""}</td>
                 <td style="min-width:135px"><input class="form-control input-sm" type="number" min="0.01" step="0.01"
                     max="${row.pending_cents / 100}" data-amount="${index}" aria-label="Asignar US$ a ${this.escape(row.client_name || row.loan_number)}"
                     value="${selected && Number.isFinite(amount) ? (amount / 100).toFixed(2) : ""}" ${selected ? "" : "disabled"}>
@@ -2128,7 +2128,7 @@ class RemittanceTargetPicker {
                 <th style="width:36px"><span class="sr-only">Seleccionar</span></th><th>Cliente / crédito</th><th>Empresa</th><th>Origen / referencia</th>
                 <th class="text-right text-nowrap" title="Importe aplicado en el core">Aplicado US$</th>
                 <th class="text-right text-nowrap" title="Importe ya distribuido desde depósitos confirmados">Asignado US$</th>
-                <th class="text-right text-nowrap" title="Saldo disponible de aplicaciones efectivas y partidas complementarias, descontando la cobertura ya asignada">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
+                <th class="text-right text-nowrap" title="Saldo disponible descontando las asignaciones conciliadas y los importes reservados en destinos existentes">Pendiente US$</th><th class="text-nowrap">Asignar US$</th>
             </tr></thead><tbody>${rows || '<tr><td colspan="8" class="text-center text-muted">No hay partidas pendientes con estos filtros. Verifique las aplicaciones y partidas complementarias de los períodos seleccionados.</td></tr>'}</tbody></table>
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end">
