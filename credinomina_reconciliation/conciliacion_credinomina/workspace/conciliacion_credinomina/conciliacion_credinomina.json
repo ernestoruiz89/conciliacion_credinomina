@@ -177,7 +177,7 @@
       "hidden": 0,
       "is_query_report": 0,
       "label": "6. Control y reportes",
-      "link_count": 9,
+      "link_count": 10,
       "link_type": "DocType",
       "onboard": 0,
       "type": "Card Break"
@@ -230,6 +230,17 @@
       "label": "Resumen de conciliación",
       "link_count": 0,
       "link_to": "Resumen de Conciliacion",
+      "link_type": "Report",
+      "onboard": 0,
+      "type": "Link",
+      "report_ref_doctype": "CN Reconciliation Period"
+    },
+    {
+      "hidden": 0,
+      "is_query_report": 1,
+      "label": "Conciliación por cliente y período",
+      "link_count": 0,
+      "link_to": "Conciliacion por Cliente y Periodo",
       "link_type": "Report",
       "onboard": 0,
       "type": "Link",

@@ -1,0 +1,18 @@
+{
+  "add_total_row": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [],
+  "is_standard": "Yes",
+  "module": "Conciliacion Credinomina",
+  "name": "Conciliacion por Cliente y Periodo",
+  "owner": "Administrator",
+  "prepared_report": 0,
+  "ref_doctype": "CN Reconciliation Period",
+  "report_name": "Conciliacion por Cliente y Periodo",
+  "report_type": "Script Report",
+  "roles": [{"role": "System Manager"}, {"role": "Supervisor Credinomina"}, {"role": "Operador Credinomina"}],
+  "timeout": 0
+}

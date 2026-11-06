@@ -23,6 +23,8 @@ frappe.ui.form.on("CN Reconciliation Period", {
         }
         if (frm.doc.reconciliation_mode !== "Historica" && !frm.doc.no_collection) addTemplateButtons(frm);
         if (frm.is_new()) return;
+        frm.add_custom_button(__("Conciliación por cliente y período"), () => frappe.set_route(
+            "query-report", "Conciliacion por Cliente y Periodo", {period: frm.doc.name}), __("Reportes"));
         frm.add_custom_button(__("Ver cortes registrados"), () => showRegisteredCuts(frm), __("Más opciones"));
 
         if (frm.doc.reconciliation_mode !== "Historica" && !frm.doc.no_collection) addExportButton(frm);

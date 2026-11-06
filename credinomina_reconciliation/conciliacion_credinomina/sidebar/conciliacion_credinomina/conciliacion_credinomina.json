@@ -219,6 +219,18 @@
       "show_arrow": 0
     },
     {
+      "type": "Link",
+      "label": "Conciliación por cliente y período",
+      "link_type": "Report",
+      "link_to": "Conciliacion por Cliente y Periodo",
+      "icon": "clipboard-check",
+      "child": 1,
+      "collapsible": 1,
+      "keep_closed": 0,
+      "indent": 0,
+      "show_arrow": 0
+    },
+    {
       "type": "Section Break",
       "label": "Catálogos",
       "icon": "folders",

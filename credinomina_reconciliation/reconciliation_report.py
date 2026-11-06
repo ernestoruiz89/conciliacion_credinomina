@@ -17,7 +17,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
            'cash_adjustment_usd', 'conversion_usd', 'open_usd', 'detail_received_usd', 'detail_unassigned_usd')
-COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment')
+COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment', 'deposit_difference_notes')
 
 
 def add_portfolio_status(periods, details):
@@ -168,6 +168,7 @@ def build_views(periods, collections, applications, deposit_details=()):
                 employer=period.get('employer'), payroll_month=period.get('payroll_month'),
                 closure_state=period.get('closure_state'), client_number=client,
                 client_name=source.get('client_name') or 'Sin identificar', loan_number=loan,
+                loan_number_display=str(source.get('loan_number') or ''),
                 usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(),
                 _difference_reasons=set(),
                 _comments={field: [] for field in COMMENTS},
@@ -244,6 +245,16 @@ def build_views(periods, collections, applications, deposit_details=()):
         if evidence['period'] not in period_map:
             continue
         row = group(evidence['period'], evidence['source'])
+        source = evidence['source']
+        for field in COLLECTION_COMMENT_FIELDS:
+            comment = collection_comment(source.get(field))
+            if comment and comment not in row['_comments'][field]:
+                row['_comments'][field].append(comment)
+        note = collection_comment(source.get('difference_notes'))
+        if note and note not in row['_comments']['deposit_difference_notes']:
+            row['_comments']['deposit_difference_notes'].append(note)
+        if source.get('difference_reason'):
+            row['_difference_reasons'].add(source['difference_reason'])
         if evidence.get('unavailable'):
             row['_detail_unavailable'] = True
         _add(row, 'detail_received_usd', evidence['detail_received_usd'])
