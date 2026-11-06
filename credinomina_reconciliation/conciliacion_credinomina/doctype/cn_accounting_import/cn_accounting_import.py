@@ -1649,7 +1649,7 @@ def _prepare_remittance_details(
             "name", "parent", "employer", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number", "employee_number",
             "national_id", "loan_number", "installment_number",
             "application_reference", "deducted_usd", "deducted_nio",
-            "amount_usd", "match_status", "match_reason", "matched_targets",
+            "amount_usd", "linked_usd", "match_status", "match_reason", "matched_targets",
             "row_kind", "difference_amount_usd", "difference_basis", "difference_core_item",
             "difference_reason", "difference_notes",
             "manual_reconciliation_required",
@@ -1659,8 +1659,10 @@ def _prepare_remittance_details(
     rows_by_parent = defaultdict(list)
     for row in detail_rows:
         rows_by_parent[row.parent].append(row)
-    from credinomina_reconciliation.remittance_preserved_fifo import retained_instructions
+    from credinomina_reconciliation.remittance_preserved_fifo import retained_instructions, retained_detail_instructions
     retained = retained_instructions(remittances, rows_by_parent, registered_ids, prior_instructions)
+    retained.extend(retained_detail_instructions(remittances, rows_by_parent, registered_ids,
+                                                prior_instructions, claims, allowed_by_remittance))
     prior_instructions = [*retained, *prior_instructions]
     detail_loan_clients = None
     if client_catalog is not None:
@@ -1836,6 +1838,8 @@ def _prepare_remittance_details(
                 )
                 if not plan["targets"]:
                     plan["status"] = "Revisar"
+                elif all(entry.get('retained_detail') for entry in manual):
+                    plan['reason'] = 'Asignaciones confirmadas conservadas; FIFO solo aplica al efectivo pendiente'
                 # These instructions already exist. Only associate their results.
                 continue
             requested = amount if fifo_cash_left is None else money_float(min(money(amount), fifo_cash_left))

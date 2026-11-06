@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import frappe
 
 from credinomina_reconciliation.allocation import allocate_cash
-from credinomina_reconciliation.allocation_origin import FIFO, MANUAL
+from credinomina_reconciliation.allocation_origin import DETAIL, FIFO, MANUAL
 from credinomina_reconciliation.remittance_detail import suggest_detail_targets, detail_amount_usd
 from credinomina_reconciliation.remittance_target_summary import describe_targets
 from credinomina_reconciliation.remittance_selection import pending_selection
@@ -268,6 +268,65 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertTrue(all(t["origin"] == FIFO for t in result["allocations"]))
         self.assertEqual([t["detail_row"] for t in result["allocations"]], ["ROW1", "ROW2", "ROW2"])
         self.assertEqual(self.run_engine()[1], result)  # Reconciliation is repeatable.
+
+    def completed_detail_before_fifo(self):
+        self.rows = [frappe._dict(name='ROW1', parent='DEP', client='5464', client_number='5464', loan_number='',
+            deducted_usd=83.10, amount_usd=83.10, linked_usd=83.10, match_status='Conciliada', matched_targets=json.dumps([
+                dict(claim_id='H:A', amount_usd=30.21), dict(claim_id='H:B', amount_usd=52.89)])),
+            frappe._dict(name='ROW2', parent='DEP', client='5464', client_number='5464',
+                loan_number='109578-1', deducted_usd=16.90)]
+        self.claims = [dict(application('A', '2026-06-15', 30.21), loan_number='0012194-1'),
+                       dict(application('B', '2026-06-30', 52.89), loan_number='0013431-1'),
+                       application('NEW', '2026-06-30', 20)]
+        self.deposit['amount_usd'] = 100
+        self.doc.allocated_usd = 83.10
+        self.doc.allocation_detail = json.dumps([dict(tipo='Aplicacion historica', aplicacion_id=claim,
+            importe_usd=amount, origen=DETAIL, fila_detalle='ROW1') for claim, amount in (('A',30.21), ('B',52.89))])
+
+    def test_switching_to_fifo_preserves_fully_paid_detail_across_different_credits(self):
+        self.completed_detail_before_fifo()
+        context, result = self.run_engine()
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        assert_preserved_allocations(self.doc, result, [])
+        self.assertEqual([(row['claim_id'], row['amount_usd'], row['origin'], row['detail_row']) for row in result['allocations']],
+            [('H:A',30.21,DETAIL,'ROW1'), ('H:B',52.89,DETAIL,'ROW1'), ('H:NEW',16.90,FIFO,'ROW2')])
+        self.assertEqual(result['deposit_remaining']['DEP'], 0)
+        self.assertEqual(result['claim_remaining']['H:NEW'], 3.10)
+        self.assertIn('Asignaciones confirmadas conservadas', context['contexts']['DEP']['rows'][0]['reason'])
+        self.assertEqual(self.run_engine()[1], result)
+
+    def test_confirmed_detail_replay_cannot_bypass_changed_identity_amount_scope_or_evidence(self):
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        changes = [('client', 'OTHER'), ('client_number', 'OTHER'), ('loan_number', 'DIFFERENT-1'),
+                   ('deducted_usd', 83.11), ('linked_usd', 83.09), ('matched_targets', '[]'), ('match_status', 'Revisar')]
+        for field, value in changes:
+            with self.subTest(field=field):
+                self.setUp()
+                self.completed_detail_before_fifo()
+                self.rows[0][field] = value
+                original = copy.deepcopy(self.doc)
+                _, result = self.run_engine()
+                with patch.object(frappe, 'throw', side_effect=ValueError), self.assertRaises(ValueError):
+                    assert_preserved_allocations(self.doc, result, [])
+                self.assertEqual(self.doc, original)
+        for field, value in (('detail_source_file', 'OTHER.xlsx'), ('detail_periods', [frappe._dict(period='OTHER')])):
+            with self.subTest(field=field):
+                self.setUp()
+                self.completed_detail_before_fifo()
+                self.doc[field] = value
+                _, result = self.run_engine()
+                with patch.object(frappe, 'throw', side_effect=ValueError), self.assertRaises(ValueError):
+                    assert_preserved_allocations(self.doc, result, [])
+
+    def test_new_row_with_multiple_credits_is_still_not_automatically_distributed_by_fifo(self):
+        self.completed_detail_before_fifo()
+        self.rows[0].linked_usd = 0
+        self.rows[0].matched_targets = '[]'
+        self.doc.allocation_detail = '[]'
+        self.doc.allocated_usd = 0
+        context, result = self.run_engine()
+        self.assertFalse(any(row['detail_row'] == 'ROW1' for row in result['allocations']))
+        self.assertIn('mismo cliente y crédito', context['contexts']['DEP']['rows'][0]['reason'])
 
     def test_identical_rows_are_not_discarded(self):
         self.rows[1].deducted_usd = 33.03
