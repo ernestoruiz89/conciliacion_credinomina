@@ -10,6 +10,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 const report = context.frappe.query_reports['Resumen de Conciliacion'];
 assert.equal(report.filters.find(f => f.fieldname === 'view').default, 'Resumen');
 assert.ok(report.filters.find(f => f.fieldname === 'period'));
+assert.equal(report.filters.find(f => f.fieldname === 'include_paying_companies').default, 0);
 const render = (field, value, extra = {}) => report.formatter(value, 0, {fieldname: field},
     {[field]: value, ...extra}, value => String(value));
 assert.ok(render('collection_usd', null, {collection_control: 'No aplica'}).includes('No aplica'));
@@ -17,9 +18,6 @@ assert.ok(render('deposit_usd', null).includes('No determinable'));
 assert.ok(render('collection_difference_usd', 10).includes('text-danger'));
 assert.ok(render('deposit_difference_usd', -10).includes('text-warning'));
 assert.equal(render('open_usd', 0), '0');
-assert.ok(render('detail_unassigned_usd', 20).includes('text-danger'));
-assert.ok(render('detail_unassigned_usd', null).includes('No determinable'));
-assert.equal(render('detail_received_usd', 40), '40');
 // Free-text comments and links still go through Frappe's default formatter.
 for (const field of ['first_exception_comment', 'portfolio_credit_status']) {
     let called = false;

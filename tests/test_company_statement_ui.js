@@ -8,6 +8,7 @@ context.frappe.utils = {escape_html: text => text};
 assert.equal(report.filters[0].default, 'Resumen');
 assert.equal(report.filters[0].options, 'Resumen\nDetalle\nConciliación');
 assert.ok(report.filters.some(f => f.fieldname === 'employer' && f.options === 'CN Employer'));
+assert.equal(report.filters.find(f => f.fieldname === 'include_paying_companies').default, 0);
 assert.ok(report.filters.some(f => f.fieldname === 'cutoff_date' && f.fieldtype === 'Date' && !f.reqd));
 assert.ok(report.filters.some(f => f.fieldname === 'accounting_queue' && f.fieldtype === 'Check'));
 assert.ok(report.filters.some(f => f.fieldname === 'origin_type'));
@@ -29,7 +30,7 @@ assert.equal(report.formatter(null, null, {fieldname:'statement_amount_nio',fiel
 let drill, back;
 const visible = {};
 const filterValues = Object.fromEntries(report.filters.map(filter => [filter.fieldname, filter.default ?? '']));
-Object.assign(filterValues, {from_date:'2025-04-01', cutoff_date:'2025-06-30', search:'Ana'});
+Object.assign(filterValues, {from_date:'2025-04-01', cutoff_date:'2025-06-30', search:'Ana', include_paying_companies:1});
 const original = {...filterValues};
 const live = {get_filter_value: key => filterValues[key], set_filter_value: values => Object.assign(filterValues, values),
     get_filter: name => ({get_value: () => filterValues[name], $wrapper:{toggle(value){visible[name]=value;}}}),
@@ -39,6 +40,7 @@ const live = {get_filter_value: key => filterValues[key], set_filter_value: valu
 report.onload(live);
 drill.call({'data-detail':JSON.stringify({employer:'Gamma',component:'application_pending_usd'})}, {preventDefault(){}});
 assert.equal(filterValues.employer, 'Gamma');
+assert.equal(filterValues.include_paying_companies, 0, 'A single-company drill must not re-expand the payer');
 assert.equal(filterValues.view_mode, 'Detalle');
 Object.assign(filterValues, {search:'Otra búsqueda', status:'Pendiente'});
 back();
@@ -86,6 +88,7 @@ assert.equal(filterValues.search, '');
 assert.equal(filterValues.statement_scope, 'Todos');
 live.cn_display_filters();
 assert.equal(visible.cutoff_date, true);
+assert.equal(visible.include_paying_companies, true);
 assert.equal(visible.source_account, false);
 assert.equal(visible.accounting_queue, false);
 back();

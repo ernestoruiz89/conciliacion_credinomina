@@ -1,4 +1,4 @@
-"""Rollback-only: a US$40 deposit detail covering US$20 stays visible in both views."""
+"""Rollback-only: pending receipts are separate; saved reconciliation is unchanged."""
 from unittest.mock import patch
 
 import frappe
@@ -45,15 +45,20 @@ def run():
             before = [document_state(doc) for doc in documents]
             from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion.resumen_de_conciliacion import execute
             for view in ('Resumen', 'Detalle'):
-                columns, rows, *_ = execute(dict(period=period.name, view=view, only_differences=1))
-                assert len(rows) == 1, rows
+                columns, rows, *_ = execute(dict(period=period.name, view=view))
+                assert len(rows) == (2 if view == 'Detalle' else 1), rows
                 row = rows[0]
-                assert row['detail_received_usd'] == 40 and row['detail_unassigned_usd'] == 20, row
                 assert row['application_usd'] == row['deposit_usd'] == 20 and row['open_usd'] == 0, row
-                assert row['cash_control'] == 'Recibido sin distribuir'
-                assert {'detail_received_usd', 'detail_unassigned_usd'} <= {column['fieldname'] for column in columns}
+                assert row['cash_control'] == 'Cubierta' and not row['has_difference']
+                assert not {'detail_received_usd', 'detail_unassigned_usd'} & {column['fieldname'] for column in columns}
+                differences = execute(dict(period=period.name, view=view, only_differences=1))[1]
+                assert len(differences) == (1 if view == 'Detalle' else 0), differences
                 if view == 'Detalle':
                     assert row['client_name'] == 'Juan prueba'
+                    pending = rows[1]
+                    assert pending['client_name'] == 'Juan prueba' and pending['deposit_usd'] == 20, pending
+                    assert pending['application_usd'] == pending['open_usd'] == 0, pending
+                    assert pending['source_document'] == deposit.name and pending['has_difference'], pending
                 assert before == [document_state(doc.reload()) for doc in documents]
             from credinomina_reconciliation.conciliacion_credinomina.report.conciliacion_por_cliente_y_periodo.conciliacion_por_cliente_y_periodo import execute as client_report
             columns, client_rows, message, chart, totals, skip_total = client_report(dict(period=period.name))
@@ -65,8 +70,54 @@ def run():
             assert client_row['state'] == 'Revisar' and client_row['row_number'] == 1
             assert [total['value'] for total in totals] == [40, 20, 20]
             assert before == [document_state(doc.reload()) for doc in documents]
+            unlinked = frappe.get_doc(dict(doctype='CN Remittance Allocation', employer=company.name,
+                deposit_date='2026-08-31', deposit_reference=marker + '-UNLINKED',
+                deposit_currency='USD', deposit_amount=7)).insert()
+            unlinked.submit()
+            from credinomina_reconciliation.manual_complementary_policy import imported_item
+            with imported_item(marker + '-CORE'):
+                complement = frappe.get_doc(dict(doctype='CN Complementary Item', employer=company.name,
+                    posting_date='2026-08-31', currency='USD', amount=3, accounting_source_key=marker + '-CORE',
+                    source_currency='USD', source_credit=3, source_debit=0, source_date='2026-08-31',
+                    category='Ajuste de conciliación', review_action='Partida de depósito', amount_reviewed=1,
+                    subcategory='Otro ajuste sin CxC',
+                    reference=marker + '-CORE',
+                    client_number=client.client_number, client_name=client.client_name, loan_number='999999-1',
+                    description='Remanente del core sin depósito de prueba')).insert()
+                complement.submit()
+            documents.extend([unlinked.reload(), complement.reload()])
+            before = [document_state(doc) for doc in documents]
+            pending_rows = execute(dict(period=period.name, view='Detalle', only_differences=1))[1]
+            assert len(pending_rows) == 3, pending_rows
+            bank_line = next(row for row in pending_rows if row['source_document'] == unlinked.name)
+            comp_line = next(row for row in pending_rows if row['source_document'] == complement.name)
+            assert bank_line['deposit_usd'] == 7 and bank_line['name'] is None, bank_line
+            assert comp_line['cash_adjustment_usd'] == -3 and comp_line['name'] is None, comp_line
+            assert comp_line['client_name'] == client.client_name and comp_line['open_usd'] == 0, comp_line
+            beneficiary = frappe.get_doc(dict(doctype='CN Employer', employer_name=marker + '-CBC', employer_code=marker + '-CBC')).insert()
+            company.append('paying_for', dict(employer=beneficiary.name))
+            company.save()
+            frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=beneficiary.name,
+                payroll_month='2026-08-01', reconciliation_mode='Historica')).insert()
+            beneficiary_deposit = frappe.get_doc(dict(doctype='CN Remittance Allocation', employer=beneficiary.name,
+                deposit_date='2026-08-31', deposit_reference=marker + '-CBC', deposit_currency='USD', deposit_amount=5)).insert()
+            beneficiary_deposit.submit()
+            documents.append(beneficiary_deposit.reload())
+            before = [document_state(doc.reload()) for doc in documents]
+            from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa.estado_de_cuenta_por_empresa import execute as company_report
+            for report, extra in ((execute, dict(view='Resumen')), (company_report, dict(view_mode='Resumen', statement_scope='Gestión'))):
+                for include, expected in ((0, {company.name}), (1, {company.name, beneficiary.name})):
+                    result = report(dict(extra, employer=company.name, include_paying_companies=include))[1]
+                    assert {row['employer'] for row in result} == expected, result
+                    if report is company_report:
+                        amounts = {row['employer']: row['management_net_usd'] for row in result}
+                        assert amounts[company.name] == -30, amounts
+                        if include:
+                            assert amounts[beneficiary.name] == -5, amounts
+            assert before == [document_state(doc.reload()) for doc in documents]
             return dict(detail_received_usd=40, assigned_usd=20, unassigned_usd=20,
-                        application_pending_usd=0, visible_in_both_views=True, client_period_report_verified=True,
+                        application_pending_usd=0, pending_detail_line_verified=True, client_period_report_verified=True,
+                        unlinked_deposit_and_complement_verified=True, payer_filter_in_both_reports_verified=True,
                         saved_reconciliation_unchanged=True,
                         rollback=True)
     finally:

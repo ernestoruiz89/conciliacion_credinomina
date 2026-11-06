@@ -80,7 +80,7 @@ def test_period_required_and_read_permission_checked_before_loading_financial_da
         report.execute({})
     document = Mock()
     document.check_permission.side_effect = PermissionError
-    with patch.object(frappe, 'get_doc', return_value=document), patch.object(report, 'reconciliation_detail') as source, pytest.raises(PermissionError):
+    with patch.object(frappe, 'get_doc', return_value=document), patch.object(report, 'load_detail') as source, pytest.raises(PermissionError):
         report.execute(dict(period='PRIVATE'))
     source.assert_not_called()
 
@@ -92,10 +92,10 @@ def test_unknown_values_suppress_totals_and_queries_are_read_only():
     source = detail()
     source['detail_unassigned_usd'] = None
     with patch.object(frappe, 'get_doc', return_value=period), \
-            patch.object(report, 'reconciliation_detail', return_value=([], [source], None)) as read, \
+            patch.object(report, 'load_detail', return_value=[source]) as read, \
             patch.object(frappe, 'db', Mock()) as db:
         columns, rows, message, chart, totals, skip_total = report.execute(dict(period='P'))
-        read.assert_called_once_with(dict(period='P', view='Detalle'))
+        read.assert_called_once_with(period)
         assert rows[0]['pending_usd'] is None and totals == [] and 'omitidos' in message
         assert skip_total and chart is None
         db.set_value.assert_not_called()
@@ -136,3 +136,22 @@ def test_navigation_patch_adds_once_and_preserves_site_links():
     assert [row.link_to for row in rows] == ['Resumen de Conciliacion', migration.REPORT, 'site-custom-link']
     assert rows[2] is custom
     sidebar.save.assert_called_once_with(ignore_permissions=True)
+
+
+def test_client_report_keeps_receipt_detail_without_calling_original_summary():
+    from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion import resumen_de_conciliacion as summary
+    period = Mock()
+    period.name = 'P'
+    period.as_dict.return_value = dict(PERIOD, reconciliation_mode='Historica', applied_usd=20, payroll_month='2026-08-01')
+    apps = [dict(name='A', historical_period='P', event_type='Aplicacion', client_number='1', client_name='Juan',
+        loan_number='0012919-1', currency='USD', amount=20, historical_remitted_usd=20, historical_detail='[{"importe_usd":20}]')]
+    evidence = [dict(period='P', source=dict(name='R', client_number='1', loan_number='12919-1'),
+                     detail_received_usd=40, detail_unassigned_usd=20)]
+    with patch.object(frappe, 'get_doc', return_value=period), \
+            patch.object(summary, 'execute', side_effect=AssertionError('Reports must be independent')), \
+            patch.object(report, 'load_direct_applications', return_value=apps), \
+            patch.object(report, 'load_deposit_details', return_value=evidence), patch.object(report, 'add_portfolio_status'):
+        result = report.execute(dict(period='P'))
+    assert (result[1][0]['bank_usd'], result[1][0]['pending_usd']) == (40, 20)
+    assert {'detail_received_usd', 'detail_unassigned_usd'}.isdisjoint(
+        column['fieldname'] for column in summary.get_columns())

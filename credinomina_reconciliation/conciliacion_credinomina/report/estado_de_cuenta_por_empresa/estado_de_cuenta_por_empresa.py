@@ -7,6 +7,7 @@ from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.company_statement import load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.difference_reasons import CREDIT_COMPONENTS, attach_treatments
+from credinomina_reconciliation.report_employers import company_scopes
 from credinomina_reconciliation.company_accounting_statement import (
     CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS, POSITION_METRICS, POSITION_FIELDS,
     load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
@@ -27,19 +28,24 @@ def execute(filters=None):
         scope.pop('component', None)
     section = selected_scope(filters)
     detail, cutoff = [], None
-    if section != MANAGEMENT:
-        detail.extend(load_core_detail(scope))
-    if filters.get('cutoff_date') and section != CORE:
-        from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
-        cutoff = load_cutoff(scope)
-        detail.extend(management_detail(cutoff['detail']))
-    elif section != CORE:
-        detail.extend(management_detail(load_detail(scope)))
-    if section != CORE and not filters.get('component'):
-        differences = load_deposit_differences(scope)
-        if str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
-            differences = [row for row in differences if row['accounting_pending']]
-        detail.extend(differences)
+    for company_scope in company_scopes(scope):
+        if section != MANAGEMENT:
+            detail.extend(load_core_detail(company_scope))
+        if filters.get('cutoff_date') and section != CORE:
+            from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
+            snapshot = load_cutoff(company_scope)
+            if cutoff is None:
+                cutoff = dict(snapshot, warnings=list(snapshot['warnings']))
+            else:
+                cutoff['warnings'] = list(dict.fromkeys([*cutoff['warnings'], *snapshot['warnings']]))
+            detail.extend(management_detail(snapshot['detail']))
+        elif section != CORE:
+            detail.extend(management_detail(load_detail(company_scope)))
+        if section != CORE and not filters.get('component'):
+            differences = load_deposit_differences(company_scope)
+            if str(filters.get('accounting_queue') or '0') in {'1', 'True'}:
+                differences = [row for row in differences if row['accounting_pending']]
+            detail.extend(differences)
     attach_treatments(detail, classify_credits=True)
     data = _presentation(detail, filters)
     message = (_('Saldo contable del core = débitos originales − créditos originales. ')

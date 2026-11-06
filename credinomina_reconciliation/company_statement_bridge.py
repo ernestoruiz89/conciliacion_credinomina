@@ -14,6 +14,7 @@ from credinomina_reconciliation.credit_application import journal_allocations
 from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
 from credinomina_reconciliation.rounding import money, money_float, decimal_value
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
+from credinomina_reconciliation.report_employers import company_scopes
 
 BRIDGE = 'Conciliación'
 SCOPED_FILTERS = ('from_date', 'to_date', 'source_account', 'source_currency', 'component',
@@ -31,6 +32,10 @@ def _number(value):
 
 
 def execute(filters):
+    scopes = company_scopes(filters)
+    if len(scopes) > 1:
+        results = [execute(scope) for scope in scopes]
+        return results[0][0], [row for result in results for row in result[1]], '<br>'.join(dict.fromkeys(result[2] for result in results))
     if (any(filters.get(field) for field in SCOPED_FILTERS)
             or str(filters.get('accounting_queue') or '0') in {'1', 'True'}
             or filters.get('statement_scope') not in (None, '', 'Todos')):
