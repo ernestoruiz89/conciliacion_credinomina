@@ -107,7 +107,8 @@ def validate_paying_for(document):
     removed = {row.employer for row in previous.get("paying_for") or []} - set(companies) if previous else set()
     if removed:
         # Do not silently invalidate confirmed allocations (including closed periods).
-        for name in frappe.get_all("CN Remittance Allocation", filters={"employer": document.name, "docstatus": 1}, pluck="name"):
+        for name in frappe.get_all("CN Remittance Allocation", filters={"employer": document.name, "docstatus": 1,
+                "consolidated_deposit": ["is", "not set"]}, pluck="name"):
             if frappe.db.exists("CN Complementary Item", {"docstatus": 1, "category": "Saldo a favor del cliente",
                     "registered_deposit": name, "employer": ["in", sorted(removed)]}):
                 frappe.throw(_("La autorización se utiliza en un saldo a favor del cliente del depósito {0}.").format(name))

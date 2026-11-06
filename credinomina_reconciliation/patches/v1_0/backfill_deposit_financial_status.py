@@ -7,7 +7,8 @@ from credinomina_reconciliation.report_records import _pages
 def execute():
     for row in _pages(frappe.get_all, "CN Remittance Allocation", filters={},
                       fields=["name", "docstatus", "result", "financial_status", "amount_usd",
-                              "allocated_usd", "justified_surplus_usd", "unclassified_usd", "detail_status"],
+                              "allocated_usd", "justified_surplus_usd", "unclassified_usd", "detail_status",
+                              "cash_identity_status", "consolidated_deposit"],
                       order_by="name asc"):
         state = reconciliation_status(row)
         if row.financial_status != state:

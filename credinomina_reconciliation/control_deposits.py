@@ -24,7 +24,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
     """Do not filter by assignment date or require a period in the receipt month."""
     if not frappe.has_permission("CN Remittance Allocation", "read"):
         return None  # Unavailable is not zero.
-    filters = {"docstatus": 1}
+    filters = {"docstatus": 1, "consolidated_deposit": ["is", "not set"]}
     if year is not None:
         filters["deposit_date"] = ["between", [f"{year}-01-01", f"{year}-12-31"]]
     if employer:
@@ -35,10 +35,11 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
         "CN Remittance Allocation", filters=filters,
         fields=["name", "employer", "bank_account", "deposit_reference", "deposit_date",
                 "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "allocated_usd",
-                "justified_surplus_usd", "allocation_detail", "result"],
+                "justified_surplus_usd", "allocation_detail", "result", "consolidated_deposit", "cash_identity_status"],
         order_by="deposit_date asc, name asc", limit_page_length=0,
     )
-    deposits = list(deposits)
+    from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
+    deposits = [deposit for deposit in deposits if not is_linked_origin(deposit)]
     # One parsed journal per visible deposit, reused for IDs, periods, customer
     # evidence and totals. Do not decode large allocation JSON for every step.
     entries_by_deposit = {deposit["name"]: _entries(deposit.get("allocation_detail")) for deposit in deposits}
@@ -142,7 +143,10 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             receivables_by_deposit[name].append(dict(name=item["name"], employer=item.get("employer"),
                                                     amount_usd=item["receivable_usd"]))
     output = []
+    from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
     for deposit in {d["name"]: d for d in deposits}.values():
+        if is_linked_origin(deposit):
+            continue
         credits, other, adjustments, conversion = money(0), money(0), money(0), money(0)
         related, months = set(), set()
         destinations = {}

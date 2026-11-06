@@ -80,7 +80,7 @@ function linkAccountingOrigins(frm) {
     dialog = new frappe.ui.Dialog({title: __("Vincular origen contable al depósito"), size: "extra-large", fields: [
         {fieldtype: "HTML", options: `<p>${__("Seleccione el origen del mismo ingreso. La fecha de carga puede ser posterior; se comparan la empresa, referencia, fecha del depósito, moneda e importe. Esta acción conserva la distribución ya realizada.")}</p>`},
         {fieldname: "kind", fieldtype: "Select", label: __("Tipo de origen"), options: "Movimientos internos\nDepósito del core", default: "Movimientos internos", onchange: reset,
-            description: __("Las partidas internas se enviarán como Vinculado a depósito, con su referencia y tratamiento Partida de depósito. Se requiere permiso para enviar. El depósito del core debe estar en borrador, sin detalle ni destinos.")},
+            description: __("Las partidas internas se enviarán como Vinculado a depósito, con su referencia y tratamiento Partida de depósito. Se requiere permiso para enviar. El depósito del core puede estar en borrador o confirmado, sin asignaciones, detalle ni destinos. Su efectivo se contará únicamente en el depósito principal.")},
         {fieldname: "reference", fieldtype: "Data", label: __("Referencia"), default: frm.doc.deposit_reference, onchange: reset,
             description: __("Busca en la referencia del depósito y en la referencia contable original del movimiento.")},
         {fieldname: "voucher", fieldtype: "Data", label: __("Asiento (opcional)"), onchange: reset,
@@ -111,7 +111,9 @@ function linkAccountingOrigins(frm) {
 
 function reviewDepositOrigin(frm) {
     if (frm.is_dirty()) return frappe.msgprint(__("Guarde los cambios antes de revisar el origen."));
-    const canLink = frm.doc.docstatus === 0 && !(frm.doc.targets || []).length && !(frm.doc.detail_rows || []).length && !frm.doc.detail_file && !!frm.doc.accounting_source_key;
+    const canLink = [0, 1].includes(frm.doc.docstatus) && !(frm.doc.targets || []).length && !(frm.doc.detail_rows || []).length
+        && !(frm.doc.detail_periods || []).length && !frm.doc.detail_file && !frm.doc.detail_hash
+        && !Number(frm.doc.allocated_usd || 0) && !Number(frm.doc.justified_surplus_usd || 0) && !!frm.doc.accounting_source_key;
     const dialog = new frappe.ui.Dialog({
         title: __("Revisar origen del depósito"),
         fields: [
@@ -183,10 +185,16 @@ frappe.ui.form.on("CN Remittance Allocation", {
         window.credinominaWorkbenchHandoff?.(frm, result => openWorkbenchDepositSelection(frm, result));
         if (frm.doc.cash_identity_status === "Origen vinculado" || frm.doc.consolidated_deposit) {
             frm.dashboard.set_headline_alert(__("Este documento conserva un origen contable; no representa otro efectivo. Consulte el depósito vinculado."), "blue");
+            frm.clear_custom_buttons?.();
             frm.add_custom_button(__("Abrir depósito vinculado"), () => frappe.set_route("Form", "CN Remittance Allocation", frm.doc.consolidated_deposit));
             frm.disable_save();
+            hideLinkedOriginAttachments(frm);
             for (const field of ["link_accounting_origins", "load_deposit_detail", "use_applications_detail", "use_collection_detail",
-                "select_detail_credit", "refresh_distribution", "select_pending_targets", "link_detail_targets", "create_complementary"]) {
+                "select_detail_credit", "refresh_distribution", "select_pending_targets", "link_detail_targets", "create_complementary",
+                "allocated_usd", "credit_coverage_usd", "complementary_coverage_usd", "conversion_coverage_usd",
+                "justified_surplus_usd", "unclassified_usd", "result", "unallocated_usd", "allocation_summary_section",
+                "detail_tab", "destinations_tab", "support_file", "detail_file", "detail_periods", "detail_rows", "targets",
+                "download_detail_template"]) {
                 frm.toggle_display(field, false);
             }
             return;
@@ -383,6 +391,7 @@ async function correctDepositData(frm) {
 }
 
 async function reconcileRemittance(frm) {
+    if (frm.doc.consolidated_deposit || frm.doc.cash_identity_status === "Origen vinculado") return;
     if (frm.reconciliation_running) return;
     frm.reconciliation_running = true;
     const name = frm.doc.name;
@@ -514,7 +523,8 @@ async function showReconciliationHistory(frm) {
 
 function toggleApplicationDetailAction(frm) {
     const visible = (frm.doc.detail_periods || []).some(row => row.period) &&
-        frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write");
+        frm.doc.docstatus !== 2 && !frm.doc.consolidated_deposit && frm.doc.cash_identity_status !== "Origen vinculado"
+        && !!frm.get_perm(0, "write");
     frm.toggle_display("use_applications_detail", visible);
     if (visible) frm.fields_dict.use_applications_detail?.$wrapper.css({display: "inline-block", marginRight: "8px"});
     return toggleCollectionDetailAction(frm, visible);
@@ -523,7 +533,7 @@ function toggleApplicationDetailAction(frm) {
 async function toggleCollectionDetailAction(frm, enabled) {
     const request = frm._collection_detail_request = (frm._collection_detail_request || 0) + 1;
     frm.toggle_display("use_collection_detail", false);
-    if (!enabled || !frm.doc.employer) return;
+    if (!enabled || !frm.doc.employer || frm.doc.consolidated_deposit || frm.doc.cash_identity_status === "Origen vinculado") return;
     const document = frm.doc;
     const employer = document.employer;
     const periods = () => JSON.stringify((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
@@ -534,7 +544,8 @@ async function toggleCollectionDetailAction(frm, enabled) {
             args: {employer, periods: selection},
         });
         if (request !== frm._collection_detail_request || document !== frm.doc || employer !== frm.doc.employer || selection !== periods()) return;
-        const visible = response.message === true && frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write");
+        const visible = response.message === true && frm.doc.docstatus !== 2 && !frm.doc.consolidated_deposit
+            && frm.doc.cash_identity_status !== "Origen vinculado" && !!frm.get_perm(0, "write");
         frm.toggle_display("use_collection_detail", visible);
         if (visible) frm.fields_dict.use_collection_detail?.$wrapper.css({display: "inline-block"});
     } catch (error) {
@@ -560,6 +571,7 @@ frappe.ui.form.on("CN Remittance Period", {
 });
 
 async function useApplicationsAsDetail(frm, source = "applications") {
+    if (frm.doc.consolidated_deposit || frm.doc.cash_identity_status === "Origen vinculado") return;
     const fromCollection = source === "collection";
     if (!(frm.doc.detail_periods || []).some(row => row.period)) {
         frappe.msgprint(__("Seleccione al menos un período del detalle."));
@@ -1335,13 +1347,27 @@ async function selectRemittanceDetailCredit(frm) {
     await loadCredits();
 }
 
+function hideLinkedOriginAttachments(frm) {
+    const hide = () => {
+        if (frm.doc.consolidated_deposit || frm.doc.cash_identity_status === "Origen vinculado") {
+            frm.attachments?.parent?.find(".add-attachment-btn").hide();
+        }
+    };
+    // Frappe refreshes the sidebar independently (for example, after viewing
+    // more attachments); retain its readable files and hide only the add action.
+    frm.$wrapper?.off("attachments_change.cn_linked_origin").on("attachments_change.cn_linked_origin", hide);
+    hide();
+}
+
 function toggleRemittanceDetailActions(frm) {
     const file = frm.doc.detail_file || frm.doc.support_file || "";
-    frm.toggle_display("load_deposit_detail", !frm.is_new() && frm.doc.docstatus !== 2 &&
+    frm.toggle_display("load_deposit_detail", !frm.doc.consolidated_deposit && frm.doc.cash_identity_status !== "Origen vinculado"
+        && !frm.is_new() && frm.doc.docstatus !== 2 &&
         !!frm.get_perm(0, "write") && /\.(xlsx|xls|csv)(\?|$)/i.test(file));
 }
 
 async function importRemittanceDetail(frm) {
+    if (frm.doc.consolidated_deposit || frm.doc.cash_identity_status === "Origen vinculado") return;
     if (frm.__loading_deposit_detail) return;
     frm.__loading_deposit_detail = true;
     try {
@@ -1446,6 +1472,10 @@ function remittanceNextAction(frm) {
 
 function remittancePresentation(doc, dirty = false) {
     const registration = doc.docstatus === 2 ? "Cancelado" : doc.docstatus === 1 ? "Confirmado" : "Borrador";
+    if (doc.consolidated_deposit || doc.cash_identity_status === "Origen vinculado") {
+        return {registration, result: "Origen contable vinculado", color: "blue", reconciled: false,
+            hint: "Este documento conserva un origen contable; no representa otro efectivo. Consulte el depósito vinculado."};
+    }
     const cash = remittanceCashAmounts(doc);
     const financialReview = !Number.isFinite(cash.pending) || cash.pending !== 0 || cash.credit < 0
         || Number(doc.allocated_usd || 0) < 0 || Number(doc.unclassified_usd || 0) !== 0

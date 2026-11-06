@@ -361,7 +361,7 @@ def reconcile_deposit(document, progress=None, undo=False):
     from credinomina_reconciliation.reclassification_distribution import load_cash_claims
     complements.extend(load_cash_claims([document.name]))
     others = frappe.get_all("CN Remittance Allocation", filters={
-        "docstatus": 1, "employer": scope, "name": ["!=", document.name],
+        "docstatus": 1, "employer": scope, "name": ["!=", document.name], "consolidated_deposit": ["is", "not set"],
     }, fields=["name", "deposit_reference", "deposit_voucher", "reconciliation_identity", "deposit_date",
                "deposit_currency", "deposit_amount", "amount_usd", "fx_rate", "employer", "allocation_detail",
                "allocated_usd", "unallocated_usd", "unclassified_usd", "justified_surplus_usd", "result"], limit_page_length=0)

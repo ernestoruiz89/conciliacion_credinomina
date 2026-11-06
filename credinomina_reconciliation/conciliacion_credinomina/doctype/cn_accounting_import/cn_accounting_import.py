@@ -978,7 +978,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=True, 
     else:
         manual_allocations = frappe.get_all(
             "CN Remittance Allocation",
-            filters={"docstatus": 1, **company_filters},
+            filters={"docstatus": 1, "consolidated_deposit": ["is", "not set"], **company_filters},
             fields=[
                 "name", "deposit_reference", "deposit_voucher", "reconciliation_identity",
                 "amount_usd", "result", "employer", "deposit_date",
@@ -1556,7 +1556,8 @@ def _match_applications_by_basis(
 
 def _registered_deposit_pairs(rows, allocations):
     """Use registered deposits as cash evidence."""
-    registered = list(allocations)
+    from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
+    registered = [item for item in allocations if not is_linked_origin(item)]
     if not registered:
         return [], {}
     accounting = [

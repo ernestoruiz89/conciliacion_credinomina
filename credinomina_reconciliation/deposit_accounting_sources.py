@@ -215,6 +215,20 @@ def is_linked_origin(deposit):
     return bool(deposit.get('consolidated_deposit') or deposit.get('cash_identity_status') == 'Origen vinculado')
 
 
+def refresh_linked_origin_status(deposit):
+    """Index an evidence-only receipt without touching its saved cash/audit fields."""
+    if deposit.get('docstatus') not in (0, 1) or not is_linked_origin(deposit):
+        return False
+    from credinomina_reconciliation.deposit_presentation import reconciliation_status
+    state = reconciliation_status(deposit)
+    if deposit.get('financial_status') == state:
+        return False
+    frappe.db.set_value('CN Remittance Allocation', deposit.name, 'financial_status', state,
+                        update_modified=False)
+    deposit.financial_status = state
+    return True
+
+
 def assert_usable_cash(deposit):
     if is_linked_origin(deposit):
         frappe.throw(_('Este registro es origen contable de otro depósito y no puede utilizarse para asignar dinero, conciliar o crear saldos a favor. Use el depósito principal.'))
@@ -222,15 +236,27 @@ def assert_usable_cash(deposit):
 
 @frappe.whitelist(methods=['POST'])
 def link_duplicate_origin(deposit_name, canonical_name, modified, reason):
-    """Explicitly archive a cash-free draft as another origin of a bank receipt.
+    """Explicitly link an unused accounting origin to its bank receipt.
 
     Original documents, files and row keys remain. No executions, balances,
-    periods or cash amounts are rewritten; confirmed originals cannot be merged.
+    periods or cash amounts are rewritten; unused confirmed origins stay confirmed.
     """
     from credinomina_reconciliation.accounting_batch_store import creation_guard
     from credinomina_reconciliation.accounting_deposits import EVIDENCE_FIELDS
     if deposit_name == canonical_name or not clean_text(reason):
         frappe.throw(_('Seleccione otro depósito y documente por qué es el mismo efectivo.'))
+    # Confirmed, unused receipts use the same guarded metadata-only service as
+    # Vincular origen contable; never save/replay either confirmed document.
+    candidate = frappe.get_doc('CN Remittance Allocation', deposit_name)
+    candidate.check_permission('write')
+    if candidate.docstatus == 1:
+        if str(candidate.modified) != str(modified):
+            frappe.throw(_('El depósito cambió. Recárguelo antes de vincular su origen.'))
+        from credinomina_reconciliation.manual_origin_link import preview, link
+        review = preview(canonical_name, [deposit_name], 'deposit')
+        if review['issues']:
+            frappe.throw('<br>'.join(review['issues']))
+        return dict(link(canonical_name, [deposit_name], review['token'], reason, 'deposit'), origin=deposit_name)
     with creation_guard():
         documents = {name: frappe.get_doc('CN Remittance Allocation', name, for_update=True)
                      for name in sorted([deposit_name, canonical_name])}

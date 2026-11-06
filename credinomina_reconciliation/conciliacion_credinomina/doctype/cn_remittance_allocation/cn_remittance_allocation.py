@@ -229,6 +229,7 @@ class CNRemittanceAllocation(Document):
             "CN Remittance Allocation",
             filters={
                 "docstatus": 1,
+                "consolidated_deposit": ["is", "not set"],
                 "employer": self.employer,
                 "deposit_reference": self.deposit_reference,
                 "deposit_date": self.deposit_date,

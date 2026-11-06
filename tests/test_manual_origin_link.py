@@ -98,7 +98,7 @@ def test_later_core_posting_and_upload_do_not_change_bank_date_or_distribution()
     assert result['issues'] == []
     assert sources[0]['source_date'] == '2026-10-30'
     origin.docstatus = 1
-    assert link.inspect_selection(doc, [origin], 'deposit')[0]['issues']
+    assert not link.inspect_selection(doc, [origin], 'deposit')[0]['issues']
     origin.docstatus = 0
     origin.targets = [dict(period='P')]
     assert link.inspect_selection(doc, [origin], 'deposit')[0]['issues']
