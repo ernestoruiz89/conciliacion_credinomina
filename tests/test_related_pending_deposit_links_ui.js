@@ -19,7 +19,8 @@ context.window.credinominaShowRelatedPending({client_name: "Persona", applicatio
                    {document: "DEP/2 <x>", via_collection: true}],
         complementary_items: [{document: "CN-COMP-1", date: "2026-02-15", reference: '"<CORE>'},
                               {document: "CN/COMP <2>"}]},
-    {type: "Aplicación", document: "UNASSIGNED", amount_usd: 50, pending_usd: 50},
+    {type: "Aplicación", document: "UNASSIGNED", amount_usd: 50, pending_usd: 50,
+        observations: ['Distribución <compartida> & pendiente']},
 ], rows: [
     {type: "Partida complementaria", document: "CORE-DEBIT", direction: "Débito", date: "2026-02-15", amount_usd: 13.08, pending_usd: 13.08},
     {type: "Partida complementaria", document: "CORE-CREDIT", direction: "Crédito", date: "2026-02-15", amount_usd: 20, pending_usd: 20},
@@ -40,6 +41,7 @@ assert.ok(html.includes('title="15/02/2026 · &quot;&lt;CORE>"'));
 assert.ok(html.includes('vía cobranza'));
 assert.ok(html.includes('target="_blank" rel="noopener noreferrer"'));
 assert.ok(html.includes('0.01'));
+assert.ok(html.includes('Distribución &lt;compartida> &amp; pendiente'));
 assert.ok(!dialog.hidden);
 assert.equal(navigated, false, "Rendering links must not route away from the current modal or change its filters");
 dialog.options.primary_action();
