@@ -24,6 +24,11 @@ def application(name='A', **kwargs):
 
 
 class ReconciliationReportTests(unittest.TestCase):
+    def setUp(self):
+        scoped = patch.object(report, 'load_deposit_details', return_value=[])
+        scoped.start()
+        self.addCleanup(scoped.stop)
+
     def test_direct_projection_not_counted_twice_and_same_totals_in_both_views(self):
         claims = [collection(expected_usd=100, applied_usd=100, remitted_usd=90,
             remittance_detail=json.dumps([

@@ -16,7 +16,7 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
-           'cash_adjustment_usd', 'conversion_usd', 'open_usd')
+           'cash_adjustment_usd', 'conversion_usd', 'open_usd', 'detail_received_usd', 'detail_unassigned_usd')
 COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment')
 
 
@@ -25,7 +25,7 @@ def add_portfolio_status(periods, details):
     if not details:
         return
     for row in details:
-        row['portfolio_credit_status'] = 'No aplica' if row.get('_company_conversion') else 'Sin corte de cartera aplicable'
+        row['portfolio_credit_status'] = 'No aplica' if row.get('_company_conversion') or row.get('_detail_unavailable') else 'Sin corte de cartera aplicable'
     if not frappe.has_permission('CN Credit Portfolio Snapshot', 'read'):
         return
     months = {period['name']: get_last_day(period.get('cutoff_date') or period['payroll_month'])
@@ -40,7 +40,7 @@ def add_portfolio_status(periods, details):
                  for name, month in months.items()}
     loans_by_cut = defaultdict(set)
     for row in details:
-        if by_period[row['name']] and not row.get('_company_conversion'):
+        if by_period[row['name']] and not row.get('_company_conversion') and not row.get('_detail_unavailable'):
             loans_by_cut[by_period[row['name']]].add(row['loan_number'])
     by_credit = defaultdict(list)
     for cut, loans in loans_by_cut.items():
@@ -49,7 +49,7 @@ def add_portfolio_status(periods, details):
         }, fields=['credit_number', 'credit_status', 'employer'], loan_field='credit_number', loans=loans):
             by_credit[(cut, canonical_credit_number(credit['credit_number']))].append(credit)
     for row in details:
-        if row.get('_company_conversion'):
+        if row.get('_company_conversion') or row.get('_detail_unavailable'):
             continue
         cut = by_period[row['name']]
         if not cut:
@@ -137,13 +137,18 @@ def _finish(row):
         else 'Con excedente' if row['deposit_difference_usd'] is not None
         and money(row['deposit_difference_usd']) + money(row['cash_adjustment_usd']) - money(row['credit_used_usd']) - money(row['conversion_usd']) < 0
         else 'Cubierta' if row['application_usd'] else 'Sin aplicación')
+    if row['detail_received_usd'] is None or row['detail_unassigned_usd'] is None:
+        row['cash_control'] = 'Revisar detalle del depósito'
+    elif row['detail_unassigned_usd'] > 0 and row['open_usd'] is not None:
+        row['cash_control'] = ('Pendiente y recibido sin distribuir' if row['open_usd'] else 'Recibido sin distribuir')
     row['observations'] = ' · '.join(sorted(row['_notes']))
     row['has_difference'] = bool(row['_notes'] or row['collection_control'] in {'Sin cobranza', 'Sin base', 'Con diferencias'}
-        or row['deposit_difference_usd'] or row['cash_control'] in {'Revisar', 'Pendiente', 'Con excedente'})
+        or row['deposit_difference_usd'] or row['detail_unassigned_usd']
+        or row['cash_control'] in {'Revisar', 'Pendiente', 'Con excedente', 'Revisar detalle del depósito'})
     return row
 
 
-def build_views(periods, collections, applications):
+def build_views(periods, collections, applications, deposit_details=()):
     """Collection projections of direct applications must be removed exactly once."""
     period_map = {row['name']: row for row in periods}
     direct = direct_amounts_by_collection(applications)
@@ -235,6 +240,17 @@ def build_views(periods, collections, applications):
         row['_difference_reasons'].add(proof.get('difference_reason') or 'Diferencia Inmaterial')
         row['_notes'].add('Diferencia documentada de la empresa en ' + proof['deposit'] + '; pendiente de respaldo del core. No se distribuye entre clientes.')
 
+    for evidence in deposit_details:
+        if evidence['period'] not in period_map:
+            continue
+        row = group(evidence['period'], evidence['source'])
+        if evidence.get('unavailable'):
+            row['_detail_unavailable'] = True
+        _add(row, 'detail_received_usd', evidence['detail_received_usd'])
+        _add(row, 'detail_unassigned_usd', evidence['detail_unassigned_usd'])
+        if evidence.get('observation'):
+            row['_notes'].add(evidence['observation'])
+
     details = [_finish(row) for row in groups.values()]
     by_period = defaultdict(list)
     for row in details:
@@ -253,11 +269,11 @@ def build_views(periods, collections, applications):
             for field in AMOUNTS:
                 _add(row, field, child[field])
             row['_notes'].update(child['_notes'])
-        row['credit_count'] = sum(not child.get('_company_conversion') for child in children)
+        row['credit_count'] = sum(not child.get('_company_conversion') and not child.get('_detail_unavailable') for child in children)
         row['difference_count'] = sum(child['has_difference'] for child in children)
         if money(row['application_usd']) != money(period.get('applied_usd')):
             row['_notes'].add('El detalle no coincide con el aplicado del período; revise vínculos y actualice la conciliación.')
-            if not children:
+            if not any(not child.get('_detail_unavailable') for child in children):
                 for field in ('application_usd', 'deposit_usd', 'credit_used_usd', 'cash_adjustment_usd', 'open_usd'):
                     row[field] = None
         _finish(row)

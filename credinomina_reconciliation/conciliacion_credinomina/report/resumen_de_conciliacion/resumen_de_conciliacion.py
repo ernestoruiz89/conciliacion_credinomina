@@ -5,6 +5,7 @@ from frappe.utils import cint
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.parsers import collection_comment
 from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
+from credinomina_reconciliation.reconciliation_deposit_detail import load as load_deposit_details
 
 
 def execute(filters=None):
@@ -58,7 +59,8 @@ def execute(filters=None):
             "cxc_difference_comment",
         ],
     ))
-    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
+    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]),
+                                 load_deposit_details(data))
     if filters.get("view") == "Detalle":
         add_portfolio_status(data, detail)
         for row in detail:
@@ -73,7 +75,7 @@ def execute(filters=None):
         rows = [row for row in rows if row["has_difference"]]
     # Frappe totals treat unknown amounts as zero. Suppress that misleading total.
     incomplete = any(row[field] is None for row in rows
-                     for field in ("application_usd", "deposit_usd", "open_usd"))
+                     for field in ("application_usd", "deposit_usd", "open_usd", "detail_received_usd", "detail_unassigned_usd"))
     incomplete = incomplete or any(row["collection_usd"] is None and row["collection_control"] != "No aplica"
                                    for row in rows)
     message = _("Totales omitidos: hay importes no determinables. Revise las observaciones.") if incomplete else None
@@ -104,6 +106,8 @@ def get_columns(detail=False):
         ("application_usd", "Aplicación neta US$", 150),
         ("collection_difference_usd", "Cobranza − aplicación US$", 185),
         ("deposit_usd", "Depósito asignado US$", 165),
+        ("detail_received_usd", "Importe del detalle US$", 175),
+        ("detail_unassigned_usd", "Detalle sin distribuir US$", 185),
         ("deposit_difference_usd", "Aplicación − depósito US$", 185),
         ("credit_used_usd", "Saldo a favor utilizado US$", 180),
         ("cash_adjustment_usd", "Ajustes de conciliación US$", 185),
