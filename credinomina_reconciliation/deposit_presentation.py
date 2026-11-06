@@ -32,7 +32,7 @@ def coverage_totals(deposit):
 
 
 def reconciliation_status(deposit):
-    if deposit.get('cash_identity_status') == 'Origen vinculado':
+    if deposit.get('consolidated_deposit') or deposit.get('cash_identity_status') == 'Origen vinculado':
         return 'Origen contable vinculado'
     if deposit.get('cash_identity_status') == 'Revisar identidad':
         return 'Revisar identidad del depósito'

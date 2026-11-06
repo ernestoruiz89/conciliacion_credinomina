@@ -48,6 +48,17 @@ assert.equal(amounts({amount_usd: 46.53, allocated_usd: 46.52, justified_surplus
 context.frappe.listview_settings = {};
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliation/conciliacion_credinomina/doctype/cn_remittance_allocation/cn_remittance_allocation_list.js"), "utf8"), context);
 const indicator = context.frappe.listview_settings["CN Remittance Allocation"].get_indicator;
+for (const identity of [{cash_identity_status: "Origen vinculado"}, {consolidated_deposit: "MANUAL"}]) {
+    const doc = {docstatus: 0, financial_status: "Sin conciliar", result: "Pendiente", amount_usd: 640.18, ...identity};
+    assert.equal(indicator(doc)[0], "Origen contable vinculado");
+    assert.equal(present(doc).result, "Origen contable vinculado");
+    assert.match(present(doc).hint, /no representa otro efectivo/);
+}
+assert.ok(context.frappe.listview_settings["CN Remittance Allocation"].add_fields.includes("consolidated_deposit"));
+for (const formatter of Object.values(context.frappe.listview_settings["CN Remittance Allocation"].formatters)) {
+    assert.equal(formatter(0, {}, {docstatus: 1, amount_usd: 319.36, allocated_usd: 0,
+        consolidated_deposit: "MANUAL", cash_identity_status: "Origen vinculado"}), "—");
+}
 assert.deepEqual(Array.from(indicator({financial_status: "Conciliado con saldo a favor", result: "Parcial con saldo a favor"})),
     ["Conciliado con saldo a favor", "green", "financial_status,=,Conciliado con saldo a favor"]);
 for (const docstatus of [0, 1, 2]) {

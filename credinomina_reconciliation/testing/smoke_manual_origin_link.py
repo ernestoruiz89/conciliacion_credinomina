@@ -145,22 +145,50 @@ def run():
             append_source(core, evidence)
             core.insert()
         saved = snapshot(manual)
+        core_before = snapshot(core.reload())
         result = apply(manual, [core.name], 'deposit')
         manual.reload()
         core.reload()
         assert result['status'] == 'Vinculado' and core.consolidated_deposit == manual.name
+        assert core.financial_status == 'Origen contable vinculado'
+        core_before['financial_status'] = 'Origen contable vinculado'
+        assert snapshot(core) == core_before, (core_before, snapshot(core))
         assert snapshot(manual) == saved and manual.accounting_sources[0].source_date.isoformat() == '2026-10-30'
         assert api.link(manual.name, [core.name], 'old', 'Retry', 'deposit')['already_linked']
+        # Existing linked origins are repaired by the migration and an idempotent retry.
+        from credinomina_reconciliation.patches.v1_0.refresh_linked_deposit_origin_status import execute as repair
+        frappe.db.set_value(core.doctype, core.name, 'financial_status', 'Sin conciliar', update_modified=False)
+        old_modified = frappe.db.get_value(core.doctype, core.name, 'modified')
+        repair()
+        repair()
+        assert core.reload().financial_status == 'Origen contable vinculado'
+        assert core.modified == old_modified
+        assert snapshot(core) == core_before and snapshot(manual.reload()) == saved
+        frappe.db.set_value(core.doctype, core.name, 'financial_status', 'Sin conciliar', update_modified=False)
+        assert api.link(manual.name, [core.name], 'old', 'Retry', 'deposit')['already_linked']
+        assert core.reload().financial_status == 'Origen contable vinculado'
+        assert snapshot(core) == core_before and snapshot(manual.reload()) == saved
         report = [row for row in control(dict(month='2026-10-01', employer=company.name))[1]
                   if row.get('remittance_allocation') == manual.name]
         assert len(report) == 1 and report[0]['credit_usd'] == 100
 
         # Actual reconciled targets in a closed period are unchanged.
-        from credinomina_reconciliation.testing.smoke_receivable_recovery import fixture
-        def bank_receipt(employer, reference, amount):
-            return receipt(reference, amount, employer=employer)
-        with patch('credinomina_reconciliation.testing.smoke_receivable_recovery.new_deposit', bank_receipt):
-            owner, period, _, _, closed = fixture(marker + '-CLOSED')
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
+        period = frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=company.name,
+            payroll_month='2026-08-01', reconciliation_mode='Historica')).insert()
+        imported = frappe.get_doc(dict(doctype='CN Accounting Import', employer=company.name,
+            historical_backfill=1, historical_period=period.name, status='Importado', currency='USD',
+            source_file=file.file_url, rows=[dict(source_key=marker + '-CLOSED', event_type='Aplicacion',
+                event_date='2026-08-13', currency='USD', amount=90, amount_usd=90, effective=1,
+                client_number=marker, client_name='Cliente de prueba', loan_number=marker,
+                processing_route='Historica', historical_period=period.name)])).insert()
+        _reconcile_sources(company.name, preserve_deposits=True)
+        closed = receipt(marker + '-CLOSED', 90)
+        closed.allow_manual_other_periods = 1
+        closed.append('targets', dict(historical_application=imported.rows[0].name, amount_usd=90))
+        closed.save()
+        reconcile_deposit(closed)
+        assert closed.reload().allocated_usd == 90
         frappe.db.set_value(period.doctype, period.name, 'status', 'Cerrado')
         closed.reload()
         saved, targets = snapshot(closed), [row.as_dict() for row in closed.targets]

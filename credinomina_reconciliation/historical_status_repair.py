@@ -110,7 +110,8 @@ def repair_historical_statuses(dry_run=True):
             filters={"name": ["in", period_names]}, fields=["name", "employer", "reconciliation_mode"],
             limit_page_length=0)}
         if cached_employer != document.employer:
-            deposits = frappe.get_all("CN Remittance Allocation", filters={"employer": document.employer, "docstatus": 1},
+            deposits = frappe.get_all("CN Remittance Allocation", filters={"employer": document.employer, "docstatus": 1,
+                "consolidated_deposit": ["is", "not set"]},
                 fields=["name", "employer", "docstatus", "deposit_reference", "deposit_voucher", "deposit_date", "allocation_detail"],
                 limit_page_length=0)
             evidence = deposit_evidence(deposits)

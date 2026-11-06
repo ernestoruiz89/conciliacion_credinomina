@@ -362,7 +362,7 @@ def _recognition_pairs():
     paired = []
     for item in frappe.get_all(
         "CN Remittance Allocation",
-        filters={"docstatus": 1},
+        filters={"docstatus": 1, "consolidated_deposit": ["is", "not set"]},
         fields=[
             "name", "employer", "deposit_reference", "deposit_voucher",
             "deposit_date", "deposit_currency", "deposit_amount", "amount_usd",

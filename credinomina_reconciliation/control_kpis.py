@@ -77,7 +77,8 @@ def summarize_applications(rows, year=None, employer=None, as_of=None):
 
 
 def summarize_deposits(rows):
-    rows = list({row["name"]: row for row in rows}.values())
+    from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
+    rows = list({row["name"]: row for row in rows if not is_linked_origin(row)}.values())
     remaining = [max(money(row.get("amount_usd")) - money(row.get("allocated_usd"))
                      - money(row.get("justified_surplus_usd")), 0) for row in rows]
     return {
@@ -109,7 +110,7 @@ def get_figures(year, employer, today):
     deposits = None
     if frappe.has_permission("CN Remittance Allocation", "read"):
         deposits = summarize_deposits(frappe.get_list("CN Remittance Allocation",
-            filters={**company, **year_filter("deposit_date", year), "docstatus": 1},
+            filters={**company, **year_filter("deposit_date", year), "docstatus": 1, "consolidated_deposit": ["is", "not set"]},
             fields=["name", "amount_usd", "allocated_usd", "justified_surplus_usd"], limit_page_length=0))
     credits = None
     if frappe.has_permission("CN Complementary Item", "read"):

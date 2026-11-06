@@ -29,7 +29,8 @@ for (const custom of [false, true]) {
     assert.ok(listview.rebuilt && listview.header);
     if (custom) {
         const names = JSON.parse(listview.list_view_settings.fields).map(field => field.fieldname);
-        assert.deepEqual(names, ["employer", "deposit_date", "deposit_amount", "bank_account", "financial_status"]);
+        assert.deepEqual(names, ["employer", "deposit_date", "deposit_amount", "bank_account", "financial_status",
+            "amount_usd", "credit_coverage_usd", "complementary_coverage_usd", "unclassified_usd"]);
     } else assert.equal(listview.list_view_settings.fields, undefined);
 }
 console.log("OK: deposit date, original-currency amount and bank account columns; existing columns preserved.");

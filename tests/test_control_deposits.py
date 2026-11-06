@@ -132,7 +132,8 @@ class ControlDepositsTests(unittest.TestCase):
             rows = cash.get_cash_deposits(2025)
         self.assertEqual(len(rows), 1)
         filters = calls[0][1]["filters"]
-        self.assertEqual(filters, {"docstatus": 1, "deposit_date": ["between", ["2025-01-01", "2025-12-31"]]})
+        self.assertEqual(filters, {"docstatus": 1, "consolidated_deposit": ["is", "not set"],
+                                   "deposit_date": ["between", ["2025-01-01", "2025-12-31"]]})
         self.assertEqual(calls[0][1]["limit_page_length"], 0)
         self.assertIn("bank_account", calls[0][1]["fields"])
         # Related periods are queried by identity, without restricting their year.
@@ -143,7 +144,8 @@ class ControlDepositsTests(unittest.TestCase):
         with patch.object(cash.frappe, "has_permission", return_value=True), \
                 patch.object(cash.frappe, "get_list", return_value=[]) as query:
             self.assertEqual(cash.get_cash_deposits(None, "E"), [])
-        self.assertEqual(query.call_args_list[0].kwargs["filters"], {"docstatus": 1, "employer": "E"})
+        self.assertEqual(query.call_args_list[0].kwargs["filters"], {"docstatus": 1, "employer": "E",
+                                                                  "consolidated_deposit": ["is", "not set"]})
 
     def test_missing_read_permission_is_not_zero_cash(self):
         with patch.object(cash.frappe, "has_permission", return_value=False), \

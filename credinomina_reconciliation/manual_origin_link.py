@@ -3,6 +3,7 @@ import hashlib
 import json
 from collections import defaultdict
 from contextvars import ContextVar
+from contextlib import contextmanager
 
 import frappe
 from frappe import _
@@ -13,6 +14,7 @@ from credinomina_reconciliation.accounting_evidence import same_ledger_evidence
 from credinomina_reconciliation.accounting_types import INTERNAL, TYPES, accounting_code
 from credinomina_reconciliation.parsers import clean_text
 from credinomina_reconciliation.rounding import decimal_value, money, money_float, sum_money
+from credinomina_reconciliation.deposit_origin_eligibility import unused_cash_issues, assert_no_cash_dependencies
 
 DEPOSIT = 'CN Remittance Allocation'
 ITEM = 'CN Complementary Item'
@@ -25,7 +27,20 @@ ITEM_FIELDS = list(dict.fromkeys(['name', 'modified', 'docstatus', 'employer', '
     'compensated_usd', *[field for field in EVIDENCE_FIELDS if field != 'source_loan_number']]))
 DEPOSIT_FIELDS = ['name', 'modified', 'docstatus', 'employer', 'bank_account', 'deposit_reference',
     'deposit_date', 'deposit_currency', 'deposit_amount', 'deposit_voucher', 'accounting_source_key',
-    'cash_identity_status', 'consolidated_deposit', 'source_description']
+    'cash_identity_status', 'consolidated_deposit', 'source_description', 'allocated_usd', 'justified_surplus_usd',
+    'credit_coverage_usd', 'complementary_coverage_usd', 'conversion_coverage_usd', 'allocation_detail',
+    'detail_file', 'detail_source_file', 'detail_hash', 'detail_imported_on', 'detail_origin',
+    'detail_count', 'detail_total_usd', 'applied_usd']
+
+
+@contextmanager
+def _atomic_link():
+    frappe.db.savepoint('cn_link_origin')
+    try:
+        yield
+    except Exception:
+        frappe.db.rollback(save_point='cn_link_origin')
+        raise
 
 
 def _names(selection, kind):
@@ -57,7 +72,8 @@ def candidates(deposit_name, kind='internal', reference='', voucher=''):
                        category='Por clasificar', review_action='Pendiente de revisión')
         ref_field, voucher_field, fields, doctype = 'accounting_reference', 'source_voucher', ITEM_FIELDS, ITEM
     else:
-        filters.update(name=['!=', deposit.name], consolidated_deposit=['is', 'not set'])
+        filters.update(docstatus=['in', [0, 1]], name=['!=', deposit.name], consolidated_deposit=['is', 'not set'],
+                       allocated_usd=0, justified_surplus_usd=0, detail_count=0, detail_file=['is', 'not set'])
         ref_field, voucher_field, fields, doctype = 'deposit_reference', 'deposit_voucher', DEPOSIT_FIELDS, DEPOSIT
     searched_reference = clean_text(reference)
     or_filters = None
@@ -73,6 +89,13 @@ def candidates(deposit_name, kind='internal', reference='', voucher=''):
                            order_by='name asc', limit_page_length=MAX_SELECTION + 1)
     if len(rows) > MAX_SELECTION:
         frappe.throw(_('Hay más de {0} resultados. Filtre por referencia o asiento antes de seleccionar.').format(MAX_SELECTION))
+    if kind == 'deposit' and rows:
+        names = [row.name for row in rows]
+        busy = set()
+        for child in ('CN Remittance Target', 'CN Remittance Detail', 'CN Remittance Period'):
+            busy.update(frappe.get_all(child, filters={'parent': ['in', names], 'parenttype': DEPOSIT},
+                                      pluck='parent', limit_page_length=0))
+        rows = [row for row in rows if row.name not in busy and not unused_cash_issues(row)]
     return rows
 
 
@@ -80,7 +103,16 @@ def _load(deposit_name, selection, kind, *, lock=False):
     names = _names(selection, kind)
     if deposit_name in names and kind == 'deposit':
         frappe.throw(_('El origen debe ser otro documento.'))
-    # Match the importer's lock order, then lock receipts in deterministic order.
+    if lock and kind == 'deposit':
+        from credinomina_reconciliation.deposit_reconciliation import lock_cash_pool
+        from credinomina_reconciliation.paying_employers import reconciliation_companies
+        before = {name: frappe.get_doc(DEPOSIT, name) for name in sorted([deposit_name, *names])}
+        for doc in before.values():
+            doc.check_permission('write')
+        lock_cash_pool({company for doc in before.values() for company in reconciliation_companies(doc.employer)})
+    else:
+        before = {}
+    # Import creation lock, company cash lock, then deterministic document locks.
     receipts = {name: _receipt(name, lock=lock) if name == deposit_name else
                 frappe.get_doc(DEPOSIT, name, for_update=lock)
                 for name in sorted([deposit_name, *(names if kind == 'deposit' else [])])}
@@ -88,6 +120,9 @@ def _load(deposit_name, selection, kind, *, lock=False):
                [frappe.get_doc(ITEM, name, for_update=lock) for name in names])
     for origin in origins:
         origin.check_permission('write')
+    if any(str(before[name].modified) != str(doc.modified) or before[name].employer != doc.employer
+           for name, doc in receipts.items() if name in before):
+        frappe.throw(_('Un depósito cambió mientras se revisaba el origen. Recargue y compruebe nuevamente; no se guardó ningún cambio.'))
     return receipts[deposit_name], origins
 
 
@@ -141,11 +176,13 @@ def inspect_selection(deposit, origins, kind):
             totals[item.get('source_currency') or 'Sin identificar'] += money(item.get('source_credit'))
     else:
         origin = origins[0]
+        issues.extend(unused_cash_issues(origin))
+        if origin.docstatus == 1 and deposit.docstatus != 1:
+            issues.append(_('Confirme primero el depósito principal antes de vincular un origen del core confirmado.'))
         linked_elsewhere = origin.get('consolidated_deposit') and origin.get('consolidated_deposit') != deposit.name
-        if (origin.docstatus != 0 or origin.get('targets') or origin.get('detail_rows') or origin.get('detail_file')
-                or linked_elsewhere or (origin.get('cash_identity_status') == 'Origen vinculado'
+        if (linked_elsewhere or (origin.get('cash_identity_status') == 'Origen vinculado'
                                         and origin.get('consolidated_deposit') != deposit.name)):
-            issues.append(_('El depósito del core debe estar en borrador, sin detalle ni destinos. Revise su conciliación antes de vincularlo.'))
+            issues.append(_('El depósito del core ya está vinculado a otro depósito.'))
         if not origin.get('accounting_source_key'):
             issues.append(_('El depósito seleccionado no tiene origen contable.'))
         if any(source.get('origin_complementary_item') for source in origin.get('accounting_sources') or []):
@@ -211,6 +248,9 @@ def _check_ownership(deposit, origins, values, kind):
         frappe.throw(_('Una partida ya figura como destino de un depósito. Revise ese vínculo primero.'))
     if kind == 'deposit' and frappe.db.exists(ITEM, {'accounting_source_key': ['in', keys]}):
         frappe.throw(_('Una línea también existe como partida complementaria; revise esa duplicidad antes de vincular.'))
+    if kind == 'deposit':
+        for origin in origins:
+            assert_no_cash_dependencies(origin, deposit.name)
 
 
 @frappe.whitelist()
@@ -259,16 +299,19 @@ def _submit_internal_origins(deposit, origins, reason):
 @frappe.whitelist(methods=['POST'])
 def link(deposit_name, selection, token, reason, kind='internal'):
     from credinomina_reconciliation.accounting_batch_store import creation_guard
+    from credinomina_reconciliation.deposit_accounting_sources import refresh_linked_origin_status
     reason = clean_text(reason)
     if not reason:
         frappe.throw(_('Documente cómo verificó que se trata del mismo depósito.'))
-    with creation_guard():
+    with creation_guard(), _atomic_link():
         deposit, origins = _load(deposit_name, selection, kind, lock=True)
         result, values = inspect_selection(deposit, origins, kind)
         _check_ownership(deposit, origins, values, kind)
         if result['already_linked'] and not result['issues']:
             if kind == 'internal':
                 _submit_internal_origins(deposit, origins, reason)
+            else:
+                refresh_linked_origin_status(origins[0])
             return dict(result, status='Vinculado', name=deposit.name)
         if token != result['token']:
             frappe.throw(_('Los datos cambiaron desde la revisión. Vuelva a comprobar la selección.'))
@@ -289,6 +332,8 @@ def link(deposit_name, selection, token, reason, kind='internal'):
                 if kind == 'deposit':
                     updates = dict(consolidated_deposit=deposit.name, cash_identity_status='Origen vinculado', cash_identity_reason=reason)
                     frappe.db.set_value(origin.doctype, origin.name, dict(updates, modified=timestamp, modified_by=frappe.session.user))
+                    origin.update(updates)
+                    refresh_linked_origin_status(origin)
             if kind == 'deposit':
                 frappe.db.set_value(DEPOSIT, deposit.name, 'linked_core_deposit', origins[0].name, update_modified=False)
                 origins[0].add_comment('Comment', _('Origen contable vinculado a {0}. {1}').format(deposit.name, reason))
