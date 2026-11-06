@@ -100,6 +100,29 @@ async function run() {
     assert.equal(rowTargets[0].amount_usd, 18.66);
     assert.equal(rowPicker.availableFor(rowPicker.data), 1);
 
+    // A second destination supplements an existing manual target; it must
+    // never edit or replace the 4.29 already linked to this application.
+    rowTargets.length = 0;
+    rowPicker.frm.doc.allocation_detail = "[]";
+    detailRow.amount_usd = 40.05;
+    detailRow.matched_targets = "[]";
+    const originalTarget = {name:"CONFIRMED", historical_application:"APP-ANA", amount_usd:4.29, detail_row:detailRow.name};
+    rowTargets.push(originalTarget);
+    rowPicker.data = {rows:[{id:"app-ana", historical_application:"APP-ANA", applied_cents:4005,
+        assigned_cents:429, pending_cents:3576, reserved_cents:0}], available_cents:3576,
+        detail_available_cents:3576, modified:"manual-partial"};
+    rowPicker.available_cents = rowPicker.availableFor(rowPicker.data);
+    rowPicker.selected.clear();
+    rowPicker.select(rowPicker.data.rows[0]);
+    assert.equal(rowPicker.total(), 3576);
+    await rowPicker.apply();
+    assert.equal(rowTargets.length, 2);
+    assert.equal(rowTargets[0], originalTarget);
+    assert.equal(originalTarget.amount_usd, 4.29);
+    assert.equal(rowTargets[1].historical_application, originalTarget.historical_application);
+    assert.equal(rowTargets[1].amount_usd, 35.76);
+    assert.equal(rowPicker.availableFor(rowPicker.data), 0);
+
     rowTargets.length = 0;
     detailRow.amount_usd = 71.51;
     detailRow.matched_targets = "[]";

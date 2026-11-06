@@ -27,7 +27,47 @@ class PendingRemittanceSelectionTests(unittest.TestCase):
         deposit = self.deposit("CURRENT", [{"aplicacion_id": "APP", "importe_usd": 40}])
         result = self.selection([{ "historical_application": "APP", "due_usd": 100}], [deposit], targets)
         self.assertEqual(result["available_cents"], 6000)
-        self.assertEqual(result["rows"], [])
+        self.assertEqual(result["rows"][0]["pending_cents"], 6000)
+        self.assertEqual(result["rows"][0]["assigned_cents"], 4000)
+        self.assertEqual(result["rows"][0]["reserved_cents"], 0)
+
+    def test_existing_partial_manual_destination_keeps_3576_remainder(self):
+        row = {"historical_application": "APP", "due_usd": 40.05, "applied_usd": 40.05}
+        original = {"historical_application": "APP", "amount_usd": 4.29, "detail_row": "DETAIL"}
+        deposit = self.deposit("CURRENT", [{"aplicacion_id": "APP", "importe_usd": 4.29, "origen": MANUAL}])
+        result = self.selection([row], [deposit], [original], amount=40.05)
+        self.assertEqual(result["rows"][0]["pending_cents"], 3576)
+        self.assertEqual(result["rows"][0]["assigned_cents"], 429)
+        self.assertEqual(result["available_cents"], 3576)
+        for detail_row in ("DETAIL", "ANOTHER-DETAIL"):
+            with self.subTest(detail_row=detail_row):
+                targets = [original, {"historical_application": "APP", "amount_usd": 35.76, "detail_row": detail_row}]
+                reserved = self.selection([row], [deposit], targets, amount=40.05)
+                self.assertEqual(reserved["rows"], [])
+                self.assertEqual(reserved["available_cents"], 0)
+        self.assertEqual(original["amount_usd"], 4.29)
+
+    def test_unprocessed_targets_reserve_only_their_amount_for_each_kind(self):
+        for identity in ({"historical_application": "APP"}, {"period": "P", "row_key": "ROW"},
+                         {"complementary_item": "ITEM"}):
+            with self.subTest(identity=identity):
+                result = self.selection([{**identity, "due_usd": 100}], targets=[{**identity, "amount_usd": 20}])
+                self.assertEqual(result["rows"][0]["pending_cents"], 8000)
+                self.assertEqual(result["rows"][0]["assigned_cents"], 0)
+                self.assertEqual(result["rows"][0]["reserved_cents"], 2000)
+                self.assertEqual(result["available_cents"], 8000)
+
+    def test_confirmed_cash_other_deposits_and_new_targets_reduce_same_claim(self):
+        row = {"historical_application": "APP", "due_usd": 100}
+        deposits = [self.deposit("OTHER", [{"aplicacion_id": "APP", "importe_usd": 25}]),
+                    self.deposit("CURRENT", [{"aplicacion_id": "APP", "importe_usd": 10, "origen": MANUAL},
+                                              {"aplicacion_id": "APP", "importe_usd": 5, "origen": FIFO}])]
+        result = self.selection([row], deposits, [{"historical_application": "APP", "amount_usd": 10},
+                                                {"historical_application": "APP", "amount_usd": 20}])
+        self.assertEqual(result["rows"][0]["assigned_cents"], 4000)
+        self.assertEqual(result["rows"][0]["reserved_cents"], 2000)
+        self.assertEqual(result["rows"][0]["pending_cents"], 4000)
+        self.assertEqual(result["available_cents"], 6500)
 
     def test_same_deposit_partial_automatic_payment_keeps_pending_selectable(self):
         for origin in (DETAIL, FIFO, REFERENCE, None):

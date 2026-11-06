@@ -105,16 +105,25 @@ window.credinominaShowRelatedPending = function (result) {
     const canFilterClient = Boolean(result.client_number || result.national_id);
     dialog.fields_dict.related_html.$wrapper.html(`${canFilterClient ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button type="button" class="btn btn-default btn-sm cn-open-account-report">${esc(__("Ver Estado de Cuenta Operativo"))}</button></div>` : ""}
         <p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>
+        <div class="cn-related-pending-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px;align-items:stretch">
+            <div style="padding:12px;background:var(--control-bg);border-radius:6px">
+                <div class="small">${esc(__("Total aplicaciones pendientes US$"))}</div>
+                <strong class="cn-related-pending-summary-applications" style="font-size:20px">${amount(applicationTotal == null ? null : applicationTotal / 100)}</strong>
+            </div>
+            <div style="padding:12px;background:var(--control-bg);border-radius:6px">
+                <div class="small">${esc(__("Total neto depósitos y partidas US$"))}</div>
+                <strong class="cn-related-pending-summary-sources" style="font-size:20px">${amount(sourceTotal == null ? null : sourceTotal / 100)}</strong>
+            </div>
+            <div class="alert ${differenceClass} cn-related-pending-difference" style="padding:12px;margin:0" role="status">
+                <div class="small">${esc(__("Diferencia US$"))}</div>
+                <strong class="cn-related-pending-difference-value" style="font-size:20px;white-space:nowrap">${amount(difference)}</strong>
+                <div class="small">${esc(differenceExplanation)}</div>
+            </div>
+        </div>
+        <p class="text-muted small">${esc(__("Aplicaciones pendientes − total neto de depósitos y partidas complementarias."))}</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start">
             ${panel("Aplicaciones pendientes", applications, "No se encontraron aplicaciones pendientes para este cliente.", applicationTotal)}
             ${panel("Depósitos y partidas complementarias pendientes", rows, "No se encontraron depósitos ni partidas complementarias pendientes para este cliente.", sourceTotal, true)}
-        </div>
-        <div class="alert ${differenceClass} cn-related-pending-difference" style="margin-top:12px;margin-bottom:8px" role="status">
-            <div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">
-                <strong>${esc(__("Diferencia US$"))}</strong><strong class="cn-related-pending-difference-value" style="white-space:nowrap">${amount(difference)}</strong>
-            </div>
-            <div class="small">${esc(__("Aplicaciones pendientes − total neto de depósitos y partidas complementarias."))}</div>
-            <div class="small">${esc(differenceExplanation)}</div>
         </div>
         <p class="text-muted small" style="margin-top:8px">${esc(__("«—» en el saldo de una aplicación indica que no se puede atribuir un pendiente individual con certeza; consulte su período."))}</p>`);
     if (canFilterClient) {

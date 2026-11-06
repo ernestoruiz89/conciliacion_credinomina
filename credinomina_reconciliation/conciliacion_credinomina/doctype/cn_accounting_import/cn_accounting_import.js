@@ -145,7 +145,6 @@ async function showAccountingRelatedRecords(frm, sourceRowName, button) {
             method: "credinomina_reconciliation.accounting_related_records.get_related_pending",
             args: {import_name: frm.doc.name, source_row_name: sourceRowName},
         });
-        await frappe.require("/assets/credinomina_reconciliation/js/related_pending_modal.js");
         window.credinominaShowRelatedPending(response.message || {});
     } catch (error) {
         frappe.msgprint(__("No se pudieron consultar los registros relacionados. Revise sus permisos o vuelva a intentar."));

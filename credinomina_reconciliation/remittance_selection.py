@@ -66,17 +66,17 @@ def pending_selection(candidates, deposits, current_name, amount_usd, targets):
     rows = []
     for candidate in candidates:
         key = target_key(candidate)
-        # Only explicit form targets are already selected. Reading a missing
-        # defaultdict key while computing cash must not mark automatic claims
-        # as selected and hide their outstanding balance.
-        if key in manual:
-            continue
-        pending = max(money(candidate["due_usd"]) - paid[key], money(0))
+        # A destination reserves an amount, not the whole application. Keep
+        # its remainder selectable from this or another detail row. Confirmed
+        # manual cash is already in paid; reserve only instructions above it.
+        reserved_target = max(manual.get(key, money(0)) - current_paid.get(key, money(0)), money(0))
+        pending = max(money(candidate["due_usd"]) - paid[key] - reserved_target, money(0))
         if pending > 0:
             rows.append({**candidate, "id": json.dumps(key, ensure_ascii=False),
                          "applied_cents": (int(money(candidate["applied_usd"]) * 100)
                                            if candidate.get("applied_usd") is not None else None),
                          "assigned_cents": int(paid[key] * 100),
+                         "reserved_cents": int(reserved_target * 100),
                          "pending_cents": int(pending * 100)})
     return {"rows": rows, "available_cents": int(available * 100),
             "reserved_cents": int(reserved * 100)}
