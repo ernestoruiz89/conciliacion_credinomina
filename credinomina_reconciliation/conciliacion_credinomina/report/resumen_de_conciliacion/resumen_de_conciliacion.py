@@ -7,10 +7,13 @@ from credinomina_reconciliation.parsers import collection_comment
 from credinomina_reconciliation.reconciliation_report import add_portfolio_status, build_views, load_direct_applications
 from credinomina_reconciliation.reconciliation_pending_detail import load as load_pending_detail
 from credinomina_reconciliation.report_employers import selected_employers
+from credinomina_reconciliation.reconciliation_client_detail import consolidate as consolidate_clients
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
+    by_client = filters.get('view') == 'Detalle por Cliente'
+    is_detail = by_client or filters.get('view') == 'Detalle'
     conditions = {}
     for fieldname in ("employer", "status", "reconciliation_mode"):
         if filters.get(fieldname):
@@ -64,7 +67,7 @@ def execute(filters=None):
         ],
     ))
     summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
-    if filters.get("view") == "Detalle":
+    if is_detail:
         add_portfolio_status(data, detail)
         for row in detail:
             row["comments"] = "\n".join(
@@ -79,7 +82,7 @@ def execute(filters=None):
         if associated:
             add_portfolio_status(data, associated)
         detail.extend(pending)
-    rows = detail if filters.get("view") == "Detalle" else summary
+    rows = consolidate_clients(detail) if by_client else detail if is_detail else summary
     if cint(filters.get("only_differences")):
         rows = [row for row in rows if row["has_difference"]]
     # Frappe totals treat unknown amounts as zero. Suppress that misleading total.
@@ -87,18 +90,23 @@ def execute(filters=None):
                      for field in ("application_usd", "deposit_usd", "open_usd", "cash_adjustment_usd"))
     incomplete = incomplete or any(row["collection_usd"] is None and row["collection_control"] != "No aplica"
                                    for row in rows)
+    if by_client:
+        incomplete = incomplete or any(row[field] is None for row in rows
+            for field in ('deposit_unallocated_usd', 'complementary_unallocated_usd'))
     message = _("Totales omitidos: hay importes no determinables. Revise las observaciones.") if incomplete else None
     independent = any(row.get('_pending_receipt') for row in rows)
     if independent and not incomplete:
         message = _("Totales omitidos: el detalle incluye remanentes independientes pendientes de aplicar; no se suman como cobertura de las aplicaciones.")
-    return get_columns(filters.get("view") == "Detalle"), rows, message, None, None, incomplete or independent
+    return get_columns(is_detail, client_detail=by_client, show_month=cint(filters.get('show_month')),
+                       show_period=cint(filters.get('show_period'))), rows, message, None, None, incomplete or independent
 
 
 def get_summary_columns():
     return get_columns()
 
 
-def get_columns(detail=False):
+def get_columns(detail=False, *, client_detail=False, show_month=False, show_period=False):
+    detail = detail or client_detail
     columns = [
         {"fieldname": "name", "label": _("Período"), "fieldtype": "Link", "options": "CN Reconciliation Period", "width": 175},
         {"fieldname": "collection_cycle", "label": _("Ciclo"), "fieldtype": "Data", "width": 150},
@@ -144,4 +152,23 @@ def get_columns(detail=False):
         {"fieldname": "closure_state", "label": _("Cierre"), "fieldtype": "Data", "width": 95},
         {"fieldname": "observations", "label": _("Observaciones"), "fieldtype": "Data", "width": 320},
     ])
+    if client_detail:
+        columns = [column for column in columns
+                   if (column['fieldname'] != 'name' or show_period)
+                   and (column['fieldname'] != 'payroll_month' or show_month)]
+        for column in columns:
+            if column['fieldname'] in ('name', 'payroll_month', 'employer'):
+                column['fieldtype'] = 'Data'
+                column.pop('options', None)
+                column['width'] = 220
+            elif column['fieldname'] == 'deposit_usd':
+                column['label'] = _('Depósito asignado US$')
+            elif column['fieldname'] == 'cash_adjustment_usd':
+                column['label'] = _('Ajustes de conciliación US$')
+            elif column['fieldname'] == 'loan_number':
+                column['width'] = 220
+        index = next(i for i, column in enumerate(columns) if column['fieldname'] == 'deposit_usd') + 1
+        columns[index:index] = [dict(fieldname=field, label=_(label), fieldtype='Currency', options='usd_currency', width=190)
+            for field, label in (('deposit_unallocated_usd', 'Depósito no asignado US$'),
+                                 ('complementary_unallocated_usd', 'Partida no asignada US$'))]
     return columns
