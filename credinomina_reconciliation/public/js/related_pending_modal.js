@@ -8,6 +8,22 @@ window.credinominaShowRelatedPending = function (result) {
     };
     const applications = result.applications || [];
     const rows = result.rows || [];
+    const pendingTotal = (items, sign = () => 1) => {
+        let cents = 0;
+        for (const row of items) {
+            const value = row.pending_usd;
+            if (value == null || !["number", "string"].includes(typeof value) ||
+                    String(value).trim() === "" || !Number.isFinite(Number(value)) || Number(value) < 0) return null;
+            const part = Math.round(Number(value) * 100);
+            const direction = part ? sign(row) : 1;
+            if (direction == null || !Number.isSafeInteger(part)) return null;
+            cents += part * direction;
+            if (!Number.isSafeInteger(cents)) return null;
+        }
+        return cents / 100;
+    };
+    const sourceSign = row => row.type === "Depósito" ? 1 : row.type === "Partida complementaria"
+        ? row.direction === "Crédito" ? 1 : row.direction === "Débito" ? -1 : null : null;
     const renderRows = (items, emptyMessage) => items.map(row => {
         const slug = row.type === "Aplicación" ? "cn-accounting-import"
             : row.type === "Depósito" ? "cn-remittance-allocation" : "cn-complementary-item";
@@ -33,12 +49,19 @@ window.credinominaShowRelatedPending = function (result) {
             <td class="text-right" style="white-space:nowrap">${amount(row.pending_usd)}</td>
             <td>${esc(__(row.status || "Pendiente"))}</td></tr>`;
     }).join("") || `<tr><td colspan="5">${esc(__(emptyMessage))}</td></tr>`;
-    const panel = (title, items, emptyMessage) => `<section style="min-width:0">
+    const panel = (title, items, emptyMessage, sign) => {
+        const total = pendingTotal(items, sign);
+        return `<section style="min-width:0">
         <h5 style="margin:0 0 10px">${esc(__(title))} (${items.length})</h5>
         <div class="table-responsive" style="max-height:60vh;overflow:auto"><table class="table table-bordered table-hover" style="font-size:12px;min-width:560px">
             <thead><tr>${["Documento / fecha / referencia", "Nro. Crédito", "Importe US$", "Pendiente US$", "Estado"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead>
             <tbody>${renderRows(items, emptyMessage)}</tbody>
-        </table></div></section>`;
+            <tfoot><tr style="font-weight:600;background:var(--control-bg)">
+                <td colspan="3">${esc(__(sign ? "Total pendiente neto" : "Total pendiente"))}</td>
+                <td class="text-right cn-related-pending-total" style="white-space:nowrap" title="${esc(total == null ? __("Total no determinable: hay un importe o sentido contable pendiente de revisar.") : "")}">${amount(total)}</td>
+                <td></td></tr></tfoot>
+        </table></div>${sign ? `<p class="text-muted small" style="margin-top:6px">${esc(__("Total pendiente neto = depósitos + partidas de crédito − partidas de débito. Se usan los importes pendientes; los importes de las filas conservan su presentación original."))}</p>` : ""}</section>`;
+    };
     const dialog = new frappe.ui.Dialog({
         title: __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]),
         size: "extra-large",
@@ -74,7 +97,7 @@ window.credinominaShowRelatedPending = function (result) {
         <p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start">
             ${panel("Aplicaciones pendientes", applications, "No se encontraron aplicaciones pendientes para este cliente.")}
-            ${panel("Depósitos y partidas complementarias pendientes", rows, "No se encontraron depósitos ni partidas complementarias pendientes para este cliente.")}
+            ${panel("Depósitos y partidas complementarias pendientes", rows, "No se encontraron depósitos ni partidas complementarias pendientes para este cliente.", sourceSign)}
         </div><p class="text-muted small" style="margin-top:8px">${esc(__("«—» en el saldo de una aplicación indica que no se puede atribuir un pendiente individual con certeza; consulte su período."))}</p>`);
     if (canFilterClient) {
         dialog.fields_dict.related_html.$wrapper.on("click.cnRelatedPending", ".cn-open-account-report", () => {
