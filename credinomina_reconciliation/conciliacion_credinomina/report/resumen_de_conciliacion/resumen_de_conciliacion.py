@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, get_first_day
 
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.parsers import collection_comment
@@ -8,6 +8,7 @@ from credinomina_reconciliation.reconciliation_report import add_portfolio_statu
 from credinomina_reconciliation.reconciliation_pending_detail import load as load_pending_detail
 from credinomina_reconciliation.report_employers import selected_employers
 from credinomina_reconciliation.reconciliation_client_detail import consolidate as consolidate_clients
+from credinomina_reconciliation.reconciliation_report_cash import apply_period_cash
 
 
 def execute(filters=None):
@@ -23,7 +24,12 @@ def execute(filters=None):
         conditions['employer'] = ['in', companies]
     if filters.get("period"):
         conditions["name"] = filters.period
+    for field in ("from_month", "to_month"):
+        if filters.get(field):
+            filters[field] = get_first_day(filters[field])
     if filters.from_month and filters.to_month:
+        if filters.from_month > filters.to_month:
+            frappe.throw(_("El mes inicial debe ser anterior o igual al mes final."))
         conditions["payroll_month"] = ["between", [filters.from_month, filters.to_month]]
     elif filters.from_month:
         conditions["payroll_month"] = [">=", filters.from_month]
@@ -36,6 +42,7 @@ def execute(filters=None):
         fields=[
             "name", "employer", "payroll_month", "reconciliation_mode", "collection_cycle",
             "historical_scope", "status", "applied_usd", "no_collection", "cutoff_date",
+            "negative_complementary_usd", "cash_breakdown_known", "cash_breakdown_note", "deposit_coverage_usd",
         ],
         order_by="payroll_month desc, employer asc",
     ))
@@ -60,13 +67,14 @@ def execute(filters=None):
     collection_rows = list(child_records(
         "CN Collection Row", [row.name for row in data if row.reconciliation_mode != "Historica"],
         "CN Reconciliation Period", "collection_rows", fields=[
-            "name", "parent", "client", "client_name", "national_id", "loan_number",
+            "name", "parent", "row_key", "client", "client_name", "national_id", "loan_number",
             "expected_usd", "expected_nio", "applied_usd", "remitted_usd",
             "rounding_adjustment_usd", "remittance_detail", "first_exception_comment", "comments", "application_comment",
             "cxc_difference_comment",
         ],
     ))
-    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]))
+    claims = {}
+    summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]), cash_claims=claims)
     if is_detail:
         add_portfolio_status(data, detail)
         for row in detail:
@@ -82,9 +90,13 @@ def execute(filters=None):
         if associated:
             add_portfolio_status(data, associated)
         detail.extend(pending)
-    rows = consolidate_clients(detail) if by_client else detail if is_detail else summary
+    client_by_detail = {}
+    rows = consolidate_clients(detail, client_by_detail=client_by_detail) if by_client else detail if is_detail else summary
+    apply_period_cash(data, summary, detail, claims, client_by_detail=client_by_detail)
     if cint(filters.get("only_differences")):
         rows = [row for row in rows if row["has_difference"]]
+    for row in rows:
+        row.pop('national_id', None)
     # Frappe totals treat unknown amounts as zero. Suppress that misleading total.
     incomplete = any(row[field] is None for row in rows
                      for field in ("application_usd", "deposit_usd", "open_usd", "cash_adjustment_usd"))

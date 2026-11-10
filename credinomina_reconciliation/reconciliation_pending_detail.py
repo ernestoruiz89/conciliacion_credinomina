@@ -14,24 +14,23 @@ from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.unallocated_deposit_position import build as deposit_positions
 
 
-def _period_context(source, links, periods, filters):
-    selected = {p['name']: p for p in periods}
+def _period_context(source, links, selected, company_months, filters):
+    employer = source.get('employer')
     if links:
-        matches = links & selected.keys()
-        if not matches:
+        matches = [selected[name] for name in links if name in selected and selected[name]['employer'] == employer]
+        if matches:
+            # Several linked periods do not prove which one owns a remainder.
+            return matches[0] if len(links) == 1 else {}
+        if any(filters.get(field) for field in ('period', 'status', 'reconciliation_mode', 'collection_cycle',
+                                                'historical_scope', 'from_month', 'to_month')):
             return None
-        # A remaining portion with several possible periods is listed once,
-        # without assigning the full amount to any of them.
-        return selected[next(iter(matches))] if len(links) == 1 else {}
+        return {}
     when = source.get('event_date')
     if not when:
         return None
     month = getdate(when).strftime('%Y-%m')
-    if filters.get('period'):
-        if not any(p['employer'] == source.get('employer') and str(p['payroll_month'])[:7] == month for p in periods):
-            return None
-    elif any(filters.get(field) for field in ('status', 'reconciliation_mode', 'collection_cycle', 'historical_scope')):
-        if not any(p['employer'] == source.get('employer') and str(p['payroll_month'])[:7] == month for p in periods):
+    if any(filters.get(field) for field in ('period', 'status', 'reconciliation_mode', 'collection_cycle', 'historical_scope')):
+        if (employer, month) not in company_months:
             return None
     for field, lower in (('from_month', True), ('to_month', False)):
         if filters.get(field):
@@ -47,7 +46,8 @@ def _line(source, context, amount, *, complementary=False, note='', comments='')
     row = dict(name=period_name, employer=source.get('employer'),
         payroll_month=context.get('payroll_month') or (getdate(when).replace(day=1) if when else None),
         collection_cycle=context.get('collection_cycle') or '', closure_state=context.get('closure_state') or '',
-        client_number=source.get('client_number') or '', client_name=source.get('client_name') or 'Sin cliente individual',
+        client_number=source.get('client_number') or '', national_id=source.get('national_id') or '',
+        client_name=source.get('client_name') or 'Sin cliente individual',
         loan_number=canonical_credit_number(source.get('loan_number')), usd_currency='USD',
         collection_usd=None, collection_difference_usd=None, collection_control='No aplica',
         application_usd=0.0, deposit_usd=0.0 if complementary else amount,
@@ -68,8 +68,13 @@ def _line(source, context, amount, *, complementary=False, note='', comments='')
     return row
 
 
-def build(periods, deposits, details, period_links, items, balances, filters):
+def build(periods, deposits, details, period_links, items, balances, filters, *, companies=None):
     output, links = [], defaultdict(set)
+    selected = {p['name']: p for p in periods}
+    company_months = {(p['employer'], str(p['payroll_month'])[:7]) for p in periods}
+    if companies is None:
+        companies = selected_employers(filters)
+    companies = set(companies) or ({p['employer'] for p in periods} if filters.get('period') else set())
     for link in period_links:
         if link.get('period'):
             links[link['parent']].add(link['period'])
@@ -95,7 +100,9 @@ def build(periods, deposits, details, period_links, items, balances, filters):
         source = children.get(position.get('source_rows'), {})
         position = dict(position, employer=source.get('employer') or position.get('employer'),
                         difference_reason=source.get('difference_reason'))
-        context = _period_context(position, links[position['source_document']], periods, filters)
+        if companies and position['employer'] not in companies:
+            continue
+        context = _period_context(position, links[position['source_document']], selected, company_months, filters)
         if context is None:
             continue
         comments = '\n'.join(f'{label}: {source[field]}' for field, label in (
@@ -112,7 +119,7 @@ def build(periods, deposits, details, period_links, items, balances, filters):
         source = dict(item, event_date=item.get('posting_date'), source_document=item['name'],
                       source_doctype='CN Complementary Item',
                       client_name=item.get('client_name') or item.get('source_client_name'))
-        context = _period_context(source, {item['period']} if item.get('period') else set(), periods, filters)
+        context = _period_context(source, {item['period']} if item.get('period') else set(), selected, company_months, filters)
         if context is None:
             continue
         net = money(item.get('source_debit')) - money(item.get('source_credit'))
@@ -137,7 +144,7 @@ def load(periods, filters):
         companies = sorted({p['employer'] for p in periods})
     scope = {'employer': ['in', companies]} if companies else {}
     deposit_scope = scope
-    if companies and filters.get('period'):
+    if companies:
         from credinomina_reconciliation.paying_employers import load_payer_map
         payers = {payer for payer, beneficiaries in load_payer_map().items() if set(companies) & set(beneficiaries)}
         deposit_scope = {'employer': ['in', sorted(set(companies) | payers)]}
@@ -154,4 +161,4 @@ def load(periods, filters):
     items = list(records('CN Complementary Item', filters={**scope, 'docstatus': ['!=', 2]},
         fields=list(dict.fromkeys([*FIELDS, 'client_number', 'client_name', 'source_client_name', 'loan_number'])))) \
         if frappe.has_permission('CN Complementary Item', 'read') else []
-    return build(periods, deposits, details, links, items, load_balances(items), filters)
+    return build(periods, deposits, details, links, items, load_balances(items), filters, companies=companies)

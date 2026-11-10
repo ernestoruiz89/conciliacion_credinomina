@@ -92,14 +92,7 @@ def build(periods, deposits, details, period_links):
     return output
 
 
-def load(periods):
-    if not periods:
-        return []
-    if not frappe.has_permission('CN Remittance Allocation', 'read'):
-        return [dict(period=period['name'], source=dict(name='DETAIL-UNKNOWN', client_name='Detalle del depósito no disponible'),
-                     detail_received_usd=None, detail_unassigned_usd=None,
-                     unavailable=True,
-                     observation='Importe del detalle no determinable: falta permiso para consultar depósitos.') for period in periods]
+def load_period_deposits(periods):
     from credinomina_reconciliation.remittance_periods import deposit_names_for_periods
     deposits = {}
     names = sorted(period['name'] for period in periods)
@@ -118,6 +111,18 @@ def load(periods):
         require_complete_evidence('CN Remittance Allocation', [row['name'] for row in found],
                                   filters=filters, or_filters=alternatives)
         deposits.update({row['name']: row for row in found})
+    return deposits
+
+
+def load(periods):
+    if not periods:
+        return []
+    if not frappe.has_permission('CN Remittance Allocation', 'read'):
+        return [dict(period=period['name'], source=dict(name='DETAIL-UNKNOWN', client_name='Detalle del depósito no disponible'),
+                     detail_received_usd=None, detail_unassigned_usd=None,
+                     unavailable=True,
+                     observation='Importe del detalle no determinable: falta permiso para consultar depósitos.') for period in periods]
+    deposits = load_period_deposits(periods)
     details = list(child_records('CN Remittance Detail', deposits, 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'source_row', 'row_kind', 'employer', 'client', 'client_number', 'client_name', 'national_id',
                 'loan_number', 'amount_usd', 'client_credit_usd', 'company_credit_usd',
