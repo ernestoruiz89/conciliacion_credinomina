@@ -20,7 +20,7 @@ assert.ok(filters.find(f => f.fieldname === "treatment_status").options.includes
 const pending = filters.find(field => field.fieldname === "only_open");
 assert.equal(pending.label, "Mostrar solo pendientes");
 assert.equal(pending.fieldtype, "Check");
-assert.equal(pending.default, 0);
+assert.equal(pending.default, 1);
 const report = context.frappe.query_reports["Estado de Cuenta Operativo"];
 const shown = new Map(filters.map(field => [field.fieldname, true]));
 let toggle;

@@ -3,7 +3,7 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nDepósito sin asignar\nPartida complementaria\nCxC por ajuste", default: "",
             description: __("Elija un tipo para una vista compacta. Vacío muestra todos los tipos; sus importes no se suman entre sí.") },
         { fieldname: "detailed_columns", label: __("Más columnas"), fieldtype: "Check", default: 0 },
-        { fieldname: "only_open", label: __("Mostrar solo pendientes"), fieldtype: "Check", default: 0,
+        { fieldname: "only_open", label: __("Mostrar solo pendientes"), fieldtype: "Check", default: 1,
             description: __("Oculta las partidas conciliadas, aunque tengan gestión o registro contable pendiente.") },
         { fieldname: "operational_status", label: __("Estado de conciliación"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto de la columna Estado de conciliación."),
