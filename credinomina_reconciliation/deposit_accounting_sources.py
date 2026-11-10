@@ -133,15 +133,17 @@ def source_parent(key):
     return active[0] if active else None
 
 
-def attach_sources(deposits):
+def attach_sources(deposits, *, fields=None):
     """Caller supplies permission-checked parents, never unrestricted child access."""
     from credinomina_reconciliation.accounting_deposits import EVIDENCE_FIELDS
     from credinomina_reconciliation.report_records import child_records
     by_name = {row['name']: row for row in deposits}
     for row in by_name.values():
         row['accounting_sources'] = []
+    if fields is None:
+        fields = [*EVIDENCE_FIELDS, 'origin_complementary_item']
     for source in child_records(SOURCE_DOCTYPE, list(by_name), 'CN Remittance Allocation',
-            'accounting_sources', fields=['parent', *EVIDENCE_FIELDS, 'origin_complementary_item']):
+            'accounting_sources', fields=['parent', *fields]):
         by_name[source['parent']]['accounting_sources'].append(source)
     return deposits
 
