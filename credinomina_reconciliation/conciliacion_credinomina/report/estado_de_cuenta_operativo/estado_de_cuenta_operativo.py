@@ -1,38 +1,52 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, flt
+from frappe.utils import cint
 
-from credinomina_reconciliation.aging import collection_shortfall_usd
 from credinomina_reconciliation.application_quality import collection_quality
-from credinomina_reconciliation.reconciliation import AMOUNT_TOLERANCE
-from credinomina_reconciliation.rounding import MONEY_EPSILON, decimal_value, money, money_float
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
+from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
-from credinomina_reconciliation.client_position import load_position, summary
+from credinomina_reconciliation.client_position import load_position, summarize_selection
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    collection_columns, collections = _collection_report(filters)
+    filters.detailed_columns = cint(filters.get('detailed_columns'))
+    columns, collections = _collection_report(filters)
     data = load_position(collections, filters)
-    message = _("Totales de la selección. Cobranza: control de calidad; aplicaciones y ajustes: saldo financiero. ")
+    # Frappe can also restrict a report row by a linked company, for example
+    # on the beneficiary of a readable deposit. Total only rows it will show.
+    if data and frappe.session.user and frappe.session.user != 'Administrator':
+        from frappe.desk.query_report import get_filtered_data
+        data = get_filtered_data('CN Reconciliation Period', columns, data, frappe.session.user)
+    message = _("Totales de la selección. Cada columna suma los movimientos incluidos por los filtros. El guion indica un importe sin determinar o que no aplica. ")
     message += '<details><summary>' + _("Cómo se calcula") + '</summary>' + _("Posición actual de conciliación, no saldo contractual del préstamo. "
         "Cobranza muestra diferencias frente a las aplicaciones (informativas); Aplicación muestra aplicado neto y depósitos asignados; "
         "Partida complementaria incluye las diferencias automáticas por tolerancia y separa distribución, registro contable y gestión de saldos a favor. "
-        "La cobranza no genera CxC. La CxC nace de lo aplicado en el core menos depósitos y compensaciones confirmadas. "
+        "La CxC por aplicaciones parte del aplicado en el core y descuenta su cobertura confirmada. "
+        "Depósito asignado muestra el efectivo bancario. Los saldos a favor aplicados y las complementarias que cubren una aplicación se explican en Observación. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
         "No reste automáticamente los saldos a favor. "
         "Depósito sin asignar muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
         "solo atribuye importes al cliente cuando el detalle cabe en el efectivo pendiente. No se compensa automáticamente con aplicaciones. "
-        "Las fechas filtran el mes de cobranza, la fecha de aplicación o la fecha de la partida, según el tipo; "
-        "no reconstruyen saldos históricos. Solo se incluyen documentos visibles para su usuario. "
+        "Desde y Hasta filtran por el mes de cobranza o por la fecha de la aplicación, depósito o partida. Los saldos son actuales. "
+        "Solo se incluyen documentos visibles para su usuario. "
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
         "compensado o requiere aclaración. Registro contable y Gestión externa se consultan por separado.") + '</details>'
-    return get_columns(filters), data, message, None, summary(data, filters)
+    totals, amounts = summarize_selection(data, filters)
+    for row in data:
+        row.pop('_shared_bank_cash', None)
+        row.pop('_bank_basis', None)
+    if data:
+        monetary = {col['fieldname']: amounts.get(col['fieldname']) for col in columns if col['fieldtype'] == 'Currency'}
+        data.append(dict(monetary, client_name=_("Total"), position_type='', source_document=None,
+                         is_total_row=1, usd_currency='USD'))
+    return columns, data, message, None, totals
 
 
 def _collection_report(filters=None):
     filters = frappe._dict(filters or {})
-    columns = get_columns()
+    columns = get_columns(filters)
     if filters.position_type and filters.position_type != 'Cobranza':
         return columns, []
     periods = get_periods(filters)
@@ -40,13 +54,15 @@ def _collection_report(filters=None):
         return columns, []
 
     period_map = {row.name: row for row in periods}
-    row_filters = {"parent": ["in", list(period_map)]}
+    # Narrow the read without losing padded identifiers or a legacy loan with
+    # the implicit first cycle. The statement compares the complete keys.
+    row_filters = {}
     if filters.client_number:
-        row_filters["client"] = filters.client_number
+        row_filters["client"] = ["like", "%" + canonical_identifier(filters.client_number) + "%"]
     if filters.national_id:
-        row_filters["national_id"] = filters.national_id
+        row_filters["national_id"] = ["like", "%" + canonical_identifier(filters.national_id) + "%"]
     if filters.loan_number:
-        row_filters["loan_number"] = filters.loan_number
+        row_filters["loan_number"] = ["like", "%" + canonical_credit_number(filters.loan_number).split("-")[0] + "%"]
 
     rows = child_records(
         "CN Collection Row", period_map, "CN Reconciliation Period", "collection_rows",
@@ -78,14 +94,13 @@ def _collection_report(filters=None):
     data = []
     for row in rows:
         period = period_map[row.parent]
-        rate = (
-            decimal_value(row.expected_nio) / decimal_value(row.expected_usd)
-            if money(row.expected_usd) > decimal_value(AMOUNT_TOLERANCE) else 0
-        )
-        classified_usd = money(row.complementary_usd) + max(money(row.fx_variance_usd), 0)
-        rounding = money(row.rounding_adjustment_usd)
-        classified_nio = money(classified_usd * decimal_value(rate))
-        employee_pending = collection_shortfall_usd(row)
+        quality = collection_quality(row)
+        if cint(filters.only_open) and quality["quality_status"].startswith("Conforme"):
+            continue
+        difference = quality["quality_difference_usd"]
+        employee_pending = abs(difference) if difference is not None else None
+        rate = (decimal_value(row.expected_nio) / decimal_value(row.expected_usd)
+                if money(row.expected_usd) > 0 and money(row.expected_nio) > 0 else None)
         item = frappe._dict(
             {
                 **row,
@@ -96,19 +111,18 @@ def _collection_report(filters=None):
                 "collection_cycle": period.collection_cycle or "Mensual",
                 "deduction_basis": period.deduction_basis or "",
                 "employer": period.employer,
+                "expected_usd": quality["quality_expected_usd"],
                 "source_rows": row.get("name"),
                 "employee_pending_usd": employee_pending,
                 "employee_pending_nio": (
                     money_float(decimal_value(employee_pending) * decimal_value(rate))
-                    if employee_pending is not None else None
+                    if employee_pending is not None and rate is not None else None
                 ),
                 "quality_applied_usd": money_float(row.applied_usd),
-                "quality_difference_usd": collection_quality(row)["quality_difference_usd"],
-                "operational_status": get_status(row),
+                "quality_difference_usd": difference,
+                "operational_status": quality["quality_status"],
             }
         )
-        if cint(filters.only_open) and _base_status(row).startswith("Conforme"):
-            continue
         data.append(item)
     return columns, data
 
@@ -138,10 +152,6 @@ def get_periods(filters):
 
 def get_status(row):
     return collection_quality(row)["quality_status"]
-
-
-def _base_status(row):
-    return get_status(row)
 
 
 def get_collection_columns():

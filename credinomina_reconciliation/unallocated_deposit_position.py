@@ -125,7 +125,7 @@ def build(deposits, details, targets=()):
         targets_by_deposit[target['parent']].append(target)
     output = []
     for deposit in deposits:
-        if deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}:
+        if deposit.get('consolidated_deposit') or deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}:
             continue
         remaining = remaining_cash(deposit)
         if remaining <= 0:
@@ -148,24 +148,23 @@ def build(deposits, details, targets=()):
                     employer=deposit.get('employer'), operational_status='Pendiente' if consistent else 'Revisar distribución', is_open=True,
                     usd_currency='USD')
         attributed = money(0)
-        if consistent:
-            for row in pending:
-                if not any(row.get(field) for field in ('client_number', 'national_id', 'loan_number', 'client_name')):
-                    continue
-                amount = pending_by_row[row['name']]
+        for row in pending:
+            beneficiary = row.get('employer') or base['employer']
+            if beneficiary == base['employer'] and not any(
+                    row.get(field) for field in ('client', 'client_number', 'national_id', 'loan_number', 'client_name')):
+                continue
+            amount = pending_by_row[row['name']]
+            position = dict(base, employer=beneficiary,
+                client_name=row.get('client_name') or 'Sin cliente individual', client_number=row.get('client') or row.get('client_number'),
+                national_id=row.get('national_id'), loan_number=row.get('loan_number'), source_rows=row['name'],
+                deposit_detail_pending_usd=money_float(amount), difference_reason=row.get('difference_reason'))
+            if consistent:
                 attributed += amount
-                output.append(dict(base, client_name=row.get('client_name'), client_number=row.get('client_number'),
-                    national_id=row.get('national_id'), loan_number=row.get('loan_number'),
-                    deposit_pending_usd=money_float(amount), source_rows=row['name'],
-                    observation='Importe pendiente del detalle del depósito.'))
-        else:
-            for row in pending:
-                if not any(row.get(field) for field in ('client_number', 'national_id', 'loan_number', 'client_name')):
-                    continue
-                output.append(dict(base, client_name=row.get('client_name'), client_number=row.get('client_number'),
-                    national_id=row.get('national_id'), loan_number=row.get('loan_number'),
-                    deposit_pending_usd=None, deposit_detail_pending_usd=money_float(pending_by_row[row['name']]),
-                    source_rows=row['name'], observation='Importe del detalle por comprobar; efectivo individual sin determinar. Revise la distribución del depósito.'))
+                position.update(deposit_pending_usd=money_float(amount), observation='Importe pendiente del detalle del depósito.')
+            else:
+                position.update(deposit_pending_usd=None,
+                    observation='Importe del detalle por comprobar; efectivo individual sin determinar. Revise la distribución del depósito.')
+            output.append(position)
         remainder = remaining - attributed
         if remainder > 0:
             output.append(dict(base, client_name='Sin cliente individual', deposit_pending_usd=money_float(remainder),
@@ -184,11 +183,22 @@ def load_manual_targets(deposits):
 def load(employer=None):
     if not frappe.has_permission('CN Remittance Allocation', 'read'):
         return []
-    deposits = list(records('CN Remittance Allocation', filters={'docstatus': 1, **({'employer': employer} if employer else {})},
+    scope = {}
+    if employer:
+        # Stored beneficiaries can differ from the payer, even after a paying
+        # agreement changes. Only permission-checked parents supply balances.
+        parents = frappe.get_all('CN Remittance Detail', filters={'employer': employer,
+            'parenttype': 'CN Remittance Allocation', 'parentfield': 'detail_rows'},
+            pluck='parent', group_by='parent', order_by='parent asc', limit_page_length=0)
+        scope['or_filters'] = [['employer', '=', employer]]
+        if parents:
+            scope['or_filters'].append(['name', 'in', parents])
+    deposits = list(records('CN Remittance Allocation', filters={'docstatus': 1, 'consolidated_deposit': ['is', 'not set']},
         fields=['name', 'docstatus', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
-                'unclassified_usd', 'cash_identity_status', 'allocation_detail']))
+                'unclassified_usd', 'cash_identity_status', 'allocation_detail'], **scope))
     deposits = [d for d in deposits if remaining_cash(d) > 0]
     details = child_records('CN Remittance Detail', [d['name'] for d in deposits], 'CN Remittance Allocation', 'detail_rows',
-        fields=['name', 'parent', 'row_kind', 'client_name', 'client_number', 'national_id', 'loan_number',
-                'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets'])
-    return build(deposits, details, load_manual_targets(deposits))
+        fields=['name', 'parent', 'row_kind', 'employer', 'client', 'client_name', 'client_number', 'national_id', 'loan_number',
+                'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason'])
+    positions = build(deposits, details, load_manual_targets(deposits))
+    return [row for row in positions if not employer or row['employer'] == employer]

@@ -38,4 +38,7 @@ assert.match(report.formatter(null, 0, {fieldname:'complementary_pending_usd', f
     {complementary_pending_usd:null}, () => '0.00'), /—/);
 assert.equal(report.formatter(0, 0, {fieldname:'complementary_pending_usd', fieldtype:'Currency'},
     {complementary_pending_usd:0}, () => '0.00'), '0.00');
+assert.match(report.formatter('Total', 2, {fieldname:'client_name'}, {is_total_row:1}, () => 'Total'), /<strong>Total<\/strong>/);
+assert.match(report.formatter(null, 2, {fieldname:'remitted_usd', fieldtype:'Currency'},
+    {is_total_row:1, remitted_usd:null}, () => '0.00'), /<strong>.*—.*<\/strong>/);
 console.log("OK: operational statement type and reconciliation-state filters.");

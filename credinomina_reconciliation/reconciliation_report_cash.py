@@ -4,16 +4,18 @@ from decimal import Decimal
 
 import frappe
 
-from credinomina_reconciliation.accounting_client_summary import entries
+from credinomina_reconciliation.accounting_client_summary import entries, explicit_collection_cash
+from credinomina_reconciliation.company_conversion import KIND as COMPANY_DIFFERENCE
 from credinomina_reconciliation.reconciliation_deposit_detail import load_period_deposits
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
-def _journal_offsets(periods, claims, client_by_detail):
-    """Keep each deposit whole. An offset is attributable only to a sole recipient."""
-    offsets = defaultdict(list)
+def journal_evidence(periods, claims, client_by_detail=None, *, include_company_difference=False):
+    """Read complete deposits once. Keep signed offsets with their actual recipients."""
+    offsets, paid, uncertain = defaultdict(list), defaultdict(lambda: defaultdict(lambda: money(0))), set()
+    names = {period['name'] for period in periods}
     if not periods or not frappe.has_permission('CN Remittance Allocation', 'read'):
-        return offsets
+        return offsets, paid, names
     for deposit in load_period_deposits(periods).values():
         if deposit.get('cash_identity_status') == 'Origen vinculado':
             continue
@@ -21,29 +23,51 @@ def _journal_offsets(periods, claims, client_by_detail):
             ledger = entries(deposit.get('allocation_detail'))
             amounts = [Decimal(str(entry['importe_usd'])) for entry in ledger]
             if not all(amount.is_finite() for amount in amounts) or sum_money(amounts) != money(deposit['allocated_usd']):
-                continue
+                raise ValueError()
         except (KeyError, ValueError, ArithmeticError, TypeError):
+            uncertain.update(names)
             continue
-        offset = sum_money(amount for entry, amount in zip(ledger, amounts)
-                           if entry.get('tipo') == 'Partida complementaria' and amount < 0)
+        allowed = {'Partida complementaria', COMPANY_DIFFERENCE} if include_company_difference else {'Partida complementaria'}
+        offset = sum_money(amount for entry, amount in zip(ledger, amounts) if amount < 0 and entry.get('tipo') in allowed)
+        loans = [(entry, amount) for entry, amount in zip(ledger, amounts)
+                 if entry.get('tipo') in {'Cobranza', 'Aplicacion historica'}]
+        linked_periods = {entry.get('periodo') for entry, amount in loans if amount}
+        for entry, amount in loans:
+            key = (entry.get('periodo'), entry['tipo'], entry.get('aplicacion_id') or entry.get('fila_id'))
+            paid[key[0]][key] += money(amount)
+        if any(amount < 0 and entry.get('tipo') not in allowed for entry, amount in zip(ledger, amounts)):
+            uncertain.update(linked_periods)
         if not offset:
             continue
-        recipients, linked_periods = {}, set()
+        recipients = {}
         for entry, amount in zip(ledger, amounts):
             if amount <= 0:
                 continue
             period = entry.get('periodo')
             key = (period, entry.get('tipo'), entry.get('aplicacion_id') or entry.get('fila_id'))
             detail = claims.get(key)
-            if detail is None:
+            if not detail:
                 break
-            recipient = client_by_detail.get(id(detail), detail)
-            recipients[id(recipient)] = recipient
-            linked_periods.add(period)
+            details = detail if isinstance(detail, list) else [detail]
+            if isinstance(detail, list) and len(details) > 1 and entry.get('aplicaciones_fifo'):
+                try:
+                    portions = explicit_collection_cash({'remittance_detail': [entry]})
+                except (ValueError, ArithmeticError, TypeError):
+                    break
+                if portions:
+                    candidates = {app: row for row in details for app in row['source_rows'].split(', ')}
+                    if not portions.keys() <= candidates.keys():
+                        break
+                    details = [candidates[app] for app in portions]
+            for member in details:
+                recipient = (client_by_detail or {}).get(id(member), member)
+                recipients[id(recipient)] = recipient
         else:
             if len(linked_periods) == 1 and recipients:
-                offsets[linked_periods.pop()].append((offset, recipients))
-    return offsets
+                offsets[next(iter(linked_periods))].append((offset, recipients))
+                continue
+        uncertain.update(linked_periods)
+    return offsets, paid, uncertain
 
 
 def _show_split(row, offset, note):
@@ -91,7 +115,7 @@ def apply_period_cash(periods, summary, detail, claims, *, client_by_detail):
         else:
             for target in recipients.values():
                 _show_split(target, offset, note)
-    offsets = _journal_offsets([data[0] for data in multiple.values()], claims, client_by_detail)
+    offsets, _, _ = journal_evidence([data[0] for data in multiple.values()], claims, client_by_detail)
     for period_name, (_period, total_offset, recipients) in multiple.items():
         portions = offsets[period_name]
         if sum_money(amount for amount, _ in portions) != total_offset:

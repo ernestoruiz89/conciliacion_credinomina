@@ -33,7 +33,7 @@ def _mentions_record(raw, name):
                      r"(?![\w@./:+-])", str(raw)) is not None
 
 
-def _credit_funding(historical_rows):
+def credit_funding(historical_rows):
     """Read executed credit funding once, without its collection projection."""
     total, operations = money(0), set()
     for source in historical_rows:
@@ -320,7 +320,7 @@ class PeriodTotalsContext:
         self._load_cash_breakdowns()
         breakdown = self.cash_breakdowns[period.name]
         delta = breakdown.get('cash_adjustment_usd')
-        funding = _credit_funding(direct)
+        funding = credit_funding(direct)
         known = (breakdown['known'] and funding is not None and
                  money(result['deposit_coverage_usd']) + money(delta) - funding >= 0)
         if known:
