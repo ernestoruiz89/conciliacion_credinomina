@@ -10,6 +10,7 @@ from credinomina_reconciliation.client_identity import name_key
 from credinomina_reconciliation.complementary_balances import (
     FIELDS as COMPLEMENTARY_FIELDS, load_balances, reconciliation_state,
 )
+from credinomina_reconciliation.deposit_accounting_sources import attach_sources
 from credinomina_reconciliation.deposit_presentation import reconciliation_status
 from credinomina_reconciliation.parsers import canonical_identifier
 from credinomina_reconciliation.report_records import PAGE_SIZE, records
@@ -72,6 +73,8 @@ def _visible_named_rows(doctype, employer, fields, identity, matches, *, include
 def _application_rows(employer, identity):
     """Pending application rows from imports the caller may read."""
     fields = ['name', 'parent', 'source_row', 'event_date', 'reference', 'client',
+              'accounting_entry', 'voucher', 'accounting_reference', 'accounting_source_key',
+              'description', 'source_description',
               'client_name', 'client_number', 'national_id', 'loan_number',
               'amount_usd', 'net_applied_usd', 'application_adjustment_usd',
               'historical_period', 'historical_balance_usd', 'match_status',
@@ -135,6 +138,9 @@ def _application_rows(employer, identity):
                     status = 'Parcial' if current['state'] == 'Parcial' else 'Sin depósito'
         result.append(dict(type='Aplicación', document=row.parent,
             date=str(row.event_date or ''), reference=row.reference or '',
+            core_entry=dict(voucher=row.accounting_entry or row.voucher,
+                reference=row.accounting_reference or (row.reference if not row.accounting_source_key else None),
+                description=row.source_description or row.description),
             source_row=row.source_row, row_name=row.name,
             period=row.historical_period or row.collection_period or '',
             difference_reason=row.difference_reason or '',
@@ -284,12 +290,38 @@ def get_related_pending_for_remittance(remittance_name, detail_row_name):
                 context={'remittance_name': remittance_name, 'detail_row_name': detail_row_name})
 
 
+def _document_core_entries(doctype, pending, applications, link_field):
+    """Index original postings once per visible document, including links from applications."""
+    names = {row['document'] for row in pending}
+    names.update(link['document'] for row in applications for link in row.get(link_field, []))
+    names = sorted(names)
+    fields = ['source_voucher', 'accounting_reference', 'source_description']
+    result = {}
+    for offset in range(0, len(names), PAGE_SIZE):
+        documents = list(records(doctype, filters={'name': ['in', names[offset:offset + PAGE_SIZE]],
+                                                   'docstatus': ['!=', 2]}, fields=['name', *fields]))
+        if doctype == 'CN Remittance Allocation':
+            attach_sources(documents, fields=fields)
+        for doc in documents:
+            # The header of a consolidated deposit usually mirrors its first ledger line.
+            entries = dict.fromkeys(tuple(source.get(field) for field in fields)
+                                    for source in doc.get('accounting_sources') or [doc])
+            result[doc.name] = [dict(voucher=voucher, reference=reference, description=description)
+                                for voucher, reference, description in entries if voucher or reference or description]
+    return result
+
+
 def _related_pending(employer, identity):
     applications = _application_rows(employer, identity)
-    rows = [*_deposit_rows(employer, identity),
-            *_complementary_rows(employer, identity)]
+    deposits = _deposit_rows(employer, identity)
+    items = _complementary_rows(employer, identity)
+    rows = [*deposits, *items]
     applications.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
     rows.sort(key=lambda row: (not bool(row['date']), row['date'], row['document'], row['loan_number']))
     return {'client_name': identity['client_name'], 'client_number': identity['client_number'],
             'national_id': identity['national_id'],
+            'core_entries': {
+                'deposits': _document_core_entries('CN Remittance Allocation', deposits, applications, 'deposits'),
+                'complementary_items': _document_core_entries('CN Complementary Item', items, applications, 'complementary_items'),
+            },
             'applications': applications, 'rows': rows}

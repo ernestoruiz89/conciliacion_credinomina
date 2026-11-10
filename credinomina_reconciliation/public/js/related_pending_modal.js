@@ -34,24 +34,44 @@ window.credinominaShowRelatedPending = function (result) {
         ? __("La diferencia no se puede determinar: hay importes o sentidos contables pendientes de revisar.")
         : difference > 0 ? __("Las aplicaciones pendientes superan el total neto mostrado.")
         : difference < 0 ? __("El total neto mostrado supera las aplicaciones pendientes.") : __("Los totales coinciden.");
-    const renderRows = (items, emptyMessage) => items.map(row => {
-        const slug = row.type === "Aplicación" ? "cn-accounting-import"
-            : row.type === "Depósito" ? "cn-remittance-allocation" : "cn-complementary-item";
+    const coreEntries = result.core_entries || {};
+    const documentLink = (type, row, hint = "") => {
+        let slug, entries;
+        if (type === "Aplicación") {
+            slug = "cn-accounting-import";
+            entries = [row.core_entry];
+        } else if (type === "Depósito") {
+            slug = "cn-remittance-allocation";
+            entries = coreEntries.deposits?.[row.document] || [];
+        } else {
+            slug = "cn-complementary-item";
+            entries = coreEntries.complementary_items?.[row.document] || [];
+        }
+        const core = entries.filter(entry => entry && (entry.voucher || entry.reference || entry.description))
+            .map(entry => [
+                `${__("Número de asiento")}: ${entry.voucher || "—"}`,
+                `${__("Número de referencia")}: ${entry.reference || "—"}`,
+                `${__("Descripción")}: ${entry.description || "—"}`,
+            ].join("\n")).join("\n\n");
+        const title = [core || __("Sin datos del asiento del core."), hint].filter(Boolean).join("\n\n");
         const href = `/app/${slug}/${encodeURIComponent(String(row.document || ""))}`;
+        return `<a href="${href}" target="_blank" rel="noopener noreferrer" title="${esc(title)}">${esc(row.document)}</a>`;
+    };
+    const renderRows = (items, emptyMessage) => items.map(row => {
         const direction = row.type === "Partida complementaria" && row.direction
             ? ` · <strong>${esc(__(row.direction))}</strong>` : "";
         const deposits = row.type === "Aplicación" ? (row.deposits || []) : [];
         const depositLinks = deposits.length ? `<div style="margin-top:6px"><span class="text-muted">${esc(__("Depósitos asignados"))}:</span>
             ${deposits.map(deposit => {
-                const title = [displayDate(deposit.date), deposit.reference,
+                const hint = [displayDate(deposit.date), deposit.reference,
                     deposit.via_collection ? __("Vinculado mediante cobranza; consulte la distribución en el depósito.") : ""].filter(Boolean).join(" · ");
-                return `<div><a href="/app/cn-remittance-allocation/${encodeURIComponent(String(deposit.document))}" target="_blank" rel="noopener noreferrer" title="${esc(title)}">${esc(deposit.document)}</a>${deposit.via_collection ? ` <span class="text-muted">(${esc(__("vía cobranza"))})</span>` : ""}</div>`;
+                return `<div>${documentLink("Depósito", deposit, hint)}${deposit.via_collection ? ` <span class="text-muted">(${esc(__("vía cobranza"))})</span>` : ""}</div>`;
             }).join("")}</div>` : "";
         const items = row.type === "Aplicación" ? (row.complementary_items || []) : [];
         const itemLinks = items.length ? `<div style="margin-top:6px"><span class="text-muted">${esc(__("Partidas complementarias vinculadas"))}:</span>
-            ${items.map(item => `<div><a href="/app/cn-complementary-item/${encodeURIComponent(String(item.document))}" target="_blank" rel="noopener noreferrer" title="${esc([displayDate(item.date), item.reference].filter(Boolean).join(" · "))}">${esc(item.document)}</a></div>`).join("")}</div>` : "";
+            ${items.map(item => `<div>${documentLink("Partida complementaria", item, [displayDate(item.date), item.reference].filter(Boolean).join(" · "))}</div>`).join("")}</div>` : "";
         return `<tr>
-            <td><a href="${href}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>
+            <td>${documentLink(row.type, row)}
                 <div class="text-muted">${esc(__(row.type))}${direction}${row.source_row ? ` · ${esc(__("Fila"))} ${esc(row.source_row)}` : ""}</div>
                 <div class="text-muted">${esc(displayDate(row.date) || "—")}${row.reference ? ` · ${esc(row.reference)}` : ""}</div>${depositLinks}${itemLinks}</td>
             <td>${esc(row.loan_number || "—")}</td>

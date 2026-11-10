@@ -42,6 +42,20 @@ def test_unassigned_operative_rows_have_their_full_pending_amount_even_with_stal
         assert rows[0]['status'] == 'Sin depósito' and calls == 1
 
 
+def test_accounting_context_uses_the_individual_application_line_and_preserves_missing_core_references():
+    sources = [
+        application('FIRST', source_row=11, accounting_entry='00021', accounting_source_key='FIRST-KEY',
+                    reference='RECIBO', source_description='Primer concepto'),
+        application('SECOND', source_row=12, voucher='00022', reference='00032', description='Concepto antiguo'),
+    ]
+    rows, _ = read(sources)
+    assert [row['document'] for row in rows] == ['I', 'I']
+    assert [row['core_entry'] for row in rows] == [
+        dict(voucher='00021', reference=None, description='Primer concepto'),
+        dict(voucher='00022', reference='00032', description='Concepto antiguo'),
+    ]
+
+
 def test_confirmed_application_adjustment_and_multiple_deposits_are_subtracted_once():
     source = application(amount=100, amount_usd=100, application_adjustment_usd=20, net_applied_usd=999,
         collection_row_id='C')

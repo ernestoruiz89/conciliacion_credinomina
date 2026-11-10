@@ -85,7 +85,9 @@ class ApplicationDepositLinksTests(unittest.TestCase):
 
     def test_related_modal_preserves_pending_and_only_enriches_visible_pending_applications(self):
         candidate = application(parent="IMPORT", event_date="2026-02-15", historical_balance_usd=.01,
-            deposit_match_status="Depósito parcial", client_name="Persona", client_number="1")
+            deposit_match_status="Depósito parcial", client_name="Persona", client_number="1",
+            accounting_entry="000120", voucher="OTRO", accounting_reference="000091", reference="BANCARIA",
+            source_description="Descripción original", description="Texto operativo")
         identity = dict(numbers={"1"}, clients=set(), national_ids=set(), names=set(),
                         number_values={"1"}, national_values=set(), name_values=set())
         assigned = [dict(document="D", date="2026-02-01", reference="REF", via_collection=False)]
@@ -96,13 +98,49 @@ class ApplicationDepositLinksTests(unittest.TestCase):
             result = related._application_rows("EMPRESA", identity)
         self.assertEqual(result[0]["deposits"], assigned)
         self.assertEqual(result[0]["complementary_items"], [dict(document="ITEM")])
+        self.assertEqual(result[0]["core_entry"],
+                         dict(voucher="000120", reference="000091", description="Descripción original"))
         self.assertEqual(result[0]["pending_usd"], .01)
         load.assert_called_once_with([candidate])
-        with patch.object(related, "_application_rows", return_value=result), \
-             patch.object(related, "_deposit_rows", return_value=[]), patch.object(related, "_complementary_rows", return_value=[]):
-            # Existing shared endpoint still carries the same links for modal callers.
-            data = related._related_pending("EMPRESA", dict(identity, client_name="Persona", client_number="1", national_id=""))
+
+    def test_modal_indexes_original_postings_for_pending_and_linked_documents(self):
+        def pending(kind, document):
+            return dict(type=kind, document=document, date="2026-02-15", loan_number="")
+
+        assigned = [dict(document="D", via_collection=False)]
+        app = dict(pending("Aplicación", "IMPORT"), deposits=assigned, complementary_items=[dict(document="ITEM")])
+        deposit_rows = [pending("Depósito", name) for name in ("D", "D", "MANUAL", "ANTIGUO")]
+        item_rows = [pending("Partida complementaria", "ITEM-PENDIENTE")]
+
+        def read_origins(doctype, *, fields, filters):
+            self.assertEqual(set(fields), {"name", "source_voucher", "accounting_reference", "source_description"})
+            if doctype == "CN Remittance Allocation":
+                self.assertEqual(filters["name"], ["in", ["ANTIGUO", "D", "MANUAL"]])
+                return [frappe._dict(name="D", source_voucher="00001", accounting_reference="R1", source_description="Línea A"),
+                        frappe._dict(name="MANUAL"), frappe._dict(name="ANTIGUO", source_voucher="00010")]
+            self.assertEqual(doctype, "CN Complementary Item")
+            self.assertEqual(filters["name"], ["in", ["ITEM", "ITEM-PENDIENTE"]])
+            return [frappe._dict(name="ITEM", source_voucher="00003", accounting_reference="A", source_description="Ajuste")]
+
+        first = frappe._dict(parent="D", source_voucher="00001", accounting_reference="R1", source_description="Línea A")
+        second = frappe._dict(parent="D", source_voucher="00002", accounting_reference="R2", source_description="Línea B")
+        with patch.object(related, "_application_rows", return_value=[app]), \
+             patch.object(related, "_deposit_rows", return_value=deposit_rows), \
+             patch.object(related, "_complementary_rows", return_value=item_rows), \
+             patch.object(related, "records", side_effect=read_origins) as headers, \
+             patch("credinomina_reconciliation.report_records.child_records", return_value=[first, first, second]) as children:
+            data = related._related_pending("EMPRESA", dict(client_name="Persona", client_number="1", national_id=""))
+        self.assertEqual(headers.call_count, 2)
+        self.assertEqual(children.call_args.args[:4], ("CN Deposit Accounting Source", ["D", "MANUAL", "ANTIGUO"],
+                                                        "CN Remittance Allocation", "accounting_sources"))
         self.assertEqual(data["applications"][0]["deposits"], assigned)
+        self.assertEqual(data["core_entries"]["deposits"], {
+            "D": [dict(voucher="00001", reference="R1", description="Línea A"),
+                  dict(voucher="00002", reference="R2", description="Línea B")],
+            "MANUAL": [], "ANTIGUO": [dict(voucher="00010", reference=None, description=None)],
+        })
+        self.assertEqual(data["core_entries"]["complementary_items"],
+                         {"ITEM": [dict(voucher="00003", reference="A", description="Ajuste")]})
 
 
 if __name__ == "__main__":
