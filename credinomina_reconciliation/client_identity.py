@@ -33,22 +33,32 @@ class ClientIdentityIndex:
     """Select a small candidate set without weakening the existing conflict rules."""
 
     def __init__(self, clients):
-        self.records = list(clients)
-        self.by_name = {row["name"]: row for row in self.records}
+        self.records = []
+        self.by_name = {}
         self.identifiers = {field: defaultdict(set) for field in
                             ("client_number", "national_id", "employee_number")}
         self.names = defaultdict(set)
-        for position, row in enumerate(self.records):
-            for field, index in self.identifiers.items():
-                values = [row.get(field), *(row.get('employee_numbers') or [])] if field == 'employee_number' else [row.get(field)]
-                for value in values:
-                    key = canonical_identifier(value)
-                    if key:
-                        index[key].add(position)
-            for label in (row.get("client_name"), *(row.get("client_aliases") or ())):
-                key = name_key(label)
+        for row in clients:
+            self.append(row)
+
+    def append(self, row):
+        self.records.append(row)
+        self.by_name[row["name"]] = row
+        self.index_keys(len(self.records) - 1)
+
+    def index_keys(self, position):
+        """Include identifiers and aliases added to a record during an import."""
+        row = self.records[position]
+        for field, index in self.identifiers.items():
+            values = [row.get(field), *(row.get('employee_numbers') or [])] if field == 'employee_number' else [row.get(field)]
+            for value in values:
+                key = canonical_identifier(value)
                 if key:
-                    self.names[key].add(position)
+                    index[key].add(position)
+        for label in (row.get("client_name"), *(row.get("client_aliases") or ())):
+            key = name_key(label)
+            if key:
+                self.names[key].add(position)
 
     def __iter__(self):
         return iter(self.records)

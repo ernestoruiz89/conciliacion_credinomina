@@ -43,6 +43,20 @@ class FakeClientIndex:
 
 
 class CreditPortfolioEnrichmentTests(unittest.TestCase):
+    def test_automatic_cut_uses_latest_in_month_or_previous_available_month(self):
+        cuts = [Row(name=name, report_date=day) for name, day in [
+            ("JUN", "2026-06-30"), ("APR2", "2026-04-30"), ("APR1", "2026-04-15")]]
+        movements = [dict(event_type="Aplicacion", event_date=date) for date in
+                     ("2026-03-31", "2026-04-01", "2026-05-30", "2026-06-01", None)]
+        with patch.object(credit_portfolio.frappe, "get_all", return_value=cuts), \
+             patch.object(credit_portfolio, "_load_snapshot_rows", return_value={}) as load, \
+             patch.object(credit_portfolio, "_enrich_from_portfolio_indexes") as enrich:
+            credit_portfolio.enrich_accounting_records(movements)
+        selected = enrich.call_args.args[1]
+        self.assertEqual([selected[id(row)].name if selected[id(row)] else None for row in movements],
+                         [None, "APR2", "APR2", "JUN", None])
+        self.assertEqual(load.call_count, 2)
+
     def test_unpadded_core_loan_matches_padded_portfolio_without_rewriting_either(self):
         row = portfolio_row(credit_number="001807-1")
         result = self.enrich({"event_type": "Aplicacion", "loan_number": "1807-1"}, [row])

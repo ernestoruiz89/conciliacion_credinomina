@@ -557,6 +557,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
     file_doc, content = _attached_file(document)
     if document.bulk_source_hash and not file_doc.file_name.lower().endswith(".csv"):
         frappe.throw(_("Use el CSV individual de esta importación, no el archivo masivo original."))
+    file_hash = file_sha256(content)
     try:
         parsed = parse_accounting_movements(file_doc.file_name, content)
         from credinomina_reconciliation.accounting_identity import identify_lines
@@ -566,12 +567,12 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
             document.currency,
             document.manual_fx_rate,
         )
-        if document.bulk_source_hash and file_sha256(content) != document.file_hash:
+        if document.bulk_source_hash and file_hash != document.file_hash:
             # A changed CSV may alter formatting/company choices, but must not
             # claim a different physical ledger line from the same original.
             from credinomina_reconciliation.accounting_origin_repair import assert_csv_origins
             assert_csv_origins(document, parsed)
-        identify_lines(parsed, document.bulk_source_hash or file_sha256(content))
+        identify_lines(parsed, document.bulk_source_hash or file_hash)
         if not document.employer:
             frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
         if document.bulk_source_hash:
@@ -609,7 +610,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
         for row in review:
             row["event_type"] = "Ajuste"
         review = plan_review_items(review, employers, document.employer)
-        create_review_items(review, document.source_file, file_sha256(content))
+        create_review_items(review, document.source_file, file_hash)
         links = {row["accounting_source_key"]: row["complementary_item"] for row in review}
         for row in adjustments:
             row["complementary_item"] = links[row["accounting_source_key"]]
@@ -620,7 +621,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
         attach_employer_aliases(employers)
         deposits = plan_deposits(parsed, employers, document.employer)
     if deposits:
-        create_deposits(deposits, document.source_file, file_sha256(content))
+        create_deposits(deposits, document.source_file, file_hash)
     deposit_links = {row["accounting_source_key"]: row["remittance_allocation"] for row in deposits}
     for row in parsed:
         row["remittance_allocation"] = deposit_links.get(row.get("accounting_source_key"), "")
@@ -637,7 +638,7 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
                     row.as_dict(),
                 )
             )
-    document.file_hash = file_sha256(content)
+    document.file_hash = file_hash
     document.set("rows", [])
     reassigned_rows = []
     for record in parsed:
@@ -2273,16 +2274,18 @@ def _distribute_deposits(
         )
     # Keep global identifier conflict detection, but resolve each claim through
     # an index rather than scanning every client and normalizing every alias.
-    client_catalog = load_client_index()
-    client_lookup = ClientIdentityIndex(client_catalog)
-    for claim in claims:
-        claim["client_names"] = names_for_claim(claim, client_lookup, claim.get("group"))
-        client, reason = choose_client(claim, client_lookup, claim.get("group"))
-        if client and reason in {"Identificador exacto", "Nombre o alias único"}:
-            claim["client"] = client["name"]
-            claim["client_number"] = claim.get("client_number") or client["client_number"]
-            claim["employee_number"] = claim.get("employee_number") or client["employee_number"]
-            claim["national_id"] = claim.get("national_id") or client["national_id"]
+    client_catalog = None
+    if deposits or manual_allocations:
+        client_catalog = load_client_index()
+        client_lookup = ClientIdentityIndex(client_catalog)
+        for claim in claims:
+            claim["client_names"] = names_for_claim(claim, client_lookup, claim.get("group"))
+            client, reason = choose_client(claim, client_lookup, claim.get("group"))
+            if client and reason in {"Identificador exacto", "Nombre o alias único"}:
+                claim["client"] = client["name"]
+                claim["client_number"] = claim.get("client_number") or client["client_number"]
+                claim["employee_number"] = claim.get("employee_number") or client["employee_number"]
+                claim["national_id"] = claim.get("national_id") or client["national_id"]
 
     # A single-deposit run can use only the capacity left by other deposits.
     # Signed complements retain their sign; settled claims remain at zero.

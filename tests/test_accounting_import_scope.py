@@ -22,7 +22,6 @@ class AccountingImportScopeTests(unittest.TestCase):
         other = frappe._dict(name="FIXED", employer="E", historical_period="P", rows=[paid, unrelated])
         with patch.object(scope.frappe, "get_doc", side_effect=[document, period]), \
              patch.object(scope.frappe, "get_all", return_value=["P"]), \
-             patch.object(engine, "_source_linked_periods", side_effect=lambda row: ["P"] if row.name == "PAID" else []), \
              patch("credinomina_reconciliation.complementary_cancellation._load_imports", return_value=[document, other]):
             imported, periods, fixed = scope.load_context("CURRENT", "E", ["E"], ["RENAMED", "P"])
         self.assertIs(imported, document)
@@ -34,6 +33,24 @@ class AccountingImportScopeTests(unittest.TestCase):
         self.assertEqual(paid.historical_period, "")
         document.check_permission.assert_called_once_with("write")
         period.check_permission.assert_called_once_with("write")
+
+    def test_legacy_links_from_other_periods_resolve_in_one_query(self):
+        document = frappe._dict(name="I", employer="E", rows=[], check_permission=Mock())
+        period = frappe._dict(name="P", employer="E", status="Pendiente", check_permission=Mock())
+        rows = [Row(name=f"A{i}", event_type="Aplicacion", historical_period="OLD",
+                    collection_row_id=f"C{i}") for i in range(120)]
+        other = frappe._dict(name="OTHER", employer="E", rows=rows)
+        def query(doctype, **kwargs):
+            if doctype == "CN Reconciliation Period":
+                return ["P"]
+            self.assertEqual(doctype, "CN Collection Row")
+            return [Row(name=name, parent="P" if name != "C0" else "OLD") for name in kwargs["filters"]["name"][1]]
+        with patch.object(scope.frappe, "get_doc", side_effect=[document, period]), \
+             patch.object(scope.frappe, "get_all", side_effect=query) as reads, \
+             patch("credinomina_reconciliation.complementary_cancellation._load_imports", return_value=[other]):
+            _, _, fixed = scope.load_context("I", "E", ["E"], ["P"])
+        self.assertEqual([row.name for row in fixed], [row.name for row in rows[1:]])
+        self.assertEqual(reads.call_count, 2)  # The period and one collection-row batch.
 
     def test_unassigned_reload_with_no_old_links_has_no_company_wide_fallback(self):
         document = frappe._dict(name="I", employer="E", rows=[], check_permission=Mock())
