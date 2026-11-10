@@ -43,14 +43,16 @@ def test_partial_detail_is_a_separate_line_for_only_actual_unassigned_cash():
     assert sources == original
 
 
-def test_paid_manual_details_from_a_multi_period_deposit_do_not_reappear_as_pending():
+@pytest.mark.parametrize('empty_cache', [False, True])
+def test_paid_manual_details_from_a_multi_period_deposit_do_not_reappear_as_pending(empty_cache):
     ledger, details, targets = [], [], []
     for name, amount in (('FIRST', 15.45), ('SECOND', 292)):
         ledger.append(dict(tipo='Aplicacion historica', periodo='P', aplicacion_id=name, origen=MANUAL, importe_usd=amount))
         targets.append(dict(name='T-' + name, parent='DEP', historical_application=name,
                             detail_row=name, amount_usd=amount, result='Aplicada'))
         details.append(detail(name=name, amount_usd=amount, linked_usd=amount, pending_usd=0,
-            matched_targets=json.dumps([dict(claim_id='H:' + name, instruction_id='T-' + name, amount_usd=amount)])))
+            matched_targets='[]' if empty_cache else json.dumps([
+                dict(claim_id='H:' + name, instruction_id='T-' + name, amount_usd=amount)])))
     ledger.append(dict(tipo='Aplicacion historica', periodo='OTHER', aplicacion_id='THIRD',
                        fila_detalle='THIRD', importe_usd=15.45))
     details.extend([detail(name='THIRD', amount_usd=15.45), detail(name='OTHER-CLIENT', client_number='456', amount_usd=.06)])
@@ -73,6 +75,47 @@ def test_paid_manual_details_from_a_multi_period_deposit_do_not_reappear_as_pend
         rows = pending.load([PERIOD, dict(PERIOD, name='OTHER')], {})
     assert [(row['client_number'], row['deposit_usd']) for row in rows] == [('456', None), ('', .03)]
     assert (dep, details, targets) == original
+
+
+@pytest.mark.parametrize('conflict', [None, 'pending', 'amount', 'shared', 'linked_total', 'claim', 'corrupt_cache'])
+def test_old_applied_target_with_empty_cache_reports_only_its_proven_remainder(conflict):
+    ledger = [dict(tipo='Aplicacion historica', aplicacion_id='A', periodo='P', origen=MANUAL, importe_usd=29.33)]
+    dep = deposit(amount_usd=29.34, allocated_usd=29.33, unclassified_usd=.01, allocation_detail=ledger)
+    row = detail(amount_usd=29.34, linked_usd=29.33, pending_usd=.01, matched_targets='[]')
+    targets = [dict(name='T', parent='DEP', detail_row='ROW', historical_application='A',
+                    amount_usd=29.33, result='Aplicada')]
+    if conflict == 'pending':
+        targets[0]['result'] = 'Pendiente'
+    elif conflict == 'amount':
+        targets[0]['amount_usd'] = 29.34
+    elif conflict == 'shared':
+        targets.append(dict(targets[0], name='T2', detail_row='ANOTHER'))
+    elif conflict == 'linked_total':
+        row['linked_usd'] = 29.34
+    elif conflict == 'claim':
+        targets[0]['historical_application'] = 'OTHER'
+    elif conflict == 'corrupt_cache':
+        row['matched_targets'] = '{invalid'
+    before = deepcopy((dep, row, targets))
+    result = positions.build([dep], [row], targets)
+    if conflict is None:
+        assert len(result) == 1
+        assert result[0]['deposit_detail_pending_usd'] == result[0]['deposit_pending_usd'] == .01
+    else:
+        assert result[0]['deposit_detail_pending_usd'] == 29.34
+        assert result[0]['deposit_pending_usd'] is None
+        assert result[1]['deposit_pending_usd'] == .01
+    assert (dep, row, targets) == before
+
+
+def test_new_planned_destination_does_not_spend_the_remainder_of_an_old_confirmed_application():
+    dep = deposit(amount_usd=40, allocated_usd=29.33, unclassified_usd=10.67,
+        allocation_detail=[dict(tipo='Aplicacion historica', aplicacion_id='A', origen=MANUAL, importe_usd=29.33)])
+    row = detail(amount_usd=40, linked_usd=35, pending_usd=5, matched_targets='[]')
+    targets = [dict(name='OLD', parent='DEP', detail_row='ROW', historical_application='A', amount_usd=29.33, result='Aplicada'),
+               dict(name='NEW', parent='DEP', detail_row='ROW', historical_application='B', amount_usd=5.67, result='Pendiente')]
+    result = positions.build([dep], [row], targets)
+    assert len(result) == 1 and result[0]['deposit_pending_usd'] == 10.67
 
 
 @pytest.mark.parametrize('conflict', ['pending', 'shared', 'target_amount', 'instruction', 'claim', 'explicit_other_row', 'automatic'])

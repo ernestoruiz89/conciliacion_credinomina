@@ -63,6 +63,26 @@ def _confirmed_manual_cash(key, payments, targets, saved_instructions):
     return by_row if by_amount == Counter(missing) else None
 
 
+def _legacy_manual_details(rows, targets, ledger):
+    """Reuse reconciliation's proof for old applied targets with an empty display cache."""
+    from credinomina_reconciliation.deposit_reconciliation import _legacy_manual_rows
+
+    empty = {name for name, row in rows.items() if read_targets(row.get('matched_targets') or '[]') == []}
+    if not empty:
+        return {}
+    allocations = []
+    for entry in ledger:
+        key = target_key(entry)
+        if key and key[0] in {'H', 'X'}:
+            allocations.append(dict(claim_id=key[0] + ':' + key[1], amount_usd=entry.get('importe_usd'),
+                origin=entry.get('origen'), detail_row=entry.get('fila_detalle'),
+                reclassification_operation_id=entry.get('reclassification_operation_id')))
+    document = frappe._dict(detail_rows=[frappe._dict(row) for row in rows.values()],
+                            targets=[frappe._dict(target) for target in targets])
+    verified = _legacy_manual_rows(document, allocations)
+    return {claim: row for claim, row in verified.items() if row in empty}
+
+
 def _executed_by_row(deposit, rows, targets):
     """Planned targets are not paid cash, even when a row's pending cache is zero."""
     amounts = defaultdict(lambda: money(0))
@@ -103,8 +123,12 @@ def _executed_by_row(deposit, rows, targets):
             for match in read_targets(row.get('matched_targets')) or ():
                 if match.get('instruction_id'):
                     saved[match['instruction_id']].append((row['name'], match))
+        legacy = _legacy_manual_details(rows, targets, ledger)
         for key in missing:
             cash = _confirmed_manual_cash(key, payments[key], instructions[key], saved)
+            legacy_row = legacy.get('H:' + key[1]) if key[0] == 'H' else None
+            if cash is None and legacy_row and all(not detail for detail, _ in payments[key]):
+                cash = {legacy_row: sum_money(amount for _, amount in payments[key])}
             if cash is None:
                 complete = False
             else:
@@ -143,7 +167,7 @@ def build(deposits, details, targets=()):
                       and sum_money(money(row.get('client_credit_usd')) + money(row.get('company_credit_usd')) for row in rows)
                           <= money(deposit.get('justified_surplus_usd'))
                       and sum_money(pending_by_row[row['name']] for row in pending) <= remaining)
-        base = dict(position_type='Depósito sin asignar', event_date=deposit.get('deposit_date'),
+        base = dict(position_type='Depósito con saldo pendiente', event_date=deposit.get('deposit_date'),
                     source_doctype='CN Remittance Allocation', source_document=deposit['name'],
                     employer=deposit.get('employer'), operational_status='Pendiente' if consistent else 'Revisar distribución', is_open=True,
                     usd_currency='USD')
@@ -199,6 +223,6 @@ def load(employer=None):
     deposits = [d for d in deposits if remaining_cash(d) > 0]
     details = child_records('CN Remittance Detail', [d['name'] for d in deposits], 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'row_kind', 'employer', 'client', 'client_name', 'client_number', 'national_id', 'loan_number',
-                'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason'])
+                'amount_usd', 'linked_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason'])
     positions = build(deposits, details, load_manual_targets(deposits))
     return [row for row in positions if not employer or row['employer'] == employer]

@@ -6,11 +6,12 @@ from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
-from credinomina_reconciliation.client_position import load_position, summarize_selection
+from credinomina_reconciliation.client_position import load_position, normalize_position_type, summarize_selection
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
+    filters.position_type = normalize_position_type(filters.get('position_type'))
     filters.detailed_columns = cint(filters.get('detailed_columns'))
     columns, collections = _collection_report(filters)
     data = load_position(collections, filters)
@@ -27,7 +28,8 @@ def execute(filters=None):
         "Depósito asignado muestra el efectivo bancario. Los saldos a favor aplicados y las complementarias que cubren una aplicación se explican en Observación. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
         "No reste automáticamente los saldos a favor. "
-        "Depósito sin asignar muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
+        "La fila Depósito con saldo pendiente corresponde al remanente pendiente, incluso cuando el depósito ya tiene aplicaciones. "
+        "Depósito con saldo pendiente muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
         "solo atribuye importes al cliente cuando el detalle cabe en el efectivo pendiente. No se compensa automáticamente con aplicaciones. "
         "Desde y Hasta filtran por el mes de cobranza o por la fecha de la aplicación, depósito o partida. Los saldos son actuales. "
         "Solo se incluyen documentos visibles para su usuario. "
@@ -178,10 +180,10 @@ def get_collection_columns():
 
 
 def get_columns(filters=None):
-    view = (filters or {}).get('position_type')
+    view = normalize_position_type((filters or {}).get('position_type'))
     columns = [
         {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},
-        {'fieldname': 'position_type', 'label': _('Tipo'), 'fieldtype': 'Data', 'width': 175},
+        {'fieldname': 'position_type', 'label': _('Tipo'), 'fieldtype': 'Data', 'width': 230},
         {'fieldname': 'employer', 'label': _('Empresa'), 'fieldtype': 'Link', 'options': 'CN Employer', 'width': 155},
         {'fieldname': 'client_name', 'label': _('Cliente'), 'fieldtype': 'Data', 'width': 220},
         {'fieldname': 'client_number', 'label': _('Nro. Cliente'), 'fieldtype': 'Data', 'width': 110},
@@ -196,8 +198,8 @@ def get_columns(filters=None):
     if not view or view == 'Aplicación':
         metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
                         ('applied_pending_usd', 'Aplicado pendiente US$')])
-    if not view or view == 'Depósito sin asignar':
-        metrics.append(('deposit_pending_usd', 'Depósito sin asignar US$'))
+    if not view or view == 'Depósito con saldo pendiente':
+        metrics.append(('deposit_pending_usd', 'Saldo pendiente del depósito US$'))
         metrics.append(('deposit_detail_pending_usd', 'Pendiente según detalle US$'))
     if not view or view == 'Partida complementaria':
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),

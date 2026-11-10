@@ -6,7 +6,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 const filters = context.frappe.query_reports["Estado de Cuenta Operativo"].filters;
 const type = filters.find(field => field.fieldname === "position_type");
 assert.equal(type.label, "Tipo");
-assert.equal(type.options, "\nCobranza\nAplicación\nDepósito sin asignar\nPartida complementaria\nCxC por ajuste");
+assert.equal(type.options, "\nCobranza\nAplicación\nDepósito con saldo pendiente\nPartida complementaria\nCxC por ajuste");
 assert.equal(filters.filter(field => field.fieldname === "position_type").length, 1);
 const status = filters.find(field => field.fieldname === "operational_status");
 assert.equal(status.label, "Estado de conciliación");

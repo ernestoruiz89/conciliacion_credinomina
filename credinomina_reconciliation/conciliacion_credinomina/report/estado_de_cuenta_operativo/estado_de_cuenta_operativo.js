@@ -1,6 +1,6 @@
 frappe.query_reports["Estado de Cuenta Operativo"] = {
     filters: [
-        { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nDepósito sin asignar\nPartida complementaria\nCxC por ajuste", default: "",
+        { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nDepósito con saldo pendiente\nPartida complementaria\nCxC por ajuste", default: "",
             description: __("Elija un tipo para una vista compacta. Vacío muestra todos los tipos; sus importes no se suman entre sí.") },
         { fieldname: "detailed_columns", label: __("Más columnas"), fieldtype: "Check", default: 0 },
         { fieldname: "only_open", label: __("Mostrar solo pendientes"), fieldtype: "Check", default: 1,

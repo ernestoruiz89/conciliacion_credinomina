@@ -164,7 +164,7 @@ def load(periods, filters):
     details = list(child_records('CN Remittance Detail', [d['name'] for d in deposits],
         'CN Remittance Allocation', 'detail_rows', fields=[
             'name', 'parent', 'row_kind', 'employer', 'client_name', 'client_number', 'national_id', 'loan_number',
-            'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'comments',
+            'amount_usd', 'linked_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'comments',
             'application_comment', 'difference_reason', 'difference_notes']))
     links = list(child_records('CN Remittance Period', [d['name'] for d in deposits],
         'CN Remittance Allocation', 'detail_periods', fields=['parent', 'period']))
