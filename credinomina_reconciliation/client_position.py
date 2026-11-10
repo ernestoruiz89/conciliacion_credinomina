@@ -11,6 +11,11 @@ from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
+def normalize_position_type(value):
+    # Preserve saved report filters and links using the former caption.
+    return 'Depósito con saldo pendiente' if value == 'Depósito sin asignar' else value
+
+
 def _within_dates(when, filters):
     return (not filters.get('from_month') or (when and getdate(when) >= getdate(filters['from_month']))) and (
         not filters.get('to_month') or (when and getdate(when) <= getdate(filters['to_month'])))
@@ -141,7 +146,7 @@ def build_position(collections, applications, items, balances, clients, filters,
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
             is_open=item['receivable_usd'] is None or bool(money(item['receivable_usd'])), usd_currency='USD'))
     output.extend(unallocated_deposits)
-    view = filters.get('position_type')
+    view = normalize_position_type(filters.get('position_type'))
     return sorted([row for row in output if (not view or row['position_type'] == view) and _matches(row, filters)],
                   key=lambda row: (str(row.get('event_date') or ''), row['position_type'],
                                    row.get('client_name') or '', row.get('source_document') or ''))
@@ -151,7 +156,7 @@ def build_position(collections, applications, items, balances, clients, filters,
 def load_position(collections, filters):
     if filters.get('from_month') and filters.get('to_month') and getdate(filters['from_month']) > getdate(filters['to_month']):
         frappe.throw('La fecha Desde no puede ser posterior a Hasta.')
-    view = filters.get('position_type')
+    view = normalize_position_type(filters.get('position_type'))
     applications = []
     scope = {'employer': filters['employer']} if filters.get('employer') else {}
     periods = {}
@@ -174,7 +179,7 @@ def load_position(collections, filters):
                        for name, p in periods.items()},
         adjustment_receivables=load_receivables(employer=filters.get('employer'), include_settled=not cint(filters.get('only_open')))
                               if not view or view == 'CxC por ajuste' else [],
-        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if not view or view == 'Depósito sin asignar' else [])
+        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if not view or view == 'Depósito con saldo pendiente' else [])
 
 
 def summarize_selection(data, filters=None):
@@ -184,7 +189,7 @@ def summarize_selection(data, filters=None):
     zero. Signed complementary balances are magnitudes of separate obligations,
     never a net against customer credits or application receivables.
     """
-    view = (filters or {}).get('position_type')
+    view = normalize_position_type((filters or {}).get('position_type'))
     kinds = {view} if view else {row['position_type'] for row in data}
     figures, amounts = [], {}
 
@@ -214,13 +219,13 @@ def summarize_selection(data, filters=None):
         total(rows, 'applied_usd', 'Aplicado neto US$')
         total(selected_cash(rows), 'remitted_usd', 'Depósito asignado US$', 'green')
         total(rows, 'applied_pending_usd', 'CxC por aplicaciones US$', 'orange')
-    if 'Depósito sin asignar' in kinds:
-        deposits = [row for row in data if row['position_type'] == 'Depósito sin asignar']
+    if 'Depósito con saldo pendiente' in kinds:
+        deposits = [row for row in data if row['position_type'] == 'Depósito con saldo pendiente']
         # An indeterminate customer detail is informational when its actual
         # bank remainder is already present in this same filtered selection.
         whole = {row['source_document'] for row in deposits if not row.get('source_rows') and row.get('deposit_pending_usd') is not None}
         total([row for row in deposits if row.get('deposit_pending_usd') is not None or row['source_document'] not in whole],
-              'deposit_pending_usd', 'Depósitos sin asignar US$')
+              'deposit_pending_usd', 'Saldo pendiente de depósitos US$')
         total([row for row in deposits if row.get('source_rows')], 'deposit_detail_pending_usd')
     if 'Partida complementaria' in kinds:
         rows = [row for row in data if row['position_type'] == 'Partida complementaria']

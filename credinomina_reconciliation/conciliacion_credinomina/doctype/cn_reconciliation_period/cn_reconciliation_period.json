@@ -3,6 +3,7 @@
   "autoname": "",
   "creation": "2026-09-22 00:00:00.000000",
   "doctype": "DocType",
+  "show_name_in_global_search": 1,
   "engine": "InnoDB",
   "field_order": [
     "usd_currency",
@@ -388,6 +389,7 @@
     },
     {
       "fieldname": "employer",
+      "in_global_search": 1,
       "fieldtype": "Link",
       "in_list_view": 1,
       "in_standard_filter": 1,
@@ -398,6 +400,7 @@
     {
       "description": "Use el primer día del mes de planilla al que atribuye las aplicaciones, aunque se hayan registrado después.",
       "fieldname": "payroll_month",
+      "in_global_search": 1,
       "fieldtype": "Date",
       "in_list_view": 1,
       "label": "Mes de cobranza",
@@ -415,6 +418,7 @@
     },
     {
       "fieldname": "remark",
+      "in_global_search": 1,
       "fieldtype": "Small Text",
       "label": "Observaciones",
       "description": "Observaciones adicionales del período."
@@ -457,6 +461,7 @@
       "depends_on": "eval:doc.reconciliation_mode != 'Historica'",
       "description": "Mensual o quincenas según la empresa. Fecha exacta permite períodos adicionales con distintas fechas de corte en el mismo mes.",
       "fieldname": "collection_cycle",
+      "in_global_search": 1,
       "fieldtype": "Select",
       "in_list_view": 1,
       "label": "Ciclo de cobranza",

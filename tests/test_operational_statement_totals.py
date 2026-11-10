@@ -5,6 +5,7 @@ import frappe
 import pytest
 
 from credinomina_reconciliation import client_position, reconciliation_report_cash
+from credinomina_reconciliation import unallocated_deposit_position
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_operativo import estado_de_cuenta_operativo as report
 from credinomina_reconciliation.unallocated_deposit_position import build as deposit_position
 
@@ -23,6 +24,36 @@ def application(name='A', amount=100, **fields):
 
 def historical_entry(app, value):
     return dict(tipo='Aplicacion historica', periodo='P', aplicacion_id=app, importe_usd=value)
+
+
+@pytest.mark.parametrize('position_type', ['Depósito sin asignar', 'Depósito con saldo pendiente'])
+def test_report_reads_confirmed_legacy_manual_cash_and_totals_only_the_remaining_cent(position_type):
+    deposit = dict(name='D', docstatus=1, amount_usd=29.34, allocated_usd=29.33,
+        unclassified_usd=.01, justified_surplus_usd=0, deposit_date='2025-07-15',
+        allocation_detail=[dict(historical_entry('A', 29.33), origen='Selección manual')])
+    detail = dict(name='R', parent='D', client_number='4414', amount_usd=29.34, linked_usd=29.33, matched_targets='[]')
+    target = dict(name='T', parent='D', detail_row='R', historical_application='A', amount_usd=29.33, result='Aplicada')
+    before = deepcopy((deposit, detail, target))
+
+    def children(doctype, parents, parenttype, parentfield, *, fields):
+        assert parents == ['D'] and parenttype == 'CN Remittance Allocation'
+        if doctype == 'CN Remittance Detail':
+            assert parentfield == 'detail_rows' and 'linked_usd' in fields
+            source = detail
+        else:
+            assert doctype == 'CN Remittance Target' and parentfield == 'targets'
+            source = target
+        return [{field: source.get(field) for field in fields}]
+
+    with patch.object(frappe, 'has_permission', return_value=True), \
+            patch.object(unallocated_deposit_position, 'records', return_value=[deposit]), \
+            patch.object(unallocated_deposit_position, 'child_records', side_effect=children):
+        columns, rows, *_ = report.execute(dict(position_type=position_type, client_number='4414', only_open=1))
+    assert len(rows) == 2 and rows[-1]['is_total_row']
+    assert rows[0]['position_type'] == 'Depósito con saldo pendiente'
+    assert next(column for column in columns if column['fieldname'] == 'deposit_pending_usd')['label'] == 'Saldo pendiente del depósito US$'
+    assert all(row['deposit_pending_usd'] == row['deposit_detail_pending_usd'] == .01 for row in rows)
+    assert (deposit, detail, target) == before
 
 
 def run_applications(sources, filters=None, *, periods=None, collections=None, deposits=None):

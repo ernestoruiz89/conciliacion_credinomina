@@ -15,6 +15,8 @@ def after_install():
     execute()
     seed_subcategories()
     seed_reasons()
+    from credinomina_reconciliation.patches.v1_0.enable_reconciliation_global_search import execute as enable_search
+    enable_search()
 
 
 def before_install():

@@ -19,6 +19,15 @@ add_to_apps_screen = [{
 
 required_apps = []
 
+global_search_doctypes = {
+    "Default": [
+        {"doctype": "CN Remittance Allocation"},
+        {"doctype": "CN Accounting Import"},
+        {"doctype": "CN Reconciliation Period"},
+        {"doctype": "CN Reconciliation Exception"},
+    ]
+}
+
 before_install = "credinomina_reconciliation.install.before_install"
 after_install = "credinomina_reconciliation.install.after_install"
 
