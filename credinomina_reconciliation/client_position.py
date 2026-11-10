@@ -1,6 +1,6 @@
 """Current reconciliation position: independent obligations, never a loan ledger."""
 import frappe
-from frappe.utils import getdate, nowdate
+from frappe.utils import cint, getdate, nowdate
 
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.application_aging import application_balances, balance_status
@@ -19,7 +19,12 @@ def _matches(row, filters):
         return False
     if filters.get('to_month') and (not when or getdate(when) > getdate(filters['to_month'])):
         return False
-    return not filters.get('only_open') or row.get('is_open')
+    if cint(filters.get('only_open')):
+        # Financial settlement is separate from external management or journal
+        # registration. This filter hides settled entries even with those tasks.
+        state = str(row.get('operational_status') or '')
+        return bool(row.get('is_open')) and not state.startswith(('Conforme', 'Conciliado', 'Conciliada'))
+    return True
 
 
 def build_position(collections, applications, items, balances, clients, filters, *, adjustment_receivables=(), unallocated_deposits=()):

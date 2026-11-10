@@ -3,6 +3,8 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         { fieldname: "position_type", label: __("Tipo"), fieldtype: "Select", options: "\nCobranza\nAplicación\nDepósito sin asignar\nPartida complementaria\nCxC por ajuste", default: "",
             description: __("Elija un tipo para una vista compacta. Vacío muestra todos los tipos; sus importes no se suman entre sí.") },
         { fieldname: "detailed_columns", label: __("Más columnas"), fieldtype: "Check", default: 0 },
+        { fieldname: "only_open", label: __("Mostrar solo pendientes"), fieldtype: "Check", default: 0,
+            description: __("Oculta las partidas conciliadas, aunque tengan gestión o registro contable pendiente.") },
         { fieldname: "operational_status", label: __("Estado de conciliación"), fieldtype: "Autocomplete",
             description: __("Vacío: todos. Seleccione o escriba el estado exacto de la columna Estado de conciliación."),
             options: ["Conciliado", "Parcial", "Pendiente",
@@ -23,10 +25,9 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         { fieldname: "collection_cycle", label: __("Ciclo"), fieldtype: "Select", options: "\nMensual\nPrimera quincena\nSegunda quincena\nFecha exacta" },
         { fieldname: "from_month", label: __("Desde"), fieldtype: "Date" },
         { fieldname: "to_month", label: __("Hasta"), fieldtype: "Date" },
-        { fieldname: "only_open", label: __("Solo pendientes"), fieldtype: "Check", default: 0 },
     ],
     onload(report) {
-        const advanced = ["client_number", "national_id", "loan_number", "collection_cycle", "only_open", "category", "subcategory", "reason_type", "accounting_status", "management_status", "treatment_status"];
+        const advanced = ["client_number", "national_id", "loan_number", "collection_cycle", "category", "subcategory", "reason_type", "accounting_status", "management_status", "treatment_status"];
         let expanded = false;
         const display = () => advanced.forEach(name => {
             const control = report.get_filter(name);

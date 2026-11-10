@@ -6,7 +6,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,
 const filters = context.frappe.query_reports["Estado de Cuenta Operativo"].filters;
 const type = filters.find(field => field.fieldname === "position_type");
 assert.equal(type.label, "Tipo");
-assert.equal(type.options, "\nCobranza\nAplicación\nPartida complementaria\nCxC por ajuste");
+assert.equal(type.options, "\nCobranza\nAplicación\nDepósito sin asignar\nPartida complementaria\nCxC por ajuste");
 assert.equal(filters.filter(field => field.fieldname === "position_type").length, 1);
 const status = filters.find(field => field.fieldname === "operational_status");
 assert.equal(status.label, "Estado de conciliación");
@@ -17,17 +17,23 @@ for (const value of ["Conciliado", "Pendiente", "Parcial", "Sin conversión US$"
 assert.ok(status.description.includes("estado exacto"));
 assert.ok(!status.options.includes("Documentado"));
 assert.ok(filters.find(f => f.fieldname === "treatment_status").options.includes("Documentado"));
-assert.ok(filters.some(field => field.fieldname === "only_open"));
+const pending = filters.find(field => field.fieldname === "only_open");
+assert.equal(pending.label, "Mostrar solo pendientes");
+assert.equal(pending.fieldtype, "Check");
+assert.equal(pending.default, 0);
 const report = context.frappe.query_reports["Estado de Cuenta Operativo"];
-const shown = new Map();
+const shown = new Map(filters.map(field => [field.fieldname, true]));
 let toggle;
 report.onload({get_filter: name => ({get_value: () => name === 'reason_type' ? 'Por cancelación' : '',
     $wrapper: {toggle: value => shown.set(name, value)}}),
     page: {add_inner_button: (_name, callback) => {toggle = callback; return {text() {}};}}});
 assert.equal(shown.get('reason_type'), true, 'Active classification filters remain visible');
 assert.equal(shown.get('accounting_status'), false);
+assert.equal(shown.get('only_open'), true, 'Pending-only checkbox must be visible without expanding advanced filters');
 toggle();
 assert.equal(shown.get('accounting_status'), true);
+toggle();
+assert.equal(shown.get('only_open'), true, 'Collapsing advanced filters must not hide the unchecked pending-only checkbox');
 assert.match(report.formatter(null, 0, {fieldname:'complementary_pending_usd', fieldtype:'Currency'},
     {complementary_pending_usd:null}, () => '0.00'), /—/);
 assert.equal(report.formatter(0, 0, {fieldname:'complementary_pending_usd', fieldtype:'Currency'},
