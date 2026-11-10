@@ -1,5 +1,6 @@
 """The Excel summary shares the company report, including indeterminate balances."""
 import io
+import re
 from datetime import datetime
 from unittest import TestCase
 from unittest.mock import patch
@@ -47,7 +48,9 @@ class CompanySummaryExportTests(TestCase):
         self.assertNotIn('balance_usd', by_field)
         from openpyxl.utils import get_column_letter
         self.assertEqual(sheet.auto_filter.ref, f'A4:{get_column_letter(len(columns))}6')
-        self.assertEqual(sheet['A9'].value, message)
+        paragraphs = [sheet.cell(i, 1).value for i in range(9, sheet.max_row + 1)]
+        self.assertEqual(paragraphs[1], 'Cómo comparar con el Excel')
+        self.assertEqual(' '.join(paragraphs).split(), re.sub(r'<[^>]+>', ' ', message).split())
 
     def test_empty_summary_retains_report_headers(self):
         payload = build_control_workbook(

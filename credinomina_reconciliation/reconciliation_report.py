@@ -173,13 +173,13 @@ def _finish(row):
     return row
 
 
-def build_views(periods, collections, applications, deposit_details=(), *, cash_claims=None):
+def build_views(periods, collections, applications, deposit_details=(), *, cash_claims=None, source_rows=None):
     """Collection projections of direct applications must be removed exactly once."""
     period_map = {row['name']: row for row in periods}
     direct, uncertain_projections = _collection_projections(applications)
     groups = {}
 
-    def group(period_name, source):
+    def group(period_name, source, *, individual=False):
         period = period_map[period_name]
         client = source.get('client') or source.get('client_number') or ''
         national_id = source.get('national_id') or ''
@@ -187,7 +187,9 @@ def build_views(periods, collections, applications, deposit_details=(), *, cash_
         identity = ('client', canonical_identifier(client), loan) if client else ('national_id', canonical_identifier(national_id), loan)
         if not client and not national_id and not loan:
             identity = ('row', source.get('name') or id(source))
-        key = (period_name, *identity)
+        # The control workbook retains import and collection row identifiers,
+        # even when several applications belong to the same client and loan.
+        key = (period_name, 'source', id(source)) if individual and source_rows is not None else (period_name, *identity)
         if key not in groups:
             no_collection = bool(period.get('no_collection') or period.get('reconciliation_mode') == 'Historica')
             groups[key] = dict(name=period_name, collection_cycle=period.get('collection_cycle'),
@@ -201,12 +203,14 @@ def build_views(periods, collections, applications, deposit_details=(), *, cash_
                 **{field: money(0) for field in AMOUNTS})
             if no_collection:
                 groups[key]['collection_usd'] = None
+        if individual and source_rows is not None:
+            source_rows[id(source)] = groups[key]
         return groups[key]
 
     for source in collections:
         if source['parent'] not in period_map:
             continue
-        row = group(source['parent'], source)
+        row = group(source['parent'], source, individual=True)
         if cash_claims is not None and source.get('row_key'):
             key = (source['parent'], 'Cobranza', source['row_key'])
             cash_claims[key] = row if cash_claims.get(key, row) is row else None
@@ -236,7 +240,7 @@ def build_views(periods, collections, applications, deposit_details=(), *, cash_
     for source in applications:
         if source.get('historical_period') not in period_map:
             continue
-        row = group(source['historical_period'], source)
+        row = group(source['historical_period'], source, individual=True)
         if cash_claims is not None and source.get('name'):
             cash_claims[source['historical_period'], 'Aplicacion historica', source['name']] = row
         if source.get('difference_reason'):

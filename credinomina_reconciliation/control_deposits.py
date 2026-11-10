@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import frappe
 
+from credinomina_reconciliation.deposit_difference import SETTLED as DOCUMENTED_DIFFERENCE
 from credinomina_reconciliation.rounding import money, money_float
 
 
@@ -35,7 +36,7 @@ def get_cash_deposits(year, employer=None, *, include_details=True, deposit_name
         "CN Remittance Allocation", filters=filters,
         fields=["name", "employer", "bank_account", "deposit_reference", "deposit_date",
                 "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "allocated_usd",
-                "justified_surplus_usd", "allocation_detail", "result", "consolidated_deposit", "cash_identity_status"],
+                "justified_surplus_usd", "allocation_detail", "result", "detail_status", "consolidated_deposit", "cash_identity_status"],
         order_by="deposit_date asc, name asc", limit_page_length=0,
     )
     from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
@@ -150,7 +151,6 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         credits, other, adjustments, conversion = money(0), money(0), money(0), money(0)
         related, months = set(), set()
         destinations = {}
-        destination_employers = {}
         credit_details = {}
         for entry in _deposit_entries(deposit, entries_by_deposit):
             period = entry.get("periodo") or items.get(entry.get("partida"), {}).get("period")
@@ -183,8 +183,8 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
                 item = items.get(entry.get('movimiento'), {})
                 label = ' · '.join(filter(None, [item.get('name'), item.get('category')])) or 'Partida complementaria (detalle no disponible)'
             if include_details and kind and amount:
-                key = (kind, label, month)
-                destination_employers[key] = entry.get("empresa") or visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
+                employer = entry.get("empresa") or visible_period.get("employer") or items.get(entry.get("partida"), {}).get("employer") or ""
+                key = (kind, label, month, employer)
                 destinations[key] = destinations.get(key, money(0)) + amount
                 if kind == "Créditos" or (kind == "Partida complementaria" and entry.get("fila_detalle")):
                     person = (people.get(_credit_key(entry), {}) if kind == "Créditos" else
@@ -218,7 +218,7 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
         needs_review = bool(
             review or unclassified or credit_balance < 0
             or str(deposit.get('detail_status') or '').startswith('Revisar')
-            or (result not in {"Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente"} and not (
+            or (result not in {"Conciliado", "Conciliado con saldo a favor", "Conciliado con saldo a favor del cliente", DOCUMENTED_DIFFERENCE} and not (
                 credit_balance > 0 and result in {"Parcial con saldo a favor", "Saldo a favor documentado"}
             ))
         )
@@ -244,10 +244,10 @@ def build_cash_deposits(deposits, items=None, periods=None, people=None, *, incl
             "settled": not needs_review and credit_balance == client_total + company_total,
             "shared": len(related) > 1, "payroll_months": sorted(months),
             "destinations": [{"type": kind, "label": label, "month": month, "amount_usd": float(amount),
-                              "employer": destination_employers.get((kind, label, month), ""),
+                              "employer": employer,
                               "people": [{**person, "amount_usd": float(person["amount_usd"])}
-                                         for person in credit_details.get((kind, label, month), {}).values()]}
-                             for (kind, label, month), amount in destinations.items()],
+                                         for person in credit_details.get((kind, label, month, employer), {}).values()]}
+                             for (kind, label, month, employer), amount in destinations.items()],
         })
         if include_details:
             output[-1]["destinations"].extend({"type": item.get("category") or "Saldo a favor del cliente", "label": item.get("name"),

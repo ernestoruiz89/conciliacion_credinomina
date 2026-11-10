@@ -6,6 +6,7 @@ import io
 import json
 import unittest
 from datetime import datetime
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 
@@ -15,6 +16,115 @@ from credinomina_reconciliation.control_export import (
 
 
 class TestControlExport(unittest.TestCase):
+    def workbook(self, **data):
+        payload = build_control_workbook({"year": 2025, "periods": [], **data}, exceptions=[], actions=[],
+            employer_label="Empresa", generated_at=datetime(2025, 12, 31))
+        return load_workbook(io.BytesIO(payload))
+
+    def test_projected_application_counts_once_and_uses_usd(self):
+        payment = {"referencia": "DEP", "importe_usd": 60}
+        application = dict(name="A", parent="IMP", historical_period="P", collection_row_id="C", event_type="Aplicacion",
+            currency="NIO", amount=3650, manual_fx_rate=36.5, application_adjustment_usd=10, client_number="01",
+            historical_detail=[payment], historical_remitted_usd=60, historical_balance_usd=30)
+        collection = dict(name="C", parent="P", row_key="fila", applied_usd=90, expected_usd=90, remitted_usd=60,
+            client_number="01", remittance_detail=[dict(payment, aplicacion_directa="A")])
+        period = dict(name="P", employer="E", month="2025-01", reconciliation_mode="Operativa",
+            applied_usd=90, applied_total_usd=100, remitted_total_usd=70, pending_usd=30,
+            cash_breakdown_known=1, deposit_coverage_usd=60, complementary_coverage_usd=10,
+            rows=[collection], historical_rows=[application])
+        book = self.workbook(periods=[period])
+        detail = book["Detalle cliente"]
+        self.assertEqual([detail.cell(r, 15).value for r in (5, 6)], [0, 90])
+        self.assertEqual([detail.cell(r, 17).value for r in (5, 6)], [0, -60])
+        self.assertEqual([detail.cell(r, 19).value for r in (5, 6)], [0, 30])
+        self.assertEqual((detail["X6"].value, detail["Y6"].value), (100, 10))
+        self.assertEqual((book["Cruces"].max_row, book["Cruces"]["C5"].value), (5, "Operativa"))
+        issues = list(book["Partidas y excepciones"].values)[4:]
+        self.assertEqual([r[7] for r in issues if r[0] == "Aplicación sin depósito"], [30])
+
+    def test_two_applications_of_same_loan_keep_shared_cash_at_period_level(self):
+        applications = [dict(name=name, parent="IMP", historical_period="P", event_type="Aplicacion",
+            currency="USD", amount=value, historical_remitted_usd=value, historical_balance_usd=0,
+            historical_detail=[{"referencia": "D", "importe_usd": value}], client_number="001", loan_number="001-1")
+            for name, value in (("A", 60), ("B", 40))]
+        deposit = dict(allocated_usd=90, allocation_detail=[
+            {"tipo": "Aplicacion historica", "periodo": "P", "aplicacion_id": row["name"], "importe_usd": row["amount"]}
+            for row in applications] + [{"tipo": "Partida complementaria", "importe_usd": -10}])
+        period = dict(name="P", employer="E", month="2025-01", reconciliation_mode="Historica", applied_usd=100,
+            remitted_total_usd=100, pending_usd=0, cash_breakdown_known=1, deposit_coverage_usd=90,
+            complementary_coverage_usd=10, negative_complementary_usd=-10, historical_rows=applications)
+        with patch("frappe.has_permission", return_value=True), patch(
+                "credinomina_reconciliation.reconciliation_report_cash.load_period_deposits", return_value={"D": deposit}):
+            book = self.workbook(periods=[period])
+        self.assertEqual((book["Períodos"]["P5"].value, book["Períodos"]["L5"].value), (-90, -10))
+        for row in (5, 6):
+            detail = book["Detalle cliente"]
+            self.assertEqual([detail.cell(row, c).value for c in (16, 17, 19)], ["N/D", "N/D", 0])
+        self.assertEqual(book["Cruces"].max_row, 6)
+
+    def test_deposit_and_complement_reduce_the_balance_while_the_bank_receipt_is_positive(self):
+        application = dict(name="A", parent="IMP", historical_period="P", event_type="Aplicacion",
+            currency="USD", amount=100, historical_remitted_usd=100, client_number="001",
+            historical_detail=[dict(referencia="D", importe_usd=100)],
+            deposit_match_reason="Aplicación: 100.0 US$ aplicados al crédito; ajuste 0.0 US$; "
+                                "100.0 US$ vinculados a depósitos; 0.0 US$ pendientes de evidencia de depósito.")
+        period = dict(name="P", reconciliation_mode="Historica", applied_usd=100, remitted_total_usd=100,
+            pending_usd=0, cash_breakdown_known=1, deposit_coverage_usd=90, complementary_coverage_usd=10,
+            negative_complementary_usd=-10, historical_rows=[application])
+        book = self.workbook(periods=[period], cash_deposits=[dict(name="D", total_usd=90)])
+        for sheet, columns in (("Períodos", "KLPN"), ("Detalle cliente", "OPQS")):
+            applied, complement, cash, pending = [book[sheet][col + "5"].value for col in columns]
+            self.assertEqual((applied, complement, cash, pending), (100, -10, -90, 0))
+            self.assertEqual(applied + complement + cash, pending)
+        self.assertEqual(book["Depósitos"]["H5"].value, 90)
+        note = book["Detalle cliente"]["U5"].value
+        self.assertIn("100.00 − 10.00 − 90.00 = 0.00", note)
+        self.assertNotIn("100.0 US$ vinculados a depósitos", note)
+
+    def test_unassigned_missing_conversion_preserves_row_and_indeterminate_totals(self):
+        rows = [dict(parent="I", name="A", currency="NIO", amount=365, equivalent_currency="USD",
+            equivalent_amount=10, fx_basis="Equivalente del core", application_adjustment_usd=2),
+            dict(parent="I", name="B", currency="NIO", amount=365)]
+        book = self.workbook(unassigned_operational_applications=rows)
+        for sheet, column in (("Aplicaciones sin período", "K"), ("Resumen mensual", "J")):
+            self.assertIn("SUBTOTAL(103,", book[sheet][column + "3"].value)
+        self.assertEqual([book["Aplicaciones sin período"][f"K{r}"].value for r in (5, 6)], [8, "N/D"])
+        self.assertEqual(book["Resumen mensual"]["J5"].value, "N/D")
+        self.assertEqual([book["Partidas y excepciones"][f"H{r}"].value for r in (5, 6)], [8, "N/D"])
+
+    def test_company_cent_is_separate_from_customer_deposit_and_complement(self):
+        proof = dict(deposit="D", employer="E", period="P", amount_usd=-.01, application_ids=["A"])
+        application = dict(name="A", parent="I", historical_period="P", event_type="Aplicacion", currency="USD",
+            amount=100, historical_remitted_usd=100, client_number="007",
+            historical_detail=[dict(importe_usd=100, conversion_empresa=proof)])
+        period = dict(name="P", employer="E", reconciliation_mode="Historica", applied_usd=100,
+            remitted_total_usd=100, pending_usd=0, cash_breakdown_known=1, deposit_coverage_usd=99.99,
+            complementary_coverage_usd=0, conversion_coverage_usd=.01, historical_rows=[application])
+        book = self.workbook(periods=[period])
+        detail = book["Detalle cliente"]
+        self.assertEqual([detail[c + "5"].value for c in "DPQS"], ["007", 0, -100, 0])
+        self.assertEqual([detail[c + "6"].value for c in "DPQT"], [None, 0, .01, "Diferencia de empresa"])
+        self.assertEqual(book["Períodos"]["P5"].value, -99.99)
+        self.assertIn("US$ 0.01", book["Períodos"]["T5"].value)
+
+    def test_deposit_distribution_preserves_unidentified_portion_and_company_difference(self):
+        from credinomina_reconciliation.control_deposits import build_cash_deposits
+        deposit = dict(name="DEP", employer="E", amount_usd=99.99, allocated_usd=99.99,
+            result="Conciliado con diferencia documentada", allocation_detail=[
+                dict(tipo="Aplicacion historica", aplicacion_id="A", periodo="P", importe_usd=80),
+                dict(tipo="Partida complementaria", partida="X", fila_detalle="F", cliente="Ana", importe_usd=7),
+                dict(tipo="Partida complementaria", partida="X", importe_usd=13),
+                dict(tipo="Diferencia documentada de empresa", importe_usd=-.01)])
+        cash = build_cash_deposits([deposit], {"X": dict(name="X", category="Ajuste")},
+            {"P": dict(name="P", employer="E")})
+        self.assertFalse(cash[0]["needs_review"])
+        book = self.workbook(cash_deposits=cash)
+        receipt = book["Depósitos"]
+        self.assertEqual([receipt[c + "5"].value for c in ("H", "I", "J")], [99.99, 79.99, 20])
+        portions = list(book["Distribución depósitos"].values)[4:]
+        self.assertEqual([(r[8], r[10]) for r in portions if r[3] == "Partida complementaria"], [("Ana", 7), (None, 13)])
+        self.assertEqual(round(sum(r[10] for r in portions), 2), 99.99)
+
     def test_historical_missing_evidence_and_many_to_many_links(self):
         historical = {
             "name": "H-2025-04", "employer": "EMP-1", "employer_name": "Empresa Uno",
