@@ -11,9 +11,11 @@ def execute():
     existing = {row.document_type for row in settings.get('allowed_in_global_search') or []}
     missing = [doctype for doctype in doctypes if doctype not in existing]
     for doctype in missing:
-        settings.append('allowed_in_global_search', {'document_type': doctype})
+        # Old settings can still mention uninstalled DocTypes. Saving the whole
+        # document would validate those unrelated links and abort migration.
+        settings.append('allowed_in_global_search', {'document_type': doctype}).db_insert()
     if missing:
-        settings.save(ignore_permissions=True)
+        frappe.cache.hdel('global_search', 'search_priorities')
 
     frappe.cache.delete_value('doctypes_with_global_search')
     for doctype in doctypes:
