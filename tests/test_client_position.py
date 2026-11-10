@@ -53,12 +53,14 @@ class ClientPositionTests(unittest.TestCase):
         self.assertEqual(self.build({'employer': 'OTHER'}), [])
         self.assertEqual(len(self.build({'position_type': 'Partida complementaria'})), 1)
         self.assertEqual(len(self.build({'from_month': '2026-10-01', 'to_month': '2026-10-31'})), 1)
-        self.assertEqual(len(self.build({'only_open': 1})), 3)
+        self.assertEqual(len(self.build({'only_open': 1})), 2)
+        self.assertEqual(len(self.build({'only_open': '0'})), 3)
+        self.assertEqual(self.build({'only_open': 1, 'operational_status': 'Conciliado'}), [])
 
     def test_reconciliation_status_matches_displayed_state_and_combines_with_type(self):
         for state, kind in [('Depósito parcial', 'Cobranza'), ('Parcial', 'Aplicación'), ('Conciliado', 'Partida complementaria')]:
             with self.subTest(state=state):
-                rows = self.build({'operational_status': state, 'position_type': kind, 'employer': 'E', 'only_open': 1})
+                rows = self.build({'operational_status': state, 'position_type': kind, 'employer': 'E'})
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]['operational_status'], state)
                 self.assertEqual(rows[0]['position_type'], kind)
@@ -79,6 +81,7 @@ class ClientPositionTests(unittest.TestCase):
         rows = build_position(collections, [], [], {}, [], {'operational_status': status})
         self.assertEqual(len(rows), 1)
         self.assertEqual(build_position(collections, [], [], {}, [], {'operational_status': 'Conciliado'}), [])
+        self.assertEqual(build_position(collections, [], [], {}, [], {'only_open': 1}), [])
 
     def test_company_credit_not_assigned_to_person_and_accounting_task_stays_open(self):
         item = dict(name='C', category='Saldo a favor de la empresa', docstatus=1, employer='E',
@@ -87,10 +90,21 @@ class ClientPositionTests(unittest.TestCase):
             accounting_status='Asiento informado')
         balances = {'C': financial_balance(item)}
         self.assertEqual(build_position([], [], [item], balances, [], {'client_number': '1'}), [])
-        rows = build_position([], [], [item], balances, [], {'only_open': 1})
+        rows = build_position([], [], [item], balances, [], {})
         self.assertEqual(rows[0]['client_name'], 'Sin cliente individual')
         self.assertEqual(rows[0]['loan_number'], '')
         self.assertEqual(rows[0]['credit_pending_usd'], 0)
+        self.assertEqual(build_position([], [], [item], balances, [], {'only_open': 1}), [])
+
+    def test_pending_filter_keeps_partial_cent_unknown_and_inconsistent_applications(self):
+        apps = [dict(source_import='I', source_rows=name, applied_usd=100, paid_usd=paid,
+                     amount_usd=pending, distribution_issue=issue)
+                for name, paid, pending, issue in [('PAID', 100, 0, ''), ('CENT', 99.99, .01, ''),
+                    ('UNPAID', 0, 100, ''), ('UNKNOWN', 0, None, ''), ('REVIEW', 110, 0, 'Exceso')]]
+        rows = build_position([], apps, [], {}, [], {'only_open': 1})
+        self.assertEqual({row['source_rows'] for row in rows}, {'CENT', 'UNPAID', 'UNKNOWN', 'REVIEW'})
+        self.assertNotIn('Conciliado', {row['operational_status'] for row in rows})
+        self.assertEqual(len(build_position([], apps, [], {}, [], {'only_open': 0})), 5)
 
     def test_history_unlinked_and_fully_adjusted_applications_remain_traceable(self):
         sources = [dict(name='A1', parent='I', currency='USD', amount=100, event_type='Aplicacion',

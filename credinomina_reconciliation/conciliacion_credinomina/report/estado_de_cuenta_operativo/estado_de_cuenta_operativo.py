@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from credinomina_reconciliation.aging import collection_shortfall_usd
 from credinomina_reconciliation.application_quality import collection_quality
@@ -107,7 +107,7 @@ def _collection_report(filters=None):
                 "operational_status": get_status(row),
             }
         )
-        if filters.only_open and _base_status(row).startswith("Conforme"):
+        if cint(filters.only_open) and _base_status(row).startswith("Conforme"):
             continue
         data.append(item)
     return columns, data

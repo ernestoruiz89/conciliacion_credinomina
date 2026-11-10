@@ -26,7 +26,7 @@ def test_documented_credit_is_conciliated_in_report_and_keeps_external_work():
     original = deepcopy(item)
     rows = position(item, dict(position_type='Partida complementaria', operational_status='Conciliado',
         reason_type='Por cancelación', accounting_status='Pendiente de registro',
-        management_status='Parcialmente resuelto', treatment_status='Documentado', only_open=1))
+        management_status='Parcialmente resuelto', treatment_status='Documentado'))
     assert len(rows) == 1
     assert rows[0]['complementary_pending_usd'] == 0
     assert rows[0]['credit_pending_usd'] == 15
@@ -37,6 +37,7 @@ def test_documented_credit_is_conciliated_in_report_and_keeps_external_work():
     assert statement['management_status'] == 'Parcialmente resuelto'
     assert statement['client_credit_usd'] == -15
     assert item == original
+    assert position(item, dict(only_open=1)) == [], 'Settled credits are hidden even with external work pending'
 
 
 @pytest.mark.parametrize('used,state', [(0, 'Pendiente'), (40, 'Parcial'), (100, 'Conciliado'), (110, 'Revisar distribución')])
