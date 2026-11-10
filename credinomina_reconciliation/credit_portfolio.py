@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from collections import defaultdict
 
 import frappe
@@ -347,7 +348,7 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
                 row.parent for row in frappe.get_all(
                     "CN Credit Portfolio Row",
                     filters={"parent": ["in", [item.name for item in snapshots]], "employer": employer},
-                    fields=["parent"], limit_page_length=100000,
+                    fields=["parent"], group_by="parent", limit_page_length=0,
                 )
             }
             snapshots = [item for item in snapshots if item.name in eligible]
@@ -356,25 +357,18 @@ def enrich_accounting_records(records, selected_snapshot="", employer="", *, reg
         snapshots,
         key=lambda snapshot: (getdate(snapshot.report_date), snapshot.name),
     )
-    explicit = bool(selected_snapshot)
+    months = [getdate(snapshot.report_date).strftime("%Y-%m") for snapshot in snapshots]
     snapshot_by_record = {}
     for record in records:
         if record.get("event_type") != "Aplicacion":
             continue
-        if explicit:
+        if selected_snapshot:
             snapshot = snapshots[0]
         else:
             event_date = record.get("event_date")
             event_month = getdate(event_date).strftime("%Y-%m") if event_date else ""
-            same_month = [
-                item for item in snapshots
-                if event_month and getdate(item.report_date).strftime("%Y-%m") == event_month
-            ]
-            applicable = same_month or [
-                item for item in snapshots
-                if event_month and getdate(item.report_date).strftime("%Y-%m") < event_month
-            ]
-            snapshot = applicable[-1] if applicable else None
+            end = bisect_right(months, event_month)
+            snapshot = snapshots[end - 1] if end else None
         snapshot_by_record[id(record)] = snapshot
     used_snapshots = {
         snapshot.name: snapshot

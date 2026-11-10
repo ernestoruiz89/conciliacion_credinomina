@@ -35,11 +35,13 @@ def load_context(import_name, employer, companies, previous_periods):
     for other in _load_imports(periods, [], [], set(companies)) if periods else []:
         if other.name == document.name:
             continue
-        for original in other.rows:
+        applications = [row for row in other.rows if row.event_type == "Aplicacion"]
+        indirect = [row for row in applications if (row.historical_period or other.historical_period) not in active]
+        related = {row.name for row, links in zip(indirect, engine._source_linked_periods_batch(indirect))
+                   if active.intersection(links)}
+        for original in applications:
             assigned = original.historical_period or other.historical_period
-            if original.event_type != "Aplicacion" or not (
-                assigned in active or active.intersection(engine._source_linked_periods(original))
-            ):
+            if assigned not in active and original.name not in related:
                 continue
             # Copies contribute to balances and reserve their existing payroll
             # matches. Neither their identity nor their parent is saved.

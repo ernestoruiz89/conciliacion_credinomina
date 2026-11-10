@@ -47,7 +47,25 @@ class ClientIndex:
     def __init__(self):
         self.records = load_client_index()
         self._employer_exists = {}
-        self._by_name = {}
+        self._positions = {}
+        self._identity = None
+
+    def _index_new_clients(self):
+        for position in range(len(self._positions), len(self.records)):
+            client = self.records[position]
+            self._positions[client["name"]] = position
+            if self._identity is not None:
+                self._identity.append(client)
+
+    def _identity_lookup(self):
+        self._index_new_clients()
+        if self._identity is None:
+            self._identity = ClientIdentityIndex(self.records)
+        return self._identity
+
+    def _index_completed_client(self, client):
+        if self._identity is not None:
+            self._identity.index_keys(self._positions[client["name"]])
 
     def employer_exists(self, employer):
         if employer not in self._employer_exists:
@@ -55,12 +73,12 @@ class ClientIndex:
         return self._employer_exists[employer]
 
     def linked_client(self, name):
-        if len(self._by_name) != len(self.records):
-            self._by_name = {row["name"]: row for row in self.records}
-        return self._by_name.get(name)
+        self._index_new_clients()
+        position = self._positions.get(name)
+        return self.records[position] if position is not None else None
 
     def ensure_from_collection(self, record, employer):
-        client, reason = choose_client(record, self.records, employer)
+        client, reason = choose_client(record, self._identity_lookup(), employer)
         if reason.startswith("Conflicto") or reason.startswith("Nombre ambiguo"):
             frappe.throw(_("Fila {0}: {1}.").format(record.get("source_row"), reason))
         if client is None:
@@ -101,6 +119,7 @@ class ClientIndex:
                 changed = True
             if changed:
                 document.save(ignore_permissions=True)
+                self._index_completed_client(client)
         complete_collection_client_number(record, client, employer)
         return client["name"]
 
@@ -147,14 +166,14 @@ class ClientIndex:
             self._complete_existing_client(linked_client, candidate)
             return existing_link, "Cliente existente"
 
-        client, reason = choose_client(candidate, self.records, employer)
+        lookup = self._identity_lookup()
+        client, reason = choose_client(candidate, lookup, employer)
         if reason.startswith("Conflicto") or "ambiguo" in reason.casefold():
             return "", "Revisar: {0}".format(reason)
         if client is None and reason == "Crear cliente":
             named = [
-                row for row in self.records
+                row for row in lookup.candidates({"client_name": candidate["client_name"]})
                 if clean_text(row.get("employer")) == employer
-                and matching_name(candidate["client_name"], row)
             ]
             if len(named) > 1:
                 return "", "Revisar: nombre ambiguo entre varios clientes"
@@ -230,6 +249,7 @@ class ClientIndex:
                 changed = True
         if changed:
             document.save(ignore_permissions=True)
+            self._index_completed_client(client)
 
     def ensure_from_portfolio(self, record, employer):
         """Link or create a client only from a validated portfolio employer."""
@@ -267,17 +287,20 @@ class ClientIndex:
                     changed = True
             if changed:
                 document.save(ignore_permissions=True)
+                self._index_completed_client(linked_client)
             return linked_client["name"], "Cliente existente"
 
         if not candidate["client_name"]:
             return "", "No creado: falta nombre de cliente en cartera"
 
-        client, reason = choose_client(candidate, self.records, employer)
+        client, reason = choose_client(candidate, self._identity_lookup(), employer)
         if reason.startswith("Conflicto") or "ambiguo" in reason.casefold():
             return "", "Revisar: {0}".format(reason)
 
         if client:
-            if reason == "Identificador exacto":
+            if reason == "Identificador exacto" and any(
+                candidate.get(field) and not client.get(field) for field in ("client_number", "national_id")
+            ):
                 document = frappe.get_doc("CN Client", client["name"])
                 changed = False
                 for fieldname in ("client_number", "national_id"):
@@ -287,6 +310,7 @@ class ClientIndex:
                         changed = True
                 if changed:
                     document.save(ignore_permissions=True)
+                    self._index_completed_client(client)
             return client["name"], "Cliente existente"
 
         if not candidate["client_number"]:

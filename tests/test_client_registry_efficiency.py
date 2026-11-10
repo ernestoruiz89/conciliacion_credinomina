@@ -53,3 +53,17 @@ class ClientRegistryEfficiencyTests(unittest.TestCase):
             self.assertIs(registry.enrich_source_import_clients(records), records)
             index.assert_not_called()
             query.assert_not_called()
+
+    def test_alias_added_during_import_is_visible_to_next_row_and_conflict_check(self):
+        client = self.client()
+        doc = FakeDocument(**client)
+        with patch.object(registry, "load_client_index", return_value=[client]), \
+             patch.object(registry.frappe.db, "exists", return_value=True), \
+             patch.object(registry.frappe, "get_doc", return_value=doc):
+            index = registry.ClientIndex()
+            index.ensure_from_source_import({"client_number": "7", "client_name": "Ana María Pérez"}, "EMP")
+            linked, _ = index.ensure_from_source_import({"client_name": "Pérez Ana María"}, "EMP")
+            self.assertEqual(linked, "CLIENT")
+            linked, status = index.ensure_from_source_import({"client_name": "Ana María Pérez", "client_number": "8"}, "EMP")
+            self.assertFalse(linked)
+            self.assertIn("identificadores", status)
