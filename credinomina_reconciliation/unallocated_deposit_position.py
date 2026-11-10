@@ -1,14 +1,69 @@
 """Read-only, non-overlapping portions of confirmed undistributed deposits."""
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 import json
 import frappe
 
+from credinomina_reconciliation.allocation_origin import MANUAL
+from credinomina_reconciliation.remittance_selection import target_key
+from credinomina_reconciliation.remittance_target_summary import read_targets
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
-def _executed_by_row(deposit, row_names):
+def remaining_cash(deposit):
+    return money(deposit.get('amount_usd')) - money(deposit.get('allocated_usd')) - money(deposit.get('justified_surplus_usd'))
+
+
+def _manual_key(entry):
+    if entry.get('origen') == MANUAL and not entry.get('reclassification_operation_id'):
+        return target_key(entry)
+
+
+def _confirmed_manual_cash(key, payments, targets, saved_instructions):
+    """Only return unlabelled cash whose signed amounts and recipient rows are proved."""
+    expected = Counter()
+    for target in targets:
+        row = target.get('detail_row')
+        matches = saved_instructions.get(target.get('name'), [])
+        if target.get('result') != 'Aplicada' or len(matches) != 1 or matches[0][0] != row:
+            return None
+        # A target can be edited after reconciliation. Its original instruction
+        # must still identify the same detail, destination and amount.
+        match = matches[0][1]
+        kind, _, name = str(match.get('claim_id') or '').partition(':')
+        if kind != key[0] or not name or (kind != 'C' and name != key[1]):
+            return None
+        try:
+            amount = money(target.get('amount_usd'))
+            if not amount or amount != money(match.get('amount_usd')):
+                return None
+        except (ValueError, TypeError, ArithmeticError):
+            return None
+        expected[row, amount] += 1
+    if not expected:
+        return None
+    missing = [amount for row, amount in payments if not row]
+    if len(expected) == 1:
+        (row, amount), count = next(iter(expected.items()))
+        if (all((not explicit or explicit == row) and paid * amount > 0 for explicit, paid in payments)
+                and sum_money(paid for _, paid in payments) == amount * count):
+            return {row: sum_money(missing)}
+        return None
+    # Shared destinations require the exact recorded amounts. Consume payments
+    # with explicit row IDs first so their cash cannot be attributed twice.
+    explicit = Counter((row, amount) for row, amount in payments if row)
+    if explicit - expected:
+        return None
+    remaining = expected - explicit
+    by_amount, by_row = Counter(), defaultdict(lambda: money(0))
+    for (row, amount), count in remaining.items():
+        by_amount[amount] += count
+        by_row[row] += amount * count
+    return by_row if by_amount == Counter(missing) else None
+
+
+def _executed_by_row(deposit, rows, targets):
     """Planned targets are not paid cash, even when a row's pending cache is zero."""
     amounts = defaultdict(lambda: money(0))
     try:
@@ -17,6 +72,7 @@ def _executed_by_row(deposit, row_names):
         if not isinstance(ledger, list) or any(not isinstance(entry, dict) for entry in ledger):
             return amounts, False
         total, complete = money(0), True
+        payments, missing = defaultdict(list), set()
         for entry in ledger:
             if not Decimal(str(entry.get('importe_usd'))).is_finite():
                 return amounts, False
@@ -26,29 +82,56 @@ def _executed_by_row(deposit, row_names):
                 return defaultdict(lambda: money(0)), False
             total += amount
             detail = entry.get('fila_detalle')
-            if detail in row_names:
+            key = _manual_key(entry) if targets else None
+            if key and amount:
+                payments[key].append((detail, amount))
+            if detail in rows:
                 amounts[detail] += amount
             elif amount:
+                if not detail and key and all(key):
+                    missing.add(key)
+                else:
+                    complete = False
+        if total != money(deposit.get('allocated_usd')):
+            return amounts, False
+        if not missing:
+            return amounts, complete
+        instructions, saved = defaultdict(list), defaultdict(list)
+        for target in targets:
+            instructions[target_key(target)].append(target)
+        for row in rows.values():
+            for match in read_targets(row.get('matched_targets')) or ():
+                if match.get('instruction_id'):
+                    saved[match['instruction_id']].append((row['name'], match))
+        for key in missing:
+            cash = _confirmed_manual_cash(key, payments[key], instructions[key], saved)
+            if cash is None:
                 complete = False
-        return amounts, complete and total == money(deposit.get('allocated_usd'))
+            else:
+                for detail, amount in cash.items():
+                    amounts[detail] += amount
+        return amounts, complete
     except (ValueError, TypeError, ArithmeticError):
         return defaultdict(lambda: money(0)), False
 
 
-def build(deposits, details):
+def build(deposits, details, targets=()):
     grouped = defaultdict(list)
     for row in details:
         if row.get('row_kind') != 'Diferencia documentada':
             grouped[row['parent']].append(row)
+    targets_by_deposit = defaultdict(list)
+    for target in targets:
+        targets_by_deposit[target['parent']].append(target)
     output = []
     for deposit in deposits:
         if deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}:
             continue
-        remaining = money(deposit.get('amount_usd')) - money(deposit.get('allocated_usd')) - money(deposit.get('justified_surplus_usd'))
+        remaining = remaining_cash(deposit)
         if remaining <= 0:
             continue
         rows = grouped[deposit['name']]
-        executed, complete = _executed_by_row(deposit, {row['name'] for row in rows})
+        executed, complete = _executed_by_row(deposit, {row['name']: row for row in rows}, targets_by_deposit[deposit['name']])
         pending_by_row = {row['name']: money(row.get('amount_usd')) - executed[row['name']]
                           - money(row.get('client_credit_usd')) - money(row.get('company_credit_usd')) for row in rows}
         # A detail is attributable only when the complete set of positive
@@ -91,14 +174,21 @@ def build(deposits, details):
     return output
 
 
+def load_manual_targets(deposits):
+    parents = [d['name'] for d in deposits if d.get('docstatus') == 1 and d.get('allocation_detail')]
+    return child_records('CN Remittance Target', parents, 'CN Remittance Allocation', 'targets',
+        fields=['name', 'parent', 'detail_row', 'historical_application', 'complementary_item', 'period', 'row_key',
+                'amount_usd', 'result'])
+
+
 def load(employer=None):
     if not frappe.has_permission('CN Remittance Allocation', 'read'):
         return []
     deposits = list(records('CN Remittance Allocation', filters={'docstatus': 1, **({'employer': employer} if employer else {})},
-        fields=['name', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
+        fields=['name', 'docstatus', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
                 'unclassified_usd', 'cash_identity_status', 'allocation_detail']))
-    parents = {row['name']: row for row in deposits}
-    details = child_records('CN Remittance Detail', parents, 'CN Remittance Allocation', 'detail_rows',
+    deposits = [d for d in deposits if remaining_cash(d) > 0]
+    details = child_records('CN Remittance Detail', [d['name'] for d in deposits], 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'row_kind', 'client_name', 'client_number', 'national_id', 'loan_number',
-                'amount_usd', 'client_credit_usd', 'company_credit_usd'])
-    return build(deposits, details)
+                'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets'])
+    return build(deposits, details, load_manual_targets(deposits))
