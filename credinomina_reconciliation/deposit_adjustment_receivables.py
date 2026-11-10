@@ -91,7 +91,7 @@ def receivable_total(rows):
     return money_float(sum((money(row['receivable_usd']) for row in rows), money(0)))
 
 
-def load_receivables(employer=None, year=None, item_names=None):
+def load_receivables(employer=None, year=None, item_names=None, *, include_settled=False):
     # Do not filter the owning company/date before reading cross-company uses.
     items = list(records('CN Complementary Item', filters={
         **({'name': ['in', list(item_names)]} if item_names is not None else {}),
@@ -101,25 +101,29 @@ def load_receivables(employer=None, year=None, item_names=None):
     }, fields=['name', 'employer', 'docstatus', 'category', 'accounting_source_key',
         'amount_usd', 'posting_date', 'review_action', 'accounting_status', 'period',
         'credit_client', 'client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'description',
-        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type',
+        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type', 'difference_reason',
         'receivable_due_date', 'receivable_due_origin', 'receivable_setup_pending']))
     settlements = load_settlements(items)
     all_items = [*items, *settlements]
     balances = load_balances(all_items)
-    values = build_receivables(items, balances, employer, year, settlements=settlements, settlement_balances=balances)
-    numbers = sorted({row.get('client_number') for row in values if row.get('client_number')})
-    if numbers and frappe.has_permission('CN Client', 'read'):
-        clients = {}
-        for offset in range(0, len(numbers), 500):
-            clients.update({row.client_number: row for row in records('CN Client',
-                filters={'client_number': ['in', numbers[offset:offset + 500]]},
-                fields=['name', 'client_number', 'client_name', 'employer', 'national_id'])})
+    values = build_receivables(items, balances, employer, year, settlements=settlements,
+                               settlement_balances=balances, include_settled=include_settled)
+    identities = sorted({row[field] for row in values for field in ('client_number', 'credit_client') if row.get(field)})
+    if identities and frappe.has_permission('CN Client', 'read'):
+        by_name, by_number = {}, {}
+        for offset in range(0, len(identities), 500):
+            batch = identities[offset:offset + 500]
+            for client in records('CN Client', or_filters=[['name', 'in', batch], ['client_number', 'in', batch]],
+                    fields=['name', 'client_number', 'client_name', 'employer', 'national_id']):
+                by_name[client.name] = client
+                by_number[client.employer, client.client_number] = client
         for row in values:
-            client = clients.get(row.get('client_number'))
+            client = by_name.get(row.get('credit_client')) or by_number.get((row.get('employer'), row.get('client_number')))
             # Do not attribute a generic cross-company adjustment to a client
             # belonging to another employer, or read an inaccessible identity.
-            if client and (client.employer == row.get('employer') or client.name == row.get('credit_client')):
-                row.update(client=client.name, client_name=row.get('client_name') or client.client_name,
+            if client:
+                row.update(client=client.name, client_number=client.client_number,
+                           client_name=row.get('client_name') or client.client_name,
                            national_id=client.national_id)
     return values
 

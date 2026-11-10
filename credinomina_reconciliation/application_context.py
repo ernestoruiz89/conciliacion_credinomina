@@ -42,13 +42,16 @@ def linked_application_employer(source, parent):
     return ''
 
 
-def load_application_context(employer=None, *, include_applications=True, include_current_settlements=True):
+def load_application_context(employer=None, *, include_applications=True, include_current_settlements=True,
+                             include_cash_breakdown=False):
     """Load readable claims; omit current cash only when the caller reconstructs it."""
     # Dates are intentionally unrestricted: cash paid later still covers older
     # applications, and operational applications can share a collection row.
     scope = {'employer': employer} if employer else {}
     periods = {row.name: row for row in records('CN Reconciliation Period', fields=[
-        'name', 'employer', 'payroll_month', 'collection_cycle', 'reconciliation_mode'], filters=scope)}
+        'name', 'employer', 'payroll_month', 'collection_cycle', 'reconciliation_mode',
+        *(['cash_breakdown_known', 'cash_breakdown_note', 'deposit_coverage_usd', 'negative_complementary_usd',
+           'conversion_coverage_usd'] if include_cash_breakdown else [])], filters=scope)}
     imports = {row.name: row for row in records('CN Accounting Import',
         filters={'status': ['in', list(IMPORTED_STATUSES)]},
         **import_company_scope(employer),

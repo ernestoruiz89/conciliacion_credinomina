@@ -11,7 +11,7 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
                 "Revisar distribución", "Sin conversión US$",
                 "Diferencia entre aplicación y depósito; requiere revisión", "Diferencia cambiaria en revisión",
                 "Conforme según cobranza", "Aplicación insuficiente", "Aplicación en exceso", "Revisar base de comparación",
-                "Cancelada", "Revertida", "Parcialmente revertida", "Pendiente de cobro", "Parcialmente cobrada", "Revisar cobros"] },
+                "Cancelada", "Revertida", "Parcialmente revertida", "Vinculado a depósito", "Pendiente de cobro", "Parcialmente cobrada", "Cobrada", "Revisar cobros"] },
         { fieldname: "category", label: __("Categoría"), fieldtype: "Autocomplete", options: ["Por clasificar", "Ajuste de conciliación", "Ajuste de aplicación", "Compensación entre partidas", "Otros ingresos", "Cobranza administrativa", "Cobro de CxC", "Saldo a favor del cliente", "Saldo a favor de la empresa", "Diferencia por tolerancia"] },
         { fieldname: "subcategory", label: __("Subcategoría"), fieldtype: "Link", options: "CN Complementary Subcategory" },
         { fieldname: "reason_type", label: __("Motivo"), fieldtype: "Select", options: "\nError de la empresa\nPago adicional no informado\nPor refinanciamiento\nPor cancelación\nOtro por aclarar" },
@@ -41,9 +41,9 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         display();
     },
     formatter(value, row, column, data, default_formatter) {
-        if (column.fieldtype === "Currency" && data && data[column.fieldname] == null) {
-            return `<span class="text-muted" title="${__("Importe sin determinar o no aplicable a este tipo de fila")}">—</span>`;
-        }
-        return default_formatter(value, row, column, data);
+        const formatted = column.fieldtype === "Currency" && data && data[column.fieldname] == null
+            ? `<span class="text-muted" title="${__("Importe sin determinar o no aplicable a este tipo de fila")}">—</span>`
+            : default_formatter(value, row, column, data);
+        return data && data.is_total_row ? `<strong>${formatted}</strong>` : formatted;
     },
 };

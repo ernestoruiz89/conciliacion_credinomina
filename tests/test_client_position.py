@@ -124,10 +124,12 @@ class ClientPositionTests(unittest.TestCase):
         self.assertEqual(len(build_position([], apps, [], {}, [], {'only_open': 1})), 2)
 
     def test_no_period_does_not_hide_apps_or_credits_and_columns_are_scoped(self):
-        with patch.object(report, '_collection_report', return_value=([], [])), \
+        with patch.dict(frappe.session, user='Administrator'), patch.object(report, 'get_periods', return_value=[]), \
              patch.object(report, 'load_position', return_value=self.build()), patch.object(report, '_', side_effect=lambda x: x):
             columns, data, message, _, totals = report.execute()
-        self.assertEqual(len(data), 3)
+        self.assertEqual(len(data), 4)
+        self.assertTrue(data[-1]['is_total_row'])
+        self.assertEqual((data[-1]['applied_usd'], data[-1]['applied_pending_usd']), (70, 20))
         self.assertIn('no saldo contractual', message)
         self.assertEqual(next(c for c in columns if c['fieldname'] == 'source_document')['fieldtype'], 'Dynamic Link')
         app_fields = {c['fieldname'] for c in report.get_columns({'position_type': 'Aplicación'})}
