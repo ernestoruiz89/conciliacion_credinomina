@@ -109,6 +109,20 @@ def test_optional_company_scope_is_direct_not_transitive_or_reverse():
         assert selected_employers({'employer':'INDENICSA', 'include_paying_companies':'1'}) == ['CBC', 'INDENICSA']
 
 
+def test_payer_deposit_is_filtered_by_beneficiary_after_calculating_actual_cash():
+    dep = deposit(allocated_usd=0, unclassified_usd=40, allocation_detail='[]')
+    details = [detail(employer='CBC', amount_usd=25), detail(name='ROW2', employer='INDENICSA', amount_usd=15)]
+    period_links = [dict(parent='DEP', period='P')]
+    own = build([dep], details, period_links, filters={'employer':'INDENICSA'})
+    assert [(row['name'], row['deposit_usd']) for row in own] == [('P', 15)]
+    other = build([dep], details, period_links, filters={'employer':'CBC'}, periods=[])
+    assert [(row['employer'], row['name'], row['deposit_usd']) for row in other] == [('CBC', None, 25)]
+    assert build([dep], details, period_links, filters={'period':'P'}) == own
+    with patch('credinomina_reconciliation.paying_employers.load_payer_map', return_value={'INDENICSA': {'CBC'}}):
+        both = build([dep], details, period_links, filters={'employer':'INDENICSA', 'include_paying_companies':1})
+    assert [(row['employer'], row['name'], row['deposit_usd']) for row in both] == [('CBC', None, 25), ('INDENICSA', 'P', 15)]
+
+
 def test_summary_expands_period_query_and_only_detail_loads_pending_lines():
     with patch('credinomina_reconciliation.paying_employers.load_payer_map', return_value={'INDENICSA': {'CBC'}}), \
             patch.object(summary, 'records', return_value=[]) as query, \

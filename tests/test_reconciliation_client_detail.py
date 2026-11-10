@@ -87,6 +87,26 @@ def test_same_identified_client_spans_employers_without_absorbing_company_differ
     assert 'Empresa E;' in client['observations'] and 'Empresa OTHER;' in client['observations']
 
 
+def test_national_id_does_not_become_another_persons_client_number():
+    p = dict(name='P', employer='E', reconciliation_mode='Historica', applied_usd=20)
+    base = dict(historical_period='P', currency='USD', amount=10, loan_number='12-1')
+    sources = [dict(base, name='A', client_number='123', national_id='555', client_name='Ana'),
+               dict(base, name='B', national_id='123', client_name='Beatriz')]
+    _, detail = build_views([p], [], sources)
+    assert [(r['client_name'], r['client_number']) for r in detail] == [('Ana', '123'), ('Beatriz', '')]
+    rows = consolidate([*detail, pending(2, client_number='', client_name='Ana', national_id='555')])
+    assert [(r['application_usd'], r['deposit_unallocated_usd']) for r in rows] == [(10, 2), (10, 0)]
+
+
+def test_collection_variance_does_not_change_covered_cash_status():
+    claim = dict(name='C', parent='P', client='1', client_name='Ana', expected_usd=30, applied_usd=20,
+                 remitted_usd=20, remittance_detail='[{"importe_usd":20}]')
+    period = dict(name='P', employer='E', applied_usd=20)
+    row, = consolidate(build_views([period], [claim], [])[1])
+    assert row['has_difference'] and row['collection_control'] == 'Con diferencias'
+    assert row['cash_control'] == 'Cubierta' and row['open_usd'] == 0
+
+
 def test_unknown_pending_does_not_poison_assigned_cash_or_become_zero():
     row = consolidate([*application_rows(), pending(None), pending(None, True)])[0]
     assert row['deposit_usd'] == 40 and row['open_usd'] == 10

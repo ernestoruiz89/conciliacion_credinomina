@@ -1,5 +1,6 @@
 """Two-stage report, with identical client/loan evidence for both views."""
 from collections import defaultdict
+from decimal import Decimal
 
 import frappe
 from frappe.utils import get_last_day, getdate
@@ -9,7 +10,6 @@ from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.credit_lookup import get_credit_rows
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
 from credinomina_reconciliation.parsers import COLLECTION_COMMENT_FIELDS, collection_comment
-from credinomina_reconciliation.period_totals import direct_amounts_by_collection
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.report_records import records, child_records, require_complete_evidence, PAGE_SIZE
 from credinomina_reconciliation.rounding import money, money_float, sum_money
@@ -28,8 +28,8 @@ def add_portfolio_status(periods, details):
         row['portfolio_credit_status'] = 'No aplica' if row.get('_company_conversion') or row.get('_detail_unavailable') else 'Sin corte de cartera aplicable'
     if not frappe.has_permission('CN Credit Portfolio Snapshot', 'read'):
         return
-    months = {period['name']: get_last_day(period.get('cutoff_date') or period['payroll_month'])
-              for period in periods}
+    months = {period['name']: get_last_day(period['payroll_month'] if period.get('reconciliation_mode') == 'Historica'
+                                           else period.get('cutoff_date') or period['payroll_month']) for period in periods}
     cuts = list(records('CN Credit Portfolio Snapshot', filters={
         'disabled': 0, 'docstatus': ['!=', 2],
         'status': ['in', ['Importado', 'Importado con alertas']],
@@ -75,7 +75,7 @@ def load_direct_applications(period_names):
                  'event_type': 'Aplicacion', 'effective': 1, 'match_status': 'Conciliado'}
         parents = {row.parent for row in records_for_dependencies(scope)}
         for start in range(0, len(parents), PAGE_SIZE):
-            filters = {'name': ['in', sorted(parents)[start:start + PAGE_SIZE]]}
+            filters = {'name': ['in', sorted(parents)[start:start + PAGE_SIZE]], 'docstatus': ['!=', 2]}
             readable = list(records('CN Accounting Import', filters=filters, fields=['name']))
             require_complete_evidence('CN Accounting Import', [row.name for row in readable], filters=filters)
             result.extend(child_records('CN Source Row', [row.name for row in readable],
@@ -100,9 +100,34 @@ def _add(row, field, value):
     row[field] = None if row[field] is None or value is None else money(row[field]) + money(value)
 
 
+def _collection_projections(applications):
+    amounts, uncertain_periods = defaultdict(lambda: money(0)), set()
+    for source in applications:
+        try:
+            links = entries(source.get('application_allocation_detail'))
+            if not links and not source.get('collection_row_id'):
+                continue
+            net = converted_amount(source, 'USD')
+            if not links:
+                links = [dict(collection_row_id=source['collection_row_id'], amount_usd=net)]
+            values = [Decimal(str(link.get('amount_usd'))) for link in links]
+            if (any(not link.get('collection_row_id') for link in links)
+                    or any(not value.is_finite() or value < 0 for value in values)
+                    or net is None or sum_money(values) > money(net)):
+                raise ValueError('Vínculos de aplicación no determinables')
+            for link, value in zip(links, values):
+                amounts[link['collection_row_id']] += money(value)
+        except (ValueError, ArithmeticError, TypeError):
+            uncertain_periods.add(source.get('historical_period'))
+    return amounts, uncertain_periods
+
+
 def _cash(row, details, applied, adjustment, expected_cash=None):
     try:
         all_entries = entries(details)
+        if any(not Decimal(str(entry.get('importe_usd', 0))).is_finite() or
+               not Decimal(str(entry.get('diferencia_usd', 0))).is_finite() for entry in all_entries):
+            raise ValueError('Importe inválido en el detalle de distribución')
         cash_entries = [entry for entry in all_entries
                         if entry.get('destino') != 'Partida complementaria'
                         and not entry.get('aplicacion_directa')]
@@ -117,7 +142,7 @@ def _cash(row, details, applied, adjustment, expected_cash=None):
         _add(row, 'cash_adjustment_usd', adjustment)
         # Sum pending claims, never net one customer's excess against another debt.
         _add(row, 'open_usd', max(money(applied) + money(adjustment) - cash - credit, 0))
-    except (ValueError, TypeError):
+    except (ArithmeticError, ValueError, TypeError):
         for field in ('deposit_usd', 'credit_used_usd', 'cash_adjustment_usd', 'open_usd'):
             row[field] = None
         row['_notes'].add('Cobertura no determinable: revise el detalle de distribución.')
@@ -148,25 +173,26 @@ def _finish(row):
     return row
 
 
-def build_views(periods, collections, applications, deposit_details=()):
+def build_views(periods, collections, applications, deposit_details=(), *, cash_claims=None):
     """Collection projections of direct applications must be removed exactly once."""
     period_map = {row['name']: row for row in periods}
-    direct = direct_amounts_by_collection(applications)
+    direct, uncertain_projections = _collection_projections(applications)
     groups = {}
 
     def group(period_name, source):
         period = period_map[period_name]
-        client = source.get('client') or source.get('client_number') or source.get('national_id') or ''
+        client = source.get('client') or source.get('client_number') or ''
+        national_id = source.get('national_id') or ''
         loan = canonical_credit_number(source.get('loan_number'))
-        identity = (canonical_identifier(client), loan)
-        if not client and not loan:
+        identity = ('client', canonical_identifier(client), loan) if client else ('national_id', canonical_identifier(national_id), loan)
+        if not client and not national_id and not loan:
             identity = ('row', source.get('name') or id(source))
         key = (period_name, *identity)
         if key not in groups:
             no_collection = bool(period.get('no_collection') or period.get('reconciliation_mode') == 'Historica')
             groups[key] = dict(name=period_name, collection_cycle=period.get('collection_cycle'),
                 employer=period.get('employer'), payroll_month=period.get('payroll_month'),
-                closure_state=period.get('closure_state'), client_number=client,
+                closure_state=period.get('closure_state'), client_number=client, national_id=national_id,
                 client_name=source.get('client_name') or 'Sin identificar', loan_number=loan,
                 loan_number_display=str(source.get('loan_number') or ''),
                 usd_currency='USD', _no_collection=no_collection, _has_collection=False, _notes=set(),
@@ -181,6 +207,9 @@ def build_views(periods, collections, applications, deposit_details=()):
         if source['parent'] not in period_map:
             continue
         row = group(source['parent'], source)
+        if cash_claims is not None and source.get('row_key'):
+            key = (source['parent'], 'Cobranza', source['row_key'])
+            cash_claims[key] = row if cash_claims.get(key, row) is row else None
         row['_has_collection'] = True
         for field in COMMENTS:
             comment = (collection_comment(source.get(field)) if field in COLLECTION_COMMENT_FIELDS
@@ -189,7 +218,10 @@ def build_views(periods, collections, applications, deposit_details=()):
                 row['_comments'][field].append(comment)
         _add(row, 'collection_usd', collection_quality(source)['quality_expected_usd'])
         applied = money(source.get('applied_usd')) - direct[source.get('name')]
-        if applied < 0:
+        if source['parent'] in uncertain_projections:
+            row['_notes'].add('Vínculos de aplicación no determinables en el período. Revise el detalle de cobranza.')
+            applied = None
+        elif applied < 0:
             row['_notes'].add('Vínculos directos mayores que la aplicación de cobranza; revise la conciliación.')
             applied = None
         _add(row, 'application_usd', applied)
@@ -198,13 +230,15 @@ def build_views(periods, collections, applications, deposit_details=()):
                                   if entry.get('aplicacion_directa'))
             _cash(row, source.get('remittance_detail'), applied,
                   money(source.get('rounding_adjustment_usd')) - projected, source.get('remitted_usd'))
-        except (ValueError, TypeError):
+        except (ArithmeticError, ValueError, TypeError):
             _cash(row, 'invalid', applied, 0)
 
     for source in applications:
         if source.get('historical_period') not in period_map:
             continue
         row = group(source['historical_period'], source)
+        if cash_claims is not None and source.get('name'):
+            cash_claims[source['historical_period'], 'Aplicacion historica', source['name']] = row
         if source.get('difference_reason'):
             row['_difference_reasons'].add(source['difference_reason'])
         applied = converted_amount(source, 'USD')
@@ -214,22 +248,37 @@ def build_views(periods, collections, applications, deposit_details=()):
         try:
             adjustment = sum_money(entry.get('diferencia_usd') for entry in entries(source.get('historical_detail')))
             _cash(row, source.get('historical_detail'), applied, adjustment, source.get('historical_remitted_usd'))
-        except (ValueError, TypeError):
+        except (ArithmeticError, ValueError, TypeError):
             _cash(row, 'invalid', applied, 0)
 
     from credinomina_reconciliation.company_conversion import from_rows
-    try:
-        conversions = from_rows(applications)
-    except (ValueError, TypeError):
-        conversions = []
-        suspect = {source.get('historical_period') for source in applications
-                   if 'conversion_empresa' in str(source.get('historical_detail') or '')}
-        for (period_name, *_identity), row in groups.items():
-            if period_name in suspect:
-                row['deposit_usd'] = row['open_usd'] = None
-                row['_notes'].add('La documentación de la diferencia de empresa no permite comprobar el efectivo; revise el depósito.')
-    for proof in conversions:
-        if proof['period'] not in period_map:
+    conversions, participants, invalid_periods = {}, defaultdict(set), set()
+    for source in applications:
+        if 'conversion_empresa' not in str(source.get('historical_detail') or ''):
+            continue
+        period_name = source.get('historical_period')
+        try:
+            for proof in from_rows([source]):
+                if proof['period'] != period_name or not proof.get('employer'):
+                    raise ValueError('Diferencia de empresa sin atribución verificable.')
+                existing = conversions.get(proof['deposit'])
+                if existing and existing != proof:
+                    invalid_periods.update((existing['period'], period_name))
+                conversions[proof['deposit']] = proof
+                participants[proof['deposit']].add(source.get('name'))
+                if any(not isinstance(name, str) for name in proof['application_ids']):
+                    invalid_periods.add(period_name)
+        except (ArithmeticError, ValueError, TypeError):
+            invalid_periods.add(period_name)
+    for deposit, proof in conversions.items():
+        if proof['period'] not in invalid_periods and participants[deposit] != set(proof['application_ids']):
+            invalid_periods.add(proof['period'])
+    for (period_name, *_identity), row in groups.items():
+        if period_name in invalid_periods:
+            row['deposit_usd'] = row['open_usd'] = None
+            row['_notes'].add('La documentación de la diferencia de empresa no permite comprobar el efectivo; revise el depósito.')
+    for proof in conversions.values():
+        if proof['period'] in invalid_periods or proof['period'] not in period_map:
             continue
         row = group(proof['period'], dict(name='FX:' + proof['deposit'],
             client_name=proof['employer'] + ' · Diferencia documentada de empresa'))
@@ -278,10 +327,13 @@ def build_views(periods, collections, applications, deposit_details=()):
             row['collection_usd'] = None
         for child in children:
             for field in AMOUNTS:
+                if field == 'collection_usd' and child['_no_collection']:
+                    continue
                 _add(row, field, child[field])
             row['_notes'].update(child['_notes'])
         row['credit_count'] = sum(not child.get('_company_conversion') and not child.get('_detail_unavailable') for child in children)
-        row['difference_count'] = sum(child['has_difference'] for child in children)
+        row['difference_count'] = sum(child['has_difference'] for child in children
+                                      if not child.get('_company_conversion') and not child.get('_detail_unavailable'))
         if money(row['application_usd']) != money(period.get('applied_usd')):
             row['_notes'].add('El detalle no coincide con el aplicado del período; revise vínculos y actualice la conciliación.')
             if not any(not child.get('_detail_unavailable') for child in children):

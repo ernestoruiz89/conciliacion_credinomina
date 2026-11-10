@@ -108,6 +108,16 @@ class ReconciliationReportTests(unittest.TestCase):
             self.assertEqual(row['cash_control'], 'Revisar')
             self.assertTrue(row['observations'])
 
+    def test_invalid_direct_links_do_not_double_count_or_break_other_periods(self):
+        claims = [collection(expected_usd=100, applied_usd=100),
+                  dict(collection('C2', expected_usd=25, applied_usd=25), parent='P2')]
+        for bad in ('broken', '[{}]', '[{"collection_row_id":"C","amount_usd":101}]'):
+            apps = [application(amount=100, application_allocation_detail=bad)]
+            totals, _ = build_views([period(applied_usd=100), period('P2', applied_usd=25)], claims, apps)
+            self.assertIsNone(totals[0]['application_usd'])
+            self.assertEqual(totals[0]['collection_usd'], 100)
+            self.assertEqual((totals[1]['application_usd'], totals[1]['open_usd']), (25, 25))
+
     def test_net_application_uses_confirmed_application_adjustment(self):
         apps = [application(amount=100, application_adjustment_usd=10,
                             historical_remitted_usd=90, historical_detail='[{"importe_usd":90}]')]
@@ -116,6 +126,42 @@ class ReconciliationReportTests(unittest.TestCase):
         self.assertEqual(summary[0]['deposit_difference_usd'], 0)
         self.assertEqual(summary[0]['open_usd'], 0)
         self.assertFalse(summary[0]['observations'])
+
+    def test_company_documentation_does_not_erase_operational_collection(self):
+        proof = dict(period='P', employer='E', deposit='DEP', amount_usd=-.01, application_ids=['A'])
+        claims = [collection(expected_usd=100, applied_usd=100, remitted_usd=100,
+            remittance_detail=[dict(aplicacion_directa='A', importe_usd=100)])]
+        apps = [application(amount=100, historical_remitted_usd=100, collection_row_id='C',
+            historical_detail=[dict(importe_usd=100, conversion_empresa=proof)])]
+        summary, detail = build_views([period(applied_usd=100)], claims, apps)
+        self.assertEqual((summary[0]['collection_usd'], summary[0]['collection_difference_usd'],
+                          summary[0]['deposit_usd']), (100, 0, 99.99))
+        self.assertEqual((summary[0]['credit_count'], summary[0]['difference_count']), (1, 0))
+        self.assertTrue(summary[0]['has_difference'])
+        self.assertIsNone(next(row for row in detail if row.get('_company_conversion'))['collection_usd'])
+
+    def test_corrupt_cash_in_another_period_cannot_hide_valid_company_documentation(self):
+        proof = dict(period='P', employer='E', deposit='DEP', amount_usd=-.01, application_ids=['A'])
+        apps = [application(amount=10, historical_remitted_usd=10,
+                            historical_detail=[dict(importe_usd=10, conversion_empresa=proof)]),
+                dict(application('B', amount=20, historical_remitted_usd=20, historical_detail='broken'), historical_period='P2')]
+        summary, _detail = build_views([period(applied_usd=10), period('P2', applied_usd=20)], [], apps)
+        self.assertEqual(summary[0]['deposit_usd'], 9.99)
+        self.assertIsNone(summary[1]['deposit_usd'])
+
+    def test_missing_participant_in_a_company_difference_requires_review(self):
+        proof = dict(period='P', employer='E', deposit='DEP', amount_usd=-.01, application_ids=['A', 'B'])
+        apps = [application(amount=10, historical_remitted_usd=10,
+                            historical_detail=[dict(importe_usd=10, conversion_empresa=proof)])]
+        summary, detail = build_views([period(applied_usd=10)], [], apps)
+        self.assertIsNone(summary[0]['deposit_usd'])
+        self.assertFalse(any(row.get('_company_conversion') for row in detail))
+
+    def test_month_filters_include_whole_payroll_months(self):
+        with patch.object(report, 'records', return_value=[]) as query:
+            report.execute(dict(from_month='2026-05-15', to_month='2026-06-10'))
+        operator, bounds = query.call_args.kwargs['filters']['payroll_month']
+        self.assertEqual((operator, list(map(str, bounds))), ('between', ['2026-05-01', '2026-06-01']))
 
     def test_missing_breakdown_is_not_reported_as_zero_application(self):
         summary, detail = build_views([period(applied_usd=100)], [], [])
@@ -211,7 +257,8 @@ class ReconciliationReportTests(unittest.TestCase):
                 self.assertIn('cxc_difference_comment', query.call_args.kwargs['fields'])
 
     def test_portfolio_status_uses_period_cutoff_month_and_previous_available_cut(self):
-        periods = [period(cutoff_date='2026-06-15'), period('P2')]
+        historical = dict(period('P2', cutoff_date='2026-07-15'), reconciliation_mode='Historica')
+        periods = [period(cutoff_date='2026-06-15'), historical]
         _, detail = build_views(periods, [collection(), dict(collection('C2'), parent='P2')], [])
         cuts = [dict(name='JUN', report_date='2026-06-30'), dict(name='APR', report_date='2026-04-30')]
         def credits(doctype, **kwargs):
