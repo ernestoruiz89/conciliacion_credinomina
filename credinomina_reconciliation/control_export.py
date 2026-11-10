@@ -11,17 +11,21 @@ from __future__ import annotations
 import io
 import json
 import math
-from datetime import date, datetime
+import re
 from collections import defaultdict
+from datetime import date, datetime
+from decimal import Decimal
+from html import unescape
 
 from openpyxl import Workbook
 from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, NamedStyle, PatternFill
 from openpyxl.utils import get_column_letter
 
-from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.complementary_balances import reconciliation_state
+from credinomina_reconciliation.parsers import COLLECTION_COMMENT_FIELDS, collection_comment
 from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float, sum_money
 
 
@@ -53,12 +57,14 @@ def build_control_workbook(
     link_rows = []
     issue_rows = []
     period_by_name = {period["name"]: period for period in periods}
+    amounts_by_source, company_rows = _workbook_claims(periods)
     for period in periods:
-        historical = period.get("reconciliation_mode") == "Historica"
+        applications = period.get("historical_rows") or []
+        application_ids = {row["name"] for row in applications if row.get("name")}
         for claim in period.get("rows") or []:
-            detail_rows.append(_collection_detail(period, claim))
-            link_rows.extend(_claim_links(period, claim, historical=False))
-            from credinomina_reconciliation.application_quality import collection_quality
+            amounts = amounts_by_source.get(id(claim))
+            detail_rows.append(_collection_detail(period, claim, amounts))
+            link_rows.extend(_claim_links(period, claim, historical=False, exported_applications=application_ids))
             quality = collection_quality(claim)
             difference = quality["quality_difference_usd"]
             if difference is None or difference:
@@ -66,18 +72,19 @@ def build_control_workbook(
                     claim.get("client_number"), claim.get("loan_number"), claim.get("application_reference"),
                     abs(difference) if difference is not None else NA, quality["quality_status"],
                     detail="Control de calidad; no constituye una cuenta por cobrar."))
-            pending = _collection_pending(claim)
-            if pending > CASH_EPSILON:
+            pending = amounts["open_usd"] if amounts is not None else _collection_pending(claim)
+            if pending is not None and pending > CASH_EPSILON:
                 issue_rows.append(_issue(
                     "Aplicación sin depósito", period, claim.get("client_number"),
                     claim.get("loan_number"), claim.get("application_reference"), pending,
                     "Pendiente", detail=claim.get("application_status"),
                 ))
-        for application in period.get("historical_rows") or []:
-            detail_rows.append(_historical_detail(period, application))
+        for application in applications:
+            amounts = amounts_by_source.get(id(application))
+            detail_rows.append(_historical_detail(period, application, amounts))
             link_rows.extend(_claim_links(period, application, historical=True))
-            balance = _money(application.get("historical_balance_usd"))
-            if balance > CASH_EPSILON:
+            balance = amounts["open_usd"] if amounts is not None else _money(application.get("historical_balance_usd"))
+            if balance is not None and balance > CASH_EPSILON:
                 issue_rows.append(_issue(
                     "Aplicación sin depósito", period,
                     application.get("client_number"), application.get("loan_number"),
@@ -85,6 +92,13 @@ def build_control_workbook(
                     application.get("deposit_match_status") or "Pendiente",
                     detail=application.get("deposit_match_reason"),
                 ))
+        for row in company_rows[period["name"]]:
+            # The signed company entry explains the deposit without charging
+            # the difference to any of the clients whose applications it covers.
+            detail_rows.append((period["name"], period.get("employer_name"), _mode(period), None, None,
+                row["client_name"], None, None, None, None, None, None, None, NA, NA, 0, 0,
+                _payment_effect(row["deposit_usd"]), NA, NA, "Diferencia de empresa", row["observations"],
+                None, None, None, None))
         for surplus in period.get("surpluses") or []:
             issue_rows.append(_issue(
                 "Excedente documentado", period, None, None,
@@ -143,7 +157,7 @@ def build_control_workbook(
         issue_rows.append(_issue(
             "Aplicación sin período", None, application.get("client_number"),
             application.get("loan_number"), application.get("reference"),
-            net_application_amount(application), "Sin período",
+            _available(_application_usd(application)), "Sin período",
             detail=application.get("match_reason"),
             event_date=application.get("event_date"),
             employer=application.get("employer"),
@@ -190,9 +204,9 @@ def build_control_workbook(
          "N.º crédito", "Asiento contable", "Recibo", "Referencia", "Aplicado neto USD", "Motivo"),
         [(r.get("parent"), r.get("source_row"), r.get("employer"), _date(r.get("event_date")),
           r.get("client_number"), r.get("client_name"), r.get("loan_number"), r.get("accounting_entry"),
-          r.get("receipt"), r.get("reference"), net_application_amount(r), r.get("match_reason"))
+          r.get("receipt"), r.get("reference"), _available(_application_usd(r)), r.get("match_reason"))
          for r in _unassigned(data)], money_columns={11}, date_columns={4},
-        total_columns={11},
+        total_columns={11}, strict_totals={11},
     )
     _write_table(
         book.create_sheet("Partidas y excepciones"), "Partidas y excepciones", scope,
@@ -274,6 +288,55 @@ def _sum(values):
     return money_float(sum_money(values))
 
 
+def _available(value):
+    return NA if value is None else value
+
+
+def _payment_effect(value):
+    """A payment reduces the application balance. Receipts retain their bank sign."""
+    return NA if value is None or value == NA else -money_float(value)
+
+
+def _known_total(values):
+    total = money(0)
+    for value in values:
+        if value is None or value == NA:
+            return NA
+        total += money(value)
+    return money_float(total)
+
+
+def _application_usd(row, *, gross=False):
+    # Older control snapshots supplied normalized USD without the currency key.
+    if gross or "currency" not in row or row.get("event_type") != "Aplicacion":
+        row = {**row, "currency": row.get("currency", "USD"), "event_type": "Aplicacion"}
+        if gross:
+            row["application_adjustment_usd"] = 0
+    return converted_amount(row, "USD")
+
+
+def _mode(period):
+    return "Histórica" if period.get("reconciliation_mode") == "Historica" else "Operativa"
+
+
+def _workbook_claims(periods):
+    from credinomina_reconciliation.reconciliation_report import build_views
+    from credinomina_reconciliation.reconciliation_report_cash import apply_period_cash
+
+    current = [period for period in periods if "cash_breakdown_known" in period]
+    source_rows, company_rows = {}, defaultdict(list)
+    if current:
+        collections = [row for period in current for row in period.get("rows") or []]
+        applications = [row for period in current for row in period.get("historical_rows") or []]
+        claims = {}
+        summary, detail = build_views(current, collections, applications, cash_claims=claims, source_rows=source_rows)
+        apply_period_cash(current, summary, detail, claims, client_by_detail={})
+        for row in detail:
+            if row.get("_company_conversion"):
+                company_rows[row["name"]].append(row)
+    return source_rows, company_rows
+
+
 def _month(value):
     return _date(str(value)[:7] + "-01") if value else None
 
@@ -334,12 +397,12 @@ def monthly_rows(data):
             labels.get(employer, employer), _month(month), len(periods),
             sum(p.get("status") == "Cerrado" for p in periods),
             _sum(financial_position(p)['financial_applied_usd'] for p in periods),
-            _sum(financial_position(p)['financial_covered_usd'] if p.get('remitted_total_usd') is not None
+            _known_total(financial_position(p)['financial_covered_usd'] if p.get('remitted_total_usd') is not None
                  else _period_credit_cash(p) for p in periods),
-            _sum(_complementary_total(p) for p in periods),
+            _known_total(_period_complementary(p) for p in periods),
             _sum(_period_pending(p) for p in periods),
             len({e["name"] for p in periods for e in p.get("exceptions") or [] if e.get("name")}),
-            _sum(net_application_amount(a) for a in unassigned),
+            _known_total(_application_usd(a) for a in unassigned),
             len(deposits), _sum(d.get("total_usd") for d in deposits),
             _sum(max(money(d.get("unclassified_usd")), 0) for d in deposits),
             sum(bool(d.get("needs_review")) for d in deposits),
@@ -353,7 +416,8 @@ def monthly_rows(data):
 
 def _write_monthly(sheet, data, scope):
     _write_table(sheet, "Resumen por empresa y mes", scope, MONTHLY_HEADERS, monthly_rows(data),
-                 money_columns={5, 6, 7, 8, 10, 12, 13, 15, 16, 17, 18}, date_columns={2}, total_columns=set(range(3, 19)))
+                 money_columns={5, 6, 7, 8, 10, 12, 13, 15, 16, 17, 18}, date_columns={2}, total_columns=set(range(3, 19)),
+                 strict_totals={6, 7, 10})
     sheet.freeze_panes = "C5"
     sheet.sheet_properties.tabColor = NAVY
     sheet.column_dimensions["A"].width = 30
@@ -368,7 +432,12 @@ def _write_monthly(sheet, data, scope):
         "Estado a la fecha de exportación, no reconstrucción del cierre de cada mes. Los depósitos en borrador no son efectivo confirmado.",
     ]
     for offset, note in enumerate(notes):
-        sheet.cell(last + offset, 1, note).font = Font(name="Arial", size=10, italic=True, color=TEXT)
+        row = last + offset
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = sheet.cell(row, 1, note)
+        cell.font = Font(name="Arial", size=10, italic=True, color=TEXT)
+        cell.alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.row_dimensions[row].height = 34
 
 
 DEPOSIT_HEADERS = (
@@ -384,7 +453,7 @@ def _write_deposits(book, data, scope):
     _write_table(book.create_sheet("Depósitos"), "Depósitos confirmados por fecha de recepción", scope,
         DEPOSIT_HEADERS,
         [(d["name"], d.get("employer"), _date(d.get("date")), d.get("reference"), d.get("bank_account"),
-          d.get("currency"), d.get("original_amount"), d.get("total_usd"), d.get("credits_usd"),
+          d.get("currency"), d.get("original_amount"), d.get("total_usd"), _sum([d.get("credits_usd"), d.get("conversion_usd")]),
           _sum([d.get("other_usd"), d.get("adjustments_usd")]), d.get("credit_balance_usd"),
           d.get("unclassified_usd"), d.get("review_usd"), d.get("result"),
           ", ".join(d.get("payroll_months") or []), d.get("fx_rate") or None) for d in deposits],
@@ -394,13 +463,16 @@ def _write_deposits(book, data, scope):
     rows = []
     for d in deposits:
         for target in d.get("destinations") or []:
-            # Emit either people or the aggregate, never both as additive rows.
-            people = target.get("people") or [{}]
-            for person in people:
+            people = target.get("people") or []
+            portions = [(person, person["amount_usd"]) for person in people if person.get("amount_usd") is not None]
+            remainder = money(target.get("amount_usd")) - sum_money(amount for _, amount in portions)
+            if remainder or not portions:
+                portions.append(({}, money_float(remainder)))
+            for person, amount in portions:
                 rows.append((d["name"], d.get("employer"), _date(d.get("date")),
                     'Partida complementaria' if target.get('type') == 'Ajuste de conciliación' else target.get("type"), target.get("employer"), target.get("label"), _month(target.get("month")),
                     person.get("client_number"), person.get("client_name"), person.get("loan_number"),
-                    person.get("amount_usd") if person else target.get("amount_usd")))
+                    amount))
         # Residual classification is visible even without a client/period link.
         for field, label in (("undetailed_credit_usd", "Saldo a favor sin detalle de cliente"),
                              ("review_usd", "Asignación por revisar"), ("unclassified_usd", "Sin clasificar")):
@@ -431,26 +503,32 @@ def _write_company_statement(sheet, data, scope):
     _write_table(sheet, "Estado de Cuenta por Empresa", scope,
                  [column["label"] for column in columns], rows,
                  money_columns=money_columns)
-    note_row = len(rows) + 7
-    sheet.merge_cells(start_row=note_row, start_column=1, end_row=note_row, end_column=len(columns))
-    note = sheet.cell(note_row, 1, _safe_text(statement.get("message") or
-        "Saldos actuales en US$. El año filtra la fecha de origen, no la fecha de conciliación. "
-        "No es un corte histórico. N/D indica un importe sin determinar, no cero."))
-    note.font = Font(name="Arial", size=10, italic=True, color=TEXT)
-    note.alignment = Alignment(wrap_text=True, vertical="top")
-    sheet.row_dimensions[note_row].height = 100
+    message = statement.get("message") or (
+        "Saldos actuales en US$. El año filtra la fecha de origen. N/D indica un importe sin determinar.")
+    paragraphs = re.split(r"</?(?:details|summary)>|<br\s*/?>", message, flags=re.I)
+    for index, paragraph in enumerate(part for part in paragraphs if part.strip()):
+        row = len(rows) + 7 + index
+        end = min(len(columns), 6)
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=end)
+        note = sheet.cell(row, 1, _safe_text(unescape(paragraph).strip()))
+        note.font = Font(name="Arial", size=10, italic=True, color=TEXT)
+        note.alignment = Alignment(wrap_text=True, vertical="top")
+        width = sum(sheet.column_dimensions[get_column_letter(i)].width for i in range(1, end + 1))
+        sheet.row_dimensions[row].height = min(409, 16 * math.ceil(len(note.value) / (width * .85)) + 8)
 
 
 def _write_guide(book, scope):
     notes = [
         ("Naturaleza del informe", "Fotografía de la conciliación a la fecha de exportación. Descargue nuevamente para actualizar. No sustituye la balanza contable."),
-        ("Resumen", "Estado de Cuenta por Empresa: saldo contable del core = débitos originales menos créditos originales. Saldos a favor y CxC por gestionar se muestran separados, sin sumarlos al saldo contable. El año filtra la fecha de origen; no es un corte histórico. Todos incluye todos los años. Los saldos a favor por gestionar se muestran positivos y N/D no equivale a cero."),
+        ("Resumen", "Estado de Cuenta por Empresa presenta el saldo contable del core y el saldo de gestión. Las aplicaciones y cuentas por cobrar pendientes son positivas. Los saldos a favor y depósitos pendientes de asignación son negativos. El año filtra la fecha de origen."),
         ("Resumen mensual", "Una fila por empresa y mes. Agrupa todos los períodos del mes, aunque sean quincenales o por fecha exacta. Incluye meses con depósitos y sin períodos."),
         ("Dos bases de fecha", "Aplicaciones y asignaciones: mes de cobranza. Depósitos completos: fecha de recepción. No se calcula una diferencia entre ambos totales mensuales."),
         ("Empresa pagadora", "El depósito completo se cuenta una sola vez para quien paga. Distribución depósitos muestra la empresa destino, aunque sea diferente."),
         ("Pendiente USD", "Suma saldos positivos por cliente/crédito. No compensa una deuda con el excedente de otra partida. Incluye ajustes de redondeo con su signo."),
         ("Aplicado neto USD", "Aplicación después de reducciones confirmadas mediante partidas complementarias. No se debe volver a descontar la misma reducción."),
-        ("Partidas complementarias", "Incluyen partidas manuales y automáticas por tolerancia. En períodos se presenta el importe firmado; en Depósitos, únicamente el efectivo distribuido. Son perspectivas distintas y no se suman entre sí. Las automáticas se identifican en Partidas y excepciones por documento y categoría."),
+        ("Signos del saldo", "En Detalle cliente y Períodos, el aplicado es positivo. El depósito asignado y las complementarias que cubren el crédito reducen el pendiente y figuran en negativo. Los paréntesis indican un valor negativo. En US$, 100.00 de aplicación − 10.00 de complementaria − 90.00 de depósito = 0.00 pendiente."),
+        ("Partidas complementarias", "En Períodos y Resumen mensual, el signo negativo indica cobertura del aplicado por complementarias, reducciones o saldos a favor. En Detalle cliente las reducciones ya están en el aplicado neto y tienen su propia columna. Si varias aplicaciones comparten una complementaria y se desconoce el reparto, el efectivo individual figura como N/D."),
+        ("Distribución del efectivo", "Depósitos muestra los destinos del ingreso con su signo. A créditos incluye el efecto de la diferencia documentada de la empresa. Distribución depósitos conserva por separado esa diferencia y los importes vinculados. Una porción sin cliente identificado conserva su importe y deja el cliente en blanco."),
         ("Saldo a favor documentado", "Clasificación del depósito original. No representa necesariamente lo pendiente de devolver hoy: puede haber gestiones posteriores."),
         ("Importe original", "Moneda indicada en cada depósito. No sumar importes NIO y USD en una misma cifra. Las demás columnas monetarias se concilian en USD."),
         ("Modalidad y cierre", "Histórica y operativa usan iguales conceptos de resultado. Cierre indica si el período está bloqueado, no que sus diferencias estén resueltas."),
@@ -472,7 +550,7 @@ def _write_guide(book, scope):
     sheet.column_dimensions["B"].width = 108
     for row in sheet.iter_rows(min_row=5):
         row[1].alignment = Alignment(wrap_text=True, vertical="center")
-        sheet.row_dimensions[row[0].row].height = 44
+        sheet.row_dimensions[row[0].row].height = max(30, math.ceil(len(row[1].value) / 94) * 15 + 6)
 
 
 def _write_summary(sheet, data, employer_label, generated_at):
@@ -483,6 +561,11 @@ def _write_summary(sheet, data, employer_label, generated_at):
         position = financial_position(period)
         historical_mode = period.get("reconciliation_mode") == "Historica"
         first_date, last_date = _historical_dates(period) if historical_mode else (None, None)
+        notes = [period.get("remark")]
+        if "cash_breakdown_known" in period and not period["cash_breakdown_known"]:
+            notes.append(period.get("cash_breakdown_note") or "El período aún no tiene un desglose de efectivo comprobado.")
+        if period.get("conversion_coverage_usd"):
+            notes.append(f"La empresa tiene una diferencia documentada de US$ {money(period['conversion_coverage_usd']):,.2f}.")
         summary_rows.append((
             period.get("name"), period.get("employer_name"), _month(period.get("month")),
             "Histórica" if historical_mode else "Operativa",
@@ -491,29 +574,28 @@ def _write_summary(sheet, data, employer_label, generated_at):
             _control_state(position["control_state"]),
             NA if historical_mode else _money(period.get("expected_usd")),
             NA if historical_mode else _known_deductions(period),
-            position["financial_applied_usd"], _complementary_total(period),
+            position["financial_applied_usd"], _period_complementary(period),
             position["financial_covered_usd"],
             _period_pending(period),
             NA if historical_mode else _employee_due(period),
             NA if historical_mode else _money(period.get("employer_gap_usd")),
-            _period_credit_cash(period),
+            _payment_effect(_period_credit_cash(period)),
             len(period.get("exceptions") or []),
             _date(period.get("control_cut_on")),
             period.get("control_cut_note"),
-            period.get("remark"), "Cerrado" if period.get("status") == "Cerrado" else "Abierto",
+            " · ".join(filter(None, notes)), "Cerrado" if period.get("status") == "Cerrado" else "Abierto",
             NA if historical_mode else _missing_detail(period),
         ))
     _write_table(sheet, "Conciliación por período",
                  f"Año de cobranza: {data.get('year') or 'Todos'}    Empresa: {employer_label}",
                  SUMMARY_HEADERS, summary_rows,
                  money_columns=set(range(10, 19)) | {24}, date_columns={6, 7, 8, 20},
-                 total_columns=set(range(12, 16)) | {18, 19})
+                 total_columns=set(range(12, 16)) | {18, 19}, strict_totals={13, 18})
     sheet.column_dimensions["A"].width = 28
     sheet.column_dimensions["B"].width = 28
     sheet.column_dimensions["E"].width = 27
-    sheet.column_dimensions["T"].width = 23
-    sheet.column_dimensions["U"].width = 40
-    sheet.column_dimensions["V"].width = 65
+    sheet.column_dimensions["S"].width = 40
+    sheet.column_dimensions["T"].width = 65
     sheet.freeze_panes = "C5"
     for cell in sheet["C"][4:]:
         cell.number_format = "yyyy-mm"
@@ -577,6 +659,13 @@ def _complementary_total(row):
     return _sum([row.get('complementary_usd'), row.get('rounding_adjustment_usd')])
 
 
+def _period_complementary(period):
+    if "cash_breakdown_known" in period:
+        coverage = period.get("complementary_coverage_usd")
+        return _payment_effect(coverage) if period["cash_breakdown_known"] else NA
+    return _complementary_total(period)
+
+
 def _collection_cash(claim):
     return _sum(
         entry.get("importe_usd") for entry in _json_list(claim.get("remittance_detail"))
@@ -585,6 +674,8 @@ def _collection_cash(claim):
 
 
 def _period_credit_cash(period):
+    if "cash_breakdown_known" in period:
+        return _available(period.get("deposit_coverage_usd")) if period["cash_breakdown_known"] else NA
     direct = _sum(r.get("historical_remitted_usd") for r in period.get("historical_rows") or [])
     if period.get("reconciliation_mode") == "Historica":
         return direct
@@ -614,11 +705,34 @@ def _period_pending(period):
     return money_float(sum_money(values))
 
 
-def _collection_detail(period, claim):
+def _signed_complementary(amounts):
+    if amounts["cash_adjustment_usd"] is None or amounts["credit_used_usd"] is None:
+        return NA
+    return money_float(money(amounts["cash_adjustment_usd"]) - money(amounts["credit_used_usd"]))
+
+
+def _cash_notes(amounts):
+    if not amounts:
+        return ""
+    applied, paid, pending = (amounts[field] for field in ("application_usd", "deposit_usd", "open_usd"))
+    adjustment = _signed_complementary(amounts)
+    notes = []
+    if (adjustment != NA and adjustment and None not in (applied, paid, pending)
+            and money(applied) + money(adjustment) - money(paid) == money(pending)):
+        sign = "−" if adjustment < 0 else "+"
+        notes.append(f"Saldo en US$ = {applied:,.2f} {sign} {abs(adjustment):,.2f} − {paid:,.2f} = {pending:,.2f}.")
+    if amounts["credit_used_usd"]:
+        notes.append(f"Se aplicaron US$ {amounts['credit_used_usd']:,.2f} de saldo a favor.")
+    if amounts.get("observations"):
+        notes.append(amounts["observations"])
+    return " ".join(notes)
+
+
+def _collection_detail(period, claim, amounts=None):
     quality = collection_quality(claim)
     comments = " | ".join(str(item) for item in (
-        claim.get("comments"), claim.get("application_comment"),
-        claim.get("inherited_exception_comment"),
+        *(collection_comment(claim.get(field)) for field in COLLECTION_COMMENT_FIELDS),
+        claim.get("inherited_exception_comment"), _cash_notes(amounts),
     ) if item)
     return (
         period.get("name"), period.get("employer_name"), "Operativa",
@@ -627,33 +741,37 @@ def _collection_detail(period, claim):
         None, None, None, claim.get("application_reference"),
         NA if quality["quality_status"] == "Revisar base de comparación" else _money(claim.get("expected_usd")),
         NA,  # Retired deduction column is projected out by _write_table.
-        _money(claim.get("applied_usd")), _complementary_total(claim),
-        _collection_cash(claim),
+        _available(amounts["application_usd"]) if amounts else _money(claim.get("applied_usd")),
+        _signed_complementary(amounts) if amounts else _complementary_total(claim),
+        _payment_effect(amounts["deposit_usd"] if amounts else _collection_cash(claim)),
         _money(claim.get("collection_shortfall_usd")) if claim.get("collection_shortfall_usd") is not None else NA,
-        _collection_pending(claim),
+        _available(amounts["open_usd"]) if amounts else _collection_pending(claim),
         quality["quality_status"],
         comments,
         None, None, None, None,
     )
 
 
-def _historical_detail(period, application):
+def _historical_detail(period, application, amounts=None):
+    reason = application.get("deposit_match_reason") or ""
+    if amounts and reason.startswith("Aplicación: "):
+        reason = reason.replace(" US$ vinculados a depósitos;", " US$ de cobertura vinculada;")
     return (
-        period.get("name"), period.get("employer_name"), "Histórica",
+        period.get("name"), period.get("employer_name"), _mode(period),
         application.get("client_number"), application.get("employee_number"), application.get("client_name"),
         application.get("national_id"), application.get("loan_number"), application.get("installment_number"),
         _date(application.get("event_date")), application.get("accounting_entry"), application.get("receipt"),
-        application.get("reference"), NA, NA, net_application_amount(application),
-        _sum(e.get("diferencia_usd") for e in _json_list(application.get("historical_detail")) if isinstance(e, dict)),
-        _money(application.get("historical_remitted_usd")), NA,
-        _money(application.get("historical_balance_usd")),
-        application.get("deposit_match_status"), application.get("deposit_match_reason"),
-        application.get("parent"), application.get("source_row"), _money(application.get("amount")),
+        application.get("reference"), NA, NA, _available(_application_usd(application)),
+        _signed_complementary(amounts) if amounts else _sum(e.get("diferencia_usd") for e in _json_list(application.get("historical_detail")) if isinstance(e, dict)),
+        _payment_effect(amounts["deposit_usd"] if amounts else _money(application.get("historical_remitted_usd"))), NA,
+        _available(amounts["open_usd"]) if amounts else _money(application.get("historical_balance_usd")),
+        application.get("deposit_match_status"), " · ".join(filter(None, [_cash_notes(amounts), reason])),
+        application.get("parent"), application.get("source_row"), _available(_application_usd(application, gross=True)),
         _money(application.get("application_adjustment_usd")),
     )
 
 
-def _claim_links(period, claim, *, historical):
+def _claim_links(period, claim, *, historical, exported_applications=()):
     if historical:
         details = _json_list(claim.get("historical_detail"))
         claim_id = claim.get("name")
@@ -664,7 +782,7 @@ def _claim_links(period, claim, *, historical):
         application_reference = claim.get("application_reference")
     rows = []
     for detail in details:
-        if not isinstance(detail, dict):
+        if not isinstance(detail, dict) or detail.get("aplicacion_directa") in exported_applications:
             continue
         inherited = detail.get("excepciones_heredadas") or []
         inherited_text = " | ".join(
@@ -672,11 +790,12 @@ def _claim_links(period, claim, *, historical):
         ) if isinstance(inherited, list) else ""
         rows.append((
             period.get("name"), period.get("employer_name"),
-            "Histórica" if historical else "Operativa",
+            _mode(period),
             claim.get("client_number"), claim.get("client_name"), claim.get("loan_number"),
             claim_id, application_reference, detail.get("referencia"), detail.get("comprobante"),
             _date(detail.get("fecha")),
-            ('Partida complementaria' if detail.get('destino') == 'Movimiento de conciliación' or detail.get('diferencia_usd') is not None
+            ('Saldo a favor aplicado' if detail.get('saldo_a_favor') else
+             'Partida complementaria' if detail.get('destino') == 'Movimiento de conciliación' or detail.get('diferencia_usd') is not None
              else "Aplicación" if detail.get("destino") == "Aplicación histórica"
              else detail.get("destino") or ("Aplicación" if historical else "Cobranza")),
             _money(detail.get("importe_usd")),
@@ -867,7 +986,7 @@ def _base_sheet(sheet, title):
     sheet.row_dimensions[1].height = 27
 
 
-def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_columns=(), total_columns=()):
+def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_columns=(), total_columns=(), strict_totals=()):
     retired = {"Deducido USD", "Deducido sin depósito asignado USD", "Cobranza sin detalle USD"}
     keep = [index for index, heading in enumerate(headers, 1) if heading not in retired]
     if len(keep) != len(headers):
@@ -877,6 +996,7 @@ def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_c
         money_columns = {mapping[c] for c in money_columns if c in mapping}
         date_columns = {mapping[c] for c in date_columns if c in mapping}
         total_columns = {mapping[c] for c in total_columns if c in mapping}
+        strict_totals = {mapping[c] for c in strict_totals if c in mapping}
     headers = tuple(heading.replace("Cobranza no deducida conocida", "Diferencia cobranza/aplicación")
                     .replace("Cobranza no deducida", "Diferencia cobranza/aplicación") for heading in headers)
     _base_sheet(sheet, title)
@@ -889,8 +1009,11 @@ def _write_table(sheet, title, scope, headers, rows, *, money_columns=(), date_c
         sheet["A3"] = "Totales filtrados"
         for column in total_columns:
             letter = get_column_letter(column)
-            value = f"=SUBTOTAL(109,{letter}5:{letter}{4 + len(rows)})" if rows else 0
-            if rows and not any(isinstance(row[column - 1], (int, float)) for row in rows):
+            cell_range = f"{letter}5:{letter}{4 + len(rows)}"
+            value = f"=SUBTOTAL(109,{cell_range})" if rows else 0
+            if column in strict_totals and any(row[column - 1] == NA for row in rows):
+                value = f'=IF(SUBTOTAL(103,{cell_range})>SUBTOTAL(102,{cell_range}),"{NA}",SUBTOTAL(109,{cell_range}))'
+            elif rows and not any(isinstance(row[column - 1], (int, float, Decimal)) for row in rows):
                 value = NA
             cell = sheet.cell(3, column, value)
             cell.number_format = MONEY_FORMAT if column in money_columns else "#,##0"
@@ -943,7 +1066,7 @@ def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=(
         cell = sheet.cell(header_row, column, heading)
         cell.style = styles["header"]
         width = 17
-        if any(text in heading.lower() for text in ("nombre", "detalle", "comentario", "acción", "resolución", "observaciones", "motivo")):
+        if any(text in heading.lower() for text in ("nombre", "detalle", "comentario", "acción", "acciones", "qué falta", "resolución", "observaciones", "motivo")):
             width = 35
         elif "empresa" in heading.lower() or "estado" in heading.lower() or "resultado" in heading.lower():
             width = 28
@@ -963,7 +1086,7 @@ def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=(
                 kind = "text"
                 line_count = max(line_count, sum(max(math.ceil(len(part) / wrap_widths.get(column, 11)), 1)
                                                  for part in value.split("\n")))
-            if column in money_columns and isinstance(value, (int, float)):
+            if column in money_columns and isinstance(value, (int, float, Decimal)):
                 kind = "money"
             elif column in money_columns and value == NA:
                 kind = "text_right"
@@ -971,7 +1094,7 @@ def _table(sheet, headers, rows, *, header_row, money_columns=(), date_columns=(
                 kind = "datetime" if isinstance(value, datetime) else "date"
                 if column not in date_columns:
                     kind += "_unaligned"
-            elif isinstance(value, (int, float)):
+            elif isinstance(value, (int, float, Decimal)):
                 kind = "numeric"
             cell.style = styles[kind, row_number % 2 == 0]
         sheet.row_dimensions[row_number].height = min(409, max(20, line_count * 14 + 4))

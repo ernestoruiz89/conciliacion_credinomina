@@ -15,10 +15,11 @@ from credinomina_reconciliation.control_deposits import get_cash_deposits
 from credinomina_reconciliation.complementary_balances import cached_balance_reads
 from credinomina_reconciliation.control_summary import collection_summaries, historical_difference_counts, readable_imports
 from credinomina_reconciliation.tolerance_items import CATEGORY as TOLERANCE_CATEGORY
-from credinomina_reconciliation.reconciliation import net_application_amount
+from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.date_display import display_date
 from credinomina_reconciliation.historical import OPERATIVE_START
-from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float
+from credinomina_reconciliation.parsers import COLLECTION_COMMENT_FIELDS
+from credinomina_reconciliation.rounding import CASH_EPSILON, money, money_float, sum_money
 from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods, deposit_names_for_periods
 
 
@@ -322,7 +323,9 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
         fields=[
             "remark",
             "name", "employer", "payroll_month", "reconciliation_mode", "application_basis", "collection_cycle", "historical_scope", "historical_application_date", "historical_start_date", "historical_end_date", "cutoff_date", "remittance_due_date", "status", "deduction_basis", "deduction_recognition_reference", "employer_response_file", "control_cut_on", "control_cut_note",
-            *([] if summary_only else ["control_cut_summary"]),
+            *([] if summary_only else ["control_cut_summary", "cash_breakdown_known", "cash_breakdown_note",
+                                      "deposit_coverage_usd", "negative_complementary_usd",
+                                      "complementary_coverage_usd", "conversion_coverage_usd"]),
             "expected_usd", "deducted_usd", "applied_usd", "complementary_usd", "rounding_adjustment_usd",
             "remitted_usd", "fx_variance_usd", "exception_count",
             "status_before_close", "applied_total_usd", "remitted_total_usd", "pending_usd",
@@ -356,7 +359,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "installment_number", "expected_usd", "deducted_usd",
                 "expected_nio", "deducted_nio", "applied_usd", "complementary_usd", "remitted_usd",
                 "fx_variance_usd", "rounding_adjustment_usd", "deduction_status", "deduction_match_note", "application_status",
-                "comments", "application_comment", "first_exception_comment",
+                *COLLECTION_COMMENT_FIELDS, "first_exception_comment",
                 "inherited_exception_comment", "application_reference",
                 "remittance_detail",
             ],
@@ -379,6 +382,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 "name", "parent", "source_row", "historical_period", "event_date",
                 "reference", "voucher", "accounting_entry", "receipt", "client_number", "employee_number", "client_name", "national_id",
                 "loan_number", "installment_number", "amount", "currency", "application_adjustment_usd", "net_applied_usd", "application_adjustment_status",
+                "event_type", "equivalent_currency", "equivalent_amount", "manual_fx_rate", "fx_basis",
                 "historical_remitted_usd", "historical_balance_usd",
                 "historical_detail", "deposit_match_status", "deposit_match_reason", "difference_reason",
                 "collection_row_id", "application_allocation_detail",
@@ -604,7 +608,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                         "name", "parent", "source_row", "event_date", "reference", "client_name", "loan_number",
                         "client_number", "accounting_entry", "receipt",
                         "amount", "amount_usd", "currency", "match_reason", "difference_reason", "application_adjustment_usd", "net_applied_usd",
-                        "processing_route",
+                        "processing_route", "event_type", "equivalent_currency", "equivalent_amount", "manual_fx_rate", "fx_basis",
                     ],
                     order_by="event_date asc, idx asc",
                     limit_page_length=_row_limit(10000, full_export),
@@ -614,7 +618,8 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     row["employer"] = imports_by_name[row.parent].employer
                     if employer and row.employer != employer:
                         continue
-                    if net_application_amount(row) <= 0:
+                    net_usd = converted_amount(row, "USD")
+                    if net_usd is not None and net_usd <= 0:
                         continue
                     target = (
                         unassigned_historical_applications
@@ -676,22 +681,21 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                 )
     registered = []
     if frappe.has_permission("CN Remittance Allocation", "read"):
-        manual_filters = {
-            "docstatus": 1,
-            **_year_filter("deposit_date", year),
-        }
+        from credinomina_reconciliation.deposit_accounting_sources import is_linked_origin
+        confirmed = {"docstatus": 1, "consolidated_deposit": ["is", "not set"]}
+        deposit_fields = [
+            "name", "employer", "bank_account", "deposit_reference", "deposit_voucher", "deposit_date",
+            "deposit_currency", "deposit_amount", "fx_rate", "amount_usd", "detail_file", "detail_count",
+            "detail_status", "allocated_usd", "unallocated_usd", "justified_surplus_usd", "unclassified_usd",
+            "allocation_detail", "result", "consolidated_deposit", "cash_identity_status",
+        ]
+        manual_filters = {**confirmed, **_year_filter("deposit_date", year)}
         if employer:
             manual_filters["employer"] = employer
         registered = frappe.get_list(
             "CN Remittance Allocation",
             filters=manual_filters,
-            fields=[
-                "name", "employer", "bank_account", "deposit_reference", "deposit_voucher",
-                "deposit_date", "deposit_currency", "deposit_amount",
-                "amount_usd", "detail_file", "detail_count", "detail_status",
-                "allocated_usd", "unallocated_usd", "justified_surplus_usd",
-                "unclassified_usd", "allocation_detail", "result",
-            ],
+            fields=deposit_fields,
             limit_page_length=_row_limit(10000, full_export),
         )
         if period_names and target_links:
@@ -702,20 +706,14 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             for offset in range(0, len(target_parents), 500):
                 related_filters = {
                     "name": ["in", target_parents[offset:offset + 500]],
-                    "docstatus": 1,
+                    **confirmed,
                 }
                 if employer:
                     related_filters["employer"] = employer
                 registered.extend(frappe.get_list(
                     "CN Remittance Allocation",
                     filters=related_filters,
-                    fields=[
-                        "name", "employer", "deposit_reference", "deposit_voucher",
-                        "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_count", "detail_status",
-                        "allocated_usd", "unallocated_usd", "justified_surplus_usd",
-                        "unclassified_usd", "allocation_detail", "result",
-                    ],
+                    fields=deposit_fields,
                     limit_page_length=0,
                 ))
         if period_names:
@@ -725,20 +723,14 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             known = {item.name for item in registered}
             for offset in range(0, len(period_names), 500):
                 related_filters = {
-                    "docstatus": 1,
+                    **confirmed,
                     "name": ["in", deposit_names_for_periods(period_names[offset:offset + 500]) or [""]],
                 }
                 if employer:
                     related_filters["employer"] = employer
                 for item in frappe.get_list(
                     "CN Remittance Allocation", filters=related_filters,
-                    fields=[
-                        "name", "employer", "deposit_reference", "deposit_voucher",
-                        "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_count", "detail_status",
-                        "allocated_usd", "unallocated_usd", "justified_surplus_usd",
-                        "unclassified_usd", "allocation_detail", "result",
-                    ], limit_page_length=0,
+                    fields=deposit_fields, limit_page_length=0,
                 ):
                     if item.name not in known:
                         registered.append(item)
@@ -746,19 +738,13 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
             visible_employers = sorted({period.employer for period in periods if period.employer})
             if visible_employers and year is not None:
                 next_year_filters = {
-                    "docstatus": 1,
+                    **confirmed,
                     "employer": ["in", visible_employers],
                     "deposit_date": ["between", [f"{year + 1}-01-01", f"{year + 1}-12-31"]],
                 }
                 for item in frappe.get_list(
                     "CN Remittance Allocation", filters=next_year_filters,
-                    fields=[
-                        "name", "employer", "deposit_reference", "deposit_voucher",
-                        "deposit_date", "deposit_currency", "deposit_amount",
-                        "amount_usd", "detail_file", "detail_count", "detail_status",
-                        "allocated_usd", "unallocated_usd", "justified_surplus_usd",
-                        "unclassified_usd", "allocation_detail", "result",
-                    ], limit_page_length=_row_limit(10000, full_export),
+                    fields=deposit_fields, limit_page_length=_row_limit(10000, full_export),
                 ):
                     if item.name in known:
                         continue
@@ -769,6 +755,7 @@ def _build_control_data(year=None, employer=None, *, full_export=False, summary_
                     if any(link.get("periodo") in period_names for link in links):
                         registered.append(item)
                         known.add(item.name)
+        registered = [deposit for deposit in registered if not is_linked_origin(deposit)]
         attach_periods(registered)
         imported_keys = {
             (row.reference, row.voucher, row.currency, money_float(row.amount))
@@ -1147,15 +1134,12 @@ def _build_work_items(
         for source, unmatched in by_import.items():
             companies = {row.get('employer') for row in unmatched if row.get('employer')}
             confirmed_employer = next(iter(companies)) if len(companies) == 1 else None
-            known_usd = [
-                net_application_amount(row)
-                for row in unmatched if row.currency == "USD"
-            ]
+            amounts = [converted_amount(row, "USD") for row in unmatched]
             add(1, label, "Aplicaciones sin período enlazado",
                 "Identificar empresa, cliente y período; revisar el cruce en la importación.",
                 employer=confirmed_employer,
                 count=len(unmatched),
-                amount_usd=sum(known_usd) if len(known_usd) == len(unmatched) else None,
+                amount_usd=money_float(sum_money(amounts)) if None not in amounts else None,
                 target_doctype="CN Accounting Import", target_name=source)
 
     return sorted(items, key=lambda item: (
