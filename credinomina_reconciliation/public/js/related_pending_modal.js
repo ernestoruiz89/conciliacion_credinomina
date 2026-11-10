@@ -1,4 +1,4 @@
-window.credinominaShowRelatedPending = function (result) {
+function cnRelatedPendingHTML(result) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     const amount = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     const displayDate = value => {
@@ -92,38 +92,12 @@ window.credinominaShowRelatedPending = function (result) {
                 <td></td></tr></tfoot>
         </table></div>${net ? `<p class="text-muted small" style="margin-top:6px">${esc(__("Total pendiente neto = depósitos + partidas de crédito − partidas de débito. Se usan los importes pendientes; los importes de las filas conservan su presentación original."))}</p>` : ""}</section>`;
     };
-    const dialog = new frappe.ui.Dialog({
-        title: __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]),
-        size: "extra-large",
-        fields: [{fieldname: "related_html", fieldtype: "HTML"},
-            ...(result.on_complete_client ? [{fieldname: "complete_client_fields", fieldtype: "Button",
-                label: __("Completar datos vacíos de la partida"), async click() {
-                    if (dialog._completing_client) return;
-                    dialog._completing_client = true;
-                    const control = dialog.fields_dict.complete_client_fields;
-                    control?.$input?.prop("disabled", true);
-                    try {
-                        if (await result.on_complete_client()) control?.$wrapper.hide();
-                    } finally {
-                        dialog._completing_client = false;
-                        control?.$input?.prop("disabled", false);
-                    }
-                }}] : [])],
-        ...(result.context || result.client ? {secondary_action_label: __("Abrir mesa de conciliación"), secondary_action() {
-            dialog.hide();
-            frappe.route_options = {cn_workbench: {employer: result.employer,
-                ...(result.context ? {context: result.context} : {client: result.client})}};
-            frappe.set_route("mesa-conciliacion");
-        }} : {}),
-        primary_action_label: __("Cerrar"), primary_action() { dialog.hide(); },
-    });
-    const clientFilters = {
-        ...(result.client_number ? {client_number: String(result.client_number)}
-            : result.national_id ? {national_id: String(result.national_id)} : {}),
-        ...(result.employer ? {employer: String(result.employer)} : {}),
-    };
     const canFilterClient = Boolean(result.client_number || result.national_id);
-    dialog.fields_dict.related_html.$wrapper.html(`${canFilterClient ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button type="button" class="btn btn-default btn-sm cn-open-account-report">${esc(__("Ver Estado de Cuenta Operativo"))}</button></div>` : ""}
+    const canRefresh = Boolean(result.context || result.client);
+    return `${canFilterClient || canRefresh ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px">
+            ${canRefresh ? `<button type="button" class="btn btn-default btn-sm cn-refresh-related-pending">${esc(__("Actualizar"))}</button>` : ""}
+            ${canFilterClient ? `<button type="button" class="btn btn-default btn-sm cn-open-account-report">${esc(__("Ver Estado de Cuenta Operativo"))}</button>` : ""}
+        </div>` : ""}
         <p class="text-muted">${esc(__("Registros pendientes de la misma empresa y cliente, aunque el crédito sea diferente. Verifique las coincidencias por nombre antes de conciliar. Solo se muestran documentos que tiene permiso de consultar."))}</p>
         <div class="cn-related-pending-summary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:12px;margin-bottom:16px;align-items:stretch">
             <div style="padding:12px;background:var(--control-bg);border-radius:6px">
@@ -145,12 +119,91 @@ window.credinominaShowRelatedPending = function (result) {
             ${panel("Aplicaciones pendientes", applications, "No se encontraron aplicaciones pendientes para este cliente.", applicationTotal)}
             ${panel("Depósitos y partidas complementarias pendientes", rows, "No se encontraron depósitos ni partidas complementarias pendientes para este cliente.", sourceTotal, true)}
         </div>
-        <p class="text-muted small" style="margin-top:8px">${esc(__("«—» en el saldo de una aplicación indica que no se puede atribuir un pendiente individual con certeza; consulte su período."))}</p>`);
-    if (canFilterClient) {
-        dialog.fields_dict.related_html.$wrapper.on("click.cnRelatedPending", ".cn-open-account-report", () => {
+        <p class="text-muted small" style="margin-top:8px">${esc(__("«—» en el saldo de una aplicación indica que no se puede atribuir un pendiente individual con certeza; consulte su período."))}</p>`;
+}
+
+window.credinominaShowRelatedPending = function (result) {
+    let refreshing = false, closed = false;
+    const title = () => __("Registros pendientes de {0}", [result.client_name || result.client_number || "—"]);
+    const canRefresh = Boolean(result.context || result.client);
+    const dialog = new frappe.ui.Dialog({
+        title: title(), size: "extra-large",
+        fields: [{fieldname: "related_html", fieldtype: "HTML"},
+            ...(result.on_complete_client ? [{fieldname: "complete_client_fields", fieldtype: "Button",
+                label: __("Completar datos vacíos de la partida"), async click() {
+                    if (dialog._completing_client || refreshing) return;
+                    dialog._completing_client = true;
+                    const control = dialog.fields_dict.complete_client_fields;
+                    control?.$input?.prop("disabled", true);
+                    try {
+                        if (await result.on_complete_client(result)) control?.$wrapper.hide();
+                    } finally {
+                        dialog._completing_client = false;
+                        control?.$input?.prop("disabled", false);
+                    }
+                }}] : [])],
+        ...(canRefresh ? {secondary_action_label: __("Abrir mesa de conciliación"), secondary_action() {
+            dialog.hide();
+            frappe.route_options = {cn_workbench: {employer: result.employer,
+                ...(result.context ? {context: result.context} : {client: result.client})}};
+            frappe.set_route("mesa-conciliacion");
+        }} : {}),
+        primary_action_label: __("Cerrar"), primary_action() { dialog.hide(); },
+        onhide() { closed = true; },
+    });
+    const wrapper = dialog.fields_dict.related_html.$wrapper;
+    const render = () => wrapper.html(cnRelatedPendingHTML(result));
+    if (canRefresh) {
+        wrapper.on("click.cnRelatedPending", ".cn-refresh-related-pending", async () => {
+            if (refreshing || closed || dialog._completing_client) return;
+            refreshing = true;
+            wrapper.find(".cn-refresh-related-pending").prop("disabled", true).text(__("Actualizando…"));
+            const complete = dialog.fields_dict.complete_client_fields;
+            complete?.$input?.prop("disabled", true);
+            try {
+                const context = result.context;
+                const response = await frappe.call(context?.complementary_item ? {
+                    method: "credinomina_reconciliation.complementary_related_client.get_related_pending",
+                    args: {item_name: context.complementary_item, selected_client: context.client_choice || result.client},
+                } : context?.import_name ? {
+                    method: "credinomina_reconciliation.accounting_related_records.get_related_pending",
+                    args: {import_name: context.import_name, source_row_name: context.source_row_name},
+                } : context?.remittance_name ? {
+                    method: "credinomina_reconciliation.accounting_related_records.get_related_pending_for_remittance",
+                    args: {remittance_name: context.remittance_name, detail_row_name: context.detail_row_name},
+                } : {
+                    method: "credinomina_reconciliation.reconciliation_workbench.get_data",
+                    args: {employer: result.employer, client: result.client},
+                });
+                if (closed) return;
+                const data = response.message;
+                if (!data || !Array.isArray(data.applications) || !Array.isArray(data.rows)) {
+                    throw new Error("Incomplete pending records response");
+                }
+                result = {...result, ...data};
+                render();
+                dialog.set_title(title());
+                if (complete && data.client_completion) complete.$wrapper.toggle(Boolean(data.client_completion.available));
+            } catch (error) {
+                if (!closed) frappe.msgprint(__("No se pudieron actualizar los registros pendientes. Se conserva la última consulta; vuelva a intentar."));
+            } finally {
+                refreshing = false;
+                wrapper.find(".cn-refresh-related-pending").prop("disabled", false).text(__("Actualizar"));
+                complete?.$input?.prop("disabled", false);
+            }
+        });
+    }
+    if (canRefresh || result.client_number || result.national_id) {
+        wrapper.on("click.cnRelatedPending", ".cn-open-account-report", () => {
+            const clientFilters = {
+                ...(result.client_number ? {client_number: String(result.client_number)}
+                    : result.national_id ? {national_id: String(result.national_id)} : {}),
+                ...(result.employer ? {employer: String(result.employer)} : {}),
+            };
             dialog.hide();
             frappe.set_route("query-report", "Estado de Cuenta Operativo", clientFilters);
         });
     }
+    render();
     dialog.show();
 };

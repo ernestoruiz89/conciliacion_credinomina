@@ -705,8 +705,8 @@ async function cn_show_related_pending(frm) {
         }
         if (!isCurrent()) return;
         window.credinominaShowRelatedPending({...data, context: data.context || context,
-            ...(data.client_completion?.available ? {on_complete_client: () =>
-                completeClient(data.client_completion.client, data.client_completion)} : {})});
+            ...(data.client_completion?.available ? {on_complete_client: (latest = data) =>
+                completeClient(latest.client_completion.client, latest.client_completion)} : {})});
     } finally {
         frm._cn_related_pending_loading = false;
         button?.prop("disabled", false);
