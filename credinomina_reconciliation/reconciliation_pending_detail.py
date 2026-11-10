@@ -11,7 +11,7 @@ from credinomina_reconciliation.parsers import canonical_credit_number
 from credinomina_reconciliation.report_employers import selected_employers
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.rounding import money, money_float
-from credinomina_reconciliation.unallocated_deposit_position import build as deposit_positions
+from credinomina_reconciliation.unallocated_deposit_position import build as deposit_positions, load_manual_targets, remaining_cash
 
 
 def _period_context(source, links, selected, company_months, filters):
@@ -38,6 +38,15 @@ def _period_context(source, links, selected, company_months, filters):
             if (lower and month < edge) or (not lower and month > edge):
                 return None
     return {}
+
+
+def _has_pending_receipt(deposit):
+    if (deposit.get('docstatus') == 2 or deposit.get('consolidated_deposit')
+            or deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}):
+        return False
+    if deposit.get('docstatus') == 1:
+        return remaining_cash(deposit) > 0
+    return bool(deposit.get('accounting_source_key')) and money(deposit.get('amount_usd')) > 0
 
 
 def _line(source, context, amount, *, complementary=False, note='', comments=''):
@@ -68,7 +77,7 @@ def _line(source, context, amount, *, complementary=False, note='', comments='')
     return row
 
 
-def build(periods, deposits, details, period_links, items, balances, filters, *, companies=None):
+def build(periods, deposits, details, period_links, items, balances, filters, *, companies=None, targets=()):
     output, links = [], defaultdict(set)
     selected = {p['name']: p for p in periods}
     company_months = {(p['employer'], str(p['payroll_month'])[:7]) for p in periods}
@@ -80,23 +89,22 @@ def build(periods, deposits, details, period_links, items, balances, filters, *,
             links[link['parent']].add(link['period'])
     parents = {}
     for deposit in deposits:
-        if (deposit.get('docstatus') == 2 or deposit.get('consolidated_deposit')
-                or deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}):
+        if not _has_pending_receipt(deposit):
             continue
         if deposit.get('docstatus') != 1:
-            if not deposit.get('accounting_source_key'):
-                continue
             deposit = dict(deposit, allocated_usd=0, justified_surplus_usd=0,
                            unclassified_usd=deposit.get('amount_usd'), allocation_detail='[]')
         parents[deposit['name']] = deposit
         try:
-            ledger = json.loads(deposit.get('allocation_detail') or '[]')
+            ledger = deposit.get('allocation_detail') or []
+            if isinstance(ledger, str):
+                ledger = json.loads(ledger)
             if isinstance(ledger, list):
                 links[deposit['name']].update(e['periodo'] for e in ledger if isinstance(e, dict) and e.get('periodo'))
         except (ValueError, TypeError):
             pass  # Cash attribution is marked unknown by deposit_positions.
     children = {r['name']: r for r in details}
-    for position in deposit_positions(list(parents.values()), details):
+    for position in deposit_positions(parents.values(), children.values(), targets):
         source = children.get(position.get('source_rows'), {})
         position = dict(position, employer=source.get('employer') or position.get('employer'),
                         difference_reason=source.get('difference_reason'))
@@ -152,13 +160,16 @@ def load(periods, filters):
         'name', 'docstatus', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
         'unclassified_usd', 'cash_identity_status', 'consolidated_deposit', 'allocation_detail', 'accounting_source_key',
     ])) if frappe.has_permission('CN Remittance Allocation', 'read') else []
+    deposits = [d for d in deposits if _has_pending_receipt(d)]
     details = list(child_records('CN Remittance Detail', [d['name'] for d in deposits],
         'CN Remittance Allocation', 'detail_rows', fields=[
             'name', 'parent', 'row_kind', 'employer', 'client_name', 'client_number', 'national_id', 'loan_number',
-            'amount_usd', 'client_credit_usd', 'company_credit_usd', 'comments', 'application_comment', 'difference_reason', 'difference_notes']))
+            'amount_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'comments',
+            'application_comment', 'difference_reason', 'difference_notes']))
     links = list(child_records('CN Remittance Period', [d['name'] for d in deposits],
         'CN Remittance Allocation', 'detail_periods', fields=['parent', 'period']))
     items = list(records('CN Complementary Item', filters={**scope, 'docstatus': ['!=', 2]},
         fields=list(dict.fromkeys([*FIELDS, 'client_number', 'client_name', 'source_client_name', 'loan_number'])))) \
         if frappe.has_permission('CN Complementary Item', 'read') else []
-    return build(periods, deposits, details, links, items, load_balances(items), filters, companies=companies)
+    return build(periods, deposits, details, links, items, load_balances(items), filters,
+                 companies=companies, targets=load_manual_targets(deposits))

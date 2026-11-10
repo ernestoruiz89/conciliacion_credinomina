@@ -2,7 +2,12 @@ from copy import deepcopy
 import json
 from unittest.mock import patch
 
+import frappe
+import pytest
+
 from credinomina_reconciliation import reconciliation_pending_detail as pending
+from credinomina_reconciliation import unallocated_deposit_position as positions
+from credinomina_reconciliation.allocation_origin import MANUAL
 from credinomina_reconciliation.report_employers import selected_employers
 from credinomina_reconciliation.conciliacion_credinomina.report.resumen_de_conciliacion import resumen_de_conciliacion as summary
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_por_empresa import estado_de_cuenta_por_empresa as statement
@@ -36,6 +41,93 @@ def test_partial_detail_is_a_separate_line_for_only_actual_unassigned_cash():
     assert row['has_difference'] and row['cash_control'].startswith('Revisar:')
     assert 'DEP' in row['observations'] and '15/05/2026' in row['observations']
     assert sources == original
+
+
+def test_paid_manual_details_from_a_multi_period_deposit_do_not_reappear_as_pending():
+    ledger, details, targets = [], [], []
+    for name, amount in (('FIRST', 15.45), ('SECOND', 292)):
+        ledger.append(dict(tipo='Aplicacion historica', periodo='P', aplicacion_id=name, origen=MANUAL, importe_usd=amount))
+        targets.append(dict(name='T-' + name, parent='DEP', historical_application=name,
+                            detail_row=name, amount_usd=amount, result='Aplicada'))
+        details.append(detail(name=name, amount_usd=amount, linked_usd=amount, pending_usd=0,
+            matched_targets=json.dumps([dict(claim_id='H:' + name, instruction_id='T-' + name, amount_usd=amount)])))
+    ledger.append(dict(tipo='Aplicacion historica', periodo='OTHER', aplicacion_id='THIRD',
+                       fila_detalle='THIRD', importe_usd=15.45))
+    details.extend([detail(name='THIRD', amount_usd=15.45), detail(name='OTHER-CLIENT', client_number='456', amount_usd=.06)])
+    dep = deposit(allocation_detail=json.dumps(ledger), amount_usd=322.93, allocated_usd=322.90, unclassified_usd=.03)
+    original = deepcopy((dep, details, targets))
+
+    def children(doctype, parents, parenttype, parentfield, *, fields, **kwargs):
+        assert list(parents) == ['DEP'] and parenttype == 'CN Remittance Allocation'
+        source = {'CN Remittance Detail': ('detail_rows', details),
+                  'CN Remittance Period': ('detail_periods', [dict(parent='DEP', period='OTHER')]),
+                  'CN Remittance Target': ('targets', targets)}
+        field, rows = source[doctype]
+        assert field == parentfield
+        return [{key: row.get(key) for key in fields} for row in rows]
+
+    with patch.object(frappe, 'has_permission', return_value=True), \
+            patch.object(pending, 'records', side_effect=lambda dt, **kw: [dep] if dt == 'CN Remittance Allocation' else []), \
+            patch.object(pending, 'child_records', side_effect=children), \
+            patch.object(positions, 'child_records', side_effect=children):
+        rows = pending.load([PERIOD, dict(PERIOD, name='OTHER')], {})
+    assert [(row['client_number'], row['deposit_usd']) for row in rows] == [('456', None), ('', .03)]
+    assert (dep, details, targets) == original
+
+
+@pytest.mark.parametrize('conflict', ['pending', 'shared', 'target_amount', 'instruction', 'claim', 'explicit_other_row', 'automatic'])
+def test_inconclusive_legacy_manual_links_do_not_hide_cash(conflict):
+    payment = dict(tipo='Aplicacion historica', aplicacion_id='A', periodo='P', origen=MANUAL, importe_usd=20)
+    target = dict(name='T', parent='DEP', detail_row='ROW', historical_application='A', amount_usd=20, result='Aplicada')
+    match = dict(instruction_id='T', claim_id='H:A', amount_usd=20)
+    targets = [target]
+    if conflict == 'pending':
+        target['result'] = 'Pendiente'
+    elif conflict == 'shared':
+        targets.append(dict(target, name='T2', detail_row='ANOTHER'))
+    elif conflict == 'target_amount':
+        target['amount_usd'] = 21
+    elif conflict == 'instruction':
+        match['instruction_id'] = 'OTHER'
+    elif conflict == 'claim':
+        match['claim_id'] = 'H:OTHER'
+    elif conflict == 'explicit_other_row':
+        payment['fila_detalle'] = 'ANOTHER'
+    elif conflict == 'automatic':
+        payment['origen'] = 'Automática FIFO'
+    rows = positions.build([deposit(allocation_detail=[payment])], [detail(matched_targets=[match])], targets)
+    assert [(r['client_name'], r['deposit_pending_usd']) for r in rows] == [('Juan', None), ('Sin cliente individual', 20)]
+
+
+def test_manual_cash_split_between_old_and_explicit_entries_is_counted_once():
+    payment = dict(tipo='Cobranza', periodo='P', fila_id='INSTALMENT', origen=MANUAL, importe_usd=8)
+    ledger = [payment, dict(payment, fila_detalle='ROW', importe_usd=12)]
+    target = dict(name='T', parent='DEP', detail_row='ROW', period='P', row_key='INSTALMENT', amount_usd=20, result='Aplicada')
+    row = detail(matched_targets=[dict(instruction_id='T', claim_id='C:CHILD', amount_usd=20)])
+    result = positions.build([deposit(allocation_detail=ledger)], [row], [target])
+    assert [(r['client_name'], r['deposit_pending_usd']) for r in result] == [('Juan', 20)]
+
+
+@pytest.mark.parametrize('first, second', [(15, 25), (20, 20)])
+def test_shared_application_uses_each_confirmed_instruction_once(first, second):
+    details, targets, ledger = [], [], []
+    for row, amount in [('A', first), ('B', second)]:
+        targets.append(dict(name='T' + row, parent='DEP', detail_row=row, historical_application='SHARED',
+                            amount_usd=amount, result='Aplicada'))
+        details.append(detail(name=row, client_number=row, amount_usd=amount + (5 if row == 'B' else 0),
+            matched_targets=[dict(instruction_id='T' + row, claim_id='H:SHARED', amount_usd=amount)]))
+        ledger.append(dict(tipo='Aplicacion historica', aplicacion_id='SHARED', origen=MANUAL, importe_usd=amount))
+    dep = deposit(allocation_detail=ledger, amount_usd=45, allocated_usd=40, unclassified_usd=5)
+    for explicit in (False, True):
+        if explicit:
+            ledger[0]['fila_detalle'] = 'A'
+        rows = positions.build([dep], details, targets)
+        assert [(r['client_number'], r['deposit_pending_usd']) for r in rows] == [('B', 5)]
+    # Equal journal and target totals alone cannot establish individual amounts.
+    ledger[0].pop('fila_detalle')
+    ledger[0]['importe_usd'], ledger[1]['importe_usd'] = 10, 30
+    rows = positions.build([dep], details, targets)
+    assert [r['deposit_pending_usd'] for r in rows] == [None, None, 5]
 
 
 def test_credits_do_not_reappear_and_fully_distributed_cash_is_excluded():
