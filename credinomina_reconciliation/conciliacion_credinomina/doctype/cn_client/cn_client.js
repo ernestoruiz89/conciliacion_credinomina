@@ -9,7 +9,7 @@ frappe.ui.form.on("CN Client", {
                 }
                 frappe.set_route("query-report", "Estado de Cuenta Operativo", {
                     client_number: String(frm.doc.client_number), employer: frm.doc.employer,
-                    detailed_columns: 1, only_open: 0,
+                    position_type: "Aplicaciones, depósitos y partidas", detailed_columns: 0, only_open: 1,
                 });
             });
         }

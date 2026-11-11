@@ -6,12 +6,14 @@ from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
-from credinomina_reconciliation.client_position import load_position, normalize_position_type, summarize_selection
+from credinomina_reconciliation.client_position import (
+    FINANCIAL_VIEW, load_position, normalize_position_type, selected_position_types, summarize_selection,
+)
 
 
 def execute(filters=None):
     filters = frappe._dict(filters or {})
-    filters.position_type = normalize_position_type(filters.get('position_type'))
+    filters.position_type = normalize_position_type(filters.get('position_type', FINANCIAL_VIEW))
     filters.detailed_columns = cint(filters.get('detailed_columns'))
     columns, collections = _collection_report(filters)
     data = load_position(collections, filters)
@@ -180,7 +182,8 @@ def get_collection_columns():
 
 
 def get_columns(filters=None):
-    view = normalize_position_type((filters or {}).get('position_type'))
+    view = normalize_position_type((filters or {}).get('position_type', FINANCIAL_VIEW))
+    kinds = selected_position_types(view)
     columns = [
         {'fieldname': 'event_date', 'label': _('Fecha'), 'fieldtype': 'Date', 'width': 105},
         {'fieldname': 'position_type', 'label': _('Tipo'), 'fieldtype': 'Data', 'width': 230},
@@ -192,20 +195,20 @@ def get_columns(filters=None):
         {'fieldname': 'source_document', 'label': _('Documento de origen'), 'fieldtype': 'Dynamic Link', 'options': 'source_doctype', 'width': 190},
     ]
     metrics = []
-    if not view or view == 'Cobranza':
+    if kinds is None or 'Cobranza' in kinds:
         metrics.extend([('expected_usd', 'Cobranza US$'), ('quality_applied_usd', 'Aplicado para control US$'),
                         ('quality_difference_usd', 'Diferencia de control US$')])
-    if not view or view == 'Aplicación':
+    if kinds is None or 'Aplicación' in kinds:
         metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
                         ('applied_pending_usd', 'Aplicado pendiente US$')])
-    if not view or view == 'Depósito con saldo pendiente':
+    if kinds is None or 'Depósito con saldo pendiente' in kinds:
         metrics.append(('deposit_pending_usd', 'Saldo pendiente del depósito US$'))
         metrics.append(('deposit_detail_pending_usd', 'Pendiente según detalle US$'))
-    if not view or view == 'Partida complementaria':
+    if kinds is None or 'Partida complementaria' in kinds:
         metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
                         ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
                         ('credit_pending_usd', 'Saldo a favor por gestionar US$')])
-    if not view or view == 'CxC por ajuste':
+    if kinds is None or 'CxC por ajuste' in kinds:
         metrics.extend([('company_receivable_usd', 'CxC a la empresa por ajuste US$'),
                         ('employee_receivable_usd', 'CxC al empleado por ajuste US$')])
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Currency', 'options': 'usd_currency', 'width': 150}
@@ -215,16 +218,17 @@ def get_columns(filters=None):
                        ('subcategory', 'Subcategoría', 175), ('reason_type', 'Motivo', 175), ('difference_reason', 'Razón de la diferencia', 190), ('treatment_status', 'Tratamiento', 200),
                        ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                        ('observation', 'Observación', 350), ('source_rows', 'Filas de origen', 170)])
-    if not (filters or {}).get('detailed_columns'):
-        secondary = {'client_number', 'observation', 'source_rows', 'subcategory', 'reason_type', 'treatment_status'}
-        if view:
-            secondary.add('position_type')
-        if view == 'Partida complementaria':
-            secondary.update({'loan_number', 'complementary_usd', 'complementary_used_usd', 'credit_resolved_usd'})
-        if view != 'Partida complementaria':
-            secondary.update({'category', 'accounting_status', 'management_status'})
+    if not cint((filters or {}).get('detailed_columns')):
+        primary = {'event_date', 'employer', 'client_name', 'loan_number', 'source_document', 'operational_status',
+                   'applied_usd', 'remitted_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_usd'}
+        if not view or view == FINANCIAL_VIEW:
+            primary.add('position_type')
+        if not view or view == 'Cobranza':
+            primary.update({'expected_usd', 'quality_applied_usd', 'quality_difference_usd'})
+        if not view or view == 'CxC por ajuste':
+            primary.update({'company_receivable_usd', 'employee_receivable_usd'})
         for column in columns:
-            if column['fieldname'] in secondary:
+            if column['fieldname'] not in primary:
                 column['hidden'] = 1
     if view == 'Partida complementaria':
         # Put classification and the two remaining obligations before audit data.
