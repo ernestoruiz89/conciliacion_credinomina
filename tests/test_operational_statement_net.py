@@ -36,7 +36,7 @@ def test_immsa_net_uses_pending_amounts_and_signed_complementaries_once():
             complementary('C', amount=108.51, used=100, source_credit=108.51)]
     before = deepcopy(rows)
     result = figures(rows)
-    assert result['Complementarias pendientes netas US$']['value'] == 45.76
+    assert result['Complementarias pendientes netas US$']['value'] == -45.76
     assert result['Saldo neto de conciliación US$']['value'] == 6224.54
     assert rows == before
 
@@ -50,6 +50,8 @@ def test_immsa_net_uses_pending_amounts_and_signed_complementaries_once():
 def test_sign_follows_accounting_evidence_not_category_or_client(values, expected):
     row = complementary(**values)
     assert row['_signed_complementary_pending_usd'] == expected
+    assert row['complementary_pending_net_usd'] == (-expected if expected is not None else None)
+    assert position.summarize_selection([row], FILTERS)[1]['complementary_pending_net_usd'] == row['complementary_pending_net_usd']
     result = figures([row])
     if expected is None:
         assert 'Saldo neto de conciliación US$' not in result

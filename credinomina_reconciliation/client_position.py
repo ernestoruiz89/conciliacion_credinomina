@@ -102,6 +102,7 @@ def build_position(collections, applications, items, balances, clients, filters,
             source_doctype='CN Accounting Import' if source.get('source_import') else 'CN Reconciliation Period',
             source_document=source.get('source_import') or source.get('period'),
             remitted_usd=source.get('deposit_cash_usd', source.get('paid_usd')), applied_pending_usd=source.get('amount_usd'),
+            assigned_usd=application_assigned(source),
             rounding_adjustment_usd=source.get('adjustment_usd'),
             operational_status=state, is_open=state != 'Conciliado')
         row.pop('_statement_parts', None)
@@ -124,6 +125,7 @@ def build_position(collections, applications, items, balances, clients, filters,
             continue
         financial_pending = (balance.get('pending_usd') is None or bool(money(balance.get('pending_usd')))
                              or balance['financial_status'] == 'Revisar distribución')
+        signed_pending = signed_complementary_pending(item, balance['pending_usd'])
         output.append(dict(
             position_type='Partida complementaria', event_date=item.get('posting_date'),
             source_doctype='CN Complementary Item', source_document=item['name'],
@@ -136,7 +138,9 @@ def build_position(collections, applications, items, balances, clients, filters,
             difference_notes=item.get('difference_notes'),
             treatment_status=balance['financial_status'], complementary_usd=balance['original_usd'],
             complementary_used_usd=balance['used_usd'], complementary_pending_usd=balance['pending_usd'],
-            _signed_complementary_pending_usd=signed_complementary_pending(item, balance['pending_usd']),
+            _signed_complementary_pending_usd=signed_pending,
+            complementary_pending_net_usd=(money_float(-money(signed_pending))
+                if signed_pending is not None and balance['financial_status'] != 'Revisar distribución' else None),
             credit_pending_usd=balance['management_pending_usd'], credit_resolved_usd=item.get('credit_resolved_usd'),
             accounting_status=balance['accounting_status'], operational_status=reconciliation_state(balance),
             management_status=balance.get('management_status'),
@@ -198,8 +202,8 @@ def summarize_selection(data, filters=None):
     """Totals of the selected rows, only for the selected financial dimensions.
 
     An unknown amount suppresses that monetary total instead of silently adding
-    zero. Signed complementary balances are magnitudes of separate obligations,
-    never a net against customer credits or application receivables.
+    zero. Complementary balances retain their magnitude for the audit columns;
+    the compact column uses credit-positive, debit-negative pending amounts.
     """
     view = normalize_position_type((filters or {}).get('position_type'))
     kinds = selected_position_types(view) if view else {row['position_type'] for row in data}
@@ -229,7 +233,8 @@ def summarize_selection(data, filters=None):
     if 'Aplicación' in kinds:
         rows = [row for row in data if row['position_type'] == 'Aplicación']
         total(rows, 'applied_usd', 'Aplicado neto US$')
-        total(selected_cash(rows), 'remitted_usd', 'Depósito asignado US$', 'green')
+        total(rows, 'assigned_usd', 'Asignado US$', 'green')
+        total(selected_cash(rows), 'remitted_usd')
         total(rows, 'applied_pending_usd', 'CxC por aplicaciones US$', 'orange')
     if 'Depósito con saldo pendiente' in kinds:
         deposits = [row for row in data if row['position_type'] == 'Depósito con saldo pendiente']
@@ -245,12 +250,13 @@ def summarize_selection(data, filters=None):
                    or (row.get('complementary_pending_usd') is not None and money(row['complementary_pending_usd']) < 0)]
         review_ids = {id(row) for row in reviews}
         valid = [row for row in rows if id(row) not in review_ids]
-        total(valid, 'complementary_pending_usd', 'Complementarias pendientes de conciliar US$', 'orange')
+        total(valid, 'complementary_pending_usd')
+        total(rows, 'complementary_pending_net_usd', 'Complementaria pendiente US$', 'orange')
         total(rows, 'complementary_usd')
         total(rows, 'complementary_used_usd')
         if reviews:
-            # The KPI above counts verified balances. The table total covers
-            # every visible movement, so an unresolved balance stays unknown.
+            # Audit totals cover every visible movement, so an unresolved
+            # balance cannot become a numeric total of only the valid subset.
             amounts['complementary_pending_usd'] = None
             count('Partidas con inconsistencias', len(reviews), 'red')
             observed = [dict(row, observed_usd=abs(money(row.get('complementary_pending_usd')))
@@ -273,6 +279,18 @@ def summarize_selection(data, filters=None):
 
 def summary(data, filters=None):
     return summarize_selection(data, filters)[0]
+
+
+def application_assigned(source):
+    """Confirmed coverage, without counting a reduction of applied net twice.
+
+    paid_usd includes executed deposit/credit coverage. Signed reconciliation
+    differences are distinct from application_adjustment_usd, which is already
+    deducted from applied_usd. Never derive an allocation from a capped balance.
+    """
+    if source.get('paid_usd') is None or source.get('adjustment_usd', 0) is None:
+        return None
+    return money_float(money(source['paid_usd']) - money(source.get('adjustment_usd')))
 
 
 def signed_complementary_pending(item, pending):
@@ -300,7 +318,7 @@ def net_balance_summary(data, amounts, filters):
         figures.append(dict(label='Complementarias sin saldo o signo contable determinable', value=unknown,
                             datatype='Int', indicator='red'))
     else:
-        signed = sum_money(row['_signed_complementary_pending_usd'] for row in items)
+        signed = -sum_money(row['_signed_complementary_pending_usd'] for row in items)
         figures.append(dict(label='Complementarias pendientes netas US$', value=money_float(signed),
                             datatype='Currency', currency='USD', indicator='blue'))
     missing = unknown + sum(amounts.get(field, 0) is None for field in ('applied_pending_usd', 'deposit_pending_usd'))
@@ -308,7 +326,7 @@ def net_balance_summary(data, amounts, filters):
         figures.append(dict(label='Saldo neto no determinable · importes por revisar', value=missing,
                             datatype='Int', indicator='red'))
     else:
-        balance = money(amounts.get('applied_pending_usd')) - money(amounts.get('deposit_pending_usd')) + signed
+        balance = money(amounts.get('applied_pending_usd')) - money(amounts.get('deposit_pending_usd')) - signed
         figures.append(dict(label='Saldo neto de conciliación US$', value=money_float(balance),
                             datatype='Currency', currency='USD', indicator='blue'))
     return figures

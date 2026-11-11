@@ -21,15 +21,18 @@ def run():
     for row in credits:
         selected = {**filters, 'operational_status': 'Conciliado', 'category': row['category'],
                     'management_status': row['management_status'], 'employer': row['employer']}
-        columns, found, message, _, figures = execute(selected)
+        columns, found, message, _, figures = execute(dict(selected, detailed_columns=1))
         assert row['source_document'] in {entry['source_document'] for entry in found}
         assert 'Totales de la selección' in message
         assert not next(column for column in columns if column['fieldname'] == 'category').get('hidden')
         assert not any(figure['label'] == 'CxC por aplicaciones US$' for figure in figures)
     figures = {figure['label']: figure['value'] for figure in summary(rows, filters)}
-    assert money(figures['Complementarias pendientes de conciliar US$']) == sum(
-        (money(row['complementary_pending_usd']) for row in rows
-         if row['operational_status'] != 'Revisar distribución' and money(row['complementary_pending_usd']) >= 0), money(0))
+    unknown = sum(row['complementary_pending_net_usd'] is None for row in rows)
+    if unknown:
+        assert figures['Complementaria pendiente US$ · importes sin determinar'] == unknown
+    else:
+        assert money(figures['Complementaria pendiente US$']) == sum(
+            (money(row['complementary_pending_net_usd']) for row in rows), money(0))
     assert money(figures['Saldos a favor por gestionar US$']) == sum(
         (money(row['credit_pending_usd']) for row in rows), money(0))
     return dict(saved_items=len(rows), documented_credits=len(credits), totals=figures)

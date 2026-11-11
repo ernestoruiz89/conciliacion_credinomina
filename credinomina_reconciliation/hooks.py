@@ -19,6 +19,10 @@ add_to_apps_screen = [{
 
 required_apps = []
 
+override_whitelisted_methods = {
+    'frappe.desk.query_report.export_query': 'credinomina_reconciliation.operational_statement_export.export_query',
+}
+
 global_search_doctypes = {
     "Default": [
         {"doctype": "CN Remittance Allocation"},

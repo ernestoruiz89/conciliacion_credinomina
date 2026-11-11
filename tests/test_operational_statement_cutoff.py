@@ -120,6 +120,7 @@ def test_shared_signed_funding_never_invents_individual_bank_cash(company_differ
     filters = {'position_type': 'Aplicación'}
     rows = execute_at(context(apps), [dep], items, filters=filters)[1]
     assert [r['remitted_usd'] for r in rows] == [None, None, amount]
+    assert [r['assigned_usd'] for r in rows] == [40, 60, 100]
     assert rows[-1]['applied_usd'] == 100 and rows[-1]['applied_pending_usd'] == 0
     customer = execute_at(context(apps), [dep], items, filters=dict(filters, client_number='7'))[1]
     assert customer[-1]['remitted_usd'] is None
@@ -134,6 +135,7 @@ def test_credit_application_uses_its_date_and_does_not_become_new_bank_cash():
         rows = execute_at(deposits=deposits, items=[credit], day=day, filters={'position_type': 'Aplicación'})[1]
         assert rows[0]['remitted_usd'] == rows[-1]['remitted_usd'] == 65
         assert rows[0]['applied_pending_usd'] == pending
+        assert rows[0]['assigned_usd'] == rows[-1]['assigned_usd'] == 100 - pending
 
 
 @pytest.mark.parametrize('day,remaining', [('2025-04-30', 20), ('2025-05-01', 5), ('2025-06-01', 10)])

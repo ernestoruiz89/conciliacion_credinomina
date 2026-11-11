@@ -66,8 +66,8 @@ def test_classification_filters_do_not_discard_an_unsettled_non_conciliatory_amo
 
 def test_each_selected_type_has_its_own_totals_even_with_no_matching_rows():
     labels = {
-        'Aplicación': ['Aplicado neto US$', 'Depósito asignado US$', 'CxC por aplicaciones US$'],
-        'Partida complementaria': ['Complementarias pendientes de conciliar US$', 'Saldos a favor por gestionar US$', 'Partidas pendientes de registro contable'],
+        'Aplicación': ['Aplicado neto US$', 'Asignado US$', 'CxC por aplicaciones US$'],
+        'Partida complementaria': ['Complementaria pendiente US$', 'Saldos a favor por gestionar US$', 'Partidas pendientes de registro contable'],
         'Cobranza': ['Cobranza US$', 'Aplicado para control US$', 'Filas con diferencias de control'],
         'CxC por ajuste': ['CxC a la empresa por ajustes US$', 'CxC al empleado por ajustes US$'],
     }
@@ -78,24 +78,24 @@ def test_each_selected_type_has_its_own_totals_even_with_no_matching_rows():
     assert summary([]) == []
 
 
-def test_complement_totals_do_not_net_separate_obligations_or_include_excluded_apps():
-    items = [credit(), credit(name='C2', category='Otros ingresos', amount_usd=-50, docstatus=0)]
+def test_complement_totals_use_accounting_sign_without_including_management_or_excluded_apps():
+    items = [credit(), credit(name='C2', category='Otros ingresos', amount_usd=-50, docstatus=0, source_debit=50)]
     rows = build_position([], [], items, {item['name']: financial_balance(item) for item in items}, [], {})
     totals = {figure['label']: figure['value'] for figure in summary(rows)}
-    assert totals['Complementarias pendientes de conciliar US$'] == 50
+    assert totals['Complementaria pendiente US$'] == -50
     assert totals['Saldos a favor por gestionar US$'] == 15
     assert totals['Partidas pendientes de registro contable'] == 2
     assert 'CxC por aplicaciones US$' not in totals
 
 
 def test_unknown_application_amount_is_not_a_zero_or_partial_total():
-    rows = [dict(position_type='Aplicación', applied_usd=100, remitted_usd=60, applied_pending_usd=40),
-            dict(position_type='Aplicación', applied_usd=None, remitted_usd=0, applied_pending_usd=None)]
+    rows = [dict(position_type='Aplicación', applied_usd=100, assigned_usd=60, remitted_usd=60, applied_pending_usd=40),
+            dict(position_type='Aplicación', applied_usd=None, assigned_usd=0, remitted_usd=0, applied_pending_usd=None)]
     totals = {figure['label']: figure for figure in summary(rows)}
     assert 'CxC por aplicaciones US$' not in totals
     assert totals['CxC por aplicaciones US$ · importes sin determinar']['value'] == 1
     assert totals['CxC por aplicaciones US$ · importes sin determinar']['datatype'] == 'Int'
-    assert totals['Depósito asignado US$']['value'] == 60
+    assert totals['Asignado US$']['value'] == 60
 
 
 def test_credit_with_conflicting_original_evidence_stays_under_review_in_both_reports():
