@@ -14,6 +14,7 @@ import frappe
 from credinomina_reconciliation.application_aging import application_balances
 from credinomina_reconciliation.application_context import load_application_context
 from credinomina_reconciliation.accounting_client_summary import collection_links, collection_link_issue
+from credinomina_reconciliation.company_conversion import KIND as COMPANY_DIFFERENCE
 from credinomina_reconciliation.complementary_balances import FIELDS, CREDIT_CATEGORIES, financial_balance
 from credinomina_reconciliation.core_item_position import signed_pending
 from credinomina_reconciliation.deposit_adjustment_receivables import build_receivables
@@ -41,6 +42,38 @@ def _journal(value, name):
 def _dated_total(entries, field, amount, cutoff):
     # Validate dates even after the cutoff: an undated entry cannot be excluded safely.
     return sum_money(row.get(amount) for row in entries if _day(row.get(field)) <= cutoff)
+
+
+def _company_difference(deposit, journal, sources):
+    """Validate stored company coverage, without reclassifying it or checking FX."""
+    entries = [entry for entry in journal if entry.get('tipo') == COMPANY_DIFFERENCE]
+    if not entries:
+        return None
+    entry = entries[0]
+    proof = entry.get('conversion_empresa')
+    message = f"{deposit['name']}: la documentación de la diferencia de empresa está incompleta o es contradictoria."
+    if len(entries) != 1 or not isinstance(proof, dict):
+        raise ValueError(message)
+    ids = proof.get('application_ids')
+    if (not isinstance(ids, list) or not ids or any(not isinstance(key, str) or not key for key in ids)
+            or len(set(ids)) != len(ids)):
+        raise ValueError(message)
+    loans = [entry for entry in journal if entry.get('tipo') == 'Aplicacion historica']
+    try:
+        valid = (proof.get('deposit') == deposit['name']
+            and proof.get('employer') and proof['employer'] == deposit.get('employer') == entry.get('empresa')
+            and proof.get('period') and proof['period'] == entry.get('periodo')
+            and proof.get('difference_row') and proof['difference_row'] == entry.get('fila_diferencia')
+            and money(proof.get('amount_usd')) == money(entry.get('importe_usd')) == money(-.01)
+            and set(ids) == {row.get('aplicacion_id') for row in loans}
+            and all(row.get('periodo') == proof['period'] and money(row.get('importe_usd')) > 0 for row in loans))
+    except (TypeError, ValueError, ArithmeticError):
+        valid = False
+    if not valid:
+        raise ValueError(message)
+    if not set(ids) <= sources.keys():
+        raise ValueError(f"{deposit['name']}: no está disponible una aplicación vinculada; revise sus permisos y vínculos.")
+    return proof
 
 
 def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False):
@@ -224,8 +257,20 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         credits = credits_by_deposit[deposit['name']]
         surplus = sum_money(item.get('amount_usd') for item in credits)
         deposit['justified_surplus_usd'] = money_float(surplus)
+        journal = _journal(deposit.get('allocation_detail'), deposit['name'])
+        company_difference = _company_difference(deposit, journal, all_sources)
+        if company_difference:
+            participants = set(company_difference['application_ids'])
+            included = participants & eligible_sources.keys()
+            if included and included != participants:
+                # The company cent has no individual cash split. A cut through
+                # its participants cannot assign it to the remaining clients.
+                warnings.append(f"{deposit['name']}: la diferencia de empresa abarca aplicaciones fuera del corte; efectivo conservado sin asignar, sin inventar distribución por cliente.")
+                journal, company_difference = [], None
+            if not included:
+                company_difference = None
         entries = []
-        for entry in _journal(deposit.get('allocation_detail'), deposit['name']):
+        for entry in journal:
             kind, key = entry.get('tipo'), None
             if kind == 'Aplicacion historica':
                 key = entry.get('aplicacion_id')
@@ -272,6 +317,9 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                         or (claim.startswith('C:') and key in collections and key not in future_collections
                             and collection_sources[key] & eligible_sources.keys())):
                     continue
+            elif kind == COMPANY_DIFFERENCE:
+                if not company_difference:
+                    continue
             else:
                 raise ValueError(f"{deposit['name']}: tipo de distribución no reconocido para el corte.")
             entries.append((entry, key))
@@ -284,11 +332,14 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
             warnings.append(f"{deposit['name']}: la distribución requiere una partida posterior al corte; efectivo conservado sin asignar, sin inventar distribución por cliente.")
             entries, assigned = [], money(0)
         deposit['allocated_usd'] = money_float(assigned)
+        deposit['allocation_detail'] = [entry for entry, _key in entries]
         if '_statement_detail_rows' in deposit:
             from credinomina_reconciliation.deposit_detail_classification import prepare_details
             deposit['_deposit_detail_classification'] = prepare_details(deposit, [entry for entry, _key in entries], credits)
         for entry, key in entries:
             amount, kind = money(entry.get('importe_usd')), entry['tipo']
+            if kind == COMPANY_DIFFERENCE:
+                continue  # Net bank cash once, never reduce a client's coverage.
             if kind == 'Partida complementaria':
                 distributions[key].append(dict(deposit=deposit['name'], date=str(deposit['deposit_date']),
                     amount_usd=money_float(amount), period=entry.get('periodo') or '',
@@ -300,6 +351,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                           referencia=deposit['name'], diferencia_usd=entry.get('diferencia_usd') or 0)
             if is_historical:
                 source = eligible_sources[key]
+                if company_difference and key in company_difference['application_ids']:
+                    detail['conversion_empresa'] = company_difference
                 source['historical_remitted_usd'] = money_float(money(source['historical_remitted_usd']) + amount)
                 source['historical_detail'].append(detail)
                 source['match_status'] = 'Conciliado'
