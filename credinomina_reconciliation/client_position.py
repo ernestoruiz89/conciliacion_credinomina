@@ -11,9 +11,18 @@ from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
+FINANCIAL_VIEW = 'Aplicaciones, depósitos y partidas'
+FINANCIAL_TYPES = frozenset({'Aplicación', 'Depósito con saldo pendiente', 'Partida complementaria'})
+
+
 def normalize_position_type(value):
     # Preserve saved report filters and links using the former caption.
     return 'Depósito con saldo pendiente' if value == 'Depósito sin asignar' else value
+
+
+def selected_position_types(value):
+    view = normalize_position_type(value)
+    return FINANCIAL_TYPES if view == FINANCIAL_VIEW else frozenset({view}) if view else None
 
 
 def _within_dates(when, filters):
@@ -146,8 +155,8 @@ def build_position(collections, applications, items, balances, clients, filters,
             observation='; '.join(filter(None, [item.get('observation'), item.get('description')])),
             is_open=item['receivable_usd'] is None or bool(money(item['receivable_usd'])), usd_currency='USD'))
     output.extend(unallocated_deposits)
-    view = normalize_position_type(filters.get('position_type'))
-    return sorted([row for row in output if (not view or row['position_type'] == view) and _matches(row, filters)],
+    kinds = selected_position_types(filters.get('position_type'))
+    return sorted([row for row in output if (kinds is None or row['position_type'] in kinds) and _matches(row, filters)],
                   key=lambda row: (str(row.get('event_date') or ''), row['position_type'],
                                    row.get('client_name') or '', row.get('source_document') or ''))
 
@@ -156,21 +165,21 @@ def build_position(collections, applications, items, balances, clients, filters,
 def load_position(collections, filters):
     if filters.get('from_month') and filters.get('to_month') and getdate(filters['from_month']) > getdate(filters['to_month']):
         frappe.throw('La fecha Desde no puede ser posterior a Hasta.')
-    view = normalize_position_type(filters.get('position_type'))
+    kinds = selected_position_types(filters.get('position_type'))
     applications = []
     scope = {'employer': filters['employer']} if filters.get('employer') else {}
     periods = {}
-    if not view or view == 'Aplicación':
+    if kinds is None or 'Aplicación' in kinds:
         inputs = load_application_context(employer=filters.get('employer'), include_cash_breakdown=True)
         applications = application_balances(*inputs, nowdate(), include_settled=True, statement_detail=True)
         periods = inputs[2]
         apply_cash_breakdown(applications, periods, inputs[3])
-    elif filters.get('collection_cycle') and view in {'Partida complementaria', 'CxC por ajuste'}:
+    elif filters.get('collection_cycle') and kinds.intersection({'Partida complementaria', 'CxC por ajuste'}):
         periods = {p.name: p for p in records('CN Reconciliation Period', filters=scope,
             fields=['name', 'collection_cycle', 'reconciliation_mode'])}
     fields = list(dict.fromkeys([*FIELDS, 'client_number', 'loan_number', 'credit_client', 'subcategory', 'reason_type',
         'client_name', 'source_client_name', 'credit_resolved_usd']))
-    items = list(records('CN Complementary Item', fields=fields, filters={**scope, 'docstatus': ['!=', 2]})) if not view or view == 'Partida complementaria' else []
+    items = list(records('CN Complementary Item', fields=fields, filters={**scope, 'docstatus': ['!=', 2]})) if kinds is None or 'Partida complementaria' in kinds else []
     clients = list(records('CN Client', filters=scope, fields=['name', 'client_number', 'client_name', 'national_id', 'employer'])) if items else []
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
     from credinomina_reconciliation.unallocated_deposit_position import load as load_unallocated_deposits
@@ -178,8 +187,8 @@ def load_position(collections, filters):
         period_cycles={name: p.get('collection_cycle') or ('Mensual' if p.get('reconciliation_mode') == 'Operativa' else '')
                        for name, p in periods.items()},
         adjustment_receivables=load_receivables(employer=filters.get('employer'), include_settled=not cint(filters.get('only_open')))
-                              if not view or view == 'CxC por ajuste' else [],
-        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if not view or view == 'Depósito con saldo pendiente' else [])
+                              if kinds is None or 'CxC por ajuste' in kinds else [],
+        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if kinds is None or 'Depósito con saldo pendiente' in kinds else [])
 
 
 def summarize_selection(data, filters=None):
@@ -190,7 +199,7 @@ def summarize_selection(data, filters=None):
     never a net against customer credits or application receivables.
     """
     view = normalize_position_type((filters or {}).get('position_type'))
-    kinds = {view} if view else {row['position_type'] for row in data}
+    kinds = selected_position_types(view) if view else {row['position_type'] for row in data}
     figures, amounts = [], {}
 
     def count(label, value, color='orange'):

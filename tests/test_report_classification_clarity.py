@@ -105,13 +105,15 @@ def test_credit_with_conflicting_original_evidence_stays_under_review_in_both_re
     assert build_detail([], [], [item], [])[0]['client_credit_usd'] == -15
 
 
-def test_classification_is_visible_in_compact_complement_report_and_traceable_in_detail():
+def test_complement_classification_is_available_when_expanding_columns():
     compact = {column['fieldname']: column for column in get_columns({'position_type': 'Partida complementaria'})}
-    assert not compact['category'].get('hidden')
-    assert not compact['accounting_status'].get('hidden')
-    assert not compact['management_status'].get('hidden')
+    assert compact['category']['hidden'] == 1
+    assert compact['accounting_status']['hidden'] == 1
+    assert compact['management_status']['hidden'] == 1
     assert list(compact)[:3] == ['event_date', 'employer', 'category']
     assert compact['treatment_status']['hidden'] == 1
     expanded = {column['fieldname']: column for column in get_columns({'position_type': 'Partida complementaria', 'detailed_columns': 1})}
+    for field in ('category', 'accounting_status', 'management_status'):
+        assert not expanded[field].get('hidden')
     assert not expanded['treatment_status'].get('hidden')
     assert not expanded['reason_type'].get('hidden')

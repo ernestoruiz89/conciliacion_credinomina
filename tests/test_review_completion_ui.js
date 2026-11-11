@@ -58,7 +58,7 @@ const tick = () => new Promise(done => setImmediate(done));
         get_filter:()=>({set_data:x=>{options=x;}}),get_filter_value:()=> 'Revisar cobros'};
     context.frappe.query_reports['Estado de Cuenta por Empresa'].after_datatable_render();
     assert.deepEqual(Array.from(options),['Pendiente de cobro','Parcialmente cobrada','Revisar cobros']);
-    assert.equal(context.frappe.query_reports['Estado de Cuenta Operativo'].filters.find(f=>f.fieldname==='position_type').default,'Aplicación');
+    assert.equal(context.frappe.query_reports['Estado de Cuenta Operativo'].filters.find(f=>f.fieldname==='position_type').default,'Aplicaciones, depósitos y partidas');
     context.frappe.listview_settings = {};
     vm.runInContext(fs.readFileSync(`${base}doctype/cn_complementary_item/cn_complementary_item_list.js`, 'utf8'), context);
     const indicator = context.frappe.listview_settings['CN Complementary Item'].get_indicator;
