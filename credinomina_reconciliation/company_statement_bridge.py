@@ -11,7 +11,7 @@ from frappe.utils import nowdate
 
 from credinomina_reconciliation.company_accounting_statement import load_core_detail, validate_dates
 from credinomina_reconciliation.credit_application import journal_allocations
-from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message
+from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message, reuse_cutoff_projection
 from credinomina_reconciliation.rounding import money, money_float, decimal_value
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.report_employers import company_scopes
@@ -31,6 +31,7 @@ def _number(value):
     return None if value is None else money_float(value)
 
 
+@reuse_cutoff_projection
 def execute(filters):
     scopes = company_scopes(filters)
     if len(scopes) > 1:
