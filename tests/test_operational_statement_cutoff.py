@@ -200,3 +200,76 @@ def test_empty_cutoff_uses_current_report_without_loading_a_projection():
             patch.object(cutoff, 'load_snapshot', side_effect=AssertionError('Historical load with no cutoff')):
         result = report.execute({'cutoff_date': ''})
     assert current.call_count == 1 and 'Los saldos son actuales.' in result[2]
+
+
+@pytest.mark.parametrize('operative,unknown', [(False, False), (True, False), (False, True)])
+def test_position_projection_skips_company_presentation_and_reuses_exact_conversions(operative, unknown):
+    from credinomina_reconciliation import application_aging, company_statement
+    app = application(historical_period='' if operative else 'P', collection_row_id='R' if operative else '')
+    if unknown:
+        app.update(currency='NIO', equivalent_amount=0, manual_fx_rate=0)
+    ctx = context([app], mode='Operativa' if operative else 'Historica',
+        collections={'R': dict(name='R', parent='P', row_key='RK', applied_usd=100)} if operative else {})
+    original = deepcopy(ctx)
+    expected = historical_cutoff.reconstruct(ctx, [], [], [], '2025-04-30', include_position=True)
+    with patch.object(company_statement, 'build_detail', side_effect=AssertionError('Unused company rows')), \
+            patch.object(company_statement, 'summarize', side_effect=AssertionError('Unused company totals')), \
+            patch.object(application_aging, 'converted_amount', side_effect=AssertionError('Converted twice')):
+        lean = historical_cutoff.reconstruct(ctx, [], [], [], '2025-04-30', include_position=True, include_statement=False)
+    assert {k: lean[k] for k in expected if k not in {'detail', 'summary'}} == {
+        k: expected[k] for k in expected if k not in {'detail', 'summary'}}
+    assert lean['detail'] == lean['summary'] == [] and ctx == original
+
+
+@pytest.mark.parametrize('filters', [dict(client_number='0007'), dict(national_id='abc'),
+    dict(loan_number='000123'), dict(employer='E'), dict(client_number='7', from_month='2025-04-15'),
+    dict(client_number='7', only_open=1), dict(client_number='missing')])
+def test_narrowed_presentation_keeps_every_recipient_of_shared_cash(filters):
+    apps = [application('A', 40, client='7', national_id='ABC'), application('B', 60, client='8'),
+            application('OTHER', 50, historical_period='OTHER', parent='J', client='9', national_id='OTHER')]
+    ctx = context(apps)
+    ctx[1]['J'] = dict(name='J', employer='F')
+    ctx[2]['OTHER'] = dict(name='OTHER', employer='F', reconciliation_mode='Historica', payroll_month='2025-04-01')
+    dep = deposit(amount=90, ledger=[entry('A', 40), entry('B', 60),
+        dict(tipo='Partida complementaria', partida='X', periodo='P', importe_usd=-10)])
+    selected = dict({'position_type': 'Aplicación'}, **filters)
+    args = (ctx, [dep], [item(amount=-10)])
+    with patch.object(cutoff, '_application_scope', side_effect=lambda apps, _filters: apps):
+        expected = execute_at(*args, filters=selected)
+    actual = execute_at(*args, filters=selected)
+    assert actual == expected
+    if filters.get('client_number') == '0007':
+        assert actual[1][-1]['remitted_usd'] is None
+
+
+@pytest.mark.parametrize('inconsistent', [False, True])
+def test_deposit_scope_keeps_cross_company_beneficiaries_and_entire_deposit_proof(inconsistent):
+    from credinomina_reconciliation.client_position import build_position
+    deposits = [deposit('OWN', 25, [], employer='E', allocated_usd=0, justified_surplus_usd=0),
+        deposit('PAYER', 100, [entry('OTHER', 30, fila_detalle='R2')], employer='PAYER', allocated_usd=30, justified_surplus_usd=0),
+        deposit('UNRELATED', 100, [], employer='Z', allocated_usd=0, justified_surplus_usd=0),
+        deposit('OLDER', 50, [], employer='E', deposit_date='2025-03-31', allocated_usd=0, justified_surplus_usd=0)]
+    details = [dict(name='R1', parent='PAYER', employer='E', client_number='7', amount_usd=60),
+        dict(name='R2', parent='PAYER', employer='PAYER', client_number='8', amount_usd=100 if inconsistent else 40)]
+    snapshot = {'position_context': dict(deposits=deposits, credits_by_deposit={})}
+    filters = dict(employer='E', from_month='2025-04-01')
+    reads = []
+    def children(doctype, parents, parenttype, parentfield, *, fields, filters=None):
+        assert (doctype, parenttype, parentfield) == ('CN Remittance Detail', 'CN Remittance Allocation', 'detail_rows')
+        if fields == ['parent']:
+            assert set(parents) == {'PAYER', 'UNRELATED'} and filters == {'employer': 'E'}
+            return [dict(parent='PAYER')]
+        reads.append(set(parents))
+        return [row for row in details if row['parent'] in parents]
+    before = deepcopy((snapshot, details))
+    with patch.object(cutoff, 'child_records', side_effect=children), \
+            patch.object(cutoff, 'load_manual_targets', return_value=[]):
+        expected = cutoff.pending_deposits(snapshot)
+        rows = cutoff.pending_deposits(snapshot, filters)
+    def selected(rows):
+        return build_position([], [], [], {}, [], filters, unallocated_deposits=rows)
+    assert selected(rows) == selected(expected)
+    assert reads[-1] == {'OWN', 'PAYER'}
+    customer = next(row for row in selected(rows) if row.get('client_number') == '7')
+    assert customer['deposit_pending_usd'] == (None if inconsistent else 60)
+    assert (snapshot, details) == before

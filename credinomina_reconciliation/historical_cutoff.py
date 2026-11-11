@@ -46,6 +46,8 @@ def _select_projection(snapshot, filters):
     from credinomina_reconciliation.company_statement import filter_detail, summarize
 
     # Presentation may attach classifications. Keep the cached evidence untouched.
+    if not snapshot.get('_include_statement', True):
+        return dict(snapshot, warnings=list(snapshot['warnings']))
     detail = _copy_detail(filter_detail(snapshot['detail'], filters))
     return dict(snapshot, detail=detail, summary=summarize(detail), warnings=list(snapshot['warnings']))
 
@@ -111,7 +113,7 @@ def _company_difference(deposit, journal, sources):
 
 
 def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False,
-                include_position=False, _detail_cache=None):
+                include_position=False, include_statement=True, _detail_cache=None):
     """Pure projection. Inputs are copied, and no reconciliation/write is executed."""
     from credinomina_reconciliation.company_statement import build_detail, filter_detail, summarize
 
@@ -419,18 +421,20 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
             item['_signed_pending_usd'] = signed_pending(item, balances[name])
             core.append(item)
     applications = application_balances(list(eligible_sources.values()), imports, periods, collections,
-                                        employers, cutoff, include_settled=True, statement_detail=include_position)
+        employers, cutoff, include_settled=True, statement_detail=include_position, applied_amounts=applied_by_source)
     receivables = build_receivables(list(projected_items.values()), balances,
         settlements=list(projected_items.values()), settlement_balances=balances, include_settled=include_position)
-    detail = build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits,
-                          filters if _detail_cache is None else None,
-                          adjustment_receivables=receivables, accounting_items=projected_items.values())
+    detail = (build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits,
+        filters if _detail_cache is None else None,
+        adjustment_receivables=receivables, accounting_items=projected_items.values()) if include_statement else [])
     if _detail_cache is not None:
         _detail_cache['detail'] = detail
         detail = _copy_detail(filter_detail(detail, filters))
-    result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
+    result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail) if include_statement else [],
                 applications=applications, receivables=receivables, periods=periods,
                 warnings=sorted(set(warnings)))
+    if not include_statement:
+        result['_include_statement'] = False
     if include_position:
         # Before a later credit origin, an earlier core item still exists at
         # the cut. Keep its original pending balance instead of losing the row.
@@ -455,7 +459,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     return result
 
 
-def load_cutoff(filters, *, include_bridge=False, include_position=False):
+def load_cutoff(filters, *, include_bridge=False, include_position=False, include_statement=True):
     """Permission-scoped, batched reads; cross-company payments are not date-scoped early."""
     from frappe.utils import getdate, nowdate
     required = ('CN Accounting Import', 'CN Reconciliation Period', 'CN Remittance Allocation', 'CN Complementary Item')
@@ -472,7 +476,7 @@ def load_cutoff(filters, *, include_bridge=False, include_position=False):
         if filters.get('from_date') and filters.get('to_date') and _day(filters['from_date']) > _day(filters['to_date']):
             raise ValueError('La fecha Desde no puede ser posterior a Hasta.')
         projections = _report_projections.get()
-        key = (frappe.local.site, frappe.session.user, cutoff, include_bridge, include_position,
+        key = (frappe.local.site, frappe.session.user, cutoff, include_bridge, include_position, include_statement,
                bool(filters.get('_include_deposit_details')))
         if projections is not None and key in projections:
             return _select_projection(projections[key], filters)
@@ -504,7 +508,8 @@ def load_cutoff(filters, *, include_bridge=False, include_position=False):
         require_cutoff_evidence(context, deposits, items, cutoff)
         detail_cache = {} if projections is not None else None
         snapshot = reconstruct(context, deposits, items, offsets, cutoff, filters,
-            include_bridge=include_bridge, include_position=include_position, _detail_cache=detail_cache)
+            include_bridge=include_bridge, include_position=include_position,
+            include_statement=include_statement, _detail_cache=detail_cache)
         if projections is not None:
             projections[key] = dict(snapshot, detail=detail_cache['detail'], warnings=list(snapshot['warnings']))
         return snapshot
