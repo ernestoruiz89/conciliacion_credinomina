@@ -77,6 +77,17 @@ assert.equal(fifoRow.pending_usd, -32.26);
 assert.equal(fifoForm.doc.allocation_detail, fifoLedger, "Preview cannot change financial allocations");
 context.remittanceCashAmounts = () => ({pending: 0});
 context.remittancePresentation = () => ({reconciled: true});
+for (const [status, expected] of [["Diferencia documentada", "Revisar: Diferencia documentada"], ["Conciliada", "Conciliada"]]) {
+    const difference = {name: "DIFF", row_kind: "Diferencia documentada", match_status: status,
+        amount_usd: -.01, linked_usd: 0, pending_usd: -.01, difference_core_pending_usd: .01,
+        matched_targets: "[]", linked_total_usd: 0, match_reason: "Pendiente de respaldo del core"};
+    const before = {...difference};
+    const form = {doc: {docstatus: 1, detail_rows: [difference], targets: []}, refresh_field() {}};
+    context.updateDetailPendingAmounts(form);
+    context.updateDetailPendingAmounts(form);
+    assert.deepEqual(difference, {...before, match_status: expected});
+    assert.equal(context.remittanceIssues(form.doc).length, status === "Conciliada" ? 0 : 1);
+}
 assert.ok(context.remittanceIssues({...fifoForm.doc, docstatus: 1}).some(issue => issue.text.includes(context.remittanceMoney(32.26))),
     "Show overlinked rows even when their last reconciliation status was Conciliada");
 fifoForm.doc.targets = [{detail_row: "F", historical_application: "NEW1", amount_usd: 34.59, result: "Aplicada"}];

@@ -1609,7 +1609,7 @@ function updateDetailPendingAmounts(frm) {
     let changed = false;
     for (const row of frm.doc.detail_rows || []) {
         const state = String(row.match_status || "").trim();
-        if (!["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(state)
+        if (!["Conciliada", "No deducido", "Conciliada con diferencia documentada"].includes(state)
                 && state !== "Revisar" && !state.startsWith("Revisar:") && !state.startsWith("Revisar ")) {
             row.match_status = `Revisar: ${state || "Pendiente"}`;
             changed = true;
@@ -1669,7 +1669,7 @@ function remittanceIssues(doc, dirty = false) {
             add(`${label}: los vínculos superan el importe de la fila en US$ ${remittanceMoney(-row.pending_usd)}. Ajuste los destinos manuales; las asignaciones confirmadas se conservan.`, "targets");
             continue;
         }
-        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"].includes(row.match_status)) continue;
+        if (["Conciliada", "No deducido", "Conciliada con diferencia documentada"].includes(row.match_status)) continue;
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
     }
     const hints = {

@@ -1,6 +1,6 @@
 """Filterable review labels, independent of financial reconciliation results."""
 
-RESOLVED = {"Conciliada", "No deducido", "Conciliada con diferencia documentada", "Diferencia documentada"}
+RESOLVED = {"Conciliada", "No deducido", "Conciliada con diferencia documentada"}
 
 
 def review_status(value):

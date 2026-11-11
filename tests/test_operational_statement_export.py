@@ -65,6 +65,8 @@ def test_excel_summary_matches_immsa_and_keeps_detail_columns_and_values():
     assert sheet.cell(2, header.index('Asignado US$') + 1).value == 191178.74
     signed_column = header.index('Complementaria pendiente US$') + 1
     assert [sheet.cell(row, signed_column).value for row in (4, 5, 6)] == [-54.27, 8.51, -45.76]
+    net_column = header.index('Saldo Neto U$') + 1
+    assert [sheet.cell(row, net_column).value for row in range(2, 7)] == [13510.48, -7331.70, 54.27, -8.51, 6224.54]
     assert all(book['Resumen del saldo'].cell(row, 2).data_type == 'n' for row in range(4, 10))
 
 
@@ -81,6 +83,7 @@ def test_search_selection_recomputes_summary_footer_and_preserves_display_order(
     doc = header.index('Documento de origen') + 1
     assert [sheet.cell(i, doc).value for i in [2, 3]] == ['C', 'APP']
     assert sheet.cell(4, header.index('Aplicado pendiente US$') + 1).value == 13510.48
+    assert [sheet.cell(row, header.index('Saldo Neto U$') + 1).value for row in (2, 3, 4)] == [-8.51, 13510.48, 13501.97]
 
 
 @pytest.mark.parametrize('field', ['_signed_complementary_pending_usd', 'complementary_pending_usd'])
@@ -91,6 +94,9 @@ def test_unknown_sign_or_balance_never_exports_a_numeric_net(field):
         source.result[2]['_signed_complementary_pending_usd'] = None
     book, _ = build(source)
     assert summary(book)['Saldo neto de conciliación US$'] == 'No determinable'
+    sheet = book[export.REPORT]
+    net_column = [cell.value for cell in sheet[1]].index('Saldo Neto U$') + 1
+    assert sheet.cell(4, net_column).value is None and sheet.cell(6, net_column).value is None
 
 
 def test_empty_search_exports_no_documents_and_zero_net():

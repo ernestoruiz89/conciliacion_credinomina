@@ -7,7 +7,8 @@ from credinomina_reconciliation.parsers import canonical_credit_number, canonica
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.client_position import (
-    FINANCIAL_VIEW, load_position, normalize_position_type, selected_position_types, summarize_selection, net_balance_summary,
+    FINANCIAL_VIEW, FINANCIAL_TYPES, load_position, normalize_position_type, selected_position_types,
+    summarize_selection, net_balance_summary, row_net_balance,
 )
 
 
@@ -47,20 +48,25 @@ def execute(filters=None):
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
         "Complementaria pendiente usa el signo contable de cobertura: créditos positivos y débitos negativos. "
         "Saldo neto de conciliación = aplicado pendiente − saldo pendiente del depósito − complementaria pendiente. "
+        "Saldo Neto U$ muestra el aporte de cada fila a ese saldo, no un acumulado: aplicaciones y complementarias de débito suman; depósitos y complementarias de crédito restan. "
         "Razón de la diferencia y Comentarios de la diferencia muestran lo documentado en los registros; no generan ni compensan importes. "
         "Se calcula sobre la selección visible; si falta un saldo o el signo contable, se indica como no determinable. "
         "No reste automáticamente los saldos a favor. "
         "La fila Depósito con saldo pendiente corresponde al remanente pendiente, incluso cuando el depósito ya tiene aplicaciones. "
         "Depósito con saldo pendiente muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
-        "solo atribuye importes al cliente cuando el detalle cabe en el efectivo pendiente. No se compensa automáticamente con aplicaciones. "
+        "muestra los pendientes por cliente cuando sus asignaciones están comprobadas. "
+        "Si el total del detalle supera el efectivo pendiente, la línea Diferencia de empresa muestra el descuadre negativo en la misma columna. "
+        "Clientes más diferencia de empresa suman el efectivo pendiente del depósito; al filtrar un cliente, la diferencia de empresa no se le descuenta. "
+        "No se compensa automáticamente con aplicaciones. "
     ) + date_message + _(
         "Solo se incluyen documentos visibles para su usuario. "
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
         "compensado o requiere aclaración. Registro contable y Gestión externa se consultan por separado.") + '</details>'
     totals, amounts = summarize_selection(data, filters)
-    # The signed complementary total is already one of the five main figures.
+    # The signed complementary total is already one of the main figures.
     totals.extend(figure for figure in net_balance_summary(data, amounts, filters)
                   if figure['label'] != 'Complementarias pendientes netas US$')
+    data = [dict(row, net_balance_usd=row_net_balance(row)) for row in data]
     for row in data:
         row.pop('_shared_bank_cash', None)
         row.pop('_bank_basis', None)
@@ -243,6 +249,8 @@ def get_columns(filters=None):
     if kinds is None or 'CxC por ajuste' in kinds:
         metrics.extend([('company_receivable_usd', 'CxC a la empresa por ajuste US$'),
                         ('employee_receivable_usd', 'CxC al empleado por ajuste US$')])
+    if kinds is None or kinds.intersection(FINANCIAL_TYPES):
+        metrics.append(('net_balance_usd', 'Saldo Neto U$'))
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Currency', 'options': 'usd_currency', 'width': 150}
                    for field, label in metrics)
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
@@ -254,7 +262,8 @@ def get_columns(filters=None):
     if not cint((filters or {}).get('detailed_columns')):
         primary = {'event_date', 'employer', 'client_name', 'loan_number', 'source_document', 'operational_status',
                    'difference_reason', 'difference_notes',
-                   'applied_usd', 'assigned_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_net_usd'}
+                   'applied_usd', 'assigned_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_net_usd',
+                   'net_balance_usd'}
         if not view or view == FINANCIAL_VIEW:
             primary.add('position_type')
         if not view or view == 'Cobranza':

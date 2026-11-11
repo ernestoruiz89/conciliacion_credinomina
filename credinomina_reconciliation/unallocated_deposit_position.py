@@ -1,4 +1,4 @@
-"""Read-only, non-overlapping portions of confirmed undistributed deposits."""
+"""Read-only deposit remainders, with optional company-only detail differences."""
 from collections import Counter, defaultdict
 from decimal import Decimal
 import json
@@ -151,7 +151,7 @@ def _difference_documentation(deposit, detail=None):
     return result
 
 
-def build(deposits, details, targets=()):
+def build(deposits, details, targets=(), *, separate_company_difference=False):
     grouped = defaultdict(list)
     for row in details:
         if row.get('row_kind') != 'Diferencia documentada':
@@ -164,24 +164,30 @@ def build(deposits, details, targets=()):
         if deposit.get('consolidated_deposit') or deposit.get('cash_identity_status') in {'Origen vinculado', 'Revisar identidad'}:
             continue
         remaining = remaining_cash(deposit)
-        if remaining <= 0:
+        if remaining < 0 or (not remaining and not separate_company_difference):
             continue
         rows = grouped[deposit['name']]
         executed, complete = _executed_by_row(deposit, {row['name']: row for row in rows}, targets_by_deposit[deposit['name']])
         pending_by_row = {row['name']: money(row.get('amount_usd')) - executed[row['name']]
                           - money(row.get('client_credit_usd')) - money(row.get('company_credit_usd')) for row in rows}
-        # A detail is attributable only when the complete set of positive
-        # remainders fits in the actual unclassified cash pool.
         pending = [row for row in rows if pending_by_row[row['name']] > 0]
-        consistent = (complete and money(deposit.get('unclassified_usd')) == remaining
-                      and sum_money(row.get('amount_usd') for row in rows) <= money(deposit.get('amount_usd'))
-                      and all(0 <= pending_by_row[row['name']] <= money(row.get('amount_usd')) for row in rows)
-                      and sum_money(money(row.get('client_credit_usd')) + money(row.get('company_credit_usd')) for row in rows)
-                          <= money(deposit.get('justified_surplus_usd'))
-                      and sum_money(pending_by_row[row['name']] for row in pending) <= remaining)
+        pending_total = sum_money(pending_by_row[row['name']] for row in pending)
+        proven = (complete and money(deposit.get('unclassified_usd')) == remaining
+                  and all(0 <= pending_by_row[row['name']] <= money(row.get('amount_usd')) for row in rows)
+                  and sum_money(money(row.get('client_credit_usd')) + money(row.get('company_credit_usd')) for row in rows)
+                      <= money(deposit.get('justified_surplus_usd')))
+        consistent = (proven and sum_money(row.get('amount_usd') for row in rows) <= money(deposit.get('amount_usd'))
+                      and pending_total <= remaining)
+        # The operational statement can keep proven client remainders intact
+        # and balance their shortfall on the payer. This is a report-only
+        # decomposition, never new cash, a loan allocation or a saved adjustment.
+        attributable = consistent or (separate_company_difference and proven)
+        company_difference = min(remaining - pending_total, money(0)) if attributable else money(0)
+        if not remaining and not attributable:
+            continue
         base = dict(position_type='Depósito con saldo pendiente', event_date=deposit.get('deposit_date'),
                     source_doctype='CN Remittance Allocation', source_document=deposit['name'],
-                    employer=deposit.get('employer'), operational_status='Pendiente' if consistent else 'Revisar distribución', is_open=True,
+                    employer=deposit.get('employer'), operational_status='Pendiente' if attributable else 'Revisar distribución', is_open=True,
                     usd_currency='USD', **_difference_documentation(deposit))
         attributed = money(0)
         for row in pending:
@@ -194,18 +200,27 @@ def build(deposits, details, targets=()):
                 client_name=row.get('client_name') or 'Sin cliente individual', client_number=row.get('client') or row.get('client_number'),
                 national_id=row.get('national_id'), loan_number=row.get('loan_number'), source_rows=row['name'],
                 deposit_detail_pending_usd=money_float(amount), **_difference_documentation(deposit, row))
-            if consistent:
+            if attributable:
                 attributed += amount
-                position.update(deposit_pending_usd=money_float(amount), observation='Importe pendiente del detalle del depósito.')
+                position.update(deposit_pending_usd=money_float(amount), observation=(
+                    'Pendiente según detalle; el descuadre con el efectivo se presenta por separado a nivel de empresa.'
+                    if company_difference else 'Importe pendiente del detalle del depósito.'))
             else:
                 position.update(deposit_pending_usd=None,
                     observation='Importe del detalle por comprobar; efectivo individual sin determinar. Revise la distribución del depósito.')
             output.append(position)
-        remainder = remaining - attributed
+        remainder = remaining - attributed - company_difference
         if remainder > 0:
             output.append(dict(base, client_name='Sin cliente individual', deposit_pending_usd=money_float(remainder),
-                observation=('Efectivo pendiente sin atribución individual.' if consistent else
+                observation=('Pendiente según detalle sin cliente identificado; el descuadre se presenta a nivel de empresa.'
+                             if company_difference else 'Efectivo pendiente sin atribución individual.' if attributable else
                              'Revise la distribución: el detalle no permite atribuir el efectivo pendiente por cliente.')))
+        if company_difference:
+            output.append(dict(base, client_name='Diferencia de empresa', category='Diferencia de empresa',
+                operational_status='Revisar distribución', deposit_pending_usd=money_float(company_difference),
+                observation=(f'Diferencia del depósito a nivel de empresa: efectivo pendiente US$ {remaining:.2f} '
+                    f'menos pendientes según detalle US$ {pending_total:.2f} = US$ {company_difference:.2f}. '
+                    'Se presenta una sola vez; no reduce el pendiente de ningún cliente ni modifica las conciliaciones.')))
     return output
 
 
@@ -216,7 +231,7 @@ def load_manual_targets(deposits):
                 'amount_usd', 'result'])
 
 
-def load(employer=None):
+def load(employer=None, *, separate_company_difference=False):
     if not frappe.has_permission('CN Remittance Allocation', 'read'):
         return []
     scope = {}
@@ -232,9 +247,10 @@ def load(employer=None):
     deposits = list(records('CN Remittance Allocation', filters={'docstatus': 1, 'consolidated_deposit': ['is', 'not set']},
         fields=['name', 'docstatus', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
         'unclassified_usd', 'cash_identity_status', 'allocation_detail', 'difference_reason', 'difference_notes'], **scope))
-    deposits = [d for d in deposits if remaining_cash(d) > 0]
+    deposits = [d for d in deposits if remaining_cash(d) > 0 or (separate_company_difference and not remaining_cash(d))]
     details = child_records('CN Remittance Detail', [d['name'] for d in deposits], 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'row_kind', 'employer', 'client', 'client_name', 'client_number', 'national_id', 'loan_number',
                 'amount_usd', 'linked_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason', 'difference_notes'])
-    positions = build(deposits, details, load_manual_targets(deposits))
+    positions = build(deposits, details, load_manual_targets(deposits),
+                      separate_company_difference=separate_company_difference)
     return [row for row in positions if not employer or row['employer'] == employer]
