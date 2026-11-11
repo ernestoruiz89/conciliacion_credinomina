@@ -40,6 +40,7 @@ def run():
                 event_type='Aplicacion', effective=1, currency='USD', amount=amount, event_date=day,
                 historical_period=period, collection_row_id=collection if not period else '',
                 match_status='Conciliado', client='7', client_name='Cliente prueba', loan_number='123-1',
+                difference_notes='Nota aplicación ' + suffix,
                 historical_remitted_usd=999, application_adjustment_usd=20 if suffix == '-A' else 0)
 
         for suffix, amount, day, app in [('-D1', 30, '2025-04-20', '-A'), ('-D2', 50, '2025-05-15', '-A'),
@@ -48,10 +49,12 @@ def run():
             ledger = [dict(tipo='Aplicacion historica', aplicacion_id=marker + app, periodo=historical,
                 fila_detalle=detail, importe_usd=amount)]
             dep = insert('CN Remittance Allocation', suffix, employer=company, docstatus=1, deposit_date=day,
+                difference_notes='Nota depósito ' + suffix,
                 deposit_currency='USD', deposit_amount=amount, amount_usd=amount, allocated_usd=amount,
                 unclassified_usd=0, allocation_detail=json.dumps(ledger))
             insert('CN Remittance Detail', suffix + '-R', parent=dep, parenttype='CN Remittance Allocation',
                 parentfield='detail_rows', client_number='7', client_name='Cliente prueba', amount_usd=amount,
+                difference_notes='Nota detalle ' + suffix,
                 pending_usd=0, linked_usd=amount)
         fifo = [dict(tipo='Cobranza', periodo=operative, fila_id='RK', fila_detalle=marker + '-DF-R', importe_usd=100,
             aplicaciones_fifo=[dict(application_id=marker + '-C', amount_usd=40),
@@ -77,12 +80,20 @@ def run():
             total = april[1][-1]
             assert (total['applied_usd'], total['remitted_usd'], total['applied_pending_usd'],
                     total['deposit_pending_usd']) == (140, 70, 70, 120), total
+            assert next(row for row in april[1] if row.get('source_rows') == marker + '-A')['difference_notes'] == 'Nota aplicación -A'
+            pending_advance = next(row for row in april[1] if row.get('source_document') == marker + '-ADV')
+            assert pending_advance['difference_notes'] == 'Detalle: Nota detalle -ADV\nDepósito: Nota depósito -ADV'
+            assert next(row['value'] for row in april[4]
+                        if row['label'] == 'Saldo neto de conciliación US$') == -50
             assert report.execute(dict(filters, detailed_columns=1))[1:] == april[1:]
             pending = report.execute(dict(filters, only_open=1))[1]
             assert len(pending) == 4 and pending[-1]['applied_pending_usd'] == 70
             assert report.execute(dict(filters, client_number='8'))[1] == []
             assert report.execute(dict(filters, cutoff_date='2025-04-01'))[1] == []
-            may = report.execute(dict(filters, cutoff_date='2025-05-31'))[1]
+            may_result = report.execute(dict(filters, cutoff_date='2025-05-31'))
+            assert next(row['value'] for row in may_result[4]
+                        if row['label'] == 'Saldo neto de conciliación US$') == 0
+            may = may_result[1]
             total = may[-1]
             assert (total['applied_usd'], total['remitted_usd'], total['applied_pending_usd']) == (240, 240, 0), total
             assert report.execute(dict(filters, cutoff_date='2025-05-31', only_open=1))[1] == []
@@ -94,6 +105,6 @@ def run():
         assert before == after, 'A report changed a reconciliation'
         return dict(historical_applications=True, operational_fifo=True, client_pending_deposits=True,
             dated_adjustments=True, current_collection_cache_ignored=True, columns_unchanged=True,
-            read_only=True, rolled_back=True)
+            net_summary=True, difference_documentation=True, read_only=True, rolled_back=True)
     finally:
         frappe.db.rollback()

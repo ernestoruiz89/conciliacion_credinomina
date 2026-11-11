@@ -1,6 +1,7 @@
 """Two-stage report, with identical client/loan evidence for both views."""
 from collections import defaultdict
 from decimal import Decimal
+import re
 
 import frappe
 from frappe.utils import get_last_day, getdate
@@ -8,7 +9,7 @@ from frappe.utils import get_last_day, getdate
 from credinomina_reconciliation.accounting_client_summary import entries
 from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.credit_lookup import get_credit_rows
-from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
+from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier, credit_number_pattern
 from credinomina_reconciliation.parsers import COLLECTION_COMMENT_FIELDS, collection_comment
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.report_records import records, child_records, require_complete_evidence, PAGE_SIZE
@@ -18,6 +19,32 @@ from credinomina_reconciliation.rounding import money, money_float, sum_money
 AMOUNTS = ('collection_usd', 'application_usd', 'deposit_usd', 'credit_used_usd',
            'cash_adjustment_usd', 'conversion_usd', 'open_usd', 'detail_received_usd', 'detail_unassigned_usd')
 COMMENTS = (*COLLECTION_COMMENT_FIELDS, 'first_exception_comment', 'deposit_difference_notes')
+
+
+def _portfolio_rows(cut, loans):
+    """Large numeric loan sets scan a readable cut once with the legacy match."""
+    keys = {canonical_credit_number(loan) for loan in loans} - {''}
+    fields = ['credit_number', 'credit_status', 'employer']
+    filters = {'parent': cut, 'parenttype': 'CN Credit Portfolio Snapshot', 'parentfield': 'rows'}
+    numeric = {key for key in keys if re.fullmatch(r'[0-9]+-[0-9]+', key)}
+    if len(numeric) < PAGE_SIZE:
+        return get_credit_rows('CN Credit Portfolio Row', filters=filters,
+                               fields=fields, loan_field='credit_number', loans=keys)
+    # A huge SQL regexp is evaluated for every credit in the cut. Use bounded
+    # reads and a key index instead. Still check the original anchored pattern:
+    # normalization alone would also accept formats the SQL lookup rejects.
+    patterns = {key: re.compile(credit_number_pattern([key])) for key in numeric}
+    result = []
+    for credit in child_records('CN Credit Portfolio Row', [cut], 'CN Credit Portfolio Snapshot', 'rows', fields=fields):
+        raw = str(credit.get('credit_number') or '')
+        pattern = patterns.get(canonical_credit_number(raw))
+        if pattern and pattern.search(raw):
+            result.append(credit)
+    # Keep database collation/case rules for any alphanumeric credit numbers.
+    if keys - numeric:
+        result.extend(get_credit_rows('CN Credit Portfolio Row', filters=filters,
+                      fields=fields, loan_field='credit_number', loans=keys - numeric))
+    return result
 
 
 def add_portfolio_status(periods, details):
@@ -44,9 +71,7 @@ def add_portfolio_status(periods, details):
             loans_by_cut[by_period[row['name']]].add(row['loan_number'])
     by_credit = defaultdict(list)
     for cut, loans in loans_by_cut.items():
-        for credit in get_credit_rows('CN Credit Portfolio Row', filters={
-            'parent': cut, 'parenttype': 'CN Credit Portfolio Snapshot', 'parentfield': 'rows',
-        }, fields=['credit_number', 'credit_status', 'employer'], loan_field='credit_number', loans=loans):
+        for credit in _portfolio_rows(cut, loans):
             by_credit[(cut, canonical_credit_number(credit['credit_number']))].append(credit)
     for row in details:
         if row.get('_company_conversion') or row.get('_detail_unavailable'):
@@ -91,13 +116,18 @@ def load_direct_applications(period_names):
 def records_for_dependencies(scope):
     # Internal IDs only; financial reads below require permission to each parent.
     from credinomina_reconciliation.report_records import _pages
-    return _pages(frappe.get_all, 'CN Source Row', fields=['parent'],
+    # The unique parent is also the pagination tiebreaker, not a child row ID.
+    return _pages(frappe.get_all, 'CN Source Row', fields=['parent', 'parent as name'],
                   filters={**scope, 'parenttype': 'CN Accounting Import', 'parentfield': 'rows'},
-                  order_by='name asc')
+                  group_by='parent', order_by='parent asc')
 
 
 def _add(row, field, value):
-    row[field] = None if row[field] is None or value is None else money(row[field]) + money(value)
+    if row[field] is None or value is None:
+        row[field] = None
+    elif value:
+        # Accumulators already contain cents. Zero adds no financial information.
+        row[field] = money(row[field]) + money(value)
 
 
 def _collection_projections(applications):
@@ -230,9 +260,10 @@ def build_views(periods, collections, applications, deposit_details=(), *, cash_
             applied = None
         _add(row, 'application_usd', applied)
         try:
-            projected = sum_money(entry.get('diferencia_usd') for entry in entries(source.get('remittance_detail'))
+            journal = entries(source.get('remittance_detail'))
+            projected = sum_money(entry.get('diferencia_usd') for entry in journal
                                   if entry.get('aplicacion_directa'))
-            _cash(row, source.get('remittance_detail'), applied,
+            _cash(row, journal, applied,
                   money(source.get('rounding_adjustment_usd')) - projected, source.get('remitted_usd'))
         except (ArithmeticError, ValueError, TypeError):
             _cash(row, 'invalid', applied, 0)
@@ -250,8 +281,9 @@ def build_views(periods, collections, applications, deposit_details=(), *, cash_
         if applied is None:
             row['_notes'].add('Falta conversión de la aplicación a US$.')
         try:
-            adjustment = sum_money(entry.get('diferencia_usd') for entry in entries(source.get('historical_detail')))
-            _cash(row, source.get('historical_detail'), applied, adjustment, source.get('historical_remitted_usd'))
+            journal = entries(source.get('historical_detail'))
+            adjustment = sum_money(entry.get('diferencia_usd') for entry in journal)
+            _cash(row, journal, applied, adjustment, source.get('historical_remitted_usd'))
         except (ArithmeticError, ValueError, TypeError):
             _cash(row, 'invalid', applied, 0)
 

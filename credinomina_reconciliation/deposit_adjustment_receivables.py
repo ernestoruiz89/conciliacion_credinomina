@@ -101,7 +101,7 @@ def load_receivables(employer=None, year=None, item_names=None, *, include_settl
     }, fields=['name', 'employer', 'docstatus', 'category', 'accounting_source_key',
         'amount_usd', 'posting_date', 'review_action', 'accounting_status', 'period',
         'credit_client', 'client_name', 'client_number', 'loan_number', 'reference', 'voucher', 'description',
-        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type', 'difference_reason',
+        'subcategory', 'subcategory_effect', 'credit_assigned_to', 'credit_commitment_date', 'reason_type', 'difference_reason', 'difference_notes',
         'receivable_due_date', 'receivable_due_origin', 'receivable_setup_pending']))
     settlements = load_settlements(items)
     all_items = [*items, *settlements]

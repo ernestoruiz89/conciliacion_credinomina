@@ -7,7 +7,7 @@ from credinomina_reconciliation.parsers import canonical_credit_number, canonica
 from credinomina_reconciliation.rounding import decimal_value, money, money_float
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.client_position import (
-    FINANCIAL_VIEW, load_position, normalize_position_type, selected_position_types, summarize_selection,
+    FINANCIAL_VIEW, load_position, normalize_position_type, selected_position_types, summarize_selection, net_balance_summary,
 )
 
 
@@ -43,6 +43,8 @@ def execute(filters=None):
         "La CxC por aplicaciones parte del aplicado en el core y descuenta su cobertura confirmada. "
         "Depósito asignado muestra el efectivo bancario. Los saldos a favor aplicados y las complementarias que cubren una aplicación se explican en Observación. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
+        "Saldo neto de conciliación = aplicaciones pendientes − depósitos pendientes + complementarias pendientes con signo contable (débito positivo, crédito negativo). "
+        "Se calcula sobre la selección visible; si falta un saldo o el signo contable, se indica como no determinable. "
         "No reste automáticamente los saldos a favor. "
         "La fila Depósito con saldo pendiente corresponde al remanente pendiente, incluso cuando el depósito ya tiene aplicaciones. "
         "Depósito con saldo pendiente muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
@@ -52,6 +54,7 @@ def execute(filters=None):
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
         "compensado o requiere aclaración. Registro contable y Gestión externa se consultan por separado.") + '</details>'
     totals, amounts = summarize_selection(data, filters)
+    totals.extend(net_balance_summary(data, amounts, filters))
     for row in data:
         row.pop('_shared_bank_cash', None)
         row.pop('_bank_basis', None)
@@ -106,6 +109,7 @@ def _collection_report(filters=None, projected_collections=None):
             "rounding_adjustment_usd",
             "deduction_status",
             "application_status",
+            "difference_reason", "difference_notes",
         ],
         order_by="parent asc, idx asc",
     )
@@ -143,6 +147,8 @@ def _collection_report(filters=None, projected_collections=None):
                 "quality_applied_usd": money_float(row.applied_usd),
                 "quality_difference_usd": difference,
                 "operational_status": quality["quality_status"],
+                "difference_reason": row.get('difference_reason'),
+                "difference_notes": row.get('difference_notes'),
             }
         )
         data.append(item)
@@ -234,11 +240,13 @@ def get_columns(filters=None):
                    for field, label in metrics)
     columns.extend({'fieldname': field, 'label': _(label), 'fieldtype': 'Data', 'width': width}
                    for field, label, width in [('category', 'Categoría', 180), ('operational_status', 'Estado de conciliación', 210),
-                       ('subcategory', 'Subcategoría', 175), ('reason_type', 'Motivo', 175), ('difference_reason', 'Razón de la diferencia', 190), ('treatment_status', 'Tratamiento', 200),
+                       ('subcategory', 'Subcategoría', 175), ('reason_type', 'Motivo', 175), ('difference_reason', 'Razón de la diferencia', 190),
+                       ('difference_notes', 'Comentarios de la diferencia', 300), ('treatment_status', 'Tratamiento', 200),
                        ('accounting_status', 'Registro contable', 170), ('management_status', 'Gestión externa', 170),
                        ('observation', 'Observación', 350), ('source_rows', 'Filas de origen', 170)])
     if not cint((filters or {}).get('detailed_columns')):
         primary = {'event_date', 'employer', 'client_name', 'loan_number', 'source_document', 'operational_status',
+                   'difference_reason', 'difference_notes',
                    'applied_usd', 'remitted_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_usd'}
         if not view or view == FINANCIAL_VIEW:
             primary.add('position_type')

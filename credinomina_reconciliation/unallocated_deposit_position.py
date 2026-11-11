@@ -139,6 +139,18 @@ def _executed_by_row(deposit, rows, targets):
         return defaultdict(lambda: money(0)), False
 
 
+def _difference_documentation(deposit, detail=None):
+    result = {}
+    for field in ('difference_reason', 'difference_notes'):
+        parent = deposit.get(field) or ''
+        child = (detail or {}).get(field) or ''
+        # Keep a company/deposit classification distinct from the client's row.
+        result[field] = (f'Detalle: {child}\nDepósito: {parent}' if child and parent
+                         else f'Depósito: {parent}' if detail is not None and parent
+                         else child or parent)
+    return result
+
+
 def build(deposits, details, targets=()):
     grouped = defaultdict(list)
     for row in details:
@@ -170,7 +182,7 @@ def build(deposits, details, targets=()):
         base = dict(position_type='Depósito con saldo pendiente', event_date=deposit.get('deposit_date'),
                     source_doctype='CN Remittance Allocation', source_document=deposit['name'],
                     employer=deposit.get('employer'), operational_status='Pendiente' if consistent else 'Revisar distribución', is_open=True,
-                    usd_currency='USD')
+                    usd_currency='USD', **_difference_documentation(deposit))
         attributed = money(0)
         for row in pending:
             beneficiary = row.get('employer') or base['employer']
@@ -181,7 +193,7 @@ def build(deposits, details, targets=()):
             position = dict(base, employer=beneficiary,
                 client_name=row.get('client_name') or 'Sin cliente individual', client_number=row.get('client') or row.get('client_number'),
                 national_id=row.get('national_id'), loan_number=row.get('loan_number'), source_rows=row['name'],
-                deposit_detail_pending_usd=money_float(amount), difference_reason=row.get('difference_reason'))
+                deposit_detail_pending_usd=money_float(amount), **_difference_documentation(deposit, row))
             if consistent:
                 attributed += amount
                 position.update(deposit_pending_usd=money_float(amount), observation='Importe pendiente del detalle del depósito.')
@@ -219,10 +231,10 @@ def load(employer=None):
             scope['or_filters'].append(['name', 'in', parents])
     deposits = list(records('CN Remittance Allocation', filters={'docstatus': 1, 'consolidated_deposit': ['is', 'not set']},
         fields=['name', 'docstatus', 'employer', 'deposit_date', 'amount_usd', 'allocated_usd', 'justified_surplus_usd',
-                'unclassified_usd', 'cash_identity_status', 'allocation_detail'], **scope))
+        'unclassified_usd', 'cash_identity_status', 'allocation_detail', 'difference_reason', 'difference_notes'], **scope))
     deposits = [d for d in deposits if remaining_cash(d) > 0]
     details = child_records('CN Remittance Detail', [d['name'] for d in deposits], 'CN Remittance Allocation', 'detail_rows',
         fields=['name', 'parent', 'row_kind', 'employer', 'client', 'client_name', 'client_number', 'national_id', 'loan_number',
-                'amount_usd', 'linked_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason'])
+                'amount_usd', 'linked_usd', 'client_credit_usd', 'company_credit_usd', 'matched_targets', 'difference_reason', 'difference_notes'])
     positions = build(deposits, details, load_manual_targets(deposits))
     return [row for row in positions if not employer or row['employer'] == employer]

@@ -71,6 +71,25 @@ class CorrectionTests(unittest.TestCase):
             self.call()
         self.doc.add_comment.assert_not_called()
 
+    def test_bank_correction_is_permission_checked_audited_and_does_not_replace_links(self):
+        self.doc.get.side_effect = {'employer': 'OLD', 'deposit_date': '2026-10-01',
+                                   'deposit_reference': 'REF', 'bank_account': 'OLD BANK'}.get
+        self.doc.allocation_detail = '[{"aplicacion_id":"APP","importe_usd":80}]'
+        self.doc.allocated_usd = 80
+        self.call(bank_account=' NEW BANK ')
+        self.frappe.get_doc.assert_any_call('CN Bank Account', 'NEW BANK')
+        self.assertEqual(self.doc.update.call_args.args[0]['bank_account'], 'NEW BANK')
+        self.assertNotIn('allocation_detail', self.doc.update.call_args.args[0])
+        self.assertEqual(self.doc.allocation_detail, '[{"aplicacion_id":"APP","importe_usd":80}]')
+        self.assertIn('bank_account: OLD BANK → NEW BANK', self.doc.add_comment.call_args.args[1])
+
+    def test_optional_bank_can_be_cleared_and_old_api_calls_leave_it_unchanged(self):
+        self.call(bank_account=' ')
+        self.assertEqual(self.doc.update.call_args.args[0]['bank_account'], '')
+        self.doc.update.reset_mock()
+        self.call()
+        self.assertNotIn('bank_account', self.doc.update.call_args.args[0])
+
     def test_correction_never_reduces_executed_or_reserved_cash(self):
         self.doc.allocated_usd, self.doc.justified_surplus_usd = 80, 10
         with self.assertRaises(ValueError):

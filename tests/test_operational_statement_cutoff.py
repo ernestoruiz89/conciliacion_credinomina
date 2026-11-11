@@ -185,6 +185,29 @@ def test_collection_periods_after_cutoff_are_excluded():
         assert report.get_periods(frappe._dict(cutoff_date='2025-04-30')) == periods[:1]
 
 
+def test_net_summary_tracks_dated_cash_and_credit_adjustment_without_changing_evidence():
+    adjustment = item(category='Ajuste de aplicación', related_application='A', application_adjustment_usd=20,
+                      posting_date='2025-05-01', source_credit=20, source_currency='USD')
+    dep = deposit(amount=80, deposit_date='2025-05-15', ledger=[entry(amount=80)])
+    for day, expected in [('2025-04-30', 100), ('2025-05-01', 80), ('2025-05-15', 0)]:
+        result = execute_at(deposits=[dep], items=[adjustment], day=day)
+        assert next(row['value'] for row in result[4] if row['label'] == 'Saldo neto de conciliación US$') == expected
+
+
+def test_documented_differences_are_carried_to_historical_rows():
+    ctx = context([application(difference_reason='Aplicación', difference_notes='Nota aplicación')])
+    comp = item(accounting_source_key='KEY', source_credit=20, source_currency='USD',
+                difference_reason='Partida', difference_notes='Nota partida')
+    dep = deposit(amount=10, ledger=[], difference_reason='Depósito', difference_notes='Nota depósito')
+    result = execute_at(ctx, deposits=[dep], items=[comp])
+    rows = {r['position_type']: r for r in result[1] if not r.get('is_total_row')}
+    for kind, reason, note in [('Aplicación', 'Aplicación', 'Nota aplicación'),
+                               ('Partida complementaria', 'Partida', 'Nota partida'),
+                               ('Depósito con saldo pendiente', 'Depósito', 'Nota depósito')]:
+        assert rows[kind]['difference_reason'] == reason
+        assert rows[kind]['difference_notes'] == note
+
+
 @pytest.mark.parametrize('extra', [dict(cutoff_date='2999-01-01'), dict(from_month='2025-05-01'),
                                   dict(to_month='2025-05-01'), dict(from_month='2025-04-20', to_month='2025-04-01')])
 def test_invalid_cutoffs_are_rejected_before_reading_balances(extra):

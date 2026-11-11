@@ -16,7 +16,7 @@ def test_default_columns_show_financial_comparison_and_expand_without_removing_f
     assert [column['fieldname'] for column in compact if not column.get('hidden')] == [
         'event_date', 'position_type', 'employer', 'client_name', 'loan_number', 'source_document',
         'applied_usd', 'remitted_usd', 'applied_pending_usd', 'deposit_pending_usd',
-        'complementary_pending_usd', 'operational_status',
+        'complementary_pending_usd', 'operational_status', 'difference_reason', 'difference_notes',
     ]
     assert report.get_columns() == compact
     assert [column['fieldname'] for column in compact] == [column['fieldname'] for column in full]
