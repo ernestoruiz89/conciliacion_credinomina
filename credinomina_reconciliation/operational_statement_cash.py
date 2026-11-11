@@ -10,7 +10,7 @@ def _show(row, amount, note):
     row['observation'] = ' · '.join(filter(None, [row.get('observation'), note]))
 
 
-def apply_cash_breakdown(applications, periods, collections):
+def apply_cash_breakdown(applications, periods, collections, *, deposits=None):
     """Check the complete period before any client/date filter removes recipients."""
     by_period, claims = defaultdict(list), defaultdict(list)
     for row in applications:
@@ -41,7 +41,8 @@ def apply_cash_breakdown(applications, periods, collections):
         elif len(funded) > 1 and (period.get('negative_complementary_usd') or period.get('conversion_coverage_usd')):
             to_verify.append(period)
 
-    offsets, journal_paid, uncertain = journal_evidence(to_verify, claims, include_company_difference=True)
+    offsets, journal_paid, uncertain = journal_evidence(to_verify, claims, include_company_difference=True,
+        **({'deposits': deposits} if deposits is not None else {}))
     expected = defaultdict(dict)
     for key, rows in claims.items():
         if key[0] in legacy and all(row.get('deposit_cash_usd') is not None for row in rows):

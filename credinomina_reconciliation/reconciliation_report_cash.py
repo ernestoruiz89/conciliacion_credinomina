@@ -10,13 +10,13 @@ from credinomina_reconciliation.reconciliation_deposit_detail import load_period
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
-def journal_evidence(periods, claims, client_by_detail=None, *, include_company_difference=False):
+def journal_evidence(periods, claims, client_by_detail=None, *, include_company_difference=False, deposits=None):
     """Read complete deposits once. Keep signed offsets with their actual recipients."""
     offsets, paid, uncertain = defaultdict(list), defaultdict(lambda: defaultdict(lambda: money(0))), set()
     names = {period['name'] for period in periods}
     if not periods or not frappe.has_permission('CN Remittance Allocation', 'read'):
         return offsets, paid, names
-    for deposit in load_period_deposits(periods).values():
+    for deposit in (load_period_deposits(periods).values() if deposits is None else deposits):
         if deposit.get('cash_identity_status') == 'Origen vinculado':
             continue
         try:

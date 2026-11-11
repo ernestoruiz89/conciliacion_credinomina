@@ -4,6 +4,10 @@ const context = vm.createContext({__: value => value, frappe: {query_reports: {}
 vm.runInContext(fs.readFileSync(path.join(__dirname,
     "../credinomina_reconciliation/conciliacion_credinomina/report/estado_de_cuenta_operativo/estado_de_cuenta_operativo.js"), "utf8"), context);
 const filters = context.frappe.query_reports["Estado de Cuenta Operativo"].filters;
+const cutoff = filters.find(field => field.fieldname === "cutoff_date");
+assert.equal(cutoff.label, "Fecha de corte histórico");
+assert.equal(cutoff.fieldtype, "Date");
+assert.ok(!cutoff.default && !cutoff.reqd, 'Empty cutoff preserves the current statement');
 const type = filters.find(field => field.fieldname === "position_type");
 assert.equal(type.label, "Tipo");
 assert.equal(type.options, "\nAplicaciones, depósitos y partidas\nCobranza\nAplicación\nDepósito con saldo pendiente\nPartida complementaria\nCxC por ajuste");
@@ -31,6 +35,7 @@ report.onload({get_filter: name => ({get_value: () => name === 'reason_type' ? '
     page: {add_inner_button: (_name, callback) => {toggle = callback; return {text() {}};}}});
 assert.equal(shown.get('reason_type'), true, 'Active classification filters remain visible');
 assert.equal(shown.get('accounting_status'), false);
+assert.equal(shown.get('cutoff_date'), true, 'Historical cutoff is visible in the compact view');
 assert.equal(shown.get('only_open'), true, 'Pending-only checkbox must be visible without expanding advanced filters');
 toggle();
 assert.equal(shown.get('accounting_status'), true);
