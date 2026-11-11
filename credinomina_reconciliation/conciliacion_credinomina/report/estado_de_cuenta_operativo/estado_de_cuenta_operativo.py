@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint
+from frappe.utils import cint, getdate
 
 from credinomina_reconciliation.application_quality import collection_quality
 from credinomina_reconciliation.parsers import canonical_credit_number, canonical_identifier
@@ -15,15 +15,29 @@ def execute(filters=None):
     filters = frappe._dict(filters or {})
     filters.position_type = normalize_position_type(filters.get('position_type', FINANCIAL_VIEW))
     filters.detailed_columns = cint(filters.get('detailed_columns'))
-    columns, collections = _collection_report(filters)
-    data = load_position(collections, filters)
+    snapshot = None
+    if filters.get('cutoff_date'):
+        from credinomina_reconciliation.operational_statement_cutoff import load_snapshot, build
+        snapshot = load_snapshot(filters)
+        columns, collections = _collection_report(filters, snapshot['position_context']['collections'])
+        data = build(collections, snapshot, filters)
+    else:
+        columns, collections = _collection_report(filters)
+        data = load_position(collections, filters)
     # Frappe can also restrict a report row by a linked company, for example
     # on the beneficiary of a readable deposit. Total only rows it will show.
     if data and frappe.session.user and frappe.session.user != 'Administrator':
         from frappe.desk.query_report import get_filtered_data
         data = get_filtered_data('CN Reconciliation Period', columns, data, frappe.session.user)
     message = _("Totales de la selección. Cada columna suma los movimientos incluidos por los filtros. El guion indica un importe sin determinar o que no aplica. ")
-    message += '<details><summary>' + _("Cómo se calcula") + '</summary>' + _("Posición actual de conciliación, no saldo contractual del préstamo. "
+    if snapshot:
+        from credinomina_reconciliation.historical_cutoff import cutoff_message
+        message += cutoff_message(snapshot) + '<br>'
+    position_message = (_("Posición de conciliación al corte seleccionado, no saldo contractual del préstamo. ") if snapshot
+                        else _("Posición actual de conciliación, no saldo contractual del préstamo. "))
+    date_message = (_("Desde y Hasta limitan las fechas de origen; los saldos corresponden al corte histórico. ") if snapshot
+                    else _("Desde y Hasta filtran por el mes de cobranza o por la fecha de la aplicación, depósito o partida. Los saldos son actuales. "))
+    message += '<details><summary>' + _("Cómo se calcula") + '</summary>' + position_message + _(
         "Cobranza muestra diferencias frente a las aplicaciones (informativas); Aplicación muestra aplicado neto y depósitos asignados; "
         "Partida complementaria incluye las diferencias automáticas por tolerancia y separa distribución, registro contable y gestión de saldos a favor. "
         "La CxC por aplicaciones parte del aplicado en el core y descuenta su cobertura confirmada. "
@@ -33,7 +47,7 @@ def execute(filters=None):
         "La fila Depósito con saldo pendiente corresponde al remanente pendiente, incluso cuando el depósito ya tiene aplicaciones. "
         "Depósito con saldo pendiente muestra efectivo confirmado pendiente de distribuir, separado de saldos a favor ya documentados; "
         "solo atribuye importes al cliente cuando el detalle cabe en el efectivo pendiente. No se compensa automáticamente con aplicaciones. "
-        "Desde y Hasta filtran por el mes de cobranza o por la fecha de la aplicación, depósito o partida. Los saldos son actuales. "
+    ) + date_message + _(
         "Solo se incluyen documentos visibles para su usuario. "
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
         "compensado o requiere aclaración. Registro contable y Gestión externa se consultan por separado.") + '</details>'
@@ -48,7 +62,7 @@ def execute(filters=None):
     return columns, data, message, None, totals
 
 
-def _collection_report(filters=None):
+def _collection_report(filters=None, projected_collections=None):
     filters = frappe._dict(filters or {})
     columns = get_columns(filters)
     if filters.position_type and filters.position_type != 'Cobranza':
@@ -98,6 +112,10 @@ def _collection_report(filters=None):
     data = []
     for row in rows:
         period = period_map[row.parent]
+        if projected_collections is not None:
+            if row.name not in projected_collections:
+                frappe.throw(_("No está disponible la cobranza necesaria para reconstruir el corte."))
+            row = frappe._dict(row, applied_usd=projected_collections[row.name]['applied_usd'])
         quality = collection_quality(row)
         if cint(filters.only_open) and quality["quality_status"].startswith("Conforme"):
             continue
@@ -151,6 +169,7 @@ def get_periods(filters):
         period for period in periods
         if not filters.collection_cycle
         or (period.collection_cycle or "Mensual") == filters.collection_cycle
+        if not filters.get('cutoff_date') or getdate(period.payroll_month) <= getdate(filters.cutoff_date)
     ]
 
 

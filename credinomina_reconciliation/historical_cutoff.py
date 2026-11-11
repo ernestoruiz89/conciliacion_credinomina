@@ -111,7 +111,7 @@ def _company_difference(deposit, journal, sources):
 
 
 def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False,
-                _detail_cache=None):
+                include_position=False, _detail_cache=None):
     """Pure projection. Inputs are copied, and no reconciliation/write is executed."""
     from credinomina_reconciliation.company_statement import build_detail, filter_detail, summarize
 
@@ -329,7 +329,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                             raise ValueError(f"{deposit['name']}: el desglose FIFO no coincide con las aplicaciones vinculadas.")
                         amount = sum_money(part.get('amount_usd') for part in slices
                                            if part['application_id'] in eligible_sources)
-                        entry = dict(entry, importe_usd=money_float(amount))
+                        entry = dict(entry, importe_usd=money_float(amount), aplicaciones_fifo=[
+                            part for part in slices if part['application_id'] in eligible_sources])
                         if not amount:
                             continue
                     else:
@@ -393,6 +394,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                 source['historical_detail'].append(detail)
                 source['match_status'] = 'Conciliado'
             else:
+                if include_position and entry.get('aplicaciones_fifo'):
+                    detail['aplicaciones_fifo'] = entry['aplicaciones_fifo']
                 collections[key]['remittance_detail'].append(detail)
                 collections[key]['rounding_adjustment_usd'] = money_float(
                     money(collections[key]['rounding_adjustment_usd']) + money(detail['diferencia_usd']))
@@ -416,9 +419,9 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
             item['_signed_pending_usd'] = signed_pending(item, balances[name])
             core.append(item)
     applications = application_balances(list(eligible_sources.values()), imports, periods, collections,
-                                        employers, cutoff, include_settled=True)
+                                        employers, cutoff, include_settled=True, statement_detail=include_position)
     receivables = build_receivables(list(projected_items.values()), balances,
-        settlements=list(projected_items.values()), settlement_balances=balances)
+        settlements=list(projected_items.values()), settlement_balances=balances, include_settled=include_position)
     detail = build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits,
                           filters if _detail_cache is None else None,
                           adjustment_receivables=receivables, accounting_items=projected_items.values())
@@ -428,6 +431,16 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
                 applications=applications, receivables=receivables, periods=periods,
                 warnings=sorted(set(warnings)))
+    if include_position:
+        # Before a later credit origin, an earlier core item still exists at
+        # the cut. Keep its original pending balance instead of losing the row.
+        originals = [dict(item, posting_date=item.get('source_date') or item.get('posting_date'))
+            for item in pending_reclassification_core if item['name'] not in projected_items]
+        position_balances = {**balances, **{item['name']: item['_balance'] for item in originals}}
+        position_items = [dict(item, posting_date=item['source_date']) if _day(item['posting_date']) > cutoff else item
+                          for item in projected_items.values()]
+        result['position_context'] = dict(items=[*position_items, *originals], balances=position_balances,
+            deposits=projected_deposits, collections=collections, credits_by_deposit=dict(credits_by_deposit))
     if include_bridge:
         # Reuse the exact effective-date projection. Do not read today's totals
         # or the unfiltered allocation journal to explain a historical balance.
@@ -442,7 +455,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     return result
 
 
-def load_cutoff(filters, *, include_bridge=False):
+def load_cutoff(filters, *, include_bridge=False, include_position=False):
     """Permission-scoped, batched reads; cross-company payments are not date-scoped early."""
     from frappe.utils import getdate, nowdate
     required = ('CN Accounting Import', 'CN Reconciliation Period', 'CN Remittance Allocation', 'CN Complementary Item')
@@ -459,13 +472,15 @@ def load_cutoff(filters, *, include_bridge=False):
         if filters.get('from_date') and filters.get('to_date') and _day(filters['from_date']) > _day(filters['to_date']):
             raise ValueError('La fecha Desde no puede ser posterior a Hasta.')
         projections = _report_projections.get()
-        key = (frappe.local.site, frappe.session.user, cutoff, include_bridge, bool(filters.get('_include_deposit_details')))
+        key = (frappe.local.site, frappe.session.user, cutoff, include_bridge, include_position,
+               bool(filters.get('_include_deposit_details')))
         if projections is not None and key in projections:
             return _select_projection(projections[key], filters)
         fields = list(dict.fromkeys([*FIELDS, 'accounting_source_key', 'source_date', 'source_debit', 'source_credit',
             'source_voucher', 'source_row', 'source_description', 'source_client_name', 'client_name', 'client_number',
             'loan_number', 'reference', 'voucher', 'registered_deposit', 'credit_history', 'credit_resolved_usd',
-            'claim_id', 'accounting_exception', 'reason_type', 'subcategory']))
+            'claim_id', 'accounting_exception', 'reason_type', 'subcategory',
+            *(['credit_client', 'credit_detail_row'] if include_position else [])]))
         items = list(records('CN Complementary Item', filters={'docstatus': ['!=', 2]}, fields=fields))
         # The reverse link is on the originating item. No unrestricted Exception read.
         origins = {item.get('accounting_exception'): item['name'] for item in items if item.get('accounting_exception')}
@@ -489,7 +504,7 @@ def load_cutoff(filters, *, include_bridge=False):
         require_cutoff_evidence(context, deposits, items, cutoff)
         detail_cache = {} if projections is not None else None
         snapshot = reconstruct(context, deposits, items, offsets, cutoff, filters,
-            include_bridge=include_bridge, _detail_cache=detail_cache)
+            include_bridge=include_bridge, include_position=include_position, _detail_cache=detail_cache)
         if projections is not None:
             projections[key] = dict(snapshot, detail=detail_cache['detail'], warnings=list(snapshot['warnings']))
         return snapshot
