@@ -34,6 +34,7 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
             const control = report.get_filter(name);
             control.$wrapper.toggle(expanded || Boolean(control.get_value()));
         });
+        report.page.add_inner_button(__("Buscar cliente"), () => showOperationalClientSearch(report, display));
         const button = report.page.add_inner_button(__("Más filtros"), () => {
             expanded = !expanded;
             button.text(__(expanded ? "Menos filtros" : "Más filtros"));
@@ -48,3 +49,62 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         return data && data.is_total_row ? `<strong>${formatted}</strong>` : formatted;
     },
 };
+
+function showOperationalClientSearch(report, displayFilters) {
+    let dialog, applying = false, closed = false;
+    dialog = new frappe.ui.Dialog({
+        title: __("Buscar cliente"),
+        fields: [
+            {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa"),
+                default: report.get_filter_value("employer") || "",
+                description: __("Deje vacío para buscar en todas las empresas que puede consultar."),
+                onchange() { dialog?.set_value("client", ""); }},
+            {fieldname: "client", fieldtype: "Link", options: "CN Client", label: __("Cliente"), reqd: 1,
+                only_select: true,
+                description: __("Escriba parte del nombre, número de cliente o cédula y seleccione el cliente."),
+                get_query() {
+                    const employer = dialog?.get_value("employer");
+                    return {filters: employer ? {employer} : {}};
+                }},
+        ],
+        primary_action_label: __("Filtrar reporte"),
+        async primary_action(values) {
+            if (applying || !values.client) return;
+            applying = true;
+            dialog.get_primary_btn().prop("disabled", true);
+            try {
+                const response = await frappe.db.get_value("CN Client", values.client, ["client_number", "employer"]);
+                if (closed || dialog.get_value("client") !== values.client
+                    || (dialog.get_value("employer") || "") !== (values.employer || "")) return;
+                const client = response.message || {};
+                if (!client.client_number || !client.employer || (values.employer && client.employer !== values.employer)) {
+                    frappe.msgprint(__("No se pudo identificar el número de cliente y su empresa. Revise la selección."));
+                    return;
+                }
+                const filters = {national_id: "", loan_number: "", employer: client.employer,
+                    client_number: String(client.client_number)};
+                // Wait for all controls before querying, even if the final
+                // field already has the selected value and emits no change.
+                const previous = report._no_refresh;
+                report._no_refresh = true;
+                try {
+                    for (const [field, value] of Object.entries(filters)) {
+                        await report.get_filter(field).set_value(value);
+                    }
+                } finally {
+                    report._no_refresh = previous;
+                }
+                displayFilters();
+                dialog.hide();
+                await report.refresh();
+            } catch (error) {
+                if (!closed) frappe.msgprint(__("No se pudo aplicar el filtro del cliente. Vuelva a intentar."));
+            } finally {
+                applying = false;
+                dialog.get_primary_btn().prop("disabled", false);
+            }
+        },
+        onhide() { closed = true; },
+    });
+    dialog.show();
+}
