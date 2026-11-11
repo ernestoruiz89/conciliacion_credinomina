@@ -213,7 +213,7 @@ class RemittancePostSubmitTests(unittest.TestCase):
                 doc = self.current(detail_rows=[self.previous.detail_rows[0] | {"loan_number": credit}])
                 CNRemittanceAllocation.before_update_after_submit(doc)
                 row = doc.detail_rows[0]
-                self.assertEqual(row.match_status, "Pendiente")
+                self.assertEqual(row.match_status, "Revisar: Pendiente")
                 self.assertEqual(row.matched_targets, "[]")
                 self.assertIsNone(row.loan_selection_snapshot)
                 self.assertIn("Edición manual", row.loan_selection_note)

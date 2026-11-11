@@ -131,6 +131,35 @@ class ScopedReconciliationTests(unittest.TestCase):
         self.assertTrue(engine._save_reconciled_document(doc))
         doc.save.assert_called_once_with(ignore_permissions=True)
 
+    def test_replaying_another_deposit_does_not_resave_identical_application_evidence(self):
+        portions = [dict(referencia='001', importe_usd=30.0, origen='Selección manual'),
+                    dict(referencia='002', importe_usd=20.0, origen='Automática FIFO')]
+        previous = json.dumps(portions, indent=2, ensure_ascii=False)
+        doc = Record(name='IA', rows=[Record(historical_detail=previous)], save=Mock())
+        doc._reconciliation_original_state = scope.document_state(doc)
+        doc.rows[0].historical_detail = engine._historical_detail_json(list(reversed(portions)), previous)
+        self.assertEqual(doc.rows[0].historical_detail, previous)
+        self.assertFalse(engine._save_reconciled_document(doc))
+        doc.save.assert_not_called()
+        portions[1]['importe_usd'] = 20.01
+        doc.rows[0].historical_detail = engine._historical_detail_json(portions, previous)
+        self.assertTrue(engine._save_reconciled_document(doc))
+        doc.save.assert_called_once_with(ignore_permissions=True)
+
+    def test_changed_or_invalid_distribution_evidence_is_never_treated_as_identical(self):
+        original = dict(referencia='001', importe_usd=30.0, origen='Selección manual',
+                        fecha='2025-05-05', comprobante='V1')
+        previous = json.dumps([original], ensure_ascii=False)
+        for changed in ([original, original], [], [dict(original, importe_usd=30.01)],
+                        [dict(original, referencia='1')], [dict(original, origen='Automática FIFO')],
+                        [dict(original, fecha='2025-05-06')], [dict(original, comprobante='V2')]):
+            with self.subTest(changed=changed):
+                result = engine._historical_detail_json(changed, previous)
+                self.assertNotEqual(result, previous)
+                self.assertEqual(json.loads(result), changed)
+        for invalid in (None, '', 'invalid', '{}', 'null'):
+            self.assertEqual(engine._historical_detail_json([], invalid), '[]')
+
     def test_deposit_passes_its_company_to_engine_never_global(self):
         doc = Record(employer="A")
         with patch.object(engine, "_reconcile_sources", return_value={}) as run:
