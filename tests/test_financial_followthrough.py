@@ -47,13 +47,15 @@ def test_covered_period_has_no_financial_task_even_with_quality_difference():
     assert [row['kind'] for row in tasks] == ['employee_shortfall']
 
 
-def test_complementary_kpi_excludes_inconsistency_from_valid_pending_total():
+def test_complementary_kpi_does_not_present_partial_signed_total_as_complete():
     items = [dict(name='X', employer='E', category='Otros ingresos', amount_usd=100, docstatus=1),
-             dict(name='Y', employer='E', category='Otros ingresos', amount_usd=50, docstatus=1)]
+             dict(name='Y', employer='E', category='Otros ingresos', amount_usd=50, docstatus=1, source_credit=50)]
     balances = {'X': financial_balance(items[0], [dict(amount_usd=110)]), 'Y': financial_balance(items[1])}
     rows = build_position([], [], items, balances, [], {})
     values = {row['label']: row['value'] for row in summary(rows)}
-    assert values['Complementarias pendientes de conciliar US$'] == 50
+    assert 'Complementaria pendiente US$' not in values
+    assert values['Complementaria pendiente US$ · importes sin determinar'] == 1
+    assert rows[1]['complementary_pending_net_usd'] == 50
     assert values['Partidas con inconsistencias'] == 1
     assert values['Importes observados US$'] == 10
     assert rows[0]['complementary_pending_usd'] == -10  # Keep the diagnostic evidence.

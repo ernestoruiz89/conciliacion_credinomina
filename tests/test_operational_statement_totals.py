@@ -76,8 +76,28 @@ def test_applied_credit_is_coverage_and_keeps_actual_bank_and_zero_debt():
         assert row['operational_status'] == 'Conciliado' and '35.00' in row['observation']
         for value in (row, footer):
             assert (value['applied_usd'], value['remitted_usd'], value['applied_pending_usd']) == (100, 65, 0)
+            assert value['assigned_usd'] == 100
     assert not run_applications([app], {'loan_number': '12427-2'})
     assert not run_applications([app], {'only_open': 1})
+
+
+@pytest.mark.parametrize('cash, difference, assigned, pending', [
+    (70, 0, 70, 20), (89.99, -.01, 90, 0), (90.01, .01, 90, 0),
+])
+def test_assigned_includes_confirmed_differences_without_repeating_application_reductions(cash, difference, assigned, pending):
+    app = application(application_adjustment_usd=10, historical_remitted_usd=cash,
+                      historical_detail=[dict(deposito='D', importe_usd=cash, diferencia_usd=difference)])
+    row, footer = run_applications([app])
+    for value in (row, footer):
+        assert (value['applied_usd'], value['assigned_usd'], value['applied_pending_usd']) == (90, assigned, pending)
+        assert value['remitted_usd'] == cash
+
+
+def test_assigned_does_not_hide_overcoverage_by_subtracting_capped_pending():
+    row, footer = run_applications([application(historical_remitted_usd=110)])
+    assert row['operational_status'] == 'Revisar distribución'
+    for value in (row, footer):
+        assert (value['applied_usd'], value['assigned_usd'], value['applied_pending_usd']) == (100, 110, 0)
 
 
 @pytest.mark.parametrize('cached', [True, False])
@@ -91,6 +111,7 @@ def test_shared_offsets_total_once_only_when_all_recipients_are_selected(cached)
                 'D2': dict(allocated_usd=25, allocation_detail=[historical_entry('C', 25)])}
     rows = run_applications(apps, periods={'P': period}, deposits=deposits)
     assert [row['remitted_usd'] for row in rows] == [None, None, 25, 115]
+    assert [row['assigned_usd'] for row in rows] == [40, 60, 25, 125]
     assert rows[-1]['applied_usd'] == 125 and rows[-1]['applied_pending_usd'] == 0
     for client, cash in [('1', None), ('3', 25)]:
         customer, footer = run_applications(apps, {'client_number': client}, periods={'P': period}, deposits=deposits)
@@ -139,6 +160,7 @@ def test_corrupt_historical_evidence_does_not_hide_other_applications_or_create_
     assert rows[0]['operational_status'] == 'Revisar distribución' and rows[0]['remitted_usd'] is None
     assert rows[1]['remitted_usd'] == 25
     assert (rows[-1]['applied_usd'], rows[-1]['remitted_usd'], rows[-1]['applied_pending_usd']) == (125, None, None)
+    assert rows[0]['assigned_usd'] is rows[-1]['assigned_usd'] is None
 
 
 def test_totals_follow_the_same_row_permissions_as_desk():

@@ -38,12 +38,16 @@ def execute(filters=None):
     date_message = (_("Desde y Hasta limitan las fechas de origen; los saldos corresponden al corte histórico. ") if snapshot
                     else _("Desde y Hasta filtran por el mes de cobranza o por la fecha de la aplicación, depósito o partida. Los saldos son actuales. "))
     message += '<details><summary>' + _("Cómo se calcula") + '</summary>' + position_message + _(
-        "Cobranza muestra diferencias frente a las aplicaciones (informativas); Aplicación muestra aplicado neto y depósitos asignados; "
+        "Cobranza muestra diferencias frente a las aplicaciones (informativas); Aplicación muestra aplicado neto y cobertura asignada; "
         "Partida complementaria incluye las diferencias automáticas por tolerancia y separa distribución, registro contable y gestión de saldos a favor. "
         "La CxC por aplicaciones parte del aplicado en el core y descuenta su cobertura confirmada. "
-        "Depósito asignado muestra el efectivo bancario. Los saldos a favor aplicados y las complementarias que cubren una aplicación se explican en Observación. "
+        "Asignado US$ reúne depósitos y partidas complementarias netas efectivamente vinculadas a la aplicación, incluidos los saldos a favor aplicados. "
+        "Aplicado pendiente = aplicado neto menos asignado, con mínimo cero; los excesos conservan su estado de revisión. "
+        "Más columnas permite consultar el efectivo bancario por separado y el pendiente según detalle. "
         "El aplicado neto ya descuenta los ajustes confirmados vinculados; no se descuentan otra vez. "
-        "Saldo neto de conciliación = aplicaciones pendientes − depósitos pendientes + complementarias pendientes con signo contable (débito positivo, crédito negativo). "
+        "Complementaria pendiente usa el signo contable de cobertura: créditos positivos y débitos negativos. "
+        "Saldo neto de conciliación = aplicado pendiente − saldo pendiente del depósito − complementaria pendiente. "
+        "Razón de la diferencia y Comentarios de la diferencia muestran lo documentado en los registros; no generan ni compensan importes. "
         "Se calcula sobre la selección visible; si falta un saldo o el signo contable, se indica como no determinable. "
         "No reste automáticamente los saldos a favor. "
         "La fila Depósito con saldo pendiente corresponde al remanente pendiente, incluso cuando el depósito ya tiene aplicaciones. "
@@ -54,7 +58,9 @@ def execute(filters=None):
         "Estado de conciliación expresa la cobertura financiera; Tratamiento identifica si el importe fue documentado, "
         "compensado o requiere aclaración. Registro contable y Gestión externa se consultan por separado.") + '</details>'
     totals, amounts = summarize_selection(data, filters)
-    totals.extend(net_balance_summary(data, amounts, filters))
+    # The signed complementary total is already one of the five main figures.
+    totals.extend(figure for figure in net_balance_summary(data, amounts, filters)
+                  if figure['label'] != 'Complementarias pendientes netas US$')
     for row in data:
         row.pop('_shared_bank_cash', None)
         row.pop('_bank_basis', None)
@@ -224,14 +230,15 @@ def get_columns(filters=None):
         metrics.extend([('expected_usd', 'Cobranza US$'), ('quality_applied_usd', 'Aplicado para control US$'),
                         ('quality_difference_usd', 'Diferencia de control US$')])
     if kinds is None or 'Aplicación' in kinds:
-        metrics.extend([('applied_usd', 'Aplicado neto US$'), ('remitted_usd', 'Depósito asignado US$'),
-                        ('applied_pending_usd', 'Aplicado pendiente US$')])
+        metrics.extend([('applied_usd', 'Aplicado neto US$'), ('assigned_usd', 'Asignado US$'),
+                        ('applied_pending_usd', 'Aplicado pendiente US$'), ('remitted_usd', 'Depósito asignado US$')])
     if kinds is None or 'Depósito con saldo pendiente' in kinds:
         metrics.append(('deposit_pending_usd', 'Saldo pendiente del depósito US$'))
         metrics.append(('deposit_detail_pending_usd', 'Pendiente según detalle US$'))
     if kinds is None or 'Partida complementaria' in kinds:
-        metrics.extend([('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
-                        ('complementary_pending_usd', 'Complementaria pendiente US$'), ('credit_resolved_usd', 'Gestionado US$'),
+        metrics.extend([('complementary_pending_net_usd', 'Complementaria pendiente US$'),
+                        ('complementary_usd', 'Complementaria original US$'), ('complementary_used_usd', 'Utilizado US$'),
+                        ('complementary_pending_usd', 'Pendiente complementaria sin signo US$'), ('credit_resolved_usd', 'Gestionado US$'),
                         ('credit_pending_usd', 'Saldo a favor por gestionar US$')])
     if kinds is None or 'CxC por ajuste' in kinds:
         metrics.extend([('company_receivable_usd', 'CxC a la empresa por ajuste US$'),
@@ -247,7 +254,7 @@ def get_columns(filters=None):
     if not cint((filters or {}).get('detailed_columns')):
         primary = {'event_date', 'employer', 'client_name', 'loan_number', 'source_document', 'operational_status',
                    'difference_reason', 'difference_notes',
-                   'applied_usd', 'remitted_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_usd'}
+                   'applied_usd', 'assigned_usd', 'applied_pending_usd', 'deposit_pending_usd', 'complementary_pending_net_usd'}
         if not view or view == FINANCIAL_VIEW:
             primary.add('position_type')
         if not view or view == 'Cobranza':
@@ -259,7 +266,7 @@ def get_columns(filters=None):
                 column['hidden'] = 1
     if view == 'Partida complementaria':
         # Put classification and the two remaining obligations before audit data.
-        leading = ('event_date', 'employer', 'category', 'complementary_pending_usd', 'credit_pending_usd',
+        leading = ('event_date', 'employer', 'category', 'complementary_pending_net_usd', 'credit_pending_usd',
                    'operational_status', 'client_name', 'source_document', 'accounting_status', 'management_status')
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]

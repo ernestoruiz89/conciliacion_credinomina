@@ -68,6 +68,12 @@ def run():
         insert('CN Complementary Item', '-X', employer=company, docstatus=1, category='Ajuste de aplicación',
             posting_date='2025-05-01', currency='USD', amount=20, amount_usd=20,
             related_import=parent, related_application=marker + '-A', application_adjustment_usd=20)
+        signed_company = insert('CN Employer', '-SIGNS', employer_name=marker + '-SIGNS', employer_code=marker + '-SIGNS')
+        for suffix, amount, field in [('-CREDIT', 12, 'source_credit'), ('-DEBIT', 4, 'source_debit')]:
+            insert('CN Complementary Item', suffix, employer=signed_company, docstatus=1,
+                category='Ajuste de conciliación', review_status='Lista para conciliar', posting_date='2025-04-15',
+                currency='USD', amount=amount, amount_usd=amount, source_currency='USD',
+                difference_notes='Comentario documentado ' + suffix, **{field: amount})
         before = [frappe.db.get_value(dt, name, '*', as_dict=True) for dt, name in created]
         filters = dict(employer=company, client_number='7', cutoff_date='2025-04-30', only_open=0)
         sql = frappe.db.sql
@@ -80,6 +86,10 @@ def run():
             total = april[1][-1]
             assert (total['applied_usd'], total['remitted_usd'], total['applied_pending_usd'],
                     total['deposit_pending_usd']) == (140, 70, 70, 120), total
+            assert total['assigned_usd'] == 70
+            assert [column['label'] for column in april[0] if column['fieldtype'] == 'Currency' and not column.get('hidden')] == [
+                'Aplicado neto US$', 'Asignado US$', 'Aplicado pendiente US$',
+                'Saldo pendiente del depósito US$', 'Complementaria pendiente US$']
             assert next(row for row in april[1] if row.get('source_rows') == marker + '-A')['difference_notes'] == 'Nota aplicación -A'
             pending_advance = next(row for row in april[1] if row.get('source_document') == marker + '-ADV')
             assert pending_advance['difference_notes'] == 'Detalle: Nota detalle -ADV\nDepósito: Nota depósito -ADV'
@@ -96,15 +106,42 @@ def run():
             may = may_result[1]
             total = may[-1]
             assert (total['applied_usd'], total['remitted_usd'], total['applied_pending_usd']) == (240, 240, 0), total
+            assert total['assigned_usd'] == 240
             assert report.execute(dict(filters, cutoff_date='2025-05-31', only_open=1))[1] == []
             collection_rows = report.execute(dict(filters, position_type='Cobranza'))[1]
             assert collection_rows[-1]['quality_applied_usd'] == 40
             assert collection_rows[0]['employee_pending_usd'] == 60
             assert report.execute(filters)[1] == april[1], 'Report refresh reused another cutoff'
+            from io import BytesIO
+            from openpyxl import load_workbook
+            from credinomina_reconciliation.operational_statement_export import build_export
+            export_filters = dict(filters, position_type='Aplicaciones, depósitos y partidas')
+            filename, content = build_export(frappe._dict(filters=export_filters, ignore_visible_idx=True,
+                visible_idx=[], include_filters=1, applied_filters={'Corte': '30/04/2025'}))
+            book = load_workbook(BytesIO(content), data_only=True)
+            exported = {row[0]: row[1] for row in book['Resumen del saldo'].values if row[0]}
+            assert exported['Aplicaciones pendientes US$'] == 70
+            assert exported['Depósitos pendientes US$ (se restan)'] == 120
+            assert exported['Saldo neto de conciliación US$'] == -50
+            assert filename.startswith('Estado de Cuenta Operativo') and len(book.sheetnames) == 2
+            signed_filters = dict(employer=signed_company, cutoff_date='2025-04-30', only_open=1)
+            signed = report.execute(signed_filters)
+            assert {row['source_document']: row['complementary_pending_net_usd'] for row in signed[1][:-1]} == {
+                marker + '-CREDIT': 12, marker + '-DEBIT': -4}
+            assert signed[1][-1]['complementary_pending_net_usd'] == 8
+            assert next(figure['value'] for figure in signed[4] if figure['label'] == 'Saldo neto de conciliación US$') == -8
+            _, content = build_export(frappe._dict(filters=signed_filters, ignore_visible_idx=True))
+            signed_book = load_workbook(BytesIO(content), data_only=True)
+            figures = {row[0]: row[1] for row in signed_book['Resumen del saldo'].values if row[0]}
+            assert figures['Complementarias pendientes de crédito US$'] == 12
+            assert figures['Complementarias pendientes de débito US$'] == -4
+            assert figures['Complementarias pendientes netas US$'] == 8
+            assert figures['Saldo neto de conciliación US$'] == -8
         after = [frappe.db.get_value(dt, name, '*', as_dict=True) for dt, name in created]
         assert before == after, 'A report changed a reconciliation'
         return dict(historical_applications=True, operational_fifo=True, client_pending_deposits=True,
-            dated_adjustments=True, current_collection_cache_ignored=True, columns_unchanged=True,
-            net_summary=True, difference_documentation=True, read_only=True, rolled_back=True)
+            dated_adjustments=True, current_collection_cache_ignored=True, simplified_columns=True,
+            assigned_coverage=True, signed_complementaries=True,
+            net_summary=True, excel_net_summary=True, difference_documentation=True, read_only=True, rolled_back=True)
     finally:
         frappe.db.rollback()
