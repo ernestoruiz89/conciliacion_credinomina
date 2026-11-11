@@ -8,12 +8,14 @@ from credinomina_reconciliation.company_statement import load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.difference_reasons import CREDIT_COMPONENTS, attach_treatments
 from credinomina_reconciliation.report_employers import company_scopes
+from credinomina_reconciliation.historical_cutoff import reuse_cutoff_projection
 from credinomina_reconciliation.company_accounting_statement import (
     CORE, MANAGEMENT, CORE_METRICS, MANAGEMENT_METRICS, CORE_FIELDS, MANAGEMENT_FIELDS, POSITION_METRICS, POSITION_FIELDS,
     load_core_detail, management_detail, matches, selected_scope, summarize, validate_dates,
 )
 
 
+@reuse_cutoff_projection
 def execute(filters=None):
     filters = filters or {}
     if filters.get('view_mode') == 'Conciliación':

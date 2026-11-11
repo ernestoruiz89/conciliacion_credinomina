@@ -187,10 +187,12 @@ def summarize(detail):
     groups = {}
     for row in detail:
         key = row.get('employer') or ''
-        group = groups.setdefault(key, dict(employer=key or None, usd_currency='USD', nio_currency='NIO',
-            core_movement_count=0, pending_count=0, _accounting_documents=set(),
-            management_pending_usd=money(0), other_credit_usd=money(0), pending_core_difference_usd=money(0),
-            **{field: money(0) for field in FIELDS}))
+        if key not in groups:
+            groups[key] = dict(employer=key or None, usd_currency='USD', nio_currency='NIO',
+                core_movement_count=0, pending_count=0, _accounting_documents=set(),
+                management_pending_usd=money(0), other_credit_usd=money(0), pending_core_difference_usd=money(0),
+                **{field: money(0) for field in FIELDS})
+        group = groups[key]
         if row['statement_scope'] == CORE:
             group['core_movement_count'] += 1
         else:
@@ -210,13 +212,18 @@ def summarize(detail):
                         group['management_pending_usd'] = None
                     if field in {'core_pending_usd', 'deposit_pending_usd'}:
                         group['other_credit_usd'] = None
-                elif money(value) > 0 and group['management_pending_usd'] is not None:
-                    group['management_pending_usd'] += money(value)
-                elif field not in DOCUMENTED_CREDITS and money(value) < 0 and group['other_credit_usd'] is not None:
-                    group['other_credit_usd'] += money(value)
+                elif value:
+                    amount = money(value)
+                    if amount > 0 and group['management_pending_usd'] is not None:
+                        group['management_pending_usd'] += amount
+                    elif field not in DOCUMENTED_CREDITS and amount < 0 and group['other_credit_usd'] is not None:
+                        group['other_credit_usd'] += amount
         for field in FIELDS:
             value = row.get(field, 0)
-            group[field] = None if group[field] is None or value is None else group[field] + money(value)
+            if group[field] is None or value is None:
+                group[field] = None
+            elif value:
+                group[field] += money(value)
     result = []
     for key in sorted(groups):
         group = groups[key]

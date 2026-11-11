@@ -188,6 +188,13 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
                 'Fila de control: contribución cero al saldo de este reporte; revise la partida para conocer su saldo financiero',
                 item.get('description')]))))
         represented.add(item['name'])
+    return filter_detail(result, filters)
+
+
+def filter_detail(rows, filters=None):
+    """Apply the same presentation scope to a freshly built or reused projection."""
+    filters = filters or {}
+
     def matches(row):
         if filters.get('employer') and row.get('employer') != filters['employer']:
             return False
@@ -210,7 +217,7 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
             if filters.get(field) and (not when or not check(getdate(when), getdate(filters[field]))):
                 return False
         return True
-    return sorted((row for row in result if matches(row)), key=lambda row: (
+    return sorted((row for row in rows if matches(row)), key=lambda row: (
         row.get('employer') or '', str(row.get('event_date') or ''), row['position_type'],
         row.get('source_document') or '', row.get('source_rows') or ''))
 
@@ -224,15 +231,19 @@ def summarize(detail):
     groups = {}
     for row in detail:
         employer = row.get('employer') or ''
-        group = groups.setdefault(employer, dict(employer=employer or None, usd_currency='USD',
-            pending_count=0, accounting_pending_count=0, **{field: money(0) for field in FIELDS}))
+        if employer not in groups:
+            groups[employer] = dict(employer=employer or None, usd_currency='USD',
+                pending_count=0, accounting_pending_count=0, **{field: money(0) for field in FIELDS})
+        group = groups[employer]
         if row.get('_component', True):
             group['pending_count'] += 1
         if row.get('accounting_pending'):
             group.setdefault('_accounting_documents', set()).add(row['source_document'])
         for field in FIELDS:
-            group[field] = (None if group[field] is None or row[field] is None
-                            else group[field] + money(row[field]))
+            if group[field] is None or row[field] is None:
+                group[field] = None
+            elif row[field]:
+                group[field] += money(row[field])
     result = []
     for employer in sorted(groups):
         row = groups[employer]

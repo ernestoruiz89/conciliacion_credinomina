@@ -5,8 +5,10 @@ remain effective; dated compensation and credit-management reversals are replaye
 Never read current aggregate balances as if they were historical balances.
 """
 from collections import defaultdict
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import date
+from functools import wraps
 import json
 
 import frappe
@@ -21,6 +23,38 @@ from credinomina_reconciliation.deposit_adjustment_receivables import build_rece
 from credinomina_reconciliation.reconciliation import converted_amount
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
+
+
+_report_projections = ContextVar('cn_historical_report_projections', default=None)
+
+
+def reuse_cutoff_projection(function):
+    """Reuse read-only projections within one report, never between refreshes/users."""
+    @wraps(function)
+    def run(*args, **kwargs):
+        if _report_projections.get() is not None:
+            return function(*args, **kwargs)
+        token = _report_projections.set({})
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _report_projections.reset(token)
+    return run
+
+
+def _select_projection(snapshot, filters):
+    from credinomina_reconciliation.company_statement import filter_detail, summarize
+
+    # Presentation may attach classifications. Keep the cached evidence untouched.
+    detail = _copy_detail(filter_detail(snapshot['detail'], filters))
+    return dict(snapshot, detail=detail, summary=summarize(detail), warnings=list(snapshot['warnings']))
+
+
+def _copy_detail(rows):
+    # Statement rows are flat except for classified deposit detail. Copy that
+    # evidence separately instead of traversing every scalar field again.
+    return [dict(row, **({'_deposit_detail_classification': deepcopy(row['_deposit_detail_classification'])}
+        if row.get('_deposit_detail_classification') is not None else {})) for row in rows]
 
 
 def _day(value):
@@ -76,9 +110,10 @@ def _company_difference(deposit, journal, sources):
     return proof
 
 
-def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False):
+def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *, include_bridge=False,
+                _detail_cache=None):
     """Pure projection. Inputs are copied, and no reconciliation/write is executed."""
-    from credinomina_reconciliation.company_statement import build_detail, summarize
+    from credinomina_reconciliation.company_statement import build_detail, filter_detail, summarize
 
     cutoff = _day(cutoff_date)
     sources, imports, periods, collections, employers = deepcopy(context)
@@ -189,7 +224,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     from credinomina_reconciliation.reclassification_distribution import application_links
     for link in application_links(projected_items.values(), set(all_sources), cutoff=cutoff):
         adjustments[link.related_application] += money(link.application_adjustment_usd)
-    eligible_sources = {}
+    eligible_sources, applied_by_source = {}, {}
     future_collections = set()
     collection_sources = defaultdict(set)
     for row in sources:
@@ -209,12 +244,13 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                 future_collections.add(key)
         if not in_cutoff:
             continue
-        current_applied = converted_amount(row, 'USD')
+        current_applied = converted_amount(row, 'USD') if links else None
         row.update(application_adjustment_usd=money_float(adjustments[row['name']]),
                    historical_remitted_usd=0, historical_detail=[])
         # A later application adjustment may have reduced today's links. The
         # restored excess stays pending, never silently disappears from the cut.
         applied = converted_amount(row, 'USD')
+        applied_by_source[row['name']] = applied
         if links and applied is not None and row['name'] not in link_issues:
             # Only a fully linked SINGLE claim can absorb the known dated
             # application adjustment without inventing an allocation order.
@@ -229,7 +265,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
     for row in eligible_sources.values():
         if row.get('_cutoff_distribution_issue'):
             continue
-        for link in collection_links(row, converted_amount(row, 'USD')):
+        for link in collection_links(row, applied_by_source[row['name']]):
             projected_capacity[link.get('collection_row_id')] += money(link.get('amount_usd'))
     collection_keys = {}
     for name, row in collections.items():
@@ -383,8 +419,12 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
                                         employers, cutoff, include_settled=True)
     receivables = build_receivables(list(projected_items.values()), balances,
         settlements=list(projected_items.values()), settlement_balances=balances)
-    detail = build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits, filters,
+    detail = build_detail(applications, core, [*projected_items.values(), *virtual_credits], projected_deposits,
+                          filters if _detail_cache is None else None,
                           adjustment_receivables=receivables, accounting_items=projected_items.values())
+    if _detail_cache is not None:
+        _detail_cache['detail'] = detail
+        detail = _copy_detail(filter_detail(detail, filters))
     result = dict(cutoff_date=str(cutoff), detail=detail, summary=summarize(detail),
                 applications=applications, receivables=receivables, periods=periods,
                 warnings=sorted(set(warnings)))
@@ -395,7 +435,7 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
             deposits=projected_deposits, distributions=dict(distributions),
             reclassification_credits=virtual_credits,
             offsets=[row for row in offsets if _day(row.get('compensation_date')) <= cutoff],
-            sources=[dict(row, bridge_applied_usd=converted_amount(row, 'USD'),
+            sources=[dict(row, bridge_applied_usd=applied_by_source[row['name']],
                 employer=(periods.get(row.get('historical_period') or imports.get(row.get('parent'), {}).get('historical_period')) or {}).get('employer')
                     or imports.get(row.get('parent'), {}).get('employer') or row.get('portfolio_employer'))
                 for row in eligible_sources.values()])
@@ -418,6 +458,10 @@ def load_cutoff(filters, *, include_bridge=False):
             raise ValueError('Desde no puede ser posterior a la fecha de corte.')
         if filters.get('from_date') and filters.get('to_date') and _day(filters['from_date']) > _day(filters['to_date']):
             raise ValueError('La fecha Desde no puede ser posterior a Hasta.')
+        projections = _report_projections.get()
+        key = (frappe.local.site, frappe.session.user, cutoff, include_bridge, bool(filters.get('_include_deposit_details')))
+        if projections is not None and key in projections:
+            return _select_projection(projections[key], filters)
         fields = list(dict.fromkeys([*FIELDS, 'accounting_source_key', 'source_date', 'source_debit', 'source_credit',
             'source_voucher', 'source_row', 'source_description', 'source_client_name', 'client_name', 'client_number',
             'loan_number', 'reference', 'voucher', 'registered_deposit', 'credit_history', 'credit_resolved_usd',
@@ -443,7 +487,12 @@ def load_cutoff(filters, *, include_bridge=False):
         context = load_application_context(include_current_settlements=False)
         from credinomina_reconciliation.cutoff_evidence import require_cutoff_evidence
         require_cutoff_evidence(context, deposits, items, cutoff)
-        return reconstruct(context, deposits, items, offsets, cutoff, filters, include_bridge=include_bridge)
+        detail_cache = {} if projections is not None else None
+        snapshot = reconstruct(context, deposits, items, offsets, cutoff, filters,
+            include_bridge=include_bridge, _detail_cache=detail_cache)
+        if projections is not None:
+            projections[key] = dict(snapshot, detail=detail_cache['detail'], warnings=list(snapshot['warnings']))
+        return snapshot
     except ValueError as error:
         frappe.throw(str(error))
 
