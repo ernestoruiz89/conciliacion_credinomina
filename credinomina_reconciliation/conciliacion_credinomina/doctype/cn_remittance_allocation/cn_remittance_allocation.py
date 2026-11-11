@@ -503,7 +503,7 @@ class CNRemittanceAllocation(Document):
 @frappe.whitelist(methods=["POST"])
 def correct_deposit_data(remittance_name: str, modified: str, employer: str,
                          deposit_date: str, deposit_reference: str, reason: str,
-                         deposit_amount=None):
+                         deposit_amount=None, bank_account=None):
     """Correct submitted deposit data through a validated, audited server action."""
     from credinomina_reconciliation.client_credit import lock_credit_deposit
     from frappe.utils import getdate
@@ -532,6 +532,11 @@ def correct_deposit_data(remittance_name: str, modified: str, employer: str,
         frappe.throw(_("El nuevo importe es menor que el efectivo ya distribuido o reservado. Desconcilie y revise primero sus destinos y saldos a favor."))
     values = {"employer": employer, "deposit_date": getdate(deposit_date),
               "deposit_reference": deposit_reference, "deposit_amount": corrected_amount}
+    if bank_account is not None:
+        bank_account = clean_text(bank_account)
+        if bank_account:
+            frappe.get_doc('CN Bank Account', bank_account).check_permission('read')
+        values['bank_account'] = bank_account
     def changed(field, value):
         if field == "deposit_amount":
             return money(document.get(field)) != value

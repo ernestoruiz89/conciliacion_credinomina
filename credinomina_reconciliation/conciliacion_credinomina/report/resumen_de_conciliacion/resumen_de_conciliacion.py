@@ -76,7 +76,6 @@ def execute(filters=None):
     claims = {}
     summary, detail = build_views(data, collection_rows, load_direct_applications([row.name for row in data]), cash_claims=claims)
     if is_detail:
-        add_portfolio_status(data, detail)
         for row in detail:
             row["comments"] = "\n".join(
                 f"{_(label)}: {text}" for field, label in (
@@ -87,8 +86,7 @@ def execute(filters=None):
         pending = load_pending_detail(data, filters)
         # Unassociated receipts must not be assigned an invented reporting period.
         associated = [row for row in pending if row.get('name')]
-        if associated:
-            add_portfolio_status(data, associated)
+        add_portfolio_status(data, [*detail, *associated])
         detail.extend(pending)
     client_by_detail = {}
     rows = consolidate_clients(detail, client_by_detail=client_by_detail) if by_client else detail if is_detail else summary

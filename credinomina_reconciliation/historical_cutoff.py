@@ -484,7 +484,7 @@ def load_cutoff(filters, *, include_bridge=False, include_position=False, includ
             'source_voucher', 'source_row', 'source_description', 'source_client_name', 'client_name', 'client_number',
             'loan_number', 'reference', 'voucher', 'registered_deposit', 'credit_history', 'credit_resolved_usd',
             'claim_id', 'accounting_exception', 'reason_type', 'subcategory',
-            *(['credit_client', 'credit_detail_row'] if include_position else [])]))
+            *(['credit_client', 'credit_detail_row', 'difference_notes'] if include_position else [])]))
         items = list(records('CN Complementary Item', filters={'docstatus': ['!=', 2]}, fields=fields))
         # The reverse link is on the originating item. No unrestricted Exception read.
         origins = {item.get('accounting_exception'): item['name'] for item in items if item.get('accounting_exception')}
@@ -497,6 +497,7 @@ def load_cutoff(filters, *, include_bridge=False, include_position=False, includ
         deposits = list(records('CN Remittance Allocation', filters={'docstatus': ['!=', 2]}, fields=[
             'name', 'employer', 'docstatus', 'accounting_source_key', 'deposit_date', 'deposit_reference',
             'amount_usd', 'allocation_detail', 'result', 'notes', 'cash_identity_status', 'cash_identity_reason', 'consolidated_deposit', 'difference_reason',
+            *(['difference_notes'] if include_position else []),
             *(['deposit_currency', 'deposit_amount', 'fx_rate', 'deposit_voucher'] if include_bridge else [])]))
         if filters.get('_include_deposit_details'):
             from credinomina_reconciliation.deposit_detail_classification import attach_details

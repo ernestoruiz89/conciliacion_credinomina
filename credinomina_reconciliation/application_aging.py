@@ -107,6 +107,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             "source_import": source.get("parent"),
             "source_rows": source.get("name") or "",
             "difference_reason": source.get("difference_reason") or "",
+            "difference_notes": source.get("difference_notes") or "",
             "has_application_adjustment": money(source.get("application_adjustment_usd")) > 0,
             "application_date": source.get("event_date"),
             "period": period.get("name"), "employer": employer,
@@ -295,6 +296,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in parts)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in parts if part["source_rows"]}))
             item["difference_reason"] = " · ".join(sorted({part["difference_reason"] for part in parts if part["difference_reason"]}))
+            item['difference_notes'] = '\n'.join(sorted({part['difference_notes'] for part in parts if part['difference_notes']}))
             if len({part["source_import"] for part in parts}) > 1:
                 item["source_import"] = None
             item["observation"] = "Varias fechas de vencimiento: falta distribuir el pago entre aplicaciones"
@@ -308,6 +310,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             item['has_application_adjustment'] = any(part.get('has_application_adjustment') for part in grouped)
             item["source_rows"] = ", ".join(sorted({part["source_rows"] for part in grouped if part["source_rows"]}))
             item["difference_reason"] = " · ".join(sorted({part["difference_reason"] for part in grouped if part["difference_reason"]}))
+            item['difference_notes'] = '\n'.join(sorted({part['difference_notes'] for part in grouped if part['difference_notes']}))
             application_dates = [part["application_date"] for part in grouped if part.get("application_date")]
             item["application_date"] = min(application_dates) if application_dates else None
             if len({part["source_import"] for part in grouped}) > 1:

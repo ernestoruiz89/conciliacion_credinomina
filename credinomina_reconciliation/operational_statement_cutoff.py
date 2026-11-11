@@ -50,7 +50,7 @@ def pending_deposits(snapshot, filters=None):
     details = []
     for row in child_records('CN Remittance Detail', [deposit['name'] for deposit in deposits],
             'CN Remittance Allocation', 'detail_rows', fields=['name', 'parent', 'row_kind', 'employer', 'client',
-                'client_name', 'client_number', 'national_id', 'loan_number', 'amount_usd', 'linked_usd', 'matched_targets', 'difference_reason']):
+                'client_name', 'client_number', 'national_id', 'loan_number', 'amount_usd', 'linked_usd', 'matched_targets', 'difference_reason', 'difference_notes']):
         details.append(dict(row, **{field: money_float(reserved[row['name']][field])
             for field in ('client_credit_usd', 'company_credit_usd')}))
     return build_deposits(deposits, details, load_manual_targets(deposits))

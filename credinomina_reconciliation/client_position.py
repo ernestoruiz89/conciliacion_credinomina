@@ -64,7 +64,8 @@ def _application_in_range(source, filters):
                applied_usd=money_float(applied), source_import=imports.pop() if len(imports) == 1 else None,
                source_rows=', '.join(sorted({part['source_rows'] for part in selected})),
                has_application_adjustment=any(part['has_application_adjustment'] for part in selected),
-               difference_reason=' · '.join(sorted({part['difference_reason'] for part in selected if part.get('difference_reason')})))
+               difference_reason=' · '.join(sorted({part['difference_reason'] for part in selected if part.get('difference_reason')})),
+               difference_notes='\n'.join(sorted({part['difference_notes'] for part in selected if part.get('difference_notes')})))
     row.pop('_shared_bank_cash', None)
     row.pop('_bank_basis', None)
     if not money(source.get('adjustment_usd')) and source.get('paid_usd') in (0, source['applied_usd']):
@@ -132,8 +133,10 @@ def build_position(collections, applications, items, balances, clients, filters,
             national_id=client.get('national_id'), loan_number='' if company_wide else item.get('loan_number'),
             category=item.get('category'), subcategory=item.get('subcategory'), reason_type=item.get('reason_type'),
             difference_reason=item.get('difference_reason'),
+            difference_notes=item.get('difference_notes'),
             treatment_status=balance['financial_status'], complementary_usd=balance['original_usd'],
             complementary_used_usd=balance['used_usd'], complementary_pending_usd=balance['pending_usd'],
+            _signed_complementary_pending_usd=signed_complementary_pending(item, balance['pending_usd']),
             credit_pending_usd=balance['management_pending_usd'], credit_resolved_usd=item.get('credit_resolved_usd'),
             accounting_status=balance['accounting_status'], operational_status=reconciliation_state(balance),
             management_status=balance.get('management_status'),
@@ -146,7 +149,7 @@ def build_position(collections, applications, items, balances, clients, filters,
             period=item.get('period'), collection_cycle=period_cycles.get(item.get('period')), client_name=item.get('client_name'),
             client_number=item.get('client_number') or item.get('client'), national_id=item.get('national_id'),
             loan_number=item.get('loan_number'), category=item.get('category'), subcategory=item.get('subcategory'),
-            reason_type=item.get('reason_type'), difference_reason=item.get('difference_reason'),
+            reason_type=item.get('reason_type'), difference_reason=item.get('difference_reason'), difference_notes=item.get('difference_notes'),
             company_receivable_usd=0 if item.get('subcategory_effect') == 'CxC al Empleado' else item['receivable_usd'],
             employee_receivable_usd=item['receivable_usd'] if item.get('subcategory_effect') == 'CxC al Empleado' else 0,
             treatment_status=item.get('subcategory_effect'), operational_status=item['receivable_status'],
@@ -178,7 +181,7 @@ def load_position(collections, filters):
         periods = {p.name: p for p in records('CN Reconciliation Period', filters=scope,
             fields=['name', 'collection_cycle', 'reconciliation_mode'])}
     fields = list(dict.fromkeys([*FIELDS, 'client_number', 'loan_number', 'credit_client', 'subcategory', 'reason_type',
-        'client_name', 'source_client_name', 'credit_resolved_usd']))
+        'client_name', 'source_client_name', 'credit_resolved_usd', 'difference_notes']))
     items = list(records('CN Complementary Item', fields=fields, filters={**scope, 'docstatus': ['!=', 2]})) if kinds is None or 'Partida complementaria' in kinds else []
     clients = list(records('CN Client', filters=scope, fields=['name', 'client_number', 'client_name', 'national_id', 'employer'])) if items else []
     from credinomina_reconciliation.deposit_adjustment_receivables import load_receivables
@@ -270,3 +273,42 @@ def summarize_selection(data, filters=None):
 
 def summary(data, filters=None):
     return summarize_selection(data, filters)[0]
+
+
+def signed_complementary_pending(item, pending):
+    """Sign only the remaining balance, using the original accounting evidence."""
+    if pending is None or money(pending) < 0:
+        return None
+    if not money(pending):
+        return 0.0
+    net = money(item.get('source_debit')) - money(item.get('source_credit'))
+    if not net:
+        return None
+    return money_float(money(pending) * (1 if net > 0 else -1))
+
+
+def net_balance_summary(data, amounts, filters):
+    """Selection-only position; never offset documents or infer missing signs."""
+    kinds = selected_position_types(filters.get('position_type'))
+    if kinds is not None and not FINANCIAL_TYPES <= kinds:
+        return []
+    items = [row for row in data if row['position_type'] == 'Partida complementaria']
+    unknown = sum(row.get('_signed_complementary_pending_usd') is None
+                  or row.get('operational_status') == 'Revisar distribución' for row in items)
+    figures = []
+    if unknown:
+        figures.append(dict(label='Complementarias sin saldo o signo contable determinable', value=unknown,
+                            datatype='Int', indicator='red'))
+    else:
+        signed = sum_money(row['_signed_complementary_pending_usd'] for row in items)
+        figures.append(dict(label='Complementarias pendientes netas US$', value=money_float(signed),
+                            datatype='Currency', currency='USD', indicator='blue'))
+    missing = unknown + sum(amounts.get(field, 0) is None for field in ('applied_pending_usd', 'deposit_pending_usd'))
+    if missing:
+        figures.append(dict(label='Saldo neto no determinable · importes por revisar', value=missing,
+                            datatype='Int', indicator='red'))
+    else:
+        balance = money(amounts.get('applied_pending_usd')) - money(amounts.get('deposit_pending_usd')) + signed
+        figures.append(dict(label='Saldo neto de conciliación US$', value=money_float(balance),
+                            datatype='Currency', currency='USD', indicator='blue'))
+    return figures

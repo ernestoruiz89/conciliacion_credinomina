@@ -362,6 +362,8 @@ async function correctDepositData(frm) {
         title: __("Corregir datos del depósito"),
         fields: [
             {fieldname: "employer", fieldtype: "Link", options: "CN Employer", label: __("Empresa pagadora"), reqd: 1, default: frm.doc.employer},
+            {fieldname: "bank_account", fieldtype: "Link", options: "CN Bank Account", label: __("Cuenta bancaria"),
+                default: frm.doc.bank_account, get_query: () => ({filters: {active: 1}})},
             {fieldname: "deposit_date", fieldtype: "Date", label: __("Fecha del depósito"), reqd: 1, default: frm.doc.deposit_date},
             {fieldname: "deposit_reference", fieldtype: "Data", label: __("Referencia del depósito"), reqd: 1, default: frm.doc.deposit_reference},
             {fieldname: "deposit_amount", fieldtype: "Currency", options: frm.doc.deposit_currency,
