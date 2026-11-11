@@ -286,7 +286,9 @@ def stored_cash_context(deposits, periods, pairs=None):
         deposit = stored[account.name]
         for row in (account, bank):
             for field in ("allocated_usd", "unallocated_usd", "unclassified_usd", "justified_surplus_usd", "allocation_detail"):
-                row[field] = deposit.get(field)
+                # The bank side can be an actual CN Source Row Document when
+                # an older accounting import contains the deposit movement.
+                setattr(row, field, deposit.get(field))
         meta[account.name] = {"account": account, "bank": bank, "employer": deposit.employer,
             "amount_usd": deposit.amount_usd,
             "nio_per_usd": deposit.deposit_amount / deposit.amount_usd
@@ -337,6 +339,10 @@ def reconcile_deposit(document, progress=None, undo=False):
         }, limit_page_length=1):
             frappe.throw(_("Cancele los saldos a favor vinculados antes de desconciliar el depósito."))
     else:
+        # Validate the freshly loaded document once, under the cash-pool lock.
+        # Imported deposits may default to FIFO before any detail is supplied.
+        if document.apply_fifo and document.detail_rows and not selected_periods(document):
+            frappe.throw(_("Seleccione al menos un período en Períodos a conciliar para aplicar FIFO."))
         from credinomina_reconciliation.remittance_detail_recovery import recover_reimported_detail
         recover_reimported_detail(document)
         document._validate_deposit()

@@ -49,6 +49,16 @@ class ApplicationLinkPreservationTests(unittest.TestCase):
         self.assertEqual(json.loads(source.application_allocation_detail),
                          [dict(collection_row_id='C80', period='P', amount_usd=60)])
 
+    def test_legacy_provisional_link_keeps_its_identity_amount_and_evidence(self):
+        source = self.source(match_status='Enlace provisional', historical_period='',
+                             match_reason='Evidencia histórica conservada')
+        original = source.as_dict()
+        source.update(match_status='Pendiente', match_reason='', collection_period='',
+                      collection_row_id='', application_allocation_detail='[]')
+        targets = [Row(name='C80', parent='P', client_number='1', loan_number='109-1')]
+        self.assertEqual(preserve([source], [original], targets), [source])
+        self.assertEqual(source.as_dict(), original)
+
     def test_partial_link_keeps_unlinked_remainder_on_an_unchanged_refresh(self):
         raw = '[{ "collection_row_id": "C80", "period": "P", "amount_usd": 40 }]'
         source = self.source(amount=100, application_allocation_detail=raw)

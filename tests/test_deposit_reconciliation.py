@@ -298,6 +298,40 @@ class SingleDepositTests(unittest.TestCase):
         self.assertEqual(float(coverage["H:H1"]), 60)
         self.assertEqual(float(coverage["X:X1"]), -10)
 
+    def test_saved_cash_can_be_read_with_a_real_accounting_source_document(self):
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_source_row.cn_source_row import CNSourceRow
+        from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
+        raw = json.dumps([
+            dict(tipo="Aplicacion historica", aplicacion_id="A", importe_usd=60, origen="Selección manual"),
+            dict(tipo="Partida complementaria", partida="X", importe_usd=-10, origen="Selección manual"),
+        ])
+        deposit = frappe._dict(name="D", employer="E", deposit_currency="USD", deposit_amount=100,
+            amount_usd=100, allocated_usd=50, unallocated_usd=50, unclassified_usd=50,
+            justified_surplus_usd=0, allocation_detail=raw)
+        original = copy.deepcopy(deposit)
+        account = engine._RegisteredDeposit(name="D")
+        # Use the actual attribute-based child class without fetching its schema;
+        # unlike a dict stub, it rejects row[field] assignment just as on the site.
+        bank = CNSourceRow.__new__(CNSourceRow)
+        bank.name = "CORE-ROW"
+        bank.save = Mock()
+        bank.db_update = Mock()
+        with patch.object(frappe, "get_all", return_value=[]), \
+                patch.object(frappe.db, "set_value") as write, \
+                patch.object(engine, "_distribute_deposits") as redistribute:
+            result = scoped.stored_cash_context([deposit], [], pairs=[(account, bank)])
+        self.assertEqual(deposit, original)
+        for row in (account, bank):
+            self.assertEqual(row.allocation_detail, raw)
+            self.assertEqual(row.allocated_usd, 50)
+            self.assertEqual(row.unallocated_usd, 50)
+        self.assertEqual(result["coverage"], {"H:A": 60, "X:X": -10})
+        self.assertEqual(len(result["allocations"]), 2)
+        bank.save.assert_not_called()
+        bank.db_update.assert_not_called()
+        write.assert_not_called()
+        redistribute.assert_not_called()
+
     def test_affected_periods_include_removed_and_new_destinations(self):
         periods = [frappe._dict(name="P", collection_rows=[frappe._dict(name="C1", row_key="K")])]
         deposit = frappe._dict(allocation_detail='[{"periodo":"OLD"}]', detail_periods=[{"period": "DETAIL"}],

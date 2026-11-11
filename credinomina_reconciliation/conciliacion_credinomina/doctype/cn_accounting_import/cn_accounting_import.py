@@ -3242,6 +3242,22 @@ def _transfer_matching_exception_notes(rows_by_name, detail_by_target, allocatio
             deposit.inherited_exception_comment = summary
 
 
+def _historical_detail_json(details, previous):
+    """Keep existing evidence when only the order of deposit portions changed."""
+    try:
+        stored = json.loads(previous)
+    except (TypeError, ValueError):
+        stored = None
+    if isinstance(stored, list):
+        # Compare full entries, including duplicate portions and exact reference
+        # strings. Do not normalize identifiers, amounts or nested evidence.
+        def portions(rows):
+            return sorted(json.dumps(row, sort_keys=True, ensure_ascii=False) for row in rows)
+        if portions(stored) == portions(details):
+            return previous
+    return json.dumps(details, ensure_ascii=False)
+
+
 def _rebuild_historical_balances(periods, source_rows, allocation):
     """Second-stage-only backfill: core applications versus paired deposits."""
     from credinomina_reconciliation.credit_application import with_funding
@@ -3314,7 +3330,7 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         adjustment = money_float(rounding_by_application[application.name])
         application.historical_remitted_usd = remitted
         application.historical_balance_usd = historical_balance(applied + adjustment, remitted)
-        application.historical_detail = json.dumps(details, ensure_ascii=False)
+        application.historical_detail = _historical_detail_json(details, application.historical_detail)
         application.deposit_match_status = (
             "Diferencia de importe" if money(remitted) > money(applied) + money(adjustment) or money(remitted) < 0
             else "Depósito conciliado" if application.historical_balance_usd <= CASH_EPSILON

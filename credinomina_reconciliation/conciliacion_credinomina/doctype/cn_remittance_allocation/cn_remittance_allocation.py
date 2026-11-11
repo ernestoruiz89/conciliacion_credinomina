@@ -197,12 +197,11 @@ class CNRemittanceAllocation(Document):
         selected = [row.period for row in self.get("detail_periods") or []]
         if len(selected) != len(set(selected)):
             frappe.throw(_("No repita períodos en Períodos del detalle."))
+        from credinomina_reconciliation.remittance_validation import TargetValidationContext
+        context = TargetValidationContext(self.targets or [], self.get("detail_periods") or [])
         self.applied_usd = money(0)
         for row in self.get("detail_periods") or []:
-            period = frappe.db.get_value(
-                "CN Reconciliation Period", row.period,
-                ["employer", "status", "applied_usd"], as_dict=True,
-            )
+            period = context.periods.get(row.period)
             if not period or period.employer not in allowed:
                 frappe.throw(_("El período del detalle debe pertenecer a la pagadora o a una empresa autorizada."))
             if period.status == "Cerrado":
@@ -246,10 +245,12 @@ class CNRemittanceAllocation(Document):
         ) and self.get('cash_identity_status') != 'Depósito independiente verificado':
             frappe.throw(_("Este depósito ya fue registrado. Si son dos depósitos distintos, indique comprobantes diferentes."))
         assigned = decimal_value(0)
+        details_by_name = {}
+        for row in self.detail_rows or []:
+            details_by_name.setdefault(row.name, row)
         for target in self.targets or []:
-            self._validate_target(target)
-            detail_row = next((row for row in self.detail_rows or []
-                               if row.name == target.get("detail_row")), None)
+            self._validate_target(target, context=context)
+            detail_row = details_by_name.get(target.get("detail_row"))
             if target.get("detail_row") and not detail_row:
                 frappe.throw(_("La fila de detalle vinculada ya no existe en este depósito. Quite el vínculo y vuelva a seleccionar la fila."))
             target.detail_row_label = (
@@ -258,25 +259,16 @@ class CNRemittanceAllocation(Document):
             )
             target_period = target.period
             if target.historical_application:
-                target_period = frappe.db.get_value(
-                    "CN Source Row", target.historical_application, "historical_period"
-                )
+                target_period = context.applications[target.historical_application].historical_period
             if target.complementary_item:
-                target_period = frappe.db.get_value(
-                    "CN Complementary Item", target.complementary_item, "period"
-                )
-            target_employer = (
-                frappe.db.get_value("CN Reconciliation Period", target_period, "employer")
-                if target_period else None
-            )
+                target_period = context.complements[target.complementary_item].period
+            target_employer = context.period_value(target_period, "employer")
             if target.complementary_item:
-                target_employer = frappe.db.get_value(
-                    "CN Complementary Item", target.complementary_item, "employer"
-                ) or target_employer
-                if frappe.db.get_value("CN Complementary Item", target.complementary_item, "generic_distribution"):
+                complementary = context.complements[target.complementary_item]
+                target_employer = complementary.employer or target_employer
+                if complementary.generic_distribution:
                     from credinomina_reconciliation.complementary_distribution import company_scope
-                    complementary = frappe.get_doc("CN Complementary Item", target.complementary_item)
-                    complementary.check_permission("read")
+                    complementary = context.generic_item(target.complementary_item)
                     scope = company_scope(complementary) & allowed
                     company = (detail_row.get("employer") if detail_row else None) or target.get("employer")
                     if not company and len(scope) == 1:
@@ -298,7 +290,7 @@ class CNRemittanceAllocation(Document):
         update_detail_portfolio(self)
 
     @staticmethod
-    def _validate_target(target):
+    def _validate_target(target, *, context=None):
         target.amount_usd = money(target.amount_usd)
         target.row_key = clean_text(target.row_key)
         target.historical_application = clean_text(target.historical_application)
@@ -316,18 +308,22 @@ class CNRemittanceAllocation(Document):
         if collection_target:
             if not target.period or not target.row_key:
                 frappe.throw(_("Indique tanto el periodo como la Fila ID de cobranza."))
-            period = frappe.get_doc("CN Reconciliation Period", target.period)
+            if context is not None:
+                period, row_counts = context.collection(target.period)
+                match_count = row_counts[target.row_key]
+            else:
+                period = frappe.get_doc("CN Reconciliation Period", target.period)
+                match_count = sum(row.row_key == target.row_key for row in period.collection_rows)
             if period.reconciliation_mode == "Historica":
                 frappe.throw(_("En un período histórico distribuya hacia la aplicación, no hacia una fila de cobranza."))
             if period.status == "Cerrado":
                 frappe.throw(_("El período de cobranza está cerrado."))
-            matches = [row for row in period.collection_rows if row.row_key == target.row_key]
-            if len(matches) != 1:
+            if match_count != 1:
                 frappe.throw(_("La Fila ID no identifica una cobranza unica en el periodo."))
         elif target.historical_application:
             if target.period or target.row_key:
                 frappe.throw(_("No combine una aplicación histórica con un destino de cobranza."))
-            application = frappe.db.get_value(
+            application = context.applications.get(target.historical_application) if context is not None else frappe.db.get_value(
                 "CN Source Row", target.historical_application,
                 ["event_type", "historical_period", "currency", "effective"], as_dict=True,
             )
@@ -337,14 +333,15 @@ class CNRemittanceAllocation(Document):
                 or not application.effective
             ):
                 frappe.throw(_("El ID no corresponde a una aplicación histórica en US$."))
-            if frappe.db.get_value(
+            status = context.period_value(application.historical_period, "status") if context is not None else frappe.db.get_value(
                 "CN Reconciliation Period", application.historical_period, "status"
-            ) == "Cerrado":
+            )
+            if status == "Cerrado":
                 frappe.throw(_("El período histórico de la aplicación está cerrado."))
         else:
             if target.period or target.row_key:
                 frappe.throw(_("No combine una partida complementaria con una fila de cobranza."))
-            complementary = frappe.db.get_value(
+            complementary = context.complements.get(target.complementary_item) if context is not None else frappe.db.get_value(
                 "CN Complementary Item", target.complementary_item,
                 ["docstatus", "period", "amount_usd", "category", "origin_deposit"], as_dict=True,
             )
@@ -362,9 +359,12 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("Una compensación entre partidas no es un destino de depósito."))
             if money(target.amount_usd) * money(complementary.amount_usd) <= 0 or abs(money(target.amount_usd)) > abs(money(complementary.amount_usd)):
                 frappe.throw(_("El destino debe tener el signo de la partida complementaria y no superar su importe."))
-            if complementary.period and frappe.db.get_value(
-                "CN Reconciliation Period", complementary.period, "status"
-            ) == "Cerrado":
+            status = context.period_value(complementary.period, "status") if context is not None else (
+                frappe.db.get_value(
+                    "CN Reconciliation Period", complementary.period, "status"
+                ) if complementary.period else None
+            )
+            if status == "Cerrado":
                 frappe.throw(_("El período de la partida complementaria está cerrado."))
 
     def before_cancel(self):
@@ -400,17 +400,10 @@ class CNRemittanceAllocation(Document):
                 frappe.throw(_("No se puede cancelar una distribución histórica cerrada."))
 
     def _assert_open_related_periods(self):
+        from credinomina_reconciliation.remittance_validation import allocation_has_closed_period
         persisted = frappe.db.get_value(self.doctype, self.name, "allocation_detail")
-        for entry in json.loads(persisted or "[]"):
-            period = entry.get("periodo")
-            if not period and entry.get("partida"):
-                period = frappe.db.get_value(
-                    "CN Complementary Item", entry["partida"], "period"
-                )
-            if period and frappe.db.get_value(
-                "CN Reconciliation Period", period, "status"
-            ) == "Cerrado":
-                frappe.throw(_("El depósito participa en un período cerrado; no se puede modificar ni cancelar."))
+        if allocation_has_closed_period(json.loads(persisted or "[]")):
+            frappe.throw(_("El depósito participa en un período cerrado; no se puede modificar ni cancelar."))
 
     def on_cancel(self):
         self._reconcile()
@@ -619,12 +612,6 @@ def _reconcile_remittance(remittance_name: str, progress_id: str = "", reason: s
     document.check_permission("write")
     if document.docstatus != 1:
         frappe.throw(_("Confirme el depósito antes de conciliarlo."))
-    # Imported deposits retain FIFO by default before any detail or period is set.
-    # Require a period only when this action can actually distribute detail rows.
-    if document.apply_fifo and document.detail_rows and not any(
-            row.period for row in document.get("detail_periods") or []):
-        frappe.throw(_("Seleccione al menos un período en Períodos a conciliar para aplicar FIFO."))
-    document._validate_deposit()
 
     def progress(percent, message):
         if progress_id:
