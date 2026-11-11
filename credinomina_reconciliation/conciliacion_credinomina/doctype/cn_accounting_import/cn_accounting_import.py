@@ -31,6 +31,7 @@ from credinomina_reconciliation.client_registry import (
     names_for_claim,
 )
 from credinomina_reconciliation.client_identity import ClientIdentityIndex, choose_client
+from credinomina_reconciliation.application_matching import CollectionCandidateIndex
 from credinomina_reconciliation.credit_portfolio import enrich_accounting_records
 from credinomina_reconciliation.deduction_recognition import recognition_reason
 from credinomina_reconciliation.deposit_scoping import (
@@ -1301,9 +1302,8 @@ def _match_applications_by_basis(
         for row in operating_collections
     }
     collection_values = {row.name: row.as_dict() for row in operating_collections}
-    collections_by_period = defaultdict(list)
-    for row in operating_collections:
-        collections_by_period[row.parent].append(row)
+    collection_candidates = CollectionCandidateIndex(operating_collections, aliases_by_target)
+    client_candidates = None
     historical_periods = {
         period.name: period for period in periods
         if period.reconciliation_mode == "Historica"
@@ -1388,7 +1388,9 @@ def _match_applications_by_basis(
             )
             continue
         if not any((source.loan_number, source.client_number, source.employee_number, source.national_id)):
-            _client, identity_reason = choose_client(source.as_dict(), clients, source_employer)
+            if client_candidates is None:
+                client_candidates = ClientIdentityIndex(clients)
+            _client, identity_reason = choose_client(source.as_dict(), client_candidates, source_employer)
             if identity_reason.startswith("Nombre ambiguo"):
                 source.match_status = "Ambiguo"
                 source.match_reason = _(
@@ -1407,7 +1409,7 @@ def _match_applications_by_basis(
         quality_candidates = []
         application_values = source.as_dict()
         identity_candidates = []
-        for target in collections_by_period[source._assigned_operating_period]:
+        for target in collection_candidates.candidates(source._assigned_operating_period, application_values):
             target_period = period_by_name.get(target.parent)
             basis = COLLECTION
             if source_employer and (
