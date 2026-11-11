@@ -63,7 +63,7 @@ def _historical_coverage(source, *, statement_detail):
 
 
 def application_balances(sources, imports, periods, collections, employers, as_of, *, include_settled=False,
-                         include_reviews=False, statement_detail=False):
+                         include_reviews=False, statement_detail=False, applied_amounts=None):
     """Build balances without modifying allocations or offsetting unrelated credits.
 
     Operative cash belongs to a collection claim, not to each application. Group
@@ -73,6 +73,12 @@ def application_balances(sources, imports, periods, collections, employers, as_o
     groups = defaultdict(list)
     output = []
     sources = list(sources)
+    # A historical projection already converted these exact, adjusted sources.
+    # Other callers calculate amounts as before; an explicit None stays unknown.
+    def applied_amount(source):
+        if applied_amounts is not None and source.get('name') in applied_amounts:
+            return applied_amounts[source['name']]
+        return converted_amount(source, 'USD')
     usage, projected = defaultdict(lambda: money(0)), defaultdict(lambda: money(0))
     for source in sources:
         document = imports.get(source.get('parent'), {})
@@ -84,7 +90,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
         if direct and (not statement_detail or source.get('match_status') != 'Conciliado'):
             continue
         try:
-            for link in collection_links(source, converted_amount(source, 'USD')):
+            for link in collection_links(source, applied_amount(source)):
                 (projected if direct else usage)[link.get('collection_row_id')] += max(money(link.get('amount_usd')), 0)
         except (ValueError, TypeError, ArithmeticError):
             pass  # The affected row below retains the invalid-evidence warning.
@@ -151,7 +157,7 @@ def application_balances(sources, imports, periods, collections, employers, as_o
             continue
         employer = (period or {}).get("employer") or document.get("employer") or source.get("portfolio_employer")
         item = base(source, period, employer, mode)
-        applied = converted_amount(source, "USD")
+        applied = applied_amount(source)
         if applied is None:
             output.append({**item, "observation": "Falta tipo de cambio; saldo US$ sin determinar"})
             continue

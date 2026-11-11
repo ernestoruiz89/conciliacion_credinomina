@@ -198,6 +198,22 @@ class CutoffReportReuseTests(unittest.TestCase):
         report()
         self.assertEqual(self.context_read.call_count, 4)
 
+    def test_operational_projection_cache_never_replaces_company_statement(self):
+        @historical_cutoff.reuse_cutoff_projection
+        def report():
+            lean = historical_cutoff.load_cutoff(self.filters[0], include_position=True, include_statement=False)
+            full = historical_cutoff.load_cutoff(self.filters[0], include_position=True)
+            again = historical_cutoff.load_cutoff(self.filters[1], include_position=True, include_statement=False)
+            self.assertEqual(lean['applications'], full['applications'])
+            self.assertEqual(lean['position_context'], full['position_context'])
+            self.assertEqual(lean['applications'], again['applications'])
+            self.assertEqual(lean['detail'], [])
+            self.assertTrue(full['detail'])
+        report()
+        self.assertEqual(self.context_read.call_count, 2)
+        self.evidence.assert_called()
+        self.assertIsNone(historical_cutoff._report_projections.get())
+
     def test_user_change_and_permission_denial_never_reuse_another_users_access(self):
         @historical_cutoff.reuse_cutoff_projection
         def report():
