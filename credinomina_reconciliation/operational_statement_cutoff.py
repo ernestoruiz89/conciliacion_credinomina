@@ -34,7 +34,7 @@ def pending_deposits(snapshot, filters=None):
     evidence = snapshot['position_context']
     deposits = [dict(deposit) for deposit in evidence['deposits'] if deposit.get('docstatus') == 1
         and deposit.get('cash_identity_status') not in {'Origen vinculado', 'Revisar identidad'}
-        and not deposit.get('consolidated_deposit') and remaining_cash(deposit) > 0]
+        and not deposit.get('consolidated_deposit') and remaining_cash(deposit) >= 0]
     deposits = _deposit_scope(deposits, filters or {})
     if not deposits:
         return []
@@ -53,7 +53,7 @@ def pending_deposits(snapshot, filters=None):
                 'client_name', 'client_number', 'national_id', 'loan_number', 'amount_usd', 'linked_usd', 'matched_targets', 'difference_reason', 'difference_notes']):
         details.append(dict(row, **{field: money_float(reserved[row['name']][field])
             for field in ('client_credit_usd', 'company_credit_usd')}))
-    return build_deposits(deposits, details, load_manual_targets(deposits))
+    return build_deposits(deposits, details, load_manual_targets(deposits), separate_company_difference=True)
 
 
 def _application_scope(applications, filters):

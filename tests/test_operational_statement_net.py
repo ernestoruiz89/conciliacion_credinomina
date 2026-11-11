@@ -6,6 +6,7 @@ import pytest
 
 from credinomina_reconciliation import client_position as position
 from credinomina_reconciliation.complementary_balances import financial_balance
+from credinomina_reconciliation.rounding import money, sum_money
 from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_operativo import estado_de_cuenta_operativo as report
 
 
@@ -39,6 +40,15 @@ def test_immsa_net_uses_pending_amounts_and_signed_complementaries_once():
     assert result['Complementarias pendientes netas US$']['value'] == -45.76
     assert result['Saldo neto de conciliación US$']['value'] == 6224.54
     assert rows == before
+    with patch.dict(frappe.session, user='Administrator'), \
+            patch.object(report, 'load_position', side_effect=lambda *args: deepcopy(rows)):
+        for expanded in (0, 1):
+            columns, detail, *_ = report.execute(dict(FILTERS, detailed_columns=expanded))
+            column = next(c for c in columns if c['fieldname'] == 'net_balance_usd')
+            assert column['label'] == 'Saldo Neto U$' and not column.get('hidden')
+            assert [r['net_balance_usd'] for r in detail] == [13510.48, -7331.70, 54.27, -8.51, 6224.54]
+            assert sum_money(r['net_balance_usd'] for r in detail[:-1]) == money(6224.54)
+    assert rows == before
 
 
 @pytest.mark.parametrize('values, expected', [
@@ -63,7 +73,10 @@ def test_sign_follows_accounting_evidence_not_category_or_client(values, expecte
 @pytest.mark.parametrize('field, kind', [('applied_pending_usd', 'Aplicación'),
                                       ('deposit_pending_usd', 'Depósito con saldo pendiente')])
 def test_unknown_balance_prevents_a_numeric_net(field, kind):
-    result = figures([dict(position_type=kind, source_document='DOC', **{field: None})])
+    row = dict(position_type=kind, source_document='DOC', **{field: None})
+    result = figures([row])
+    assert position.row_net_balance(row) is None
+    assert position.summarize_selection([row], FILTERS)[1]['net_balance_usd'] is None
     assert 'Saldo neto de conciliación US$' not in result
     assert any('no determinable' in label for label in result)
 
@@ -81,7 +94,10 @@ def test_net_uses_bank_remainder_once_when_customer_detail_is_unknown():
             dict(position_type='Depósito con saldo pendiente', source_document='D', source_rows='R',
                  deposit_pending_usd=None, deposit_detail_pending_usd=50)]
     assert figures(rows)['Saldo neto de conciliación US$']['value'] == 10
+    assert position.summarize_selection(rows, FILTERS)[1]['net_balance_usd'] == 10
+    assert position.row_net_balance(rows[-1]) is None
     assert 'Saldo neto de conciliación US$' not in figures(rows[::2])
+    assert position.summarize_selection(rows[::2], FILTERS)[1]['net_balance_usd'] is None
 
 
 @pytest.mark.parametrize('kind', ['Aplicación', 'Partida complementaria', 'Depósito con saldo pendiente', 'Cobranza', 'CxC por ajuste'])
@@ -101,4 +117,13 @@ def test_report_summary_uses_only_permission_filtered_rows_and_keeps_columns():
     assert columns == report.get_columns()
     assert next(row['value'] for row in summary if row['label'] == 'Saldo neto de conciliación US$') == 25
     assert data[-1]['applied_pending_usd'] == 25
+    assert [row['net_balance_usd'] for row in data] == [25, 25]
     assert 'signo contable' in message
+
+
+def test_control_rows_do_not_duplicate_debt_in_the_net_column():
+    rows = [dict(position_type='Aplicación', applied_pending_usd=30),
+            dict(position_type='Cobranza', quality_difference_usd=30),
+            dict(position_type='CxC por ajuste', company_receivable_usd=30)]
+    assert [position.row_net_balance(row) for row in rows] == [30, None, None]
+    assert position.summarize_selection(rows)[1]['net_balance_usd'] == 30

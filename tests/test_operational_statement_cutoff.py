@@ -68,10 +68,12 @@ def test_later_deposits_and_adjustments_reopen_application_then_settle_at_their_
     row, total = result[1]
     assert (row['applied_usd'], row['remitted_usd'], row['applied_pending_usd']) == (100, 30, 70)
     assert total['applied_pending_usd'] == 70 and '2025' in result[2] and 'vínculos vigentes' in result[2]
+    assert row['net_balance_usd'] == total['net_balance_usd'] == 70
     for expanded in (0, 1):
         later = execute_at(ctx, deposits, items, day='2025-05-15', filters={'detailed_columns': expanded})
         row = next(r for r in later[1] if r.get('position_type') == 'Aplicación')
         assert (row['applied_usd'], row['remitted_usd'], row['applied_pending_usd']) == (80, 80, 0)
+        assert row['net_balance_usd'] == later[1][-1]['net_balance_usd'] == 0
     assert not execute_at(ctx, deposits, items, day='2025-05-15', filters={'only_open': 1})[1]
 
 
@@ -89,6 +91,22 @@ def test_advance_cash_is_attributed_to_detail_until_application_exists_without_c
     at_credit = execute_at(ctx, [dep], [credit], day='2025-05-01', details=details)[1]
     pending = next(r for r in at_credit if r.get('position_type') == 'Depósito con saldo pendiente')
     assert pending['deposit_pending_usd'] == 80
+
+
+def test_client_pending_and_company_difference_follow_cutoff_even_when_cash_later_reaches_zero():
+    ctx = context([application('A', 10), application('B', 10, event_date='2025-05-15')])
+    dep = deposit(amount=20, ledger=[entry('A', 10, fila_detalle='R1'), entry('B', 10, fila_detalle='R1')])
+    details = [dict(name='R1', parent='D', client_number='7', client_name='Ana', amount_usd=20),
+               dict(name='R2', parent='D', client_number='8', client_name='Luis', amount_usd=.05)]
+    for day, expected in [('2025-04-30', {'Ana': 10, 'Luis': .05, 'Diferencia de empresa': -.05}),
+                          ('2025-05-31', {'Luis': .05, 'Diferencia de empresa': -.05})]:
+        rows = execute_at(ctx, [dep], day=day, details=details, filters={'only_open': 1})[1]
+        assert {r['client_name']: r['deposit_pending_usd'] for r in rows[:-1]} == expected
+        assert rows[-1]['deposit_pending_usd'] == (10 if day == '2025-04-30' else 0)
+        assert {r['client_name']: r['net_balance_usd'] for r in rows[:-1]} == {name: -value for name, value in expected.items()}
+        assert rows[-1]['net_balance_usd'] == (-10 if day == '2025-04-30' else 0)
+        client = execute_at(ctx, [dep], day=day, details=details, filters={'only_open': 1, 'client_number': '8'})[1]
+        assert len(client) == 2 and client[0]['deposit_pending_usd'] == client[-1]['deposit_pending_usd'] == .05
 
 
 def test_fifo_spanning_cutoff_preserves_only_the_executed_application_slices():
@@ -296,5 +314,10 @@ def test_deposit_scope_keeps_cross_company_beneficiaries_and_entire_deposit_proo
     assert selected(rows) == selected(expected)
     assert reads[-1] == {'OWN', 'PAYER'}
     customer = next(row for row in selected(rows) if row.get('client_number') == '7')
-    assert customer['deposit_pending_usd'] == (None if inconsistent else 60)
+    assert customer['deposit_pending_usd'] == 60
+    differences = [row for row in rows if row.get('category') == 'Diferencia de empresa']
+    assert len(differences) == int(inconsistent)
+    if inconsistent:
+        assert differences[0]['employer'] == 'PAYER' and differences[0]['deposit_pending_usd'] == -60
+        assert differences[0] not in selected(rows)
     assert (snapshot, details) == before

@@ -195,7 +195,25 @@ def load_position(collections, filters):
                        for name, p in periods.items()},
         adjustment_receivables=load_receivables(employer=filters.get('employer'), include_settled=not cint(filters.get('only_open')))
                               if kinds is None or 'CxC por ajuste' in kinds else [],
-        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer')) if kinds is None or 'Depósito con saldo pendiente' in kinds else [])
+        unallocated_deposits=load_unallocated_deposits(employer=filters.get('employer'), separate_company_difference=True)
+            if kinds is None or 'Depósito con saldo pendiente' in kinds else [])
+
+
+def row_net_balance(row):
+    """Signed contribution to the net pending balance, never a running balance."""
+    kind = row.get('position_type')
+    if kind == 'Aplicación':
+        value, sign = row.get('applied_pending_usd'), 1
+    elif kind == 'Depósito con saldo pendiente':
+        value, sign = row.get('deposit_pending_usd'), -1
+    elif kind == 'Partida complementaria':
+        if row.get('operational_status') == 'Revisar distribución':
+            return None
+        # Debits add to debt; credits reduce it, as in the net summary.
+        value, sign = row.get('_signed_complementary_pending_usd'), 1
+    else:
+        return None  # Collection/control rows must not count the same debt twice.
+    return money_float(money(value) * sign) if value is not None else None
 
 
 def summarize_selection(data, filters=None):
@@ -207,7 +225,7 @@ def summarize_selection(data, filters=None):
     """
     view = normalize_position_type((filters or {}).get('position_type'))
     kinds = selected_position_types(view) if view else {row['position_type'] for row in data}
-    figures, amounts = [], {}
+    figures, amounts, net_rows = [], {}, []
 
     def count(label, value, color='orange'):
         figures.append(dict(label=label, value=value, datatype='Int', indicator=color))
@@ -232,6 +250,7 @@ def summarize_selection(data, filters=None):
         count('Filas con diferencias de control', sum(row.get('is_open', False) for row in rows))
     if 'Aplicación' in kinds:
         rows = [row for row in data if row['position_type'] == 'Aplicación']
+        net_rows.extend(rows)
         total(rows, 'applied_usd', 'Aplicado neto US$')
         total(rows, 'assigned_usd', 'Asignado US$', 'green')
         total(selected_cash(rows), 'remitted_usd')
@@ -241,11 +260,13 @@ def summarize_selection(data, filters=None):
         # An indeterminate customer detail is informational when its actual
         # bank remainder is already present in this same filtered selection.
         whole = {row['source_document'] for row in deposits if not row.get('source_rows') and row.get('deposit_pending_usd') is not None}
-        total([row for row in deposits if row.get('deposit_pending_usd') is not None or row['source_document'] not in whole],
-              'deposit_pending_usd', 'Saldo pendiente de depósitos US$')
+        selected_deposits = [row for row in deposits if row.get('deposit_pending_usd') is not None or row['source_document'] not in whole]
+        total(selected_deposits, 'deposit_pending_usd', 'Saldo pendiente de depósitos US$')
+        net_rows.extend(selected_deposits)
         total([row for row in deposits if row.get('source_rows')], 'deposit_detail_pending_usd')
     if 'Partida complementaria' in kinds:
         rows = [row for row in data if row['position_type'] == 'Partida complementaria']
+        net_rows.extend(rows)
         reviews = [row for row in rows if row.get('operational_status') == 'Revisar distribución'
                    or (row.get('complementary_pending_usd') is not None and money(row['complementary_pending_usd']) < 0)]
         review_ids = {id(row) for row in reviews}
@@ -274,6 +295,7 @@ def summarize_selection(data, filters=None):
               'company_receivable_usd', 'CxC a la empresa por ajustes US$', 'orange')
         total([row for row in data if row['position_type'] == 'CxC por ajuste'],
               'employee_receivable_usd', 'CxC al empleado por ajustes US$', 'orange')
+    total([{'net_balance_usd': row_net_balance(row)} for row in net_rows], 'net_balance_usd')
     return figures, amounts
 
 

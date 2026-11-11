@@ -16,7 +16,7 @@ def test_default_columns_show_financial_comparison_and_expand_without_removing_f
     assert [column['fieldname'] for column in compact if not column.get('hidden')] == [
         'event_date', 'position_type', 'employer', 'client_name', 'loan_number', 'source_document',
         'applied_usd', 'assigned_usd', 'applied_pending_usd', 'deposit_pending_usd',
-        'complementary_pending_net_usd', 'operational_status', 'difference_reason', 'difference_notes',
+        'complementary_pending_net_usd', 'net_balance_usd', 'operational_status', 'difference_reason', 'difference_notes',
     ]
     assert report.get_columns() == compact
     assert [column['fieldname'] for column in compact] == [column['fieldname'] for column in full]
@@ -89,4 +89,4 @@ def test_group_selects_existing_rows_without_combining_or_recalculating_them():
     grouped = client_position.build_position(collections, applications, [], {}, [], {'position_type': FINANCIAL_VIEW}, **args)
     assert grouped == [row for row in all_rows if row['position_type'] in FINANCIAL_TYPES]
     _, totals = client_position.summarize_selection(grouped, {'position_type': FINANCIAL_VIEW})
-    assert totals == dict(applied_usd=100, assigned_usd=60, remitted_usd=60, applied_pending_usd=40)
+    assert totals == dict(applied_usd=100, assigned_usd=60, remitted_usd=60, applied_pending_usd=40, net_balance_usd=40)

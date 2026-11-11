@@ -8,7 +8,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, getdate, sbool
 
-from credinomina_reconciliation.client_position import net_balance_summary, summarize_selection
+from credinomina_reconciliation.client_position import net_balance_summary, summarize_selection, row_net_balance
 from credinomina_reconciliation.rounding import money_float, sum_money
 
 REPORT = 'Estado de Cuenta Operativo'
@@ -66,6 +66,8 @@ def build_export(params):
     # A search-filtered table must not retain the original, broader total row.
     monetary = {col['fieldname']: amounts.get(col['fieldname']) for col in data.columns if col.get('fieldtype') == 'Currency'}
     data.result = deepcopy(rows)
+    for row in data.result:
+        row['net_balance_usd'] = row_net_balance(row)
     if rows:
         data.result.append(dict(monetary, client_name=_('Total'), is_total_row=1))
     data.update(report_name=REPORT, filters=filters, applied_filters=params.get('applied_filters'), add_total_row=False)

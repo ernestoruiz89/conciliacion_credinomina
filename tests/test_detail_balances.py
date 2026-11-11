@@ -38,6 +38,18 @@ class DetailBalancesTests(unittest.TestCase):
         self.assertEqual(linked_balance(100, [], old)["pending_usd"], 100)
         self.assertEqual(linked_balance(100, [], '[{"amount_usd":100}]')["pending_usd"], 0)
 
+    def test_documented_difference_review_preserves_amounts_and_settled_status(self):
+        for status, expected in (("Diferencia documentada", "Revisar: Diferencia documentada"),
+                                 ("Conciliada", "Conciliada")):
+            row = frappe._dict(name="DIFF", row_kind="Diferencia documentada", match_status=status,
+                amount_usd=-.01, linked_usd=0, pending_usd=-.01, difference_core_pending_usd=.01,
+                matched_targets="[]")
+            before = dict(row)
+            document = dict(detail_rows=[row], targets=[])
+            update_detail_balances(document)
+            update_detail_balances(document)
+            self.assertEqual(dict(row), {**before, "match_status": expected})
+
     def test_reclassification_links_survive_manual_edits_without_double_counting(self):
         history = '[{"instruction_id":"RECLASS:one", "amount_usd":2}, {"instruction_id":"old", "amount_usd":7}]'
         self.assertEqual(linked_balance(10, [], history), {'linked_usd': 2, 'pending_usd': 8})

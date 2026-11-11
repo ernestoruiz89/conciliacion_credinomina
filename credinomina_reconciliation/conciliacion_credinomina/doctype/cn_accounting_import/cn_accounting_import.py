@@ -2066,7 +2066,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 "pending_usd": 0 if core_applied else amount,
                 "difference_core_pending_usd": 0 if core_applied else abs(amount),
                 "difference_core_status": "Conciliada contra core" if core_applied else "Pendiente de respaldo del core",
-                "match_status": "Conciliada" if core_applied else "Revisar" if difference["error"] else "Diferencia documentada",
+                "match_status": review_status("Conciliada" if core_applied else "Revisar" if difference["error"] else "Diferencia documentada"),
                 "match_reason": difference["error"] or ("Partida importada del core conciliada" if core_applied else "Diferencia documentada; no es efectivo ni pago al crédito"),
                 "matched_targets": json.dumps(targets, ensure_ascii=False),
                 "matched_targets_summary": difference["core"]["id"] if core_applied else "Pendiente de respaldo del core",

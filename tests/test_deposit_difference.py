@@ -101,6 +101,7 @@ class DepositDifferenceTests(unittest.TestCase):
         self.assertNotIn("detail_row", company)
         self.assertNotIn("client", company["company_conversion"])
         self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], .01)
+        self.assertEqual(rows["DIFF"]["match_status"], "Revisar: Diferencia documentada")
         self.assertEqual(sum(difference.money(entry["amount_usd"]) for entry in result["allocations"]), difference.money(99.99))
 
     def test_undocumented_or_stale_cent_does_not_create_company_coverage(self):
@@ -193,6 +194,7 @@ class DepositDifferenceTests(unittest.TestCase):
                 self.assertTrue(all(value == 0 for value in result["claim_remaining"].values()))
                 self.assertEqual(rows["DIFF"]["difference_core_pending_usd"], 0)
                 self.assertEqual(rows["DIFF"]["difference_core_status"], "Conciliada contra core")
+                self.assertEqual(rows["DIFF"]["match_status"], "Conciliada")
                 self.assertEqual(sum(r["claim_id"] == "X:CORE" for r in result["allocations"]), 1)
                 self.assertEqual(result, self.reconcile()[0])
 
