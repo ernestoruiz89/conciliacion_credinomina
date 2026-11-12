@@ -290,24 +290,33 @@ def get_related_pending_for_remittance(remittance_name, detail_row_name):
                 context={'remittance_name': remittance_name, 'detail_row_name': detail_row_name})
 
 
-def _document_core_entries(doctype, pending, applications, link_field):
+def _document_core_entries(doctype, pending, applications, link_field, *, include_date=False):
     """Index original postings once per visible document, including links from applications."""
     names = {row['document'] for row in pending}
     names.update(link['document'] for row in applications for link in row.get(link_field, []))
     names = sorted(names)
     fields = ['source_voucher', 'accounting_reference', 'source_description']
+    date_field = 'deposit_date' if doctype == 'CN Remittance Allocation' else 'posting_date'
+    if include_date:
+        fields = ['source_date', *fields]
     result = {}
     for offset in range(0, len(names), PAGE_SIZE):
         documents = list(records(doctype, filters={'name': ['in', names[offset:offset + PAGE_SIZE]],
-                                                   'docstatus': ['!=', 2]}, fields=['name', *fields]))
+                                                   'docstatus': ['!=', 2]}, fields=['name', *fields, *([date_field] if include_date else [])]))
         if doctype == 'CN Remittance Allocation':
             attach_sources(documents, fields=fields)
         for doc in documents:
             # The header of a consolidated deposit usually mirrors its first ledger line.
             entries = dict.fromkeys(tuple(source.get(field) for field in fields)
                                     for source in doc.get('accounting_sources') or [doc])
-            result[doc.name] = [dict(voucher=voucher, reference=reference, description=description)
-                                for voucher, reference, description in entries if voucher or reference or description]
+            if include_date:
+                result[doc.name] = [dict(date=str(date or doc.get(date_field) or ''), voucher=voucher,
+                                        reference=reference, description=description)
+                    for date, voucher, reference, description in entries
+                    if date or voucher or reference or description or doc.get(date_field)]
+            else:
+                result[doc.name] = [dict(voucher=voucher, reference=reference, description=description)
+                                    for voucher, reference, description in entries if voucher or reference or description]
     return result
 
 

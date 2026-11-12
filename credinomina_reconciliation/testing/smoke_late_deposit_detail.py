@@ -127,6 +127,7 @@ def run():
                     details = get_details(row["source_rows"], row["period"], row.get("collection_row_id"), filters)
                     assert details["total_usd"] == row["assigned_usd"] == row["applied_usd"], details
                     assert [entry["document"] for entry in details["rows"]] == [deposit.name], details
+                    assert details["rows"][0]["core_entries"][0]["date"] == "2025-05-10", details
                     assert details["cutoff_date"] == cutoff
 
             # Ordinary saves cannot forge a result, alter the bank amount, or

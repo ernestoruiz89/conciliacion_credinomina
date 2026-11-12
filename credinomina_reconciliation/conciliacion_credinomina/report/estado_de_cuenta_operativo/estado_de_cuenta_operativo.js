@@ -77,14 +77,27 @@ async function showOperationalAssignedDetails(report, identity) {
         primary_action_label: __("Cerrar"), primary_action: () => dialog.hide(),
         onhide() { closed = true; },
     });
+    const displayDate = value => {
+        const parts = /^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/.exec(String(value || ""));
+        return parts ? `${parts[3]}/${parts[2]}/${parts[1]}` : value || "—";
+    };
+    function linkedRows(row) {
+        const entries = row.core_entries?.length ? row.core_entries : [{}];
+        const link = routes[row.doctype] && row.document
+            ? `<a href="/app/${routes[row.doctype]}/${encodeURIComponent(row.document)}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>`
+            : esc(__("Documento no disponible"));
+        return entries.map((entry, index) => `<tr>${index === 0
+            ? `<td rowspan="${entries.length}">${link}</td><td rowspan="${entries.length}">${esc(__(row.kind || ""))}</td><td rowspan="${entries.length}">${esc(__(row.state || ""))}</td>` : ""}
+            <td style="white-space:nowrap">${esc(displayDate(entry.date))}</td>
+            <td>${esc(entry.voucher || "—")}</td><td style="overflow-wrap:anywhere">${esc(entry.reference || "—")}</td>
+            <td style="min-width:240px;white-space:pre-wrap;overflow-wrap:anywhere">${esc(entry.description || "—")}</td>
+            ${index === 0 ? `<td rowspan="${entries.length}" class="text-right" style="white-space:nowrap">${amount(row.amount_usd)}</td>` : ""}</tr>`).join("");
+    }
     function table(rows, total, includeTotal = true) {
         return `<div class="table-responsive"><table class="table table-bordered"><thead><tr>${
-            ["Documento", "Tipo de vínculo", "Estado", "Importe US$"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead><tbody>${
-            rows.map(row => `<tr><td>${routes[row.doctype] && row.document
-                ? `<a href="/app/${routes[row.doctype]}/${encodeURIComponent(row.document)}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>`
-                : esc(__("Documento no disponible"))}</td><td>${esc(__(row.kind || ""))}</td><td>${esc(__(row.state || ""))}</td><td class="text-right">${amount(row.amount_usd)}</td></tr>`).join("")
-                || `<tr><td colspan="4">${esc(__("No hay documentos identificables para esta selección."))}</td></tr>`}</tbody>${includeTotal
-                    ? `<tfoot><tr><th colspan="3">${esc(__("Total del desglose"))}</th><th class="text-right">${amount(total)}</th></tr></tfoot>` : ""}</table></div>`;
+            ["Documento", "Tipo de vínculo", "Estado", "Fecha", "Nro. asiento", "Referencia", "Descripción del core", "Importe US$"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead><tbody>${
+            rows.map(linkedRows).join("") || `<tr><td colspan="8">${esc(__("No hay documentos identificables para esta selección."))}</td></tr>`}</tbody>${includeTotal
+                    ? `<tfoot><tr><th colspan="7">${esc(__("Total del desglose"))}</th><th class="text-right">${amount(total)}</th></tr></tfoot>` : ""}</table></div>`;
     }
     async function load() {
         const current = ++sequence, wrapper = dialog.fields_dict.details.$wrapper;

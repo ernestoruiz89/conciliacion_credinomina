@@ -152,6 +152,20 @@ def build_details(row, sources, collection, deposits, item_links):
     return result
 
 
+def _attach_core_entries(result):
+    from credinomina_reconciliation.accounting_related_records import _document_core_entries
+    rows = [*result['rows'], *result['adjustments']]
+    for doctype in ('CN Remittance Allocation', 'CN Complementary Item'):
+        selected = [row for row in rows if row.get('doctype') == doctype and row.get('document')]
+        if not selected or not frappe.has_permission(doctype, 'read'):
+            continue
+        # Read original ledger metadata through permission-scoped parents.
+        # Several origins stay under one assignment; they never repeat cash.
+        entries = _document_core_entries(doctype, selected, [], '', include_date=True)
+        for row in selected:
+            row['core_entries'] = entries.get(row['document'], [])
+
+
 @frappe.whitelist()
 def get_details(source_rows, period=None, collection_row_id=None, filters=None):
     from frappe.desk.query_report import get_report_doc
@@ -176,4 +190,5 @@ def get_details(source_rows, period=None, collection_row_id=None, filters=None):
     else:
         evidence = _current_evidence(row)
     result = build_details(row, *evidence)
+    _attach_core_entries(result)
     return dict(result, client_name=row.get('client_name'), cutoff_date=filters.get('cutoff_date'))
