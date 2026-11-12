@@ -1,8 +1,9 @@
 """A registered deposit may precede its per-client allocation evidence."""
 
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
+
+import frappe
 
 from credinomina_reconciliation.allocation import allocate_cash
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import (
@@ -12,7 +13,7 @@ from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_i
 
 class LateRemittanceDetailTest(unittest.TestCase):
     def _plan(self, instructions=()):
-        deposit = SimpleNamespace(
+        deposit = frappe._dict(
             name="D-1", deposit_date="2026-10-12", employer="Empresa A",
             detail_file=None, detail_hash=None,
         )

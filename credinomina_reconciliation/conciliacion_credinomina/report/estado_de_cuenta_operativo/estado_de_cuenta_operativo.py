@@ -12,7 +12,7 @@ from credinomina_reconciliation.client_position import (
 )
 
 
-def execute(filters=None):
+def load_report_rows(filters=None):
     filters = frappe._dict(filters or {})
     filters.position_type = normalize_position_type(filters.get('position_type', FINANCIAL_VIEW))
     filters.detailed_columns = cint(filters.get('detailed_columns'))
@@ -30,6 +30,11 @@ def execute(filters=None):
     if data and frappe.session.user and frappe.session.user != 'Administrator':
         from frappe.desk.query_report import get_filtered_data
         data = get_filtered_data('CN Reconciliation Period', columns, data, frappe.session.user)
+    return filters, columns, data, snapshot
+
+
+def execute(filters=None):
+    filters, columns, data, snapshot = load_report_rows(filters)
     message = _("Totales de la selección. Cada columna suma los movimientos incluidos por los filtros. El guion indica un importe sin determinar o que no aplica. ")
     if snapshot:
         from credinomina_reconciliation.historical_cutoff import cutoff_message

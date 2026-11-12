@@ -104,6 +104,6 @@ def use_collection_detail(remittance_name, fingerprint, replace_detail=False, se
     document.add_comment("Comment", _(
         "Se generó detalle desde la cobranza de {0}: {1} filas seleccionadas de {2}, US$ {3}. "
         "Los cambios de importe constan en cada fila. Se conservaron la cobranza, los destinos y los archivos anteriores; "
-        "se retiraron los vínculos al detalle reemplazado. No se confirmó ni concilió el depósito."
+        "se conservaron los vínculos de las filas coincidentes. No se confirmó ni concilió el depósito."
     ).format(", ".join(period.name for period in periods), len(rows), len(preview["rows"]), total))
     return {"rows": len(rows), "total_usd": total, "file_url": attachment.file_url}

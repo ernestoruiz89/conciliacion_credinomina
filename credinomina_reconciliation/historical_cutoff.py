@@ -444,7 +444,8 @@ def reconstruct(context, deposits, items, offsets, cutoff_date, filters=None, *,
         position_items = [dict(item, posting_date=item['source_date']) if _day(item['posting_date']) > cutoff else item
                           for item in projected_items.values()]
         result['position_context'] = dict(items=[*position_items, *originals], balances=position_balances,
-            deposits=projected_deposits, collections=collections, credits_by_deposit=dict(credits_by_deposit))
+            deposits=projected_deposits, collections=collections, credits_by_deposit=dict(credits_by_deposit),
+            sources=list(eligible_sources.values()))
     if include_bridge:
         # Reuse the exact effective-date projection. Do not read today's totals
         # or the unfiltered allocation journal to explain a historical balance.

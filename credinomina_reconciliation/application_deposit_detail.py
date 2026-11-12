@@ -233,6 +233,6 @@ def use_application_detail(remittance_name, fingerprint, replace_detail=False, s
     document.add_comment("Comment", _(
         "Se generó detalle desde aplicaciones pendientes de {0}: {1} filas seleccionadas de {3}, US$ {2}. "
         "No es evidencia enviada por la empresa. Se conservaron los destinos, "
-        "pero se quitaron sus vínculos al detalle anterior. No se confirmó ni concilió el depósito."
+        "incluidos los vínculos de las filas coincidentes. No se confirmó ni concilió el depósito."
     ).format(", ".join(period.name for period in periods), len(rows), total_usd, len(preview["rows"])))
     return {"rows": len(rows), "total_usd": total_usd, "file_url": attachment.file_url}
