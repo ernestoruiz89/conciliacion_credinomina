@@ -190,7 +190,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
             frm.disable_save();
             hideLinkedOriginAttachments(frm);
             for (const field of ["link_accounting_origins", "load_deposit_detail", "use_applications_detail", "use_collection_detail",
-                "select_detail_credit", "refresh_distribution", "select_pending_targets", "link_detail_targets", "create_complementary",
+                "select_detail_credit", "refresh_distribution", "link_detail_targets", "create_complementary",
                 "allocated_usd", "credit_coverage_usd", "complementary_coverage_usd", "conversion_coverage_usd",
                 "justified_surplus_usd", "unclassified_usd", "result", "unallocated_usd", "allocation_summary_section",
                 "detail_tab", "destinations_tab", "support_file", "detail_file", "detail_periods", "detail_rows", "targets",
@@ -228,7 +228,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
         toggleApplicationDetailAction(frm);
         addCompanyCreditButton(frm);
         addBulkClientCreditButton(frm);
-        frm.toggle_display("select_pending_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("create_complementary", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write"));
         frm.toggle_display("link_detail_targets", frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write") &&
             !!(frm.doc.detail_rows || []).length && !!(frm.doc.targets || []).length);
@@ -289,22 +288,6 @@ frappe.ui.form.on("CN Remittance Allocation", {
             // Reuse the currency event to recalculate the USD equivalent.
             await frm.set_value("deposit_currency", currency);
         }
-    },
-    async select_pending_targets(frm) {
-        if (!frm.doc.employer || !Number(frm.doc.amount_usd)) {
-            frappe.msgprint(__("Indique la empresa y el importe del depósito (con tasa si está en C$)."));
-            return;
-        }
-        if (frm.is_new() || frm.is_dirty()) {
-            const save = await new Promise(resolve => frappe.confirm(
-                __("Se guardarán los datos del depósito antes de consultar sus partidas. Esto no lo confirma ni lo concilia. ¿Continuar?"),
-                () => resolve(true), () => resolve(false)
-            ));
-            if (!save) return;
-            await frm.save();
-        }
-        const response = await loadPendingRemittanceTargets(frm);
-        new RemittanceTargetPicker(frm, response);
     },
 });
 
@@ -1174,7 +1157,7 @@ async function linkRemittanceDetailTargets(frm) {
             {fieldname: "help", fieldtype: "HTML", options: `<p class="text-muted">Marque los destinos que cubren esta fila. Puede vincular varias aplicaciones a una fila; sus importes deben sumar el equivalente US$ de la fila.
                 Para repartir una partida complementaria entre clientes, edite Importe a vincular: el restante queda como otro destino sin vincular, conservando el mismo total.
                 Los destinos vinculados a otra fila no se muestran. Para liberar un destino, seleccione su fila, desmárquelo y guarde.
-                Al cambiar de fila se descartan las marcas sin guardar. Volver a importar el archivo elimina estos vínculos.</p>`},
+                Al cambiar de fila se descartan las marcas sin guardar. Al reimportar se conservan los vínculos de filas identificadas sin ambigüedad; si una fila vinculada cambia o desaparece, debe revisar sus vínculos antes de reemplazarla.</p>`},
             {fieldname: "destinations", fieldtype: "Table", label: __("Destinos del depósito"),
                 cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
                 fields: [

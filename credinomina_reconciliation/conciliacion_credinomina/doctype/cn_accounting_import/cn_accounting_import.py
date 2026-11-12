@@ -1662,6 +1662,11 @@ def _prepare_remittance_details(
     rows_by_parent = defaultdict(list)
     for row in detail_rows:
         rows_by_parent[row.parent].append(row)
+    from credinomina_reconciliation.remittance_detail_preservation import validate_application_rows
+    for item in remittances:
+        deposit_id = registered_ids.get(item.name)
+        if deposit_id in by_deposit:
+            validate_application_rows(item.name, rows_by_parent[item.name], prior_instructions, deposit_id)
     from credinomina_reconciliation.remittance_preserved_fifo import retained_instructions, retained_detail_instructions
     retained = retained_instructions(remittances, rows_by_parent, registered_ids, prior_instructions)
     retained.extend(retained_detail_instructions(remittances, rows_by_parent, registered_ids,

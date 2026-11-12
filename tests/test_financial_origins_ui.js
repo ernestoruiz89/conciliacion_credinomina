@@ -31,7 +31,7 @@ for (const status of [{cash_identity_status: "Origen vinculado"}, {consolidated_
         attachments: {parent: {find(selector) {assert.equal(selector, ".add-attachment-btn"); return {hide() {attachmentHides++;}};}}},
         disable_save: () => {disabled = true;}, toggle_display: (name, visible) => {if (!visible) hidden.push(name);}});
     assert.ok(disabled);
-    assert.ok(hidden.includes("select_pending_targets") && hidden.includes("create_complementary"));
+    assert.ok(hidden.includes("create_complementary"));
     assert.ok(hidden.includes("unclassified_usd") && hidden.includes("unallocated_usd") && hidden.includes("result"));
     assert.ok(!hidden.includes("financial_status"));
     assert.ok(!buttons.includes("Conciliar"));

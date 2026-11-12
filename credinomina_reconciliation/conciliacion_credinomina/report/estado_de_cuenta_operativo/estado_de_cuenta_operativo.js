@@ -30,6 +30,12 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         { fieldname: "to_month", label: __("Hasta"), fieldtype: "Date" },
     ],
     onload(report) {
+        report.page.wrapper?.off("click.cnAssignedDetails").on("click.cnAssignedDetails", "[data-cn-assigned]", event => {
+            event.preventDefault();
+            const token = event.currentTarget.getAttribute("data-cn-assigned");
+            const identity = JSON.parse(decodeURIComponent(token));
+            showOperationalAssignedDetails(report, identity);
+        });
         const advanced = ["client_number", "national_id", "loan_number", "collection_cycle", "category", "subcategory", "reason_type", "accounting_status", "management_status", "treatment_status"];
         let expanded = false;
         const display = () => advanced.forEach(name => {
@@ -45,12 +51,64 @@ frappe.query_reports["Estado de Cuenta Operativo"] = {
         display();
     },
     formatter(value, row, column, data, default_formatter) {
-        const formatted = column.fieldtype === "Currency" && data && data[column.fieldname] == null
+        let formatted = column.fieldtype === "Currency" && data && data[column.fieldname] == null
             ? `<span class="text-muted" title="${__("Importe sin determinar o no aplicable a este tipo de fila")}">—</span>`
             : default_formatter(value, row, column, data);
+        if (column.fieldname === "assigned_usd" && data?.position_type === "Aplicación"
+            && !data.is_total_row && data.source_rows && data.assigned_usd != null) {
+            const identity = encodeURIComponent(JSON.stringify({source_rows: data.source_rows,
+                period: data.period || "", collection_row_id: data.collection_row_id || ""}));
+            formatted = `<a href="#" data-cn-assigned="${frappe.utils.escape_html(identity)}" title="${frappe.utils.escape_html(__("Ver depósitos y partidas complementarias asignados"))}">${formatted}</a>`;
+        }
         return data && data.is_total_row ? `<strong>${formatted}</strong>` : formatted;
     },
 };
+
+async function showOperationalAssignedDetails(report, identity) {
+    const esc = value => frappe.utils.escape_html(String(value ?? ""));
+    const amount = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
+    const routes = {"CN Remittance Allocation": "cn-remittance-allocation", "CN Complementary Item": "cn-complementary-item"};
+    let closed = false, sequence = 0;
+    // Capture the filters of the displayed result, including its historical cut.
+    const filters = report.get_filter_values();
+    const dialog = new frappe.ui.Dialog({title: __("Detalle del importe asignado"), size: "extra-large",
+        fields: [{fieldname: "details", fieldtype: "HTML"}],
+        secondary_action_label: __("Actualizar"), secondary_action: () => load(),
+        primary_action_label: __("Cerrar"), primary_action: () => dialog.hide(),
+        onhide() { closed = true; },
+    });
+    function table(rows, total, includeTotal = true) {
+        return `<div class="table-responsive"><table class="table table-bordered"><thead><tr>${
+            ["Documento", "Tipo de vínculo", "Estado", "Importe US$"].map(label => `<th>${esc(__(label))}</th>`).join("")}</tr></thead><tbody>${
+            rows.map(row => `<tr><td>${routes[row.doctype] && row.document
+                ? `<a href="/app/${routes[row.doctype]}/${encodeURIComponent(row.document)}" target="_blank" rel="noopener noreferrer">${esc(row.document)}</a>`
+                : esc(__("Documento no disponible"))}</td><td>${esc(__(row.kind || ""))}</td><td>${esc(__(row.state || ""))}</td><td class="text-right">${amount(row.amount_usd)}</td></tr>`).join("")
+                || `<tr><td colspan="4">${esc(__("No hay documentos identificables para esta selección."))}</td></tr>`}</tbody>${includeTotal
+                    ? `<tfoot><tr><th colspan="3">${esc(__("Total del desglose"))}</th><th class="text-right">${amount(total)}</th></tr></tfoot>` : ""}</table></div>`;
+    }
+    async function load() {
+        const current = ++sequence, wrapper = dialog.fields_dict.details.$wrapper;
+        wrapper.html(`<p class="text-muted">${esc(__("Consultando vínculos…"))}</p>`);
+        try {
+            const response = await frappe.call({method: "credinomina_reconciliation.operational_assigned_details.get_details",
+                args: {...identity, filters: JSON.stringify(filters)}, silent: true});
+            if (closed || current !== sequence) return;
+            const data = response.message || {};
+            wrapper.html(`<p><strong>${esc(data.client_name)}</strong>${data.cutoff_date
+                ? ` · ${esc(__("Corte histórico"))}: ${esc(frappe.datetime.str_to_user(data.cutoff_date))}` : ""}</p>
+                <p><strong>${esc(__("Asignado US$"))}: ${amount(data.assigned_usd)}</strong></p>
+                ${table(data.rows || [], data.total_usd)}
+                ${(data.notes || []).map(note => `<p class="text-muted">${esc(__(note))}</p>`).join("")}
+                ${data.adjustments?.length ? `<h5>${esc(__("Otros vínculos de la aplicación"))}</h5>
+                    <p class="text-muted">${esc(__("Los ajustes de aplicación ya están descontados del aplicado neto. Las complementarias compartidas ya están incluidas en la cobertura. Estos vínculos no se suman de nuevo a Asignado."))}</p>
+                    ${table(data.adjustments, null, false)}` : ""}`);
+        } catch (_) {
+            if (!closed && current === sequence) wrapper.html(`<p class="text-danger">${esc(__("No se pudo consultar el detalle. Actualice el reporte y revise sus permisos antes de intentar nuevamente."))}</p>`);
+        }
+    }
+    dialog.show();
+    await load();
+}
 
 function showOperationalClientSearch(report, displayFilters) {
     let dialog, applying = false, closed = false;

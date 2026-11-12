@@ -691,30 +691,17 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
     if document.get("detail_rows") and any(entry.get("fila_detalle") for entry in entries(document.get("allocation_detail"))):
         frappe.throw(_("El depósito tiene filas conciliadas. Conserve el archivo actual; para reemplazarlo por uno distinto, "
             "desconcilie explícitamente el depósito antes de cambiar su detalle."))
-    previous_reasons = {}
-    if document.detail_hash == detail_hash:
-        for row in document.detail_rows or []:
-            previous_reasons.setdefault((row.source_row, row.row_key), []).append({"difference_reason": row.difference_reason, "difference_notes": row.get("difference_notes")})
-    # Keep accepted differences as evidence; a new detail invalidates their
-    # snapshot until the operator reviews and documents the new difference.
-    from credinomina_reconciliation.deposit_difference import is_difference
-    difference_rows = [row for row in document.detail_rows or [] if is_difference(row)]
-    document.set("detail_rows", [])
-    # Reimport creates new row identities; prior manual evidence must be reviewed.
-    for target in document.targets or []:
-        target.detail_row = ""
-        target.detail_row_label = ""
+    from credinomina_reconciliation.remittance_detail_preservation import preserved_rows
     allowed = allowed_employers(document.employer)
     clients = load_client_index()
     loans = load_detail_loan_clients(records, clients, allowed)
     rate = flt(document.get("fx_rate")) if remittance_fx_basis(document) else 0
-    amounts = []
+    amounts, candidates = [], []
     for record in records:
-        saved_reasons = previous_reasons.get((record.get("source_row"), record.get("row_key"))) or []
         client, identity_reason = choose_detail_client(record, clients, document.employer, allowed, loans)
         amount, explanation = detail_amount_usd(record, rate)
         amounts.append(amount)
-        document.append("detail_rows", {
+        candidates.append({
             key: record.get(key) for key in (
                 "source_row", "row_key", "client_number", "employee_number", "client_name",
                 "national_id", "loan_number", "installment_number",
@@ -735,11 +722,12 @@ def _apply_remittance_detail(document, records, content, source_url, origin="Arc
             "pending_usd": amount,
             "match_status": "Revisar" if not client else "Pendiente" if amount else "No deducido" if explanation == "No deducido" else "Revisar",
             "match_reason": identity_reason if not client else explanation + ("; pendiente de conciliación" if amount else ""),
-            **(saved_reasons.pop(0) if saved_reasons else {}),
             "matched_targets": "[]",
         })
-    for row in difference_rows:
-        document.append("detail_rows", row)
+    replacement = preserved_rows(document, candidates)
+    document.set("detail_rows", [])
+    for index, row in enumerate(replacement, 1):
+        document.append("detail_rows", row).idx = index
     from credinomina_reconciliation.remittance_portfolio import fill_unique_detail_credits
     fill_unique_detail_credits(document, clients)
     document.detail_hash = detail_hash

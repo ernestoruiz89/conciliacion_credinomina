@@ -26,9 +26,9 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         self.assertTrue(fields["refresh_distribution"]["allow_on_submit"])
         self.assertEqual(groups["allocation_preview"], "results_tab")
         self.assertEqual(groups["allocation_detail"], "results_tab")
+        self.assertNotIn("select_pending_targets", fields)
         target_index = doc["field_order"].index("targets")
-        self.assertEqual(doc["field_order"][target_index - 2:target_index],
-                         ["select_pending_targets", "link_detail_targets"])
+        self.assertEqual(doc["field_order"][target_index - 1], "link_detail_targets")
         self.assertTrue(fields["technical_section"]["collapsible"])
         self.assertGreater(doc["field_order"].index("unallocated_usd"), doc["field_order"].index("technical_section"))
         self.assertIn("Incluye los saldos a favor", fields["unallocated_usd"]["description"])

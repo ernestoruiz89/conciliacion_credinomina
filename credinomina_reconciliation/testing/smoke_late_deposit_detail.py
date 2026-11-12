@@ -32,10 +32,12 @@ def run():
             source = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
                 "source_file": f"/private/files/{marker}-mov.csv", "status": "Importado", "currency": "USD"})
             for index, amount in enumerate((1000, 445.11)):
+                client = frappe.get_doc(dict(doctype="CN Client", employer=employer.name,
+                    client_number=marker + str(index), client_name=f"{marker} Cliente {index}")).insert()
                 source.append("rows", {"source_key": marker + str(index), "event_type": "Aplicacion",
                     "event_date": "2025-04-30", "currency": "USD", "amount": amount, "amount_usd": amount,
                     "effective": 1, "historical_period": period.name, "processing_route": "Historica",
-                    "client_number": marker + str(index), "client_name": f"{marker} Cliente {index}",
+                    "client": client.name, "client_number": marker + str(index), "client_name": f"{marker} Cliente {index}",
                     "loan_number": f"987654{index}-1"})
             source.insert()
             _reconcile_sources(employer.name)
@@ -86,16 +88,46 @@ def run():
             assert {field: deposit.get(field) for field in RESULT_FIELDS} == recorded
             assert deposit.result == "Pendiente"
             assert [row.loan_number for row in deposit.detail_rows] == ["9876540-1", "9876541-1"]
+            try:
+                reconcile_remittance(deposit.name)
+            except frappe.ValidationError as error:
+                assert "sin una fila" in str(error), str(error)
+            else:
+                raise AssertionError("Unlinked application target was accepted despite existing detail")
+            deposit.reload()
+            assert {field: deposit.get(field) for field in RESULT_FIELDS} == recorded
             # The old manual destination needs its explicit link to the new
             # detail row (the same operation as Vincular detalle y destinos).
             deposit.targets[0].detail_row = deposit.detail_rows[0].name
             deposit.save()
+            assert {field: deposit.get(field) for field in RESULT_FIELDS} == recorded
+            # Reordered content preserves row identities and every manual link.
+            old_ids = {row.client_number: row.name for row in deposit.detail_rows}
+            target_links = [(row.name, row.detail_row, row.historical_application, row.amount_usd) for row in deposit.targets]
+            reordered = content.decode().splitlines()
+            with patch.object(File, "get_content", return_value=("\n".join([reordered[0], *reversed(reordered[1:])]) + "\n").encode()):
+                import_remittance_detail(deposit.name)
+            deposit.reload()
+            assert {row.client_number: row.name for row in deposit.detail_rows} == old_ids
+            assert [(row.name, row.detail_row, row.historical_application, row.amount_usd) for row in deposit.targets] == target_links
             assert {field: deposit.get(field) for field in RESULT_FIELDS} == recorded
             reconcile_remittance(deposit.name)
             deposit.reload()
             assert deposit.result == "Conciliado", deposit.as_dict()
             assert deposit.allocated_usd == 1445.11 and deposit.unallocated_usd == 0
             assert all(row.match_status == "Conciliada" for row in deposit.detail_rows)
+
+            from credinomina_reconciliation.operational_assigned_details import get_details
+            from credinomina_reconciliation.conciliacion_credinomina.report.estado_de_cuenta_operativo.estado_de_cuenta_operativo import load_report_rows
+            for cutoff in (None, "2025-05-31"):
+                filters = dict(employer=employer.name, only_open=0, position_type="Aplicación", cutoff_date=cutoff)
+                _, _, rows, _ = load_report_rows(filters)
+                assert len(rows) == 2, rows
+                for row in rows:
+                    details = get_details(row["source_rows"], row["period"], row.get("collection_row_id"), filters)
+                    assert details["total_usd"] == row["assigned_usd"] == row["applied_usd"], details
+                    assert [entry["document"] for entry in details["rows"]] == [deposit.name], details
+                    assert details["cutoff_date"] == cutoff
 
             # Ordinary saves cannot forge a result, alter the bank amount, or
             # bypass the existing protection of a closed affected period.
@@ -121,6 +153,8 @@ def run():
                 raise AssertionError("Closed period accepted a deposit detail change")
             return {"reported_zero_guard_fixed": True, "partial_cash_preserved": True,
                     "late_csv_imported": True, "explicit_reconciliation_updates_balances": True,
+                    "orphan_application_rejected_atomically": True, "reimport_links_preserved": True,
+                    "assigned_drilldown_current_and_cutoff": True,
                     "bank_amount_locked": True, "closed_period_protected": True, "rolled_back": True}
     finally:
         frappe.db.rollback()
