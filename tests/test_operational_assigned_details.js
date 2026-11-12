@@ -32,8 +32,11 @@ settings.onload(report);
     assert.match(requests[0].options.method, /operational_assigned_details.get_details$/);
     assert.equal(JSON.parse(requests[0].options.args.filters).cutoff_date, '2026-08-31');
     requests[0].resolve({message: {assigned_usd: 100, total_usd: 100, cutoff_date: '2026-08-31', client_name: '<img onerror=x>',
-        rows: [{doctype: 'CN Remittance Allocation', document: 'DEP <1>', kind: 'Depósito', state: 'Conciliado', amount_usd: 90},
-            {doctype: 'CN Complementary Item', document: 'COMP', kind: 'Complementaria', state: 'Confirmado', amount_usd: 10}],
+        rows: [{doctype: 'CN Remittance Allocation', document: 'DEP <1>', kind: 'Depósito', state: 'Conciliado', amount_usd: 90,
+            core_entries: [{date: '2026-08-15', voucher: '00123', reference: 'REF<1>', description: 'DEP <img onerror=x>'},
+                {date: '2026-08-16', voucher: '00456', reference: 'REF2', description: 'Segundo origen\nOtra línea'}]},
+            {doctype: 'CN Complementary Item', document: 'COMP', kind: 'Complementaria', state: 'Confirmado', amount_usd: 10,
+                core_entries: [{date: '2026-08-17', voucher: '00789', reference: 'COMP-REF', description: 'Descripción complementaria'}]}],
         adjustments: [{doctype: 'CN Complementary Item', document: 'ADJUST', amount_usd: 5}], notes: ['<script>bad</script>']}});
     await new Promise(resolve => setImmediate(resolve));
     assert.match(html, /cn-remittance-allocation\/DEP%20%3C1%3E/);
@@ -43,6 +46,11 @@ settings.onload(report);
     assert.match(html, /ya están descontados/);
     assert.doesNotMatch(html, /<img|<script/);
     assert.match(html, /&lt;img/);
+    for (const value of ['Nro. asiento', 'Referencia', 'Descripción del core', '15/08/2026', '16/08/2026', '17/08/2026', '00123', '00456', '00789', 'REF&lt;1&gt;', 'Descripción complementaria']) {
+        assert.ok(html.includes(value), value);
+    }
+    assert.match(html, /rowspan="2"/);
+    assert.equal((html.match(/>90<\/td>/g) || []).length, 1, 'Several core origins must not repeat the assignment amount');
     filters = {cutoff_date: '2026-10-31'};
     const loading = dialog.options.secondary_action();
     assert.equal(JSON.parse(requests[1].options.args.filters).cutoff_date, '2026-08-31', 'Refresh keeps the original cutoff');
