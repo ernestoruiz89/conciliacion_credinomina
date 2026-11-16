@@ -10,6 +10,10 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         fields = {field["fieldname"]: field for field in doc["fields"]}
         self.assertEqual(set(fields), set(doc["field_order"]))
         self.assertEqual(len(fields), len(doc["field_order"]))
+        client_index = doc["field_order"].index("source_client_name")
+        self.assertEqual(doc["field_order"][client_index + 1], "view_related_pending")
+        self.assertEqual(fields["view_related_pending"]["label"], "Ver Registros pendientes")
+        self.assertTrue(fields["view_related_pending"]["allow_on_submit"])
         groups = {}
         tab = None
         for name in doc["field_order"]:

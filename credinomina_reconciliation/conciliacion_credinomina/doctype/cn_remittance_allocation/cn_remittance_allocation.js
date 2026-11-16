@@ -260,6 +260,7 @@ frappe.ui.form.on("CN Remittance Allocation", {
     download_detail_template: downloadRemittanceTemplate,
     load_deposit_detail: importRemittanceDetail,
     select_detail_credit: selectRemittanceDetailCredit,
+    view_related_pending: showRemittanceHeaderRelatedPending,
     link_detail_targets: linkRemittanceDetailTargets,
     create_complementary: createRemittanceComplementary,
     refresh_distribution: renderRemittanceDistribution,
@@ -796,6 +797,36 @@ async function createRemittanceClientAlias(frm, cdt, cdn) {
         frm.clientAliasDialog = dialog;
         dialog.show();
     } finally {frm.clientAliasOpening = false;}
+}
+
+async function showRemittanceHeaderRelatedPending(frm) {
+    if (frm._cnHeaderPendingLoading) return;
+    if (frm.is_new() || frm.is_dirty()) {
+        frappe.msgprint(__("Guarde o recargue el depósito antes de consultar sus registros pendientes."));
+        return;
+    }
+    if (!frm.doc.employer || ![frm.doc.source_client_name, frm.doc.source_loan_number].some(value => String(value || "").trim())) {
+        frappe.msgprint(__("El origen contable debe identificar la empresa y el nombre o crédito del cliente."));
+        return;
+    }
+    const fingerprint = () => JSON.stringify([frm.doc.name, frm.doc.modified, frm.doc.employer,
+        frm.doc.source_client_name, frm.doc.source_loan_number]);
+    const initial = fingerprint();
+    const button = frm.fields_dict.view_related_pending?.$input;
+    frm._cnHeaderPendingLoading = true;
+    button?.prop("disabled", true);
+    try {
+        const response = await frappe.call({
+            method: "credinomina_reconciliation.accounting_related_records.get_related_pending_for_remittance",
+            args: {remittance_name: frm.doc.name}, freeze: true,
+            freeze_message: __("Consultando registros pendientes del cliente…"),
+        });
+        if (initial !== fingerprint() || frm.is_dirty()) return;
+        window.credinominaShowRelatedPending(response.message || {});
+    } finally {
+        frm._cnHeaderPendingLoading = false;
+        button?.prop("disabled", false);
+    }
 }
 
 function canViewRemittanceRelatedPending(frm, row) {

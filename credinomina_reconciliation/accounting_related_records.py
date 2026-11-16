@@ -275,19 +275,35 @@ def get_related_pending(import_name, source_row_name):
                 context={'import_name': import_name, 'source_row_name': source_row_name})
 
 
+def _remittance_identity(document, detail_row_name=None):
+    if detail_row_name:
+        detail = next((row for row in document.detail_rows or [] if row.name == detail_row_name), None)
+        if detail is None:
+            frappe.throw(_('La fila no pertenece a este depósito.'))
+        identity = _identity_values(detail, [detail])
+        if not any((identity['numbers'], identity['clients'], identity['national_ids'], identity['names'])):
+            frappe.throw(_('Identifique al cliente de esta fila antes de consultar sus pendientes.'))
+        return detail.employer or document.employer, identity
+    # Header queries use the immutable core name/credit, never an arbitrary
+    # detail row. Reuse strict, permission-scoped client and alias resolution.
+    from credinomina_reconciliation.complementary_related_client import resolve
+    if not document.employer:
+        frappe.throw(_('Identifique la empresa del depósito antes de consultar sus pendientes.'))
+    probe = frappe._dict(employer=document.employer, client_name=document.get('source_client_name'),
+        loan_number=document.get('source_loan_number'), check_permission=document.check_permission)
+    return resolve(probe)
+
+
 @frappe.whitelist()
-def get_related_pending_for_remittance(remittance_name, detail_row_name):
+def get_related_pending_for_remittance(remittance_name, detail_row_name=None):
     document = frappe.get_doc('CN Remittance Allocation', remittance_name)
     document.check_permission('read')
-    detail = next((row for row in document.detail_rows or [] if row.name == detail_row_name), None)
-    if detail is None:
-        frappe.throw(_('La fila no pertenece a este depósito.'))
-    identity = _identity_values(detail, [detail])
-    if not any((identity['numbers'], identity['clients'], identity['national_ids'], identity['names'])):
-        frappe.throw(_('Identifique al cliente de esta fila antes de consultar sus pendientes.'))
-    employer = detail.employer or document.employer
+    employer, identity = _remittance_identity(document, detail_row_name)
+    context = {'remittance_name': remittance_name}
+    if detail_row_name:
+        context['detail_row_name'] = detail_row_name
     return dict(_related_pending(employer, identity), employer=employer,
-                context={'remittance_name': remittance_name, 'detail_row_name': detail_row_name})
+                context=context)
 
 
 def _document_core_entries(doctype, pending, applications, link_field, *, include_date=False):
