@@ -13,6 +13,8 @@ def after_install():
     from credinomina_reconciliation.difference_reasons import seed_reasons
     from credinomina_reconciliation.patches.v1_0.index_period_closure_links import execute
     execute()
+    from credinomina_reconciliation.application_adjustment_indexes import ensure_indexes
+    ensure_indexes()
     seed_subcategories()
     seed_reasons()
     from credinomina_reconciliation.patches.v1_0.enable_reconciliation_global_search import execute as enable_search

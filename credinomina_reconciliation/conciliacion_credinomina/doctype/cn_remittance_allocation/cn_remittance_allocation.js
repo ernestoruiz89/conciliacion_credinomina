@@ -1956,7 +1956,7 @@ class RemittanceTargetPicker {
                 { fieldname: "use_detail_periods", fieldtype: "Check", label: __("Usar períodos del detalle"),
                     default: filterSelectedPeriods, read_only: this.detailPeriods.size ? 0 : 1,
                     description: this.detailPeriods.size
-                        ? __("Muestra solo partidas de la tabla Períodos del detalle. Desmarque para buscar en otros períodos; las partidas sin período no se muestran mientras esté marcado.")
+                        ? __("Muestra solo partidas de la tabla Períodos del detalle. Desmarque para buscar en otros períodos abiertos y mostrar partidas complementarias sin período. Las aplicaciones siempre requieren un período asignado.")
                         : __("Agregue períodos en la tabla Períodos del detalle del depósito para habilitar este filtro."),
                     onchange: () => this.filterDetailPeriods() },
                 { fieldtype: "Section Break" },
@@ -1996,9 +1996,10 @@ class RemittanceTargetPicker {
             ${__("La lista muestra únicamente partidas pendientes de este cliente. Cada destino agregado quedará vinculado automáticamente a esta fila del detalle.")}</p>` : "";
         this.dialog.fields_dict.intro.$wrapper.html(`<p>Empresa pagadora: <strong>${this.escape(data.employer)}</strong> · US$</p>
             ${detailIntro}
+            <div class="alert alert-info" role="note">${__("Las aplicaciones deben tener un período abierto asignado y estar procesadas para aparecer en este selector. «Ver registros pendientes» también muestra aplicaciones sin período o pendientes de procesar. Desmarcar «Usar períodos del detalle» permite buscar en otros períodos abiertos; las aplicaciones sin período siguen excluidas. Asígneles el período correcto y procese su importación para habilitarlas.")}</div>
             <p class="text-muted">Seleccione partidas y ajuste los importes si el pago es parcial.
             Puede combinar períodos; no se limita por la fecha del depósito.
-            Los resultados se ordenan por fecha del período, del más antiguo al más reciente; las partidas sin período quedan al final.
+            Los resultados se ordenan por fecha del período, del más antiguo al más reciente; las partidas complementarias sin período quedan al final.
             Los saldos descuentan lo ya conciliado y lo reservado en los destinos existentes. Puede agregar varios destinos a una aplicación hasta cubrir su saldo; se excluyen períodos cerrados.</p>`);
         this.dialog.fields_dict.search.$input.on("input", () => this.filter());
         const wrapper = this.dialog.fields_dict.items.$wrapper;

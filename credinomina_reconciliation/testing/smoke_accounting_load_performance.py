@@ -133,7 +133,11 @@ def run(count=200):
             try:
                 load("invalid_removal")
             except frappe.ValidationError as error:
-                assert "ya tiene vínculos de conciliación" in str(error), str(error)
+                # A one-row file becomes empty: the parse-failure save is
+                # rejected by the same paid-application protection earlier.
+                expected = ("tiene dinero asignado o destinos reservados" if count == 1
+                            else "ya tiene vínculos de conciliación")
+                assert expected in str(error), str(error)
             else:
                 raise AssertionError("Removed a paid application")
             finally:
