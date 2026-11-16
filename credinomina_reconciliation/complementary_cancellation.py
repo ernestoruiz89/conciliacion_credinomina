@@ -172,11 +172,42 @@ def _related_cash(deposits, periods, rows, items):
     selected = {deposit.name for deposit in deposits}
     names = {period.name for period in periods} | {row.name for row in rows if row.event_type == "Aplicacion"}
     names.update(item.name for item in items)
+    names -= {None, ""}
+    if not names:
+        return []
     found = {}
     fields = ["name", "deposit_reference", "deposit_voucher", "reconciliation_identity", "deposit_date",
               "deposit_currency", "deposit_amount", "amount_usd", "fx_rate", "employer", "allocation_detail",
               "allocated_usd", "unallocated_usd", "unclassified_usd", "justified_surplus_usd", "result"]
-    # One SQL query per bounded chunk, instead of loading every company deposit.
+    if len(names) > 20:
+        # Hundreds of LIKE predicates repeatedly scan every large cash journal.
+        # Read each journal once and use exact set membership instead. Only the
+        # matching deposits' metadata is loaded; other companies can share a
+        # claim, so an employer/date/target-table filter would lose evidence.
+        matching = set()
+        cursor = ""
+        while True:
+            journals = frappe.get_all("CN Remittance Allocation", filters={
+                "docstatus": 1, "name": [">", cursor],
+                "allocation_detail": ["not in", ["", "[]"]],
+            }, fields=["name", "allocation_detail"], order_by="name asc", limit_page_length=500)
+            for deposit in journals:
+                if deposit.name not in selected and any(
+                    entry.get("periodo") in names or entry.get("aplicacion_id") in names or entry.get("partida") in names
+                    for entry in entries(deposit.allocation_detail)
+                ):
+                    matching.add(deposit.name)
+            if len(journals) < 500:
+                break
+            cursor = journals[-1].name
+        ordered = sorted(matching)
+        for offset in range(0, len(ordered), 500):
+            for deposit in frappe.get_all("CN Remittance Allocation", filters={
+                "docstatus": 1, "name": ["in", ordered[offset:offset + 500]],
+            }, fields=fields, limit_page_length=0):
+                found[deposit.name] = deposit
+        return list(found.values())
+    # Small actions retain the selective read without transferring all journals.
     ordered = sorted(names)
     for offset in range(0, len(ordered), 100):
         for deposit in frappe.get_all("CN Remittance Allocation", filters={"docstatus": 1},
