@@ -32,12 +32,7 @@ def _scope(employer=None, client=None, context=None):
     elif context.get('remittance_name'):
         document = frappe.get_doc('CN Remittance Allocation', context['remittance_name'])
         document.check_permission('read')
-        detail = next((row for row in document.detail_rows
-                       if row.name == context.get('detail_row_name')), None)
-        if detail is None:
-            frappe.throw(_('La fila no pertenece a este depósito.'))
-        identity = related._identity_values(detail, [detail])
-        company = detail.employer or document.employer
+        company, identity = related._remittance_identity(document, context.get('detail_row_name'))
     elif context.get('complementary_item'):
         from credinomina_reconciliation.complementary_related_client import resolve
         document = frappe.get_doc('CN Complementary Item', context['complementary_item'])

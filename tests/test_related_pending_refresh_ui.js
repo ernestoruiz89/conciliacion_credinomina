@@ -35,6 +35,7 @@ const total = (dialog, kind) => new RegExp('class="cn-related-pending-summary-' 
     for (const [scope, method, args] of [
         [{context: {import_name: "I", source_row_name: "ROW"}}, "accounting_related_records.get_related_pending", {import_name: "I", source_row_name: "ROW"}],
         [{context: {remittance_name: "D", detail_row_name: "DETAIL"}}, "accounting_related_records.get_related_pending_for_remittance", {remittance_name: "D", detail_row_name: "DETAIL"}],
+        [{context: {remittance_name: "D"}}, "accounting_related_records.get_related_pending_for_remittance", {remittance_name: "D"}],
         [{client: "CLIENT"}, "reconciliation_workbench.get_data", {employer: "E", client: "CLIENT"}],
     ]) {
         const input = state(scope), before = JSON.stringify(input), dialog = show(input), count = calls.length;
