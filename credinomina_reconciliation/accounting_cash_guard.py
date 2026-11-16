@@ -31,6 +31,56 @@ def _derived_changed(old, row):
     )
 
 
+def _applications_without_cash(rows):
+    """Batch absence checks only after the caller locks both employer pools.
+
+    Payroll-linked applications and any cash/reservation evidence still use the
+    existing per-row coverage calculation. Nothing is inferred from a pending
+    label, and no result survives this validation or its transaction.
+    """
+    candidates = {row.name for row in rows if row.name and not row.get('collection_row_id')
+        and row.get('application_allocation_detail') in (None, '', '[]')
+        and not money(row.get('historical_remitted_usd'))}
+    if len(candidates) < 2:
+        return set()
+    ordered = sorted(candidates)
+    for offset in range(0, len(ordered), 500):
+        reserved = frappe.get_all('CN Remittance Target', filters={
+            'historical_application': ['in', ordered[offset:offset + 500]], 'docstatus': ['<', 2]},
+            pluck='historical_application', limit_page_length=0)
+        candidates.difference_update(reserved)
+    if not candidates:
+        return set()
+    cursor = ''
+    while True:
+        journals = frappe.get_all('CN Remittance Allocation', filters={
+            'docstatus': 1, 'name': ['>', cursor], 'allocation_detail': ['not in', ['', '[]']]},
+            fields=['name', 'allocation_detail'], order_by='name asc', limit_page_length=500)
+        for deposit in journals:
+            try:
+                entries = frappe.parse_json(deposit.allocation_detail or '[]')
+            except (ValueError, TypeError):
+                return set()  # Let the original reader handle incomplete evidence.
+            if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+                return set()
+            for entry in entries:
+                if entry.get('tipo') == 'Aplicacion historica':
+                    application = entry.get('aplicacion_id')
+                    if not isinstance(application, str):
+                        return set()
+                    # A zero or negative journal entry is still protected by its
+                    # snapshot. Keep the full coverage check for that application.
+                    candidates.discard(application)
+        if not candidates or len(journals) < 500:
+            break
+        cursor = journals[-1].name
+    if not candidates:
+        return set()
+    from credinomina_reconciliation.credit_application import funding_totals
+    funded = funding_totals(candidates)
+    return {name for name in candidates if not funded.get(name)}
+
+
 def guard_cash_changes(document, previous=None, deleting=False, *, verified_reconciliation=False, unpaid_refresh=False):
     previous = previous if previous is not None else document.get_doc_before_save()
     if deleting:
@@ -74,9 +124,10 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
     # A reimport/delete must not pass an unpaid check while another request is
     # assigning its application. Reconciliation uses the same generation lock.
     lock_cash_pool(companies)
+    without_cash = _applications_without_cash(changed_rows) if len(changed_rows) > 1 else set()
     for old in changed_rows:
-        coverage = cash_coverage(old)
-        if coverage['snapshots'] or money(coverage['protected_usd']) > 0:
+        coverage = cash_coverage(old) if old.name not in without_cash else None
+        if coverage and (coverage['snapshots'] or money(coverage['protected_usd']) > 0):
             frappe.throw(_(
                 'La aplicación {0} de {1} tiene dinero asignado o destinos reservados en depósitos. '
                 'Desconcilie y retire esos destinos antes de borrar la fila, ocultarla de los reportes '

@@ -1,4 +1,5 @@
 import unittest
+import json
 from decimal import Decimal
 from unittest.mock import patch
 import frappe
@@ -171,3 +172,73 @@ class AccountingCashGuardTests(unittest.TestCase):
                      self.assertRaises(frappe.ValidationError):
                     doc.get_doc_before_save = lambda: previous
                     guard.guard_cash_changes(doc)
+
+    def test_first_period_assignment_batches_only_after_lock_and_keeps_derived_guard(self):
+        rows = [frappe._dict(name=f'APP-{i}', idx=i + 1, event_type='Aplicacion', amount=100,
+                            currency='USD', effective=1) for i in range(3)]
+        doc = self.document(rows=rows, historical_period='NEW')
+        doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado', rows=rows)
+        order = []
+        self.lock_mock.side_effect = lambda companies: order.append('lock')
+        def batch(changed):
+            order.append('batch')
+            self.assertEqual(changed, rows)
+            return {'APP-0', 'APP-1'}
+        with patch.object(guard, '_applications_without_cash', side_effect=batch), \
+             patch.object(guard, 'cash_coverage', side_effect=lambda row: (
+                 order.append(row.name) or dict(protected_usd=20, snapshots={}))), \
+             patch.object(frappe, 'throw', side_effect=frappe.ValidationError):
+            with self.assertRaises(frappe.ValidationError):
+                guard.guard_cash_changes(doc, unpaid_refresh=True)
+        self.assertEqual(order, ['lock', 'batch', 'APP-2'])
+        # Even an absence proof cannot authorize user-entered cash results.
+        doc.rows = [frappe._dict(row, historical_remitted_usd=100) for row in rows]
+        with patch.object(guard, '_applications_without_cash', return_value={row.name for row in rows}), \
+             patch.object(frappe, 'throw', side_effect=frappe.ValidationError):
+            with self.assertRaises(frappe.ValidationError):
+                guard.guard_cash_changes(doc)
+
+    def test_batch_proves_absence_without_using_stored_pending_status(self):
+        rows = [frappe._dict(name=f'APP-{i}', historical_remitted_usd=0,
+                            deposit_match_status='Sin deposito') for i in range(542)]
+        rows += [frappe._dict(name='PAYROLL', collection_row_id='C'),
+                 frappe._dict(name='SPLIT', application_allocation_detail='[{"collection_row_id":"C"}]'),
+                 frappe._dict(name='STORED', historical_remitted_usd=1)]
+        calls = []
+        def query(doctype, **kwargs):
+            calls.append(doctype)
+            self.assertNotIn('employer', kwargs['filters'])
+            if doctype == 'CN Remittance Target':
+                self.assertEqual(kwargs['filters']['docstatus'], ['<', 2])
+                return ['APP-0'] if 'APP-0' in kwargs['filters']['historical_application'][1] else []
+            self.assertEqual(kwargs['filters']['docstatus'], 1)
+            return [frappe._dict(name='CASH', allocation_detail=json.dumps([
+                {'tipo': 'Aplicacion historica', 'aplicacion_id': 'APP-1', 'importe_usd': 0},
+                {'tipo': 'Aplicacion historica', 'aplicacion_id': 'APP-2', 'importe_usd': -1},
+                {'tipo': 'Aplicacion historica', 'aplicacion_id': 'APP-30-OTHER', 'importe_usd': 10}]))]
+        with patch.object(frappe, 'get_all', side_effect=query), \
+             patch('credinomina_reconciliation.credit_application.funding_totals', return_value={'APP-3': 10, 'APP-4': 0}):
+            actual = guard._applications_without_cash(rows)
+        self.assertEqual(actual, {f'APP-{i}' for i in range(4, 542)})
+        self.assertEqual(calls, ['CN Remittance Target', 'CN Remittance Target', 'CN Remittance Allocation'])
+
+    def test_incomplete_journals_retain_individual_cash_validation(self):
+        rows = [frappe._dict(name='A'), frappe._dict(name='B')]
+        for raw in ('invalid', '{}', '[null]', '[{"tipo":"Aplicacion historica"}]'):
+            with self.subTest(raw=raw), patch.object(frappe, 'get_all', side_effect=[[],
+                    [frappe._dict(name='D', allocation_detail=raw)]]), \
+                 patch('credinomina_reconciliation.credit_application.funding_totals') as funding:
+                self.assertEqual(guard._applications_without_cash(rows), set())
+                funding.assert_not_called()
+
+    def test_batch_checks_all_pages_and_does_not_read_cash_when_all_rows_reserved(self):
+        rows = [frappe._dict(name='A'), frappe._dict(name='B')]
+        first = [frappe._dict(name=f'D-{i:03}', allocation_detail='[{"tipo":"Cobranza"}]') for i in range(500)]
+        last = [frappe._dict(name='LAST', allocation_detail='[{"tipo":"Aplicacion historica","aplicacion_id":"B"}]')]
+        with patch.object(frappe, 'get_all', side_effect=[[], first, last]) as query, \
+             patch('credinomina_reconciliation.credit_application.funding_totals', return_value={}):
+            self.assertEqual(guard._applications_without_cash(rows), {'A'})
+        self.assertEqual(query.call_args.kwargs['filters']['name'], ['>', 'D-499'])
+        with patch.object(frappe, 'get_all', return_value=['A', 'B']) as query:
+            self.assertEqual(guard._applications_without_cash(rows), set())
+        query.assert_called_once()

@@ -1625,7 +1625,7 @@ def _prepare_remittance_details(
     tolerance_by_employer, client_catalog=None,
 ):
     """Reserve a deposit for its client detail instead of guessing a split."""
-    from credinomina_reconciliation.remittance_detail import manual_detail_targets
+    from credinomina_reconciliation.remittance_detail import DetailClaimIndex, manual_detail_targets
     from credinomina_reconciliation.deposit_difference import is_difference, prepare
     from credinomina_reconciliation.remittance_periods import attach_periods, selected_periods
     from credinomina_reconciliation.paying_employers import allowed_employers, load_payer_map
@@ -1688,6 +1688,7 @@ def _prepare_remittance_details(
     blocked = set()
     rounding_eligible = set()
     contexts = {}
+    claim_index = DetailClaimIndex(claims)
     for item in remittances:
         deposit_id = registered_ids.get(item.name)
         if deposit_id not in by_deposit:
@@ -1734,13 +1735,14 @@ def _prepare_remittance_details(
         conversion = (documented_coverage(item, rows, claims,
             [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id],
             [credit for credit in client_credits if registered_ids.get(credit.registered_deposit) == deposit_id],
-            reserved_amounts, allowed_groups)
+            reserved_amounts, allowed_groups, claim_index=claim_index)
             if difference and not difference["error"] else None)
         if conversion:
             difference["conversion"] = conversion
             claim_id = CONVERSION_PREFIX + item.name
             claims.append(dict(id=claim_id, kind="X", amount_usd=conversion["amount_usd"],
                                group=item.employer, period=conversion["period"], company_conversion=conversion))
+            claim_index = DetailClaimIndex(claims)
             instructions.append(dict(id="CONVERSION:" + item.name, deposit_id=deposit_id,
                 claim_id=claim_id, amount_usd=conversion["amount_usd"], origin="Diferencia documentada de empresa"))
         fifo_cash_left = None
@@ -1862,6 +1864,7 @@ def _prepare_remittance_details(
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
                 allowed_groups=allowed_groups,
                 apply_fifo=apply_fifo, reserved_amounts=reserved_amounts,
+                claim_index=claim_index,
             )
             if not targets:
                 plan["status"] = "Revisar"

@@ -7,7 +7,7 @@ KIND = "Diferencia documentada de empresa"
 PREFIX = "X:CONVERSION:"
 
 
-def documented_coverage(document, rows, claims, instructions, credits, reserved, allowed):
+def documented_coverage(document, rows, claims, instructions, credits, reserved, allowed, *, claim_index=None):
     """Use the accepted company documentation, without validating exchange rates.
 
     All identified application amounts remain complete. The signed company
@@ -32,7 +32,7 @@ def documented_coverage(document, rows, claims, instructions, credits, reserved,
         amount, _reason = detail_amount_usd(row, float(document.get("fx_rate") or 0))
         targets, _reason = suggest_detail_targets(row, claims, amount, document.employer,
             [part.period for part in document.get("detail_periods") or []],
-            allowed_groups=allowed, apply_fifo=True, reserved_amounts=used)
+            allowed_groups=allowed, apply_fifo=True, reserved_amounts=used, claim_index=claim_index)
         if not targets or sum_money(target["amount_usd"] for target in targets) != money(amount):
             return None
         for target in targets:
