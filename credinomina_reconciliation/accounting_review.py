@@ -217,7 +217,7 @@ def application_candidates(item_name, accounting_import):
         coverage = cash_coverage(current, context=context)
         if money(coverage["adjustable_usd"]) <= 0:
             continue
-        result.append({"name": row.name, "client_name": row.client_name, "loan_number": row.loan_number,
+        result.append({"name": row.name, "client_name": row.client_name, "client_number": row.get("client_number"), "loan_number": row.loan_number,
              "event_date": row.event_date, "amount_usd": row.amount_usd, "voucher": row.voucher,
              "application_adjustment_usd": current.application_adjustment_usd, "net_applied_usd": current.net_applied_usd,
              **{key: value for key, value in coverage.items() if key != "snapshots"}})

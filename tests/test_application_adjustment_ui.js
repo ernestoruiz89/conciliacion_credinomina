@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 let handlers, allow = true;
 const actions = {}, calls = [];
-const context = vm.createContext({__: text => text, frappe: {
+const context = vm.createContext({window: {}, __: text => text, frappe: {
     ui: {form: {on: (_name, events) => { handlers = events; }}},
     confirm: async (_message, action) => action(),
     call: async args => calls.push(args), show_alert: () => calls.push("alert"),
