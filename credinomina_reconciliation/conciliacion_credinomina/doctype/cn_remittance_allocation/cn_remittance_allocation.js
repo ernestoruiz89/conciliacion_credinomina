@@ -1115,31 +1115,44 @@ async function documentRemittanceCompanyDifference(frm) {
     const method = "credinomina_reconciliation.deposit_difference.";
     const response = await frappe.call({method: method + "preview", args: {name: frm.doc.name}});
     const preview = response.message;
+    const noDifference = toScaledInteger(preview.amount_usd, 2) === 0n;
+    if (noDifference && !preview.has_difference) {
+        frappe.msgprint(__("El depósito y el detalle coinciden; no hay diferencia que documentar."));
+        return;
+    }
     let saving = false;
+    async function removeDifference() {
+        if (saving || !preview.has_difference) return;
+        saving = true; dialog.disable_primary_action();
+        try {
+            await frappe.call({method: method + "record", args: {name: frm.doc.name, modified: preview.modified, remove: 1}});
+            dialog.hide(); await frm.reload_doc();
+        } finally {saving = false; dialog.enable_primary_action();}
+    }
     const dialog = new frappe.ui.Dialog({
         title: __("Diferencia del detalle del depósito"), size: "large",
         fields: [
-            {fieldname: "information", fieldtype: "HTML", options: `<p>${__("Se registrará una fila de diferencia a nombre de la empresa. Los importes originales se conservan.")}</p>
+            {fieldname: "information", fieldtype: "HTML", options: noDifference
+                ? `<p>${__("El depósito y el detalle actual coinciden. Existe una fila de diferencia documentada anterior que requiere revisión.")}</p>
+                    <p>${__("Si ya no aplica, use Retirar diferencia anterior. La documentación retirada quedará en la actividad del depósito; después use Conciliar para actualizar el resultado.")}</p>`
+                : `<p>${__("Se registrará una fila de diferencia a nombre de la empresa. Los importes originales se conservan.")}</p>
                 <p>${__("Si falta efectivo, se distribuye proporcionalmente entre las filas de clientes, redondeando a centavos. El faltante conserva su saldo; documentarlo no lo convierte en un pago.")}</p>
                 <p>${__("Puede vincular una partida importada del core ahora o más adelante. Debe corresponder a la misma empresa, importe y signo. Después de guardar, use Conciliar.")}</p>`},
             {fieldname: "employer", fieldtype: "Data", label: __("Empresa"), read_only: 1, default: preview.employer},
             {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", label: __("Diferencia (depósito − detalle) US$"), read_only: 1, default: preview.amount_usd},
-            {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), reqd: 1, default: preview.difference_reason},
-            {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Comentarios de la diferencia"), default: preview.difference_notes},
-            {fieldname: "core_item", fieldtype: "Link", options: "CN Complementary Item", label: __("Partida del core (opcional)"), default: preview.core_item,
+            {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), reqd: noDifference ? 0 : 1, read_only: noDifference ? 1 : 0, default: preview.difference_reason},
+            {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Comentarios de la diferencia"), read_only: noDifference ? 1 : 0, default: preview.difference_notes},
+            {fieldname: "core_item", fieldtype: "Link", options: "CN Complementary Item", label: __("Partida del core (opcional)"), read_only: noDifference ? 1 : 0, default: preview.core_item,
                 get_query: () => ({filters: {docstatus: 1, employer: preview.employer, accounting_source_key: ["is", "set"], amount_usd: preview.amount_usd}})},
         ],
-        primary_action_label: __("Guardar diferencia"),
-        secondary_action_label: preview.has_difference ? __("Retirar diferencia") : undefined,
+        primary_action_label: __(noDifference ? "Retirar diferencia anterior" : "Guardar diferencia"),
+        secondary_action_label: noDifference ? __("Cerrar") : preview.has_difference ? __("Retirar diferencia") : undefined,
         async secondary_action() {
-            if (saving || !preview.has_difference) return;
-            saving = true;
-            try {
-                await frappe.call({method: method + "record", args: {name: frm.doc.name, modified: preview.modified, remove: 1}});
-                dialog.hide(); await frm.reload_doc();
-            } finally {saving = false;}
+            if (noDifference) { if (!saving) dialog.hide(); return; }
+            return removeDifference();
         },
         async primary_action(values) {
+            if (noDifference) return removeDifference();
             if (saving) return;
             saving = true; dialog.disable_primary_action();
             try {
@@ -1567,6 +1580,18 @@ function remittanceDetailDifferenceHtml(doc, interactive = false, canReconcile =
     if (!data || !recorded && !data.error && !data.difference) return "";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
     if (data.error) return `<div class="alert alert-warning" role="status">${esc(data.error)}</div>`;
+    if (!data.difference) {
+        return `<div class="alert alert-warning" style="margin-top:12px" role="status">
+            <strong>${esc(__("El depósito y el detalle actual coinciden"))}</strong>
+            <div>${esc(__("Depósito"))}: US$ ${esc(remittanceMoney(data.deposit))}</div>
+            <div>${esc(__("Detalle del depósito"))}: US$ ${esc(remittanceMoney(data.detail))}</div>
+            <div>${esc(__("Diferencia actual (depósito − detalle)"))}: US$ 0.00</div>
+            <p class="mt-2">${esc(__("Existe una diferencia documentada anterior de"))} US$ ${esc(remittanceMoney(recorded.difference_amount_usd))}.
+                ${esc(__("Ese importe corresponde a la fila anterior, no a la diferencia del detalle actual."))}</p>
+            <p class="small">${esc(__("Revise la documentación anterior. Si ya no aplica, abra Clasificar / documentar diferencia y use Retirar diferencia anterior; después use Conciliar."))}</p>
+            ${interactive ? `<button type="button" class="btn btn-default btn-sm cn-create-detail-difference">${esc(__("Revisar diferencia anterior"))}</button>` : ""}
+        </div>`;
+    }
     const signed = `${data.difference > 0 ? "+" : "−"}US$ ${remittanceMoney(Math.abs(data.difference))}`;
     const selected = remittanceDifferenceTargets(doc, data.difference);
     const links = [...new Set(selected.map(row => row.complementary_item))].map(name =>
