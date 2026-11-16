@@ -488,12 +488,51 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual(field["default"], "1")
         self.assertEqual(field["allow_on_submit"], 1)
 
-    def test_server_rejects_fifo_without_selected_periods(self):
+    def test_fifo_without_selected_periods_leaves_cash_pending_with_explanation(self):
+        self.doc.detail_periods = []
+        context, result = self.run_engine()
+        self.assertEqual(context["instructions"], [])
+        self.assertEqual(result["allocations"], [])
+        self.assertEqual(result["deposit_remaining"], {"DEP": 55.05})
+        self.assertEqual(result["claim_remaining"], {"H:A": 40, "H:B": 60})
+        for plan in context["contexts"]["DEP"]["rows"]:
+            self.assertEqual(plan["status"], "Revisar")
+            self.assertIn("Seleccione los períodos a conciliar", plan["reason"])
+
+    def test_server_rejects_fifo_without_selected_periods_before_recalculating_cash(self):
+        from credinomina_reconciliation import deposit_reconciliation as scoped
         from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_remittance_allocation import cn_remittance_allocation as api
-        doc = Mock(docstatus=1, detail_rows=[frappe._dict(name="R")], apply_fifo=1)
-        doc.get.return_value = []
-        with patch.object(api.frappe, "get_doc", return_value=doc), \
-                patch.object(api.frappe, "throw", side_effect=ValueError) as error:
-            with self.assertRaises(ValueError):
-                api._reconcile_remittance("DEP")
-        self.assertIn("al menos un período", error.call_args.args[0])
+        for paid in (0, 10):
+            with self.subTest(allocated_usd=paid):
+                order = []
+                doc = frappe._dict(name="DEP", employer="EMP", docstatus=1, apply_fifo=1,
+                    detail_rows=[frappe._dict(name="R", linked_usd=paid)], detail_periods=[],
+                    targets=[], allocated_usd=paid, unallocated_usd=20 - paid,
+                    allocation_detail=json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="A",
+                        fila_detalle="R", importe_usd=paid)] if paid else []),
+                    check_permission=Mock(), reload=Mock(side_effect=lambda: order.append("reload")), save=Mock())
+                before = copy.deepcopy({key: value for key, value in doc.items() if not callable(value)})
+                with patch.object(frappe, "get_doc", return_value=doc), \
+                        patch.object(frappe, "has_permission", return_value=True), \
+                        patch.object(frappe, "get_all", return_value=[]), \
+                        patch("credinomina_reconciliation.paying_employers.reconciliation_companies", return_value=["EMP"]), \
+                        patch.object(scoped, "lock_cash_pool", side_effect=lambda companies: order.append("lock")), \
+                        patch.object(engine, "load_scoped_imports") as imports, \
+                        patch.object(engine, "_distribute_deposits") as distribute:
+                    with self.assertRaisesRegex(frappe.ValidationError, "al menos un período"):
+                        api._reconcile_remittance("DEP")
+                self.assertEqual(order, ["lock", "reload"])
+                self.assertEqual({key: value for key, value in doc.items() if not callable(value)}, before)
+                imports.assert_not_called()
+                distribute.assert_not_called()
+                doc.save.assert_not_called()
+
+    def test_removing_periods_does_not_authorize_releasing_confirmed_fifo(self):
+        self.previously_paid_row()
+        self.doc.detail_periods = []
+        before = copy.deepcopy(self.doc)
+        _, result = self.run_engine()
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+        with self.assertRaisesRegex(frappe.ValidationError, "asignación ya confirmada"):
+            assert_preserved_allocations(self.doc, result, [])
+        self.assertEqual(self.doc, before)

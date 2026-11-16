@@ -48,6 +48,25 @@ def run():
                 _reconcile_sources(employer.name)
                 for doc in sources + periods:
                     doc.reload()
+                if mode == "Operativa":
+                    # Operational applications require an explicit period;
+                    # matching client/credit and date alone must not assign one.
+                    for imported, period in zip(sources, periods):
+                        row = imported.rows[0]
+                        assert row.match_status == "Sin coincidencia"
+                        assert "sin período operativo asignado" in row.match_reason
+                        assert not row.collection_row_id and not row.collection_period
+                        assert period.applied_usd == period.remitted_usd == 0
+                        imported.historical_period = period.name
+                        row.historical_period = period.name
+                        imported.save()
+                    _reconcile_sources(employer.name)
+                    for imported, period in zip(sources, periods):
+                        imported.reload(); period.reload()
+                        row = imported.rows[0]
+                        assert row.match_status == "Conciliado", row.match_reason
+                        assert row.collection_period == period.name
+                        assert row.collection_row_id == period.collection_rows[0].name
 
                 def new_deposit(suffix, amount):
                     return frappe.get_doc({"doctype": "CN Remittance Allocation", "employer": employer.name,
@@ -55,23 +74,43 @@ def run():
                         "deposit_currency": "USD", "deposit_amount": amount})
 
                 fixed = new_deposit("FIXED", 10)
-                fixed.append("targets", {"historical_application": sources[0].rows[0].name, "amount_usd": 10}
-                    if mode == "Historica" else {"period": periods[0].name, "row_key": marker + "15", "amount_usd": 10})
+                # Explicit period assignments keep application-level cash links
+                # in both modes, independently of the operative payroll match.
+                fixed.append("targets", {"historical_application": sources[0].rows[0].name, "amount_usd": 10})
                 fixed.insert(); fixed.submit()
                 reconcile_deposit(fixed)
                 fixed.reload()
+                assert fixed.allocated_usd == 10 and fixed.unallocated_usd == 0, fixed.result
+                fixed_journal = json.loads(fixed.allocation_detail)
+                assert len(fixed_journal) == 1 and fixed_journal[0]["importe_usd"] == 10
+                assert fixed_journal[0]["aplicacion_id"] == sources[0].rows[0].name
                 fixed_state = document_state(fixed)
                 deposit = new_deposit("FIFO", 55.05)
                 deposit.apply_fifo = 1
-                # Reversed selected periods prove that application dates set the order.
-                for period in reversed(periods):
-                    deposit.append("detail_periods", {"period": period.name})
                 deposit.detail_file = deposit.detail_source_file = "/private/files/" + marker + ".csv"
                 deposit.detail_hash = marker
                 for idx, amount in enumerate((33.03, 22.02), 2):
                     deposit.append("detail_rows", {"source_row": idx, "client": client.name, "client_number": marker,
                         "client_name": client.client_name, "loan_number": marker + "-1", "deducted_usd": amount})
                 deposit.insert(); deposit.submit()
+                # The public flow rejects missing periods before recalculating
+                # this deposit or touching already confirmed cash.
+                pending_state = document_state(deposit)
+                try:
+                    reconcile_deposit(deposit)
+                except frappe.ValidationError as error:
+                    assert "al menos un período" in str(error), str(error)
+                else:
+                    raise AssertionError("FIFO accepted detail without selected periods")
+                deposit.reload(); fixed.reload()
+                assert pending_state == document_state(deposit)
+                assert deposit.allocated_usd == 0 and deposit.unallocated_usd == 55.05
+                assert json.loads(deposit.allocation_detail) == []
+                assert fixed_state == document_state(fixed)
+                # Reversed selected periods prove that application dates set the order.
+                for period in reversed(periods):
+                    deposit.append("detail_periods", {"period": period.name})
+                deposit.save()
                 reconcile_deposit(deposit)
                 deposit.reload(); fixed.reload()
                 assert fixed_state == document_state(fixed), "Another deposit was changed"
@@ -109,12 +148,13 @@ def run():
                         "expected_usd": 25})
                 later.insert()
                 imported = frappe.get_doc({"doctype": "CN Accounting Import", "employer": employer.name,
-                    "source_file": f"/private/files/{marker}-later.csv", "status": "Importado", "currency": "USD"})
+                    "source_file": f"/private/files/{marker}-later.csv", "status": "Importado", "currency": "USD",
+                    "historical_period": later.name})
                 imported.append("rows", {"source_key": marker + "LATER", "event_type": "Aplicacion",
                     "event_date": later_month + "-15", "currency": "USD", "amount": 25,
                     "amount_usd": 25, "effective": 1, "client": client.name, "client_number": marker,
                     "client_name": client.client_name, "loan_number": marker + "-1",
-                    "historical_period": later.name if mode == "Historica" else "", "processing_route": mode})
+                    "historical_period": later.name, "processing_route": mode})
                 imported.insert()
                 result = _reconcile_sources(employer.name, preserve_deposits=True)
                 assert result["preserved_deposits"] == 2
@@ -139,6 +179,7 @@ def run():
                 finally:
                     frappe.db.rollback(save_point="fifo_closed_guard")
             return {"historical_and_operative": True, "repeated_rows": True, "oldest_first": True,
+                    "operative_period_required": True, "unselected_fifo_rejected_without_changes": True,
                     "other_deposit_preserved": True, "idempotent": True, "later_import_preserves_closed_period": True,
                     "closed_changes_still_rejected": True, "rolled_back": True}
     finally:
