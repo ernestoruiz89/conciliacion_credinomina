@@ -97,7 +97,7 @@ class ComplementaryCancellationTests(unittest.TestCase):
     def test_related_cash_is_read_only_and_uses_exact_claim_links(self):
         unrelated = frappe._dict(name="OTHER", allocation_detail='[{"periodo":"P10"}]')
         related = frappe._dict(name="SHARED", allocation_detail='[{"aplicacion_id":"APP"}]')
-        with patch.object(frappe, "get_all", return_value=[unrelated, related, frappe._dict(name="D", allocation_detail='[{"periodo":"P1"}]')]):
+        with patch.object(frappe.db, "sql", return_value=[unrelated, related, frappe._dict(name="D", allocation_detail='[{"periodo":"P1"}]')]):
             result = cancellation._related_cash([frappe._dict(name="D")], [frappe._dict(name="P1")],
                                                 [frappe._dict(name="APP", event_type="Aplicacion")], [])
         self.assertEqual([row.name for row in result], ["SHARED"])

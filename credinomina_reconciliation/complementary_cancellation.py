@@ -1,5 +1,6 @@
 """Cancel a complement without redistributing unrelated cash or company pools."""
 import json
+import re
 from collections import defaultdict
 
 import frappe
@@ -207,17 +208,20 @@ def _related_cash(deposits, periods, rows, items):
             }, fields=fields, limit_page_length=0):
                 found[deposit.name] = deposit
         return list(found.values())
-    # Small actions retain the selective read without transferring all journals.
-    ordered = sorted(names)
-    for offset in range(0, len(ordered), 100):
-        for deposit in frappe.get_all("CN Remittance Allocation", filters={"docstatus": 1},
-            or_filters=[["allocation_detail", "like", "%" + name + "%"] for name in ordered[offset:offset + 100]],
-            fields=fields, limit_page_length=0):
-            if deposit.name not in selected and any(
-                entry.get("periodo") in names or entry.get("aplicacion_id") in names or entry.get("partida") in names
-                for entry in entries(deposit.allocation_detail)
-            ):
-                found[deposit.name] = deposit
+    # A bounded literal alternation scans each journal once, instead of once
+    # per LIKE predicate. Keep SQL parameters separate and verify parsed links:
+    # a matching note, prefix or regex metacharacter must not identify a claim.
+    pattern = "|".join(re.escape(name) for name in sorted(names))
+    candidates = frappe.db.sql(
+        "SELECT " + ", ".join(f"`{field}`" for field in fields) +
+        " FROM `tabCN Remittance Allocation` WHERE docstatus=1 "
+        "AND allocation_detail REGEXP %s ORDER BY creation DESC", (pattern,), as_dict=True)
+    for deposit in candidates:
+        if deposit.name not in selected and any(
+            entry.get("periodo") in names or entry.get("aplicacion_id") in names or entry.get("partida") in names
+            for entry in entries(deposit.allocation_detail)
+        ):
+            found[deposit.name] = deposit
     return list(found.values())
 
 

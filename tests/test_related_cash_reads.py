@@ -1,6 +1,7 @@
-"""Large imports must find the same cash without a LIKE scan per application."""
+"""Find the same cash without a LIKE scan per application, at any import size."""
 import copy
 import json
+import re
 import unittest
 from unittest.mock import Mock, patch
 
@@ -67,10 +68,26 @@ class RelatedCashReadsTests(unittest.TestCase):
             self.assertEqual(_related_cash([], [], rows, []), [])
         query.assert_called_once()
 
-    def test_small_scope_retains_selective_query_and_exact_matching(self):
-        journals = [frappe._dict(name="YES", allocation_detail='[{"aplicacion_id":"APP"}]'),
-                    frappe._dict(name="NO", allocation_detail='[{"aplicacion_id":"APP-OTHER"}]')]
-        with patch.object(frappe, "get_all", return_value=journals) as query:
-            self.assertEqual(_related_cash([], [], [frappe._dict(name="APP", event_type="Aplicacion")], []), journals[:1])
-        query.assert_called_once()
-        self.assertEqual(query.call_args.kwargs["or_filters"], [["allocation_detail", "like", "%APP%"]])
+    def test_small_scopes_keep_exact_links_and_parameterize_literal_identifiers(self):
+        for count in (1, 5, 10, 20):
+            with self.subTest(rows=count):
+                names = ["A[1].*|%_'--"] + [f"APP-{i}" for i in range(count - 1)]
+                journals = [frappe._dict(name="YES", allocation_detail=json.dumps([
+                    {"aplicacion_id": names[0], "importe_usd": 40}])),
+                    frappe._dict(name="NO", allocation_detail=json.dumps([{"aplicacion_id": names[0] + "-OTHER"}])),
+                    frappe._dict(name="NOTE", allocation_detail=json.dumps([{"observacion": names[0]}])),
+                    frappe._dict(name="SELECTED", allocation_detail=json.dumps([{"aplicacion_id": names[0]}]))]
+                with patch.object(frappe.db, "sql", return_value=journals) as query, \
+                     patch.object(frappe, "get_all") as get_all:
+                    result = _related_cash([frappe._dict(name="SELECTED")], [],
+                        [frappe._dict(name=name, event_type="Aplicacion") for name in names], [])
+                self.assertEqual(result, journals[:1])
+                get_all.assert_not_called()
+                query.assert_called_once()
+                sql, parameters = query.call_args.args
+                self.assertIn("docstatus=1", sql)
+                self.assertIn("allocation_detail REGEXP %s", sql)
+                self.assertNotIn(names[0], sql)
+                self.assertEqual(parameters, ("|".join(re.escape(name) for name in sorted(names)),))
+                self.assertIsNotNone(re.fullmatch(parameters[0], names[0]))
+                self.assertIsNone(re.fullmatch(parameters[0], "A1anything"))
