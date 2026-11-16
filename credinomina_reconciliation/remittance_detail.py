@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -15,6 +16,45 @@ EPSILON = 0.005
 
 def _period_scope(period):
     return {period} if isinstance(period, str) and period else set(period or ())
+
+
+def _eligible_claims(claims, periods, allowed, apply_fifo):
+    return [
+        claim for claim in claims
+        if not claim.get("manual_only")
+        and clean_text(claim.get("group")) in allowed
+        and (not periods or clean_text(claim.get("period")) in periods)
+        and money(claim.get("amount_usd")) > 0
+        and (not apply_fifo or (claim.get("kind") in {"H", "C"} and not claim.get("period_closed")))
+    ]
+
+
+class DetailClaimIndex:
+    """Reuse candidate scopes during one immutable cash-planning pass.
+
+    This only narrows the search; identity/ambiguity checks and FIFO reservations
+    still run for every row. Rebuild after adding or changing a claim. Never
+    retain this index between reconciliation requests.
+    """
+    def __init__(self, claims):
+        self.claims = tuple(claims)
+        self.scopes = {}
+
+    def candidates(self, row, periods, allowed, apply_fifo):
+        key = (frozenset(periods), frozenset(allowed), bool(apply_fifo))
+        if key not in self.scopes:
+            scoped = _eligible_claims(self.claims, periods, allowed, apply_fifo)
+            by_loan = defaultdict(list)
+            for claim in scoped:
+                by_loan[canonical_credit_number(claim.get("loan_number"))].append(claim)
+            self.scopes[key] = scoped, by_loan
+        scoped, by_loan = self.scopes[key]
+        # A supplied credit is mandatory for automatic matching. A row key,
+        # however, must first detect duplicate collection IDs across the full
+        # scope, including records with a conflicting identity.
+        if clean_text(row.get("loan_number")) and not clean_text(row.get("row_key")):
+            return by_loan.get(canonical_credit_number(row["loan_number"]), ())
+        return scoped
 
 
 def detail_amount_usd(row: Mapping[str, Any], nio_per_usd: float = 0) -> tuple[float, str]:
@@ -244,19 +284,15 @@ def suggest_detail_targets(
     tolerance_usd: float = 0,
     allowed_groups=None,
     apply_fifo=False, reserved_amounts=None,
+    *, claim_index=None,
 ) -> tuple[list[dict[str, Any]], str]:
     """Suggest only exact, uniquely attributable claims; never fuzzy-match names."""
     periods = _period_scope(period)
     if apply_fifo and not periods:
         return [], "Seleccione los períodos a conciliar antes de aplicar FIFO"
-    claims = [
-        claim for claim in claims
-        if not claim.get("manual_only")
-        and clean_text(claim.get("group")) in set(allowed_groups or [employer])
-        and (not periods or clean_text(claim.get("period")) in periods)
-        and money(claim.get("amount_usd")) > 0
-        and (not apply_fifo or (claim.get("kind") in {"H", "C"} and not claim.get("period_closed")))
-    ]
+    allowed = set(allowed_groups or [employer])
+    claims = (claim_index.candidates(row, periods, allowed, apply_fifo) if claim_index is not None
+              else _eligible_claims(claims, periods, allowed, apply_fifo))
     name_only = not any(clean_text(row.get(field)) for field in (
         "loan_number", "client_number", "employee_number", "national_id",
     ))
