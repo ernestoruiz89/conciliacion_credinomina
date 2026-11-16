@@ -73,11 +73,25 @@ def confirmed(names, exclude="", lock=False, employer=None):
     patterns = ["%" + json.dumps(name, ensure_ascii=False).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
                 for name in names] if len(names) <= 100 else []
     if lock:
+        from credinomina_reconciliation.application_adjustment_indexes import (
+            DIRECT_INDEX, HISTORY_FLAG, HISTORY_INDEX,
+        )
+        # The OR between an indexed Link and a JSON LIKE forced a full table
+        # scan under FOR UPDATE, locking unrelated items too. Keep current,
+        # locking reads (not snapshot candidate discovery) on each small index.
+        direct = frappe.db.sql(f"""select {', '.join(fields)} from `tabCN Complementary Item`
+            force index (`{DIRECT_INDEX}`)
+            where related_application in %s and docstatus=1 and category=%s and name!=%s
+            {"and employer=%s" if employer else ""} for update""",
+            (tuple(names), CATEGORY, exclude, *([employer] if employer else [])), as_dict=True)
         history_condition = " or ".join(f"{FIELD} like %s" for _ in patterns) if patterns else f"coalesce({FIELD}, '') not in ('', '[]')"
-        parents = frappe.db.sql(f"""select {', '.join(fields)} from `tabCN Complementary Item`
-            where docstatus=1 and category=%s and name!=%s and
-            (related_application in %s or ({history_condition})) {"and employer=%s" if employer else ""} for update""",
-            (CATEGORY, exclude, tuple(names), *patterns, *([employer] if employer else [])), as_dict=True)
+        history = frappe.db.sql(f"""select {', '.join(fields)} from `tabCN Complementary Item`
+            force index (`{HISTORY_INDEX}`)
+            where {HISTORY_FLAG}=1 and docstatus=1 {"and employer=%s" if employer else ""}
+            and category=%s and name!=%s and ({history_condition}) for update""",
+            (*([employer] if employer else []), CATEGORY, exclude, *patterns), as_dict=True)
+        # One item can contain both the original link and additional links.
+        parents = {parent.name: parent for parent in [*direct, *history]}.values()
     else:
         parents = frappe.get_all("CN Complementary Item", filters={"category": CATEGORY, "docstatus": 1, "name": ["!=", exclude],
             **({"employer": employer} if employer else {})},
@@ -89,9 +103,11 @@ def confirmed(names, exclude="", lock=False, employer=None):
     # by the originating item's company. The diary is server-controlled.
     from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, application_links
     if lock:
+        from credinomina_reconciliation.application_adjustment_indexes import RECLASS_FLAG, RECLASS_INDEX
         condition = " or ".join(f"{RECLASS_FIELD} like %s" for _ in patterns) if patterns else "1=1"
         global_items = frappe.db.sql(f"""select name, {RECLASS_FIELD} from `tabCN Complementary Item`
-            where docstatus=1 and name!=%s and coalesce({RECLASS_FIELD}, '') not in ('', '[]')
+            force index (`{RECLASS_INDEX}`)
+            where {RECLASS_FLAG}=1 and docstatus=1 and name!=%s
             and ({condition}) for update""", (exclude, *patterns), as_dict=True)
     else:
         global_items = frappe.get_all("CN Complementary Item", filters={"docstatus": 1, "name": ["!=", exclude],
