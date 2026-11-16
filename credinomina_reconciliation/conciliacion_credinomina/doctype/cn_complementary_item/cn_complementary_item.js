@@ -1556,6 +1556,12 @@ function cn_application_direction_invalid(doc) {
         (Number(doc.source_debit || 0) !== 0 || Number(doc.source_credit || 0) <= 0);
 }
 
+function cn_application_matches_search(row, query) {
+    const normalize = value => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase();
+    const text = normalize([row.client_name, row.client_number, row.loan_number].filter(Boolean).join(" "));
+    return normalize(query).trim().split(/\s+/).every(word => text.includes(word));
+}
+
 async function cn_distribute_applications(frm, initial = null) {
     if (!frm.doc.employer) {frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return;}
     if (cn_application_direction_invalid(frm.doc)) {
@@ -1566,7 +1572,7 @@ async function cn_distribute_applications(frm, initial = null) {
     const used = cn_application_links(frm.doc).reduce((sum, row) => sum + Number(row.application_adjustment_usd || 0), 0);
     const remaining = Math.round((Math.abs(frm.doc.amount_usd || 0) - (frm.doc.docstatus === 1 ? used : 0)) * 100) / 100;
     if (!(remaining > 0)) {frappe.msgprint(__("La partida no tiene remanente disponible.")); return;}
-    let request = 0, busy = false;
+    let request = 0, busy = false, candidates = [], search = "";
     const selected = new Map();
     if (frm.doc.docstatus === 0) for (const link of cn_application_links(frm.doc)) {
         const previous = selected.get(link.related_application)?.amount_usd || 0;
@@ -1580,6 +1586,17 @@ async function cn_distribute_applications(frm, initial = null) {
             else selected.delete(row.application);
         }
     }
+    function renderApplications() {
+        dialog.fields_dict.applications.df.data = candidates.filter(row => cn_application_matches_search(row, search)).map(row => ({
+            application: row.name, client_name: row.client_name, loan_number: row.loan_number, event_date: row.event_date,
+            adjustable_usd: row.adjustable_usd, amount_usd: selected.get(row.name)?.amount_usd || 0}));
+        dialog.fields_dict.applications.grid.refresh();
+    }
+    function filterApplications(value) {
+        try {remember();} catch (error) {frappe.msgprint(error.message); return;}
+        search = value || "";
+        renderApplications();
+    }
     const dialog = new frappe.ui.Dialog({title: __("Distribuir entre aplicaciones"), size: "extra-large", fields: [
         {fieldtype: "HTML", options: `<p><strong>${__("Remanente disponible")}: ${format_currency(remaining, "USD")}</strong><br>${__("Indique el importe para cada aplicación. Deje cero para omitirla. Puede seleccionar aplicaciones de varias importaciones antes de guardar.")}</p>`},
         {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"), options: "CN Accounting Import",
@@ -1587,6 +1604,7 @@ async function cn_distribute_applications(frm, initial = null) {
             async onchange() {
                 try {remember();} catch (error) {frappe.msgprint(error.message); return;}
                 const current = ++request, name = dialog.get_value("accounting_import");
+                candidates = [];
                 dialog.fields_dict.applications.df.data = [];
                 dialog.fields_dict.applications.grid.refresh();
                 if (!name) return;
@@ -1600,11 +1618,12 @@ async function cn_distribute_applications(frm, initial = null) {
                     }
                     initial = null;
                 }
-                dialog.fields_dict.applications.df.data = (response.message || []).map(row => ({application: row.name,
-                    client_name: row.client_name, loan_number: row.loan_number, event_date: row.event_date,
-                    adjustable_usd: row.adjustable_usd, amount_usd: selected.get(row.name)?.amount_usd || 0}));
-                dialog.fields_dict.applications.grid.refresh();
+                candidates = response.message || [];
+                renderApplications();
             }},
+        {fieldtype: "Data", fieldname: "client_search", label: __("Buscar cliente"),
+            description: __("Busque por nombre, número de cliente o crédito en la importación seleccionada. Los importes seleccionados se conservan al filtrar."),
+            onchange() {filterApplications(dialog.get_value("client_search"));}},
         {fieldtype: "Table", fieldname: "applications", label: __("Importe a distribuir por aplicación"),
             cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true, data: [], fields: [
                 {fieldtype: "Data", fieldname: "application", hidden: 1, read_only: 1},
@@ -1632,6 +1651,8 @@ async function cn_distribute_applications(frm, initial = null) {
         } finally {busy = false; dialog.enable_primary_action();}
     }});
     dialog.show();
+    dialog.fields_dict.client_search?.$input?.on("input.cnApplicationClientSearch", () =>
+        filterApplications(dialog.fields_dict.client_search.$input.val()));
     if (initial) await dialog.set_value("accounting_import", initial.application.document);
 }
 
@@ -1643,8 +1664,31 @@ async function cn_select_original_application(frm, initial = null) {
     }
     if (frm.is_dirty()) await frm.save();
     let rows = [];
+    let search = "", selectedApplication = null;
     let request = 0;
     let requestedImport = null;
+    function renderApplications() {
+        const esc = value => frappe.utils.escape_html(String(value ?? ""));
+        const visible = rows.map((row, index) => ({row, index})).filter(({row}) => cn_application_matches_search(row, search));
+        dialog.get_primary_btn().prop("disabled", !visible.length);
+        if (!visible.length) {
+            dialog.fields_dict.applications.$wrapper.html(`<p class="text-muted">${esc(__(rows.length
+                ? "No hay aplicaciones que coincidan con la búsqueda del cliente."
+                : "No hay aplicaciones válidas para vincular a esta partida en la importación seleccionada."))}</p>`);
+            return;
+        }
+        dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
+            <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado original US$")}</th><th>${__("Ajustes US$")}</th><th>${__("Aplicado neto US$")}</th><th>${__("Depósitos / reservas US$")}</th><th>${__("Disponible para ajuste US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${visible.map(({row, index}) => `<tr>
+            <td><input type="radio" name="original_application" value="${index}" ${selectedApplication === row.name ? "checked" : ""} aria-label="${esc(__("Seleccionar aplicación"))}"></td>
+            <td>${esc(row.client_name)}${row.client_number ? `<div class="text-muted small">${esc(__("Nro. Cliente"))}: ${esc(row.client_number)}</div>` : ""}</td><td>${esc(row.loan_number)}</td><td>${esc(frappe.datetime.str_to_user(row.event_date))}</td>
+            <td>${esc(format_currency(row.amount_usd, "USD"))}</td><td>${esc(format_currency(row.application_adjustment_usd || 0, "USD"))}</td><td>${esc(format_currency(row.net_applied_usd, "USD"))}</td><td>${esc(format_currency(row.protected_usd || 0, "USD"))}</td><td>${esc(format_currency(row.adjustable_usd || 0, "USD"))}</td><td>${esc(row.voucher)}</td></tr>`).join("")}</tbody></table></div>`);
+    }
+    function filterApplications(value) {
+        const selected = dialog.fields_dict.applications.$wrapper.find("input:checked").val();
+        if (selected !== undefined && rows[Number(selected)]) selectedApplication = rows[Number(selected)].name;
+        search = value || "";
+        if (requestedImport && rows.length) renderApplications();
+    }
     const dialog = new frappe.ui.Dialog({
         title: __("Vincular a aplicación"), size: "extra-large",
         fields: [
@@ -1660,6 +1704,7 @@ async function cn_select_original_application(frm, initial = null) {
                     requestedImport = selected;
                     const currentRequest = ++request;
                     rows = [];
+                    selectedApplication = initial?.application.row_name || null;
                     dialog.get_primary_btn().prop("disabled", true);
                     dialog.fields_dict.applications.$wrapper.empty();
                     if (!selected) return;
@@ -1673,18 +1718,11 @@ async function cn_select_original_application(frm, initial = null) {
                     }
                     if (currentRequest !== request || selected !== dialog.get_value("accounting_import")) return;
                     rows = (response.message || []).filter(row => Number(row.adjustable_usd) > 0);
-                    const esc = value => frappe.utils.escape_html(String(value ?? ""));
-                    if (!rows.length) {
-                        dialog.fields_dict.applications.$wrapper.html(`<p class="text-muted">${esc(__("No hay aplicaciones válidas para vincular a esta partida en la importación seleccionada."))}</p>`);
-                        return;
-                    }
-                    dialog.get_primary_btn().prop("disabled", false);
-                    dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
-                        <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado original US$")}</th><th>${__("Ajustes US$")}</th><th>${__("Aplicado neto US$")}</th><th>${__("Depósitos / reservas US$")}</th><th>${__("Disponible para ajuste US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${rows.map((row, index) => `<tr>
-                        <td><input type="radio" name="original_application" value="${index}" ${initial?.application.row_name === row.name ? "checked" : ""} aria-label="${esc(__("Seleccionar aplicación"))}"></td>
-                        <td>${esc(row.client_name)}</td><td>${esc(row.loan_number)}</td><td>${esc(frappe.datetime.str_to_user(row.event_date))}</td>
-                        <td>${esc(format_currency(row.amount_usd, "USD"))}</td><td>${esc(format_currency(row.application_adjustment_usd || 0, "USD"))}</td><td>${esc(format_currency(row.net_applied_usd, "USD"))}</td><td>${esc(format_currency(row.protected_usd || 0, "USD"))}</td><td>${esc(format_currency(row.adjustable_usd || 0, "USD"))}</td><td>${esc(row.voucher)}</td></tr>`).join("")}</tbody></table></div>`);
+                    renderApplications();
                 }},
+            {fieldtype: "Data", fieldname: "client_search", label: __("Buscar cliente"),
+                description: __("Busque por nombre, número de cliente o crédito en la importación seleccionada."),
+                onchange() {filterApplications(dialog.get_value("client_search"));}},
             {fieldtype: "HTML", fieldname: "applications"},
             {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe del ajuste US$"), options: "USD", precision: 2,
                 default: initial?.proposed_usd || null,
@@ -1712,6 +1750,8 @@ async function cn_select_original_application(frm, initial = null) {
         },
     });
     dialog.show();
+    dialog.fields_dict.client_search?.$input?.on("input.cnApplicationClientSearch", () =>
+        filterApplications(dialog.fields_dict.client_search.$input.val()));
     dialog.get_primary_btn().prop("disabled", true);
     if (initial) await dialog.set_value("accounting_import", initial.application.document);
 }

@@ -6,7 +6,7 @@ const row = {name:"A", client_name:"Cliente", loan_number:"L-1", event_date:"202
 const context = vm.createContext({__:x=>x, format_currency:x=>String(x), frappe:{
     ui:{form:{on(){}}, Dialog:class {
         constructor(options) {dialog=this; this.options=options; this.fields_dict={applications:{$wrapper:{
-            empty(){}, html: value=>{html=value;}, find:()=>({val:()=>"0"})}}};}
+            empty(){}, html: value=>{html=value;}, find:()=>({val:()=>"0"})}}, amount_usd: {$input: {val: () => ''}}};}
         get_value(){return "I";} show(){} hide(){this.hidden=true;}
         get_primary_btn(){return {prop(){}};}
     }}, datetime:{str_to_user:x=>x}, utils:{escape_html:x=>x},

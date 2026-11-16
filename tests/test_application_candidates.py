@@ -58,6 +58,13 @@ class ApplicationCandidatesTests(unittest.TestCase):
         self.assertEqual(result[0]["adjustable_usd"], 20)
         self.assertNotIn("snapshots", result[0])
 
+    def test_client_number_for_search_is_returned_only_with_valid_candidates(self):
+        self.row("OTHER", client_number="PRIVATE", parenttype="Other")
+        self.row("VALID", client_name="José Pérez", client_number="0002", loan_number="456-1")
+        result = self.candidates()
+        self.assertEqual([(row["client_name"], row["client_number"], row["loan_number"]) for row in result],
+                         [("José Pérez", "0002", "456-1")])
+
     def test_excludes_wrong_type_inactive_currency_parent_and_period(self):
         self.item.period = "P"
         for i, values in enumerate([dict(event_type="Deposito"), dict(effective=0), dict(currency="NIO"),

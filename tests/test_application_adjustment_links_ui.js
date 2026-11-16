@@ -1,12 +1,13 @@
 const assert = require("node:assert/strict"), fs = require("node:fs"), vm = require("node:vm"), path = require("node:path");
 let dialog, reloads = 0, calls = [], messages = [];
-const candidates = [.08, .10, .13, .16].map((amount, index) => ({name: `APP-${index}`, client_name: `<Cliente ${index}>`,
-    loan_number: `${index}-1`, event_date: "2025-05-31", adjustable_usd: amount}));
+const candidates = [.08, .10, .13, .16].map((amount, index) => ({name: `APP-${index}`, client_name: `<${index === 0 ? "José " : ""}Cliente ${index}>`,
+    client_number: `000${index}`, loan_number: `${index}-1`, event_date: "2025-05-31", adjustable_usd: amount}));
 const context = vm.createContext({__: value => value, format_currency: String, frappe: {
     utils: {escape_html: value => String(value).replaceAll("<", "&lt;")},
     ui: {form: {on() {}}, Dialog: class {
         constructor(options) {dialog = this; this.options = options; this.values = {}; this.fields_dict = {};
-            for (const field of options.fields) if (field.fieldname) this.fields_dict[field.fieldname] = {df: field, grid: {refresh() {}}};}
+            for (const field of options.fields) if (field.fieldname) this.fields_dict[field.fieldname] = {df: field, grid: {refresh() {}}};
+            this.fields_dict.client_search.$input = {on: (_event, callback) => {this.searchInput = callback;}, val: () => this.values.client_search};}
         get_value(key) {return this.values[key];}
         show() {} hide() {} disable_primary_action() {} enable_primary_action() {}
     }},
@@ -28,9 +29,31 @@ context.frm = frm;
     assert.deepEqual(Array.from(currencyFields, field => field.options), ["USD", "USD"]);
     dialog.values.accounting_import = "IMPORT";
     await dialog.options.fields.find(field => field.fieldname === "accounting_import").onchange();
-    const rows = dialog.fields_dict.applications.df.data;
+    let rows = dialog.fields_dict.applications.df.data;
     assert.equal(rows.length, 4);
     rows.forEach(row => {row.amount_usd = row.adjustable_usd;});
+    const filter = value => {dialog.values.client_search = value; dialog.searchInput();};
+    const candidateRequests = calls.length;
+    filter('JOSE cliente 0');
+    assert.equal(dialog.fields_dict.applications.df.data.length, 1);
+    assert.equal(dialog.fields_dict.applications.df.data[0].amount_usd, .08);
+    dialog.fields_dict.applications.df.data[0].amount_usd = .07;
+    filter('0003');
+    assert.equal(dialog.fields_dict.applications.df.data[0].application, 'APP-3');
+    dialog.fields_dict.applications.df.data[0].amount_usd = 0;
+    filter('sin coincidencias');
+    assert.equal(dialog.fields_dict.applications.df.data.length, 0);
+    filter('');
+    rows = dialog.fields_dict.applications.df.data;
+    assert.deepEqual(Array.from(rows, row => row.amount_usd), [.07, .10, .13, 0], 'Filtering preserves edits, hidden selections and explicit removals');
+    filter('2-1');
+    assert.equal(dialog.fields_dict.applications.df.data[0].application, 'APP-2');
+    filter('');
+    rows = dialog.fields_dict.applications.df.data;
+    rows.forEach(row => {row.amount_usd = row.adjustable_usd;});
+    filter('0003');
+    assert.equal(calls.length, candidateRequests, 'Client search filters locally without new candidate requests');
+    assert.equal(frm.doc.application_adjustment_usd, .17, 'Searching does not change saved adjustments');
     await dialog.options.primary_action();
     const request = calls.find(call => call.method.endsWith("application_adjustment_links.distribute"));
     assert.equal(request.args.modified, "VERSION");
@@ -40,7 +63,7 @@ context.frm = frm;
     assert.equal(frm.doc.application_adjustment_usd, .17);
     assert.equal(reloads, 1);
     calls = [];
-    rows[0].amount_usd = .60;
+    dialog.fields_dict.applications.df.data[0].amount_usd = .60;
     await dialog.options.primary_action();
     assert.equal(calls.length, 0);
     assert.ok(messages.at(-1).includes("remanente"));

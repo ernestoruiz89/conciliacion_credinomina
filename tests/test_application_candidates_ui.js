@@ -1,13 +1,15 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
-let dialog, html = "", disabled, selected, selection, renders = 0;
+let dialog, html = "", disabled, selected, selection, renders = 0, search = "", searchInput;
 const requests = [];
-const wrapper = {empty() {html = ""; selection = undefined; renders++;}, html(value) {html = value; selection = undefined; renders++;}, find() {return {val: () => selection};}};
+const wrapper = {empty() {html = ""; selection = undefined; renders++;}, html(value) {html = value;
+    selection = /value="(\d+)" checked/.exec(value)?.[1]; renders++;}, find() {return {val: () => selection};}};
 const context = vm.createContext({__: text => text, format_currency: value => String(value), frappe: {
     ui: {form: {on() {}}, Dialog: function(options) {
         Object.assign(this, options);
-        this.fields_dict = {applications: {$wrapper: wrapper}};
-        this.get_value = () => selected;
+        this.fields_dict = {applications: {$wrapper: wrapper}, amount_usd: {$input: {val: () => ''}},
+            client_search: {$input: {on: (_event, callback) => {searchInput = callback;}, val: () => search}}};
+        this.get_value = key => key === 'client_search' ? search : selected;
         this.get_primary_btn = () => ({prop: (_key, value) => {disabled = value;}});
         this.show = () => {};
         this.hide = () => {};
@@ -52,6 +54,31 @@ const row = (name, amount) => ({name, client_name: name, adjustable_usd: amount}
     await pending;
     assert.ok(html.includes("No hay aplicaciones válidas"));
     assert.equal(disabled, true);
+    selected = "CLIENTS";
+    pending = field.onchange();
+    search = 'jose'; searchInput();
+    requests.shift().resolve({message: [{...row('ANA', 15), client_name: '<Ana>', client_number: '0001', loan_number: '123-1'},
+        {...row('JOSE', 20), client_name: 'José Pérez', client_number: '0002', loan_number: '456-1'}]});
+    await pending;
+    assert.ok(html.includes('José Pérez') && !html.includes('&lt;Ana>'), 'Search typed while loading is applied to the response');
+    assert.ok(html.includes('value="1"'), 'Filtered radios keep their original candidate index');
+    selection = '1';
+    search = '0002'; searchInput();
+    assert.equal(selection, '1', 'The same application stays checked when it still matches');
+    search = '123-1'; searchInput();
+    assert.ok(html.includes('&lt;Ana>') && !html.includes('José Pérez'));
+    assert.equal(selection, undefined, 'A hidden selection cannot be submitted inadvertently');
+    search = 'missing'; searchInput();
+    assert.ok(html.includes('No hay aplicaciones que coincidan'));
+    assert.equal(disabled, true);
+    search = 'PEREZ JOSE';
+    dialog.fields.find(field => field.fieldname === 'client_search').onchange();
+    assert.equal(selection, '1');
+    assert.equal(disabled, false);
+    assert.equal(requests.length, 0, 'Searching needs no additional server calls');
+    await dialog.primary_action();
+    assert.equal(changes.at(-1).related_application, 'JOSE');
+    search = ''; searchInput();
     // A failed lookup can be retried without changing the import.
     selected = "RETRY";
     pending = field.onchange();
