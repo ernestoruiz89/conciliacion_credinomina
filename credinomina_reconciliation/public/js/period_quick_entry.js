@@ -9,10 +9,10 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
         const Controller = class extends Base {
             set_meta_and_mandatory_fields() {
                 super.set_meta_and_mandatory_fields();
-                const origin = frappe._from_link?.field_obj?.frm;
+                const origin = this.accounting_source || frappe._from_link?.field_obj?.frm;
                 this.accounting_source = origin?.doc?.doctype === "CN Accounting Import" ? origin : null;
-                this.accounting_link = this.accounting_source && frappe._from_link?.field_obj?.df?.fieldname === "historical_period"
-                    ? {row_name: frappe._from_link.doc?.doctype === "CN Source Row" ? frappe._from_link.doc.name : null} : null;
+                this.accounting_link = this.accounting_link || (this.accounting_source && frappe._from_link?.field_obj?.df?.fieldname === "historical_period"
+                    ? {row_name: frappe._from_link.doc?.doctype === "CN Source Row" ? frappe._from_link.doc.name : null} : null);
                 const source = this.doc.__islocal ? this.accounting_source?.doc : null;
                 const date = String(source?.bulk_event_date || "").slice(0, 10);
                 this.source_date = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
