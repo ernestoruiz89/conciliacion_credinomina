@@ -134,22 +134,37 @@ function accountingClientSummaryTable(rows, page = 0) {
     </table></div>`;
 }
 
+frappe.ui.form.on("CN Source Row", {
+    view_related_pending(frm, cdt, cdn) {
+        const row = (frm.doc.rows || []).find(item => item.name === cdn);
+        if (!row || row.__islocal || row.event_type !== "Aplicacion" || !Number(row.effective)
+            || row.match_status === "Ignorado") return;
+        const button = frm.fields_dict.rows?.grid?.grid_rows_by_docname?.[cdn]?.grid_form?.fields_dict?.view_related_pending?.$input;
+        return showAccountingRelatedRecords(frm, cdn, button);
+    },
+});
+
 async function showAccountingRelatedRecords(frm, sourceRowName, button) {
-    if (frm.is_dirty()) {
+    if (frm.is_new() || frm.is_dirty()) {
         frappe.msgprint(__("Guarde la importación antes de consultar los registros relacionados."));
         return;
     }
-    button.prop("disabled", true);
+    if (frm._cnRelatedPendingLoading) return;
+    const name = frm.doc.name, modified = frm.doc.modified;
+    frm._cnRelatedPendingLoading = true;
+    button?.prop("disabled", true);
     try {
         const response = await frappe.call({
             method: "credinomina_reconciliation.accounting_related_records.get_related_pending",
-            args: {import_name: frm.doc.name, source_row_name: sourceRowName},
+            args: {import_name: name, source_row_name: sourceRowName},
         });
+        if (frm.doc.name !== name || frm.doc.modified !== modified || frm.is_dirty()) return;
         window.credinominaShowRelatedPending(response.message || {});
     } catch (error) {
         frappe.msgprint(__("No se pudieron consultar los registros relacionados. Revise sus permisos o vuelva a intentar."));
     } finally {
-        button.prop("disabled", false);
+        frm._cnRelatedPendingLoading = false;
+        button?.prop("disabled", false);
     }
 }
 
