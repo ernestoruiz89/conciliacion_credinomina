@@ -1,8 +1,9 @@
-"""Create a period and, when supplied, load its payroll in one transaction."""
+"""Create, link and load a period's accounting/payroll evidence atomically."""
 import frappe
 from frappe import _
 
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_reconciliation_period import cn_reconciliation_period as api
+from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as accounting
 
 
 @frappe.whitelist(methods=["POST"])
@@ -20,7 +21,7 @@ def create(values, source_link=None):
         frappe.has_permission("CN Reconciliation Period", "write", throw=True)
         frappe.has_permission("CN Accounting Import", "write", throw=True)
         frappe.get_doc("File", {"file_url": fields["collection_file"]}).check_permission("read")
-    source, row = _source_link(source_link, fields["employer"]) if load and source_link else (None, None)
+    source, row = _source_link(source_link, fields["employer"]) if source_link else (None, None)
     period = frappe.get_doc({"doctype": "CN Reconciliation Period", **fields}).insert()
     if source:
         if row is None:
@@ -29,15 +30,33 @@ def create(values, source_link=None):
             row.historical_period = period.name
         source.save()  # Normal cash, evidence, assignment and closed-period guards.
     summary = None
+    # A row-specific Link must not reload/reassign the rest of its import.
+    load_movements = source is not None and row is None
+    collection_result = None
     if load:
-        # import_collection already runs the period-scoped first reconciliation
-        # with preserve_deposits=True. Do not run the same engine a second time.
-        result = api.import_collection(period.name)
+        if load_movements:
+            # Load the requested basis before refreshing the core. The core
+            # loader then reconciles once, against the newly loaded payroll.
+            collection_result = api._import_collection(period.name, reconcile=False)
+        else:
+            collection_result = api.import_collection(period.name)
+    movement_result = None
+    if load_movements:
+        # Use the implementation without its standalone transaction retry:
+        # a rollback/retry here would discard the period we just inserted.
+        # Default=False preserves periods already assigned to individual rows.
+        movement_result = accounting._import_source_file(source.name, apply_default_period=False)
+    if load:
         period.reload()
-        if result.get("source_reconciliation") is not None:
-            summary = api._first_reconciliation_result(period, result["source_reconciliation"])
+        reconciliation = movement_result if movement_result is not None else collection_result.get("source_reconciliation")
+        if reconciliation is not None:
+            summary = api._first_reconciliation_result(period, reconciliation)
+    elif load_movements:
+        period.reload()
     return {"doc": period.as_dict(), "collection_loaded": load, "reconciliation": summary,
-            "source_import": source.name if source else None}
+            "source_import": movement_result.get("import_name", source.name) if movement_result is not None
+                else source.name if source else None, "movements_loaded": load_movements,
+            "movement_rows": movement_result.get("rows", 0) if movement_result else 0}
 
 
 def _source_link(link, employer):

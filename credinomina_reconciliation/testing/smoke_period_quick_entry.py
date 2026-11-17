@@ -42,15 +42,24 @@ def run():
             file.db_insert()
             content = ('Nro. Cliente,Nombre y Apellidos del Cliente,Nro. Crédito,Monto de la cuota en US$\n'
                        f'{marker},{marker},9918565-1,80\n').encode()
+
+            def core_file(date, amount, label):
+                return ('CUENTA_CONTABLE,DESCRIPCION_CTA_CONTABLE,FECHA_APLICA,NO_CMPTE,NO_REF,DESCRIPCION,'
+                        'DEBITO_DEL_MES,CREDITO_DEL_MES,NO_CREDITO,EMPRESA,NOMBRE_CLIENTE,TMOV,TDOC\n'
+                        f'160209013004,Creditos M.E.,{date},{marker}-{label},{marker}-{label},'
+                        f'NOTA AL PRESTAMO 9918565-1 PAGO APLICADO,{amount},0,9918565-1,{company.name},{marker},12,05\n').encode()
+
             current = frappe.get_doc(dict(doctype='CN Accounting Import', employer=company.name,
-                currency='USD', status='Importado', source_file=f'/private/files/{marker}-current.csv',
-                rows=[dict(event_type='Aplicacion', event_date='2026-09-30', currency='USD',
-                    amount=80, amount_usd=80, effective=1, source_key=marker+'-current',
-                    client=client.name, client_name=marker, client_number=marker, loan_number='9918565-1')])).insert()
+                currency='USD', source_file=f'/private/files/{marker}-current.csv')).insert()
             values = dict(employer=company.name, payroll_month='2026-09-01', reconciliation_mode='Operativa',
                           collection_cycle='Segunda quincena', collection_file=file.file_url)
-            with patch.object(File, 'get_content', return_value=content):
+            with patch.object(File, 'get_content', return_value=content), \
+                 patch.object(engine, '_attached_file', return_value=(frappe._dict(file_name='core.csv'),
+                    core_file('2026-09-30', 80, 'current'))), \
+                 patch.object(engine, '_reconcile_sources', wraps=engine._reconcile_sources) as reconciled:
                 result = api.create(values, {'name':current.name, 'modified':str(current.modified)})
+                assert reconciled.call_count == 1, 'Payroll and core must share one reconciliation pass'
+            current.name = result['source_import']  # A first load assigns the dated import name.
             period = frappe.get_doc('CN Reconciliation Period', result['doc']['name'])
             assert result['collection_loaded'] and result['reconciliation']['reviewed'] == 1, result
             assert result['reconciliation']['conforming'] == 1, result
@@ -59,6 +68,23 @@ def run():
             assert current.reload().historical_period == period.name
             assert current.rows[0].collection_row_id == period.collection_rows[0].name
             assert file.reload().attached_to_name == period.name
+            assert result['movements_loaded'] and current.status in ('Importado', 'Importado con excepciones')
+
+            # No payroll is required for either historical or operative creation.
+            for mode, month in (('Historica', '2025-08'), ('Operativa', '2026-10')):
+                imported = frappe.get_doc(dict(doctype='CN Accounting Import', employer=company.name,
+                    currency='USD', source_file=f'/private/files/{marker}-{mode}.csv')).insert()
+                with patch.object(engine, '_attached_file', return_value=(frappe._dict(file_name='core.csv'),
+                        core_file(month+'-15', 35, mode))):
+                    created = api.create(dict(employer=company.name, payroll_month=month+'-01',
+                        reconciliation_mode=mode, collection_cycle='Primera quincena'),
+                        {'name':imported.name, 'modified':str(imported.modified)})
+                new_period = frappe.get_doc('CN Reconciliation Period', created['doc']['name'])
+                imported.name = created['source_import']
+                assert created['movements_loaded'] and not created['collection_loaded']
+                assert imported.reload().historical_period == new_period.name
+                assert len(imported.rows) == 1 and imported.rows[0].historical_period == new_period.name
+                assert new_period.applied_usd == 35 and new_period.remitted_usd == 0
             for doc in (source, old, deposit):
                 assert document_state(doc.reload()) == protected[doc.name], doc.name
             pending = frappe.get_doc(dict(doctype='CN Accounting Import', employer=company.name,
@@ -83,7 +109,21 @@ def run():
                 raise AssertionError('Invalid payroll accepted')
             assert frappe.db.count('CN Reconciliation Period', {'employer':company.name}) == count
             assert document_state(pending.reload()) == pending_state
+
+            frappe.db.savepoint('invalid_quick_core')
+            try:
+                with patch.object(engine, '_attached_file', return_value=(frappe._dict(file_name='core.csv'), b'invalid core')):
+                    api.create(dict(employer=company.name, payroll_month='2026-10-01',
+                        reconciliation_mode='Operativa', collection_cycle='Segunda quincena'),
+                        {'name':pending.name, 'modified':str(pending.modified)})
+            except frappe.ValidationError:
+                frappe.db.rollback(save_point='invalid_quick_core')
+            else:
+                raise AssertionError('Invalid accounting file accepted')
+            assert frappe.db.count('CN Reconciliation Period', {'employer':company.name}) == count
+            assert document_state(pending.reload()) == pending_state
             return dict(payroll_loaded=True, source_link_saved=True, first_reconciliation=True, file_attached=True,
+                historical_and_operative_core_loaded=True, single_reconciliation_pass=True,
                 existing_deposits_and_applications_unchanged=True, invalid_post_rolled_back=True, rolled_back=True)
     finally:
         frappe.db.rollback()

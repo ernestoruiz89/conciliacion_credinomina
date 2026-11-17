@@ -42,6 +42,43 @@ def workbook_bytes(rows):
 
 
 class CollectionParserTest(unittest.TestCase):
+    def test_consolidated_sheet_without_amount_headers_does_not_hide_the_payroll_sheet(self):
+        workbook = Workbook()
+        summary = workbook.active
+        summary.title = 'CONSOLIDADO'
+        summary.append(['ID de Empleado', 'Nombre y Apellidos del Cliente', 'Nro. Crédito', 'Cuota US$', 'Cuota C$'])
+        summary.append([13, 'CLIENTE UNO', '12655', 35, 1281.85])
+        summary.append(['Total general', None, None, 35, 1281.85])
+        payroll = workbook.create_sheet('Q')
+        payroll.append(['Nro. Cliente', 'Nombre y Apellidos del Cliente', 'Nro. Crédito', 'Monto de la cuota en US$'])
+        payroll.append(['1', 'CLIENTE UNO', '12655', 35])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        rows = parse_collection_file('collection.xlsx', stream.getvalue(), require_identity=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]['client_number'], rows[0]['source_row'], rows[0]['expected_usd']), ('1', 2, 35))
+        # An explicitly recognized payroll with a missing identity still blocks
+        # the import; the alternative sheet must never hide an invalid record.
+        payroll.append([None, None, None, 12])
+        workbook.active = 1
+        stream = io.BytesIO()
+        workbook.save(stream)
+        with self.assertRaisesRegex(SourceFileError, 'fila 3.*identificación'):
+            parse_collection_file('collection.xlsx', stream.getvalue(), require_identity=True)
+
+    def test_unsupported_active_sheet_requires_an_unambiguous_alternative(self):
+        workbook = Workbook()
+        workbook.active.append(['Nombre y Apellidos del Cliente', 'Cuota US$'])
+        workbook.active.append(['Total general', 40])
+        for name in ('Q1', 'Q2'):
+            sheet = workbook.create_sheet(name)
+            sheet.append(['Nro. Crédito', 'Monto de la cuota en US$'])
+            sheet.append(['123', 20])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        with self.assertRaisesRegex(SourceFileError, 'varias pestañas.*Q1, Q2'):
+            parse_collection_file('collection.xlsx', stream.getvalue(), require_identity=True)
+
     def test_collection_comments_import_cxc_and_clear_only_zero_placeholders(self):
         headers = ["Nro. Cliente", "Nro. Crédito", "Cuota USD", "Comentarios",
                    "Comentario de Aplicación", "Diferencias CXC"]

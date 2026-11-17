@@ -307,14 +307,19 @@ def _parse_collection_rows(
     parsed: list[dict[str, Any]] = []
     for row_number, row in enumerate(rows, start=1):
         candidate = header_mapping(row, COLLECTION_ALIASES)
+        # Names alone can belong to a consolidated report, not an importable
+        # payroll. Recognize its monetary columns before validating data rows.
         if (
-            "client_name" in candidate
-            or (require_identity and any(key in candidate for key in (
-                "loan_number", "client_number", "employee_number", "national_id",
-            )) and any(key in candidate for key in ("deducted_usd", "deducted_nio")))
-            or "loan_number" in candidate and (
-                "client_number" in candidate or "national_id" in candidate
-                or "expected_usd" in candidate or "expected_nio" in candidate
+            any(key in candidate for key in ("expected_usd", "expected_nio", "deducted_usd", "deducted_nio"))
+            and (
+                "client_name" in candidate
+                or (require_identity and any(key in candidate for key in (
+                    "loan_number", "client_number", "employee_number", "national_id",
+                )) and any(key in candidate for key in ("deducted_usd", "deducted_nio")))
+                or "loan_number" in candidate and (
+                    "client_number" in candidate or "national_id" in candidate
+                    or "expected_usd" in candidate or "expected_nio" in candidate
+                )
             )
         ):
             mapping = candidate

@@ -90,15 +90,16 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                 try {
                     let sourceLink = null;
                     const load = this.doc.reconciliation_mode === "Operativa" && Boolean(this.doc.collection_file);
-                    if (load && this.accounting_link) {
-                        if (this.accounting_source.is_new()) frappe.throw(__("Guarde la importación antes de crear su período con cobranza."));
+                    if (this.accounting_link) {
+                        if (this.accounting_source.is_new()) frappe.throw(__("Guarde la importación antes de crear su período."));
                         if (this.accounting_source.is_dirty()) await this.accounting_source.save();
                         sourceLink = {...this.accounting_link, name: this.accounting_source.doc.name, modified: this.accounting_source.doc.modified};
                     }
                     const {message: result} = await frappe.call({
                         method: "credinomina_reconciliation.period_quick_entry.create",
                         args: {values: this.doc, source_link: sourceLink}, freeze: true,
-                        freeze_message: __(load ? "Guardando período, cargando cobranza y validando aplicaciones…" : "Guardando período…"),
+                        freeze_message: __(load ? "Guardando período, cargando cobranza y movimientos contables…"
+                            : sourceLink ? "Guardando período y cargando movimientos contables…" : "Guardando período…"),
                     });
                     if (result.source_import) {
                         // The calling Link is already saved on the server. Reload
@@ -107,9 +108,13 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                         this.doc = result.doc;
                         frappe._from_link = null;
                         try {
-                            await this.accounting_source.reload_doc();
+                            if (result.source_import !== this.accounting_source.doc.name) {
+                                await frappe.set_route("Form", "CN Accounting Import", result.source_import);
+                            } else {
+                                await this.accounting_source.reload_doc();
+                            }
                         } catch (error) {
-                            frappe.msgprint(__("Se guardaron el período y su vínculo, pero no se pudo actualizar la importación en pantalla. Recargue el formulario para consultar el resultado."));
+                            frappe.msgprint(__("Se guardaron el período y su vínculo, pero no se pudo actualizar la importación en pantalla. Vuelva a abrir la importación para consultar el resultado."));
                         }
                     } else {
                         this.process_after_insert({message: result.doc});
@@ -122,6 +127,10 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                                 ? __("Cobranza cargada. Conciliación 1: {0} filas revisadas, {1} conformes, {2} con diferencias y {3} con base por revisar.",
                                     [summary.reviewed, summary.conforming, summary.differences, summary.missing_basis])
                                 : __("Cobranza cargada. No hay movimientos del core disponibles para la conciliación 1; vincule las aplicaciones al período y vuelva a conciliar."),
+                        });
+                    } else if (result.movements_loaded) {
+                        frappe.msgprint({title: __("Período vinculado"), indicator: "green",
+                            message: __("El período quedó guardado en la importación. Se cargaron {0} movimientos contables, conservando las asignaciones existentes.", [result.movement_rows]),
                         });
                     }
                     return this.doc;
