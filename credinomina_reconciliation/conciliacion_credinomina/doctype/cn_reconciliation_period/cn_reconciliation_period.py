@@ -992,6 +992,10 @@ def reconcile_first(period_name: str):
     if result is None:
         frappe.throw(_("No hay movimientos importados, depósitos confirmados ni partidas confirmadas para conciliar esta empresa. Importe las aplicaciones del core y vuelva a intentar."))
     period.reload()
+    return _first_reconciliation_result(period, result)
+
+
+def _first_reconciliation_result(period, result):
     from credinomina_reconciliation.application_quality import collection_quality
     quality = [collection_quality(row, period.application_basis) for row in period.collection_rows]
     return {**result, "period": period.name, "reviewed": len(quality),
