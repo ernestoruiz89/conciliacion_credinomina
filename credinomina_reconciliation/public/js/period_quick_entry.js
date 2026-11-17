@@ -18,9 +18,9 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                 const defaults = this.doc.__islocal && this.accounting_defaults;
                 const historicalFields = ["historical_scope", "historical_application_date", "historical_start_date", "historical_end_date"];
                 if (defaults) {
-                    const historicalDocfields = this.meta.fields.filter(field => historicalFields.includes(field.fieldname));
-                    this.docfields = [...this.docfields, ...historicalDocfields.filter(field =>
-                        !this.docfields.some(existing => existing.fieldname === field.fieldname))];
+                    const fields = new Set([...this.docfields.map(field => field.fieldname),
+                        ...historicalFields, "collection_cycle", "cutoff_date", "collection_file"]);
+                    this.docfields = this.meta.fields.filter(field => fields.has(field.fieldname) && !field.read_only);
                 } else if (source) {
                     this.doc.employer = source.employer;
                     if (this.source_date) this.doc.payroll_month = this.source_date.slice(0, 7) + "-01";
@@ -76,6 +76,19 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                             window.open("/api/method/credinomina_reconciliation.template_download.download_import_template?template_type=cobranza", "_blank", "noopener");
                         },
                     });
+                }
+            }
+
+            attach_doc_and_docfields(refresh) {
+                if (!this.accounting_defaults) return super.attach_doc_and_docfields(refresh);
+
+                // The generic layout replaces each control's definition with
+                // the DocType default, losing this dialog's seeded values and rules.
+                for (const field of this.fields_list) {
+                    field.doc = this.doc;
+                    field.doctype = this.doc.doctype;
+                    field.docname = this.doc.name;
+                    if (refresh) field.refresh?.();
                 }
             }
 
