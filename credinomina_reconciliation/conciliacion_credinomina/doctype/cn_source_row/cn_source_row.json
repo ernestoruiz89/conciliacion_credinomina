@@ -5,7 +5,7 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
-    "movement_tab", "usd_currency", "nio_currency", "client_section", "client_name", "client_number",
+    "movement_tab", "usd_currency", "nio_currency", "client_section", "client_name", "view_related_pending", "client_number",
     "national_id", "client_column", "loan_number", "installment_number", "employee_number", "movement_section",
     "event_date", "event_type", "currency", "amount", "application_adjustment_usd", "net_applied_usd",
     "application_adjustment_status", "movement_column", "accounting_entry", "receipt", "reference", "voucher",
@@ -29,6 +29,7 @@
     "allocation_detail", "rounding_trace_section", "rounding_movement_detail", "linked_documents_tab", "linked_summary_html", "linked_documents_html"
   ],
   "fields": [
+    {"fieldname": "view_related_pending", "fieldtype": "Button", "label": "Ver Registros pendientes", "allow_on_submit": 1, "depends_on": "eval:!doc.__islocal && doc.event_type == 'Aplicacion' && doc.effective && doc.match_status != 'Ignorado'"},
     {"fieldname": "linked_documents_tab", "fieldtype": "Tab Break", "label": "Vínculos"},
     {"fieldname": "linked_summary_html", "fieldtype": "HTML", "label": "Resumen de la fila", "read_only": 1},
     {"fieldname": "linked_documents_html", "fieldtype": "HTML", "label": "Documentos vinculados", "read_only": 1},
