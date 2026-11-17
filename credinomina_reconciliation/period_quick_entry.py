@@ -15,14 +15,26 @@ def create(values, source_link=None):
     fields = {field: values.get(field) for field in (
         "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "collection_file",
     )}
-    load = fields["reconciliation_mode"] == "Operativa" and bool(fields["collection_file"])
+    period = frappe.get_doc({"doctype": "CN Reconciliation Period", **fields})
+    return insert_period(period, source_link, period.insert)
+
+
+def insert_period(period, source_link, insert):
+    load = period.reconciliation_mode == "Operativa" and bool(period.collection_file)
     frappe.has_permission("CN Reconciliation Period", "create", throw=True)
     if load:
         frappe.has_permission("CN Reconciliation Period", "write", throw=True)
         frappe.has_permission("CN Accounting Import", "write", throw=True)
-        frappe.get_doc("File", {"file_url": fields["collection_file"]}).check_permission("read")
-    source, row = _source_link(source_link, fields["employer"]) if source_link else (None, None)
-    period = frappe.get_doc({"doctype": "CN Reconciliation Period", **fields}).insert()
+        file_filters = {"file_url": period.collection_file}
+        if temporary_name := period.get("__temporary_name"):
+            # A full-form upload may share a URL with another attachment.
+            temporary_file = frappe.db.exists("File", {**file_filters, "attached_to_doctype": period.doctype,
+                "attached_to_name": temporary_name, "attached_to_field": "collection_file"})
+            if temporary_file:
+                file_filters = temporary_file
+        frappe.get_doc("File", file_filters).check_permission("read")
+    source, row = _source_link(source_link, period.employer) if source_link else (None, None)
+    insert()
     if source:
         if row is None:
             source.historical_period = period.name

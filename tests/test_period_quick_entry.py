@@ -6,6 +6,15 @@ from credinomina_reconciliation import period_quick_entry as api
 
 
 class PeriodQuickEntryTests(unittest.TestCase):
+    def mock_documents(self, period):
+        def get_doc(doctype, *_args):
+            if isinstance(doctype, dict):
+                period.configure_mock(**doctype)
+                period.get.return_value = None
+                return period
+            return Mock()
+        return patch.object(api.frappe, 'get_doc', side_effect=get_doc)
+
     def test_source_link_checks_version_company_existing_assignments_and_row_ownership(self):
         row = frappe._dict(name='ROW', event_type='Aplicacion', historical_period='')
         source = frappe._dict(name='I', employer='E', docstatus=0, modified='v1', historical_period='',
@@ -46,7 +55,7 @@ class PeriodQuickEntryTests(unittest.TestCase):
                     self.assertEqual(current.historical_period if row_link else source.historical_period, 'P')
                     self.assertEqual(other.historical_period, 'OTHER-PERIOD')
                     return {'source_reconciliation':{}}
-                with patch.object(api.frappe, 'has_permission'), patch.object(api.frappe, 'get_doc', return_value=period), \
+                with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
                      patch.object(api, '_source_link', return_value=(source, current if row_link else None)), \
                      patch.object(api.api, 'import_collection', side_effect=imported), \
                      patch.object(api.api, '_import_collection', side_effect=imported) as collection, \
@@ -76,7 +85,7 @@ class PeriodQuickEntryTests(unittest.TestCase):
                     self.assertEqual(source.historical_period, 'P')
                     self.assertEqual(other.historical_period, 'KEEP')
                     return {'rows':3, 'import_name':'DATED-IMPORT'}
-                with patch.object(api.frappe, 'has_permission'), patch.object(api.frappe, 'get_doc', return_value=period), \
+                with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
                      patch.object(api, '_source_link', return_value=(source, None)), \
                      patch.object(api.accounting, '_import_source_file', side_effect=load) as core, \
                      patch.object(api.api, 'import_collection') as collection:
@@ -93,7 +102,7 @@ class PeriodQuickEntryTests(unittest.TestCase):
         period = Mock()
         period.name = 'P'
         period.insert.return_value = period
-        with patch.object(api.frappe, 'has_permission'), patch.object(api.frappe, 'get_doc', return_value=period), \
+        with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
              patch.object(api, '_source_link', return_value=(source, None)), \
              patch.object(api.accounting, '_import_source_file', side_effect=frappe.QueryDeadlockError) as core, \
              patch.object(api.accounting, 'import_source_file') as standalone, \
@@ -112,12 +121,12 @@ class PeriodQuickEntryTests(unittest.TestCase):
                 document.insert.return_value = document
                 document.as_dict.return_value = {'name':'P'}
                 with patch.object(api.frappe, 'has_permission') as permission, \
-                     patch.object(api.frappe, 'get_doc', return_value=document) as get_doc, \
+                     self.mock_documents(document) as get_doc, \
                      patch.object(api.api, 'import_collection', return_value={'source_reconciliation':{'period':'P'}}) as load, \
                      patch.object(api.api, '_first_reconciliation_result', return_value={'reviewed':1}) as summarize:
                     result = api.create({'employer':'E', 'payroll_month':'2026-09-01', 'reconciliation_mode':mode,
                                          'collection_file':file, 'name':'INJECTED', 'expected_usd':999, 'collection_rows':[{}]})
-                fields = get_doc.call_args.args[0]
+                fields = get_doc.call_args_list[0].args[0]
                 self.assertNotIn('name', fields)
                 self.assertNotIn('collection_rows', fields)
                 self.assertNotIn('expected_usd', fields)
@@ -136,7 +145,7 @@ class PeriodQuickEntryTests(unittest.TestCase):
     def test_no_core_does_not_claim_successful_reconciliation(self):
         document = Mock()
         document.insert.return_value = document
-        with patch.object(api.frappe, 'has_permission'), patch.object(api.frappe, 'get_doc', return_value=document), \
+        with patch.object(api.frappe, 'has_permission'), self.mock_documents(document), \
              patch.object(api.api, 'import_collection', return_value={'source_reconciliation':None}), \
              patch.object(api.api, '_first_reconciliation_result') as summarize:
             result = api.create({'reconciliation_mode':'Operativa', 'collection_file':'payroll.csv'})
@@ -149,10 +158,11 @@ class PeriodQuickEntryTests(unittest.TestCase):
              patch.object(api.frappe, 'get_doc') as get_doc:
             with self.assertRaises(frappe.PermissionError):
                 api.create({'reconciliation_mode':'Operativa', 'collection_file':'payroll.csv'})
-        get_doc.assert_not_called()
+        self.assertEqual(get_doc.call_count, 1)  # Build the in-memory period, with no insertion.
+        get_doc.return_value.insert.assert_not_called()
         document = Mock()
         document.insert.return_value = document
-        with patch.object(api.frappe, 'has_permission'), patch.object(api.frappe, 'get_doc', return_value=document), \
+        with patch.object(api.frappe, 'has_permission'), self.mock_documents(document), \
              patch.object(api.api, 'import_collection', side_effect=frappe.ValidationError), \
              patch.object(api.api, '_first_reconciliation_result') as summarize:
             with self.assertRaises(frappe.ValidationError):

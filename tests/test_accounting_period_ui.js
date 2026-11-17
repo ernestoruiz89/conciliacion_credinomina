@@ -2,95 +2,69 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 const path = 'credinomina_reconciliation/conciliacion_credinomina/doctype/';
 const schema = JSON.parse(fs.readFileSync(path + 'cn_reconciliation_period/cn_reconciliation_period.json', 'utf8'));
-const opened = [], calls = [], routes = [], notices = [];
-let failSetup = false;
-const context = vm.createContext({__: text => text, frappe: {
-    provide() {}, ui: {form: {on() {}, QuickEntryForm: class {
-        constructor(doctype, after_insert, init, doc, force) {
-            this.doc = doc || {doctype, name: 'LOCAL', __islocal: 1};
-            this.after_insert = after_insert; this.force = force;
-            this.fields_dict = {reconciliation_mode: {}};
-            opened.push(this);
-        }
-        async setup() {
-            if (failSetup) throw new Error('Failed metadata');
-            this.set_meta_and_mandatory_fields(); this.shown = true; return this;
-        }
-        set_meta_and_mandatory_fields() {
-            this.docfields = schema.fields.filter(field => (field.reqd || field.allow_in_quick_entry) && !field.read_only);
-        }
-        get_value(field) {return this.doc[field];}
-        set_value(field, value) {this.doc[field] = value;}
-        update_doc() {}
-        process_after_insert(response) {this.doc = response.message; this.after_insert?.(this.doc);}
-    }}},
-    model: {clear_doc() {}},
-    call: async options => {
-        calls.push(options);
-        return {message: {doc: {name: 'P'}, source_import: options.args.source_link?.name,
-            movements_loaded: Boolean(options.args.source_link), movement_rows: 1,
-            collection_loaded: Boolean(options.args.values.collection_file),
-            reconciliation: {reviewed: 1, conforming: 1, differences: 0, missing_basis: 0}}};
+const drafts = [], routes = [], calls = [];
+const form = 'CN Reconciliation Period';
+let defaults = {
+    employer: 'A', payroll_month: '2026-09-01', reconciliation_mode: 'Operativa',
+    collection_cycle: 'Primera quincena', cutoff_date: null,
+};
+const context = vm.createContext({frappe: {
+    ui: {form: {on() {}}},
+    model: {
+        async with_doctype(doctype) { assert.equal(doctype, form); },
+        get_new_doc(doctype) {
+            const draft = {doctype, name: 'new-period-' + drafts.length, __islocal: 1, employer: 'USER-DEFAULT'};
+            drafts.push(draft);
+            return draft;
+        },
     },
-    msgprint: value => notices.push(value), set_route: (...args) => routes.push(args),
+    async call(options) {
+        calls.push(options);
+        assert.ok(options.method.endsWith('accounting_period.get_period_defaults'));
+        return {message: defaults};
+    },
+    async set_route(...route) { routes.push(route); },
 }});
-vm.runInContext(fs.readFileSync('credinomina_reconciliation/public/js/period_quick_entry.js', 'utf8'), context);
 vm.runInContext(fs.readFileSync(path + 'cn_accounting_import/cn_accounting_import.js', 'utf8'), context);
+function visible(fieldname, doc) {
+    const field = schema.fields.find(item => item.fieldname === fieldname);
+    return vm.runInNewContext(field.depends_on.slice(5), {doc});
+}
 (async () => {
-    let saved = 0, reloaded = 0;
-    const frm = {doc: {doctype: 'CN Accounting Import', name: 'OLD', employer: 'A', bulk_event_date: '2026-09-15'},
-        is_new: () => false, is_dirty: () => !saved,
-        save: async () => {saved++; frm.doc.name = 'I'; frm.doc.modified = 'saved';},
-        reload_doc: async () => {reloaded++;},
-    };
+    let saved = 0;
+    const frm = {doc: {name: 'OLD'}, is_dirty: () => !saved,
+        async save() { saved++; this.doc = {name: 'I', modified: 'saved'}; }};
     const first = context.createAccountingPeriod(frm);
-    await context.createAccountingPeriod(frm); // Duplicate click while saving.
+    await context.createAccountingPeriod(frm);
     await first;
-    assert.equal(opened.length, 1);
-    const dialog = opened[0];
-    assert.ok(dialog instanceof context.frappe.ui.form.CNReconciliationPeriodQuickEntryForm);
     assert.equal(saved, 1);
-    assert.ok(dialog.shown && dialog.force);
-    assert.equal(context.frappe.quick_entry, dialog);
-    assert.equal(dialog.accounting_source, frm);
-    assert.equal(dialog.doc.employer, 'A');
-    assert.equal(dialog.doc.payroll_month, '2026-09-01');
-    assert.equal(dialog.doc.reconciliation_mode, 'Operativa');
-    assert.equal(dialog.doc.collection_cycle, 'Primera quincena');
-    assert.equal(dialog.docfields.find(field => field.fieldname === 'employer').default, 'A');
-    assert.equal(dialog.docfields.find(field => field.fieldname === 'payroll_month').default, '2026-09-01');
-    assert.ok(dialog.docfields.some(field => field.fieldname === 'collection_file'));
-    assert.ok(dialog.docfields.some(field => field.fieldname === 'download_collection_template'));
-    assert.equal(calls.length, 0, 'Opening the dialog must not create or reconcile anything');
-    dialog.doc.collection_file = 'payroll.csv';
-    await dialog.insert();
-    assert.equal(calls.length, 1);
-    assert.ok(calls[0].method.endsWith('period_quick_entry.create'));
-    assert.equal(calls[0].args.source_link.name, 'I');
-    assert.equal(calls[0].args.source_link.modified, 'saved');
-    assert.equal(calls[0].args.source_link.row_name, null);
-    assert.equal(reloaded, 1);
-    assert.equal(notices[0].indicator, 'green');
+    assert.equal(drafts.length, 1);
+    const draft = drafts[0];
+    assert.equal(calls[0].args.import_name, 'I');
+    assert.equal(draft.employer, 'A');
+    assert.equal(draft.payroll_month, '2026-09-01');
+    assert.equal(draft.reconciliation_mode, 'Operativa');
+    assert.ok(visible('files_section', draft));
+    assert.equal(draft.__cn_accounting_source.name, 'I');
+    assert.equal(draft.__cn_accounting_source.modified, 'saved');
+    assert.deepEqual(routes[0], ['Form', form, draft.name]);
+
+    defaults = {employer: 'B', payroll_month: '2026-08-01', reconciliation_mode: 'Historica',
+        historical_scope: 'Fecha exacta', historical_application_date: '2026-08-15'};
+    await context.createAccountingPeriod(frm);
+    const historical = drafts[1];
+    assert.equal(historical.reconciliation_mode, 'Historica');
+    assert.equal(historical.historical_scope, 'Fecha exacta');
+    assert.equal(historical.historical_application_date, '2026-08-15');
+    assert.ok(visible('historical_scope', historical));
+    assert.ok(visible('historical_application_date', historical));
+    assert.ok(!visible('files_section', historical));
+    assert.deepEqual(routes[1], ['Form', form, historical.name]);
     assert.equal(frm._creating_period, false);
 
-    frm.doc.bulk_event_date = '2025-04-16';
-    await context.createAccountingPeriod(frm);
-    const historical = opened[1];
-    assert.equal(historical.doc.reconciliation_mode, 'Historica');
-    await historical.insert();
-    assert.equal(calls[1].args.source_link.name, 'I');
-    assert.equal(reloaded, 2, 'Historical creation must also reload the saved import and its new links');
-    assert.equal(routes.length, 0, 'Keep the import visible after its linked movements are loaded');
-    assert.equal(notices[1].title, 'Período vinculado');
-    context.frappe.call = async () => ({message: {doc: {name:'P'}, source_import:'DATED-IMPORT',
-        movements_loaded:true, movement_rows:1}});
-    await context.createAccountingPeriod(frm);
-    await opened[2].insert();
-    assert.deepEqual(routes[0], ['Form', 'CN Accounting Import', 'DATED-IMPORT']);
-    assert.equal(reloaded, 2, 'A renamed import must be opened by its current name');
-    failSetup = true;
-    await assert.rejects(context.createAccountingPeriod(frm), /Failed metadata/);
+    context.frappe.call = async () => { throw new Error('Server unavailable'); };
+    await assert.rejects(context.createAccountingPeriod(frm), /Server unavailable/);
+    assert.equal(drafts.length, 2);
     assert.equal(frm._creating_period, false);
-    assert.equal(context.frappe.quick_entry, null);
-    console.log('OK: Create period uses shared Quick Entry, passes defaults/context, saves before opening, preserves automatic reconciliation and recovers from setup errors.');
-})().catch(error => {console.error(error); process.exitCode = 1;});
+    console.log('OK: Create period opens a prefilled, unsaved full form and carries its accounting source.');
+})().catch(error => { console.error(error); process.exitCode = 1; });
