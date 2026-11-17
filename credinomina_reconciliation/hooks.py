@@ -41,7 +41,15 @@ after_install = "credinomina_reconciliation.install.after_install"
 # Embed shared dialogs in DocType metadata, including list-only sessions.
 # Standalone public assets can remain cached after a deployment.
 doctype_js = {
-    "CN Accounting Import": ["public/js/accounting_bulk.js", "public/js/difference_documentation.js", "public/js/row_link_details.js", "public/js/document_reopening.js", "public/js/related_pending_modal.js"],
+    "CN Accounting Import": [
+        "public/js/accounting_bulk.js",
+        "public/js/difference_documentation.js",
+        "public/js/row_link_details.js",
+        "public/js/document_reopening.js",
+        "public/js/related_pending_modal.js",
+        # Keep the toolbar action and its Quick Entry controller on the same version.
+        "public/js/period_quick_entry.js",
+    ],
     "CN Remittance Allocation": ["public/js/difference_documentation.js", "public/js/row_link_details.js", "public/js/document_reopening.js", "public/js/related_pending_modal.js"],
     "CN Reconciliation Period": "public/js/difference_documentation.js",
     "CN Complementary Item": ["public/js/difference_documentation.js", "public/js/document_reopening.js", "public/js/related_pending_modal.js"],
