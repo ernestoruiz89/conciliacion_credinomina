@@ -5,6 +5,7 @@ from frappe import _
 from credinomina_reconciliation.difference_documentation import _store_documentation, _touch_documentation
 from credinomina_reconciliation.application_deposit_status import SETTLED
 from credinomina_reconciliation.rounding import money
+from credinomina_reconciliation.accounting_client_summary import _collections_for_import, row_amounts
 
 DOCTYPE = 'CN Accounting Import'
 
@@ -20,9 +21,11 @@ def has_difference(row):
 
 
 def detail_rows(document):
+    balances = row_amounts(document, _collections_for_import(document, check_permissions=True))
     return [dict(row_name=row.name, source_row=row.get('source_row') or row.get('idx'),
         client_name=row.get('client_name'), loan_number=row.get('loan_number'),
         event_date=row.get('event_date'), event_type=row.get('event_type'), amount_usd=row.get('amount_usd'),
+        balance_usd=balances.get(row.name, {}).get('balance_usd'),
         deposit_match_status=row.get('deposit_match_status'), deposit_match_reason=row.get('deposit_match_reason'),
         difference_reason=row.get('difference_reason') or '', difference_notes=row.get('difference_notes') or '')
         for row in document.get('rows') or [] if has_difference(row)]
