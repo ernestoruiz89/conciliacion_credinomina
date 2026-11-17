@@ -28,6 +28,7 @@ const context = vm.createContext({__: text => text, frappe: {
     call: async options => {
         calls.push(options);
         return {message: {doc: {name: 'P'}, source_import: options.args.source_link?.name,
+            movements_loaded: Boolean(options.args.source_link), movement_rows: 1,
             collection_loaded: Boolean(options.args.values.collection_file),
             reconciliation: {reviewed: 1, conforming: 1, differences: 0, missing_basis: 0}}};
     },
@@ -77,8 +78,16 @@ vm.runInContext(fs.readFileSync(path + 'cn_accounting_import/cn_accounting_impor
     const historical = opened[1];
     assert.equal(historical.doc.reconciliation_mode, 'Historica');
     await historical.insert();
-    assert.equal(calls[1].args.source_link, null);
-    assert.deepEqual(routes[0], ['Form', 'CN Reconciliation Period', 'P']);
+    assert.equal(calls[1].args.source_link.name, 'I');
+    assert.equal(reloaded, 2, 'Historical creation must also reload the saved import and its new links');
+    assert.equal(routes.length, 0, 'Keep the import visible after its linked movements are loaded');
+    assert.equal(notices[1].title, 'Período vinculado');
+    context.frappe.call = async () => ({message: {doc: {name:'P'}, source_import:'DATED-IMPORT',
+        movements_loaded:true, movement_rows:1}});
+    await context.createAccountingPeriod(frm);
+    await opened[2].insert();
+    assert.deepEqual(routes[0], ['Form', 'CN Accounting Import', 'DATED-IMPORT']);
+    assert.equal(reloaded, 2, 'A renamed import must be opened by its current name');
     failSetup = true;
     await assert.rejects(context.createAccountingPeriod(frm), /Failed metadata/);
     assert.equal(frm._creating_period, false);

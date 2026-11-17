@@ -473,6 +473,10 @@ def _clear_deposit_recognition(period):
 
 @frappe.whitelist(methods=["POST"])
 def import_collection(period_name: str):
+    return _import_collection(period_name)
+
+
+def _import_collection(period_name: str, *, reconcile=True):
     period = frappe.get_doc("CN Reconciliation Period", period_name)
     period.check_permission("write")
     _assert_editable(period)
@@ -507,7 +511,7 @@ def import_collection(period_name: str):
     if (period.collection_import_sha256 == import_hash and period.collection_rows
             and not needs_credit_normalization and not needs_client_enrichment
             and not needs_comment_refresh):
-        source_summary = _reconcile_if_sources(period.employer, period_name=period.name)
+        source_summary = _reconcile_if_sources(period.employer, period_name=period.name) if reconcile else None
         return {
             "period": period.name, "rows": len(period.collection_rows),
             "status": period.status, "unchanged": True,
@@ -623,7 +627,7 @@ def import_collection(period_name: str):
     period.save()
     # Loading one payroll must not normalize or rematch paid applications in
     # other periods. Reconcile only this period and preserve its stored cash.
-    source_summary = _reconcile_if_sources(period.employer, period_name=period.name)
+    source_summary = _reconcile_if_sources(period.employer, period_name=period.name) if reconcile else None
     period.reload()
     return {
         "period": period.name, "rows": len(parsed), "status": period.status,
