@@ -14,10 +14,11 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                 this.accounting_link = this.accounting_link || (this.accounting_source && frappe._from_link?.field_obj?.df?.fieldname === "historical_period"
                     ? {row_name: frappe._from_link.doc?.doctype === "CN Source Row" ? frappe._from_link.doc.name : null} : null);
                 const source = this.doc.__islocal ? this.accounting_source?.doc : null;
-                const date = String(source?.bulk_event_date || "").slice(0, 10);
-                this.source_date = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "";
-                if (source && !this.doc.employer) this.doc.employer = source.employer;
-                if (!this.doc.payroll_month && this.source_date) this.doc.payroll_month = this.source_date.slice(0, 7) + "-01";
+                this.source_date = this.application_date(source);
+                if (source) {
+                    this.doc.employer = source.employer;
+                    if (this.source_date) this.doc.payroll_month = this.source_date.slice(0, 7) + "-01";
+                }
                 if (this.doc.__islocal && this.doc.payroll_month) this.doc.reconciliation_mode = this.mode_for_month(this.doc.payroll_month);
                 if (!this.doc.collection_cycle && this.source_date) {
                     const day = this.source_date.slice(8);
@@ -31,11 +32,14 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                 // calculated monthly/quincenal cutoffs.
                 this.docfields = this.docfields.map(field => {
                     const copy = {...field};
+                    // Controls apply their defaults while the dialog is built;
+                    // seed them too, so rendering cannot replace source values.
+                    if (this.doc.__islocal && this.doc[copy.fieldname] != null) copy.default = this.doc[copy.fieldname];
                     if (copy.fieldname === "cutoff_date") {
                         copy.depends_on = "eval:doc.reconciliation_mode != 'Historica' && doc.collection_cycle == 'Fecha exacta'";
                     }
                     if (copy.fieldname === "collection_file") {
-                        copy.depends_on = "eval:doc.reconciliation_mode != 'Historica' && !doc.no_collection";
+                        copy.depends_on = "eval:doc.reconciliation_mode == 'Operativa' && !doc.no_collection";
                     }
                     if (copy.fieldname === "payroll_month") {
                         const onchange = copy.onchange;
@@ -52,6 +56,28 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                     }
                     return copy;
                 });
+                const fileIndex = this.docfields.findIndex(field => field.fieldname === "collection_file");
+                if (fileIndex >= 0) {
+                    this.docfields.splice(fileIndex, 0, {
+                        fieldname: "download_collection_template", fieldtype: "Button",
+                        label: __("Descargar plantilla de cobranza"),
+                        depends_on: "eval:doc.reconciliation_mode == 'Operativa' && !doc.no_collection",
+                        click: () => {
+                            if (this.get_value("reconciliation_mode") !== "Operativa" || this.doc.no_collection) return;
+                            window.open("/api/method/credinomina_reconciliation.template_download.download_import_template?template_type=cobranza", "_blank", "noopener");
+                        },
+                    });
+                }
+            }
+
+            application_date(source) {
+                const valid = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").slice(0, 10));
+                if (valid(source?.bulk_event_date)) return String(source.bulk_event_date).slice(0, 10);
+                return (source?.rows || []).reduce((earliest, row) => {
+                    if (row.event_type !== "Aplicacion" || !valid(row.event_date)) return earliest;
+                    const date = String(row.event_date).slice(0, 10);
+                    return !earliest || date < earliest ? date : earliest;
+                }, "");
             }
 
             mode_for_month(month) {

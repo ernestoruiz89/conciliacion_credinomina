@@ -3,7 +3,8 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const schema = JSON.parse(fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/doctype/cn_reconciliation_period/cn_reconciliation_period.json', 'utf8'));
 const original = JSON.stringify(schema);
-const context = {frappe: {provide() {}, ui: {form: {}}}};
+const downloads = [];
+const context = {__: text => text, window: {open: (...args) => downloads.push(args)}, frappe: {provide() {}, ui: {form: {}}}};
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('credinomina_reconciliation/public/js/period_quick_entry.js', 'utf8'), context);
 assert.equal(context.frappe.ui.form.CNReconciliationPeriodQuickEntryForm, undefined, 'Desk can load the asset before form.bundle');
@@ -35,7 +36,16 @@ for (const cycle of ['Mensual', 'Primera quincena', 'Segunda quincena', 'Fecha e
     assert.equal(evaluate(fields.collection_file.depends_on, doc), true);
 }
 const historical = {reconciliation_mode: 'Historica', collection_cycle: 'Fecha exacta'};
-for (const name of ['collection_cycle', 'cutoff_date', 'collection_file']) assert.equal(evaluate(fields[name].depends_on, historical), false);
+for (const name of ['collection_cycle', 'cutoff_date', 'collection_file', 'download_collection_template']) assert.equal(evaluate(fields[name].depends_on, historical), false);
+assert.ok(evaluate(fields.download_collection_template.depends_on, {reconciliation_mode:'Operativa'}));
+dialog.doc.reconciliation_mode = 'Historica';
+fields.download_collection_template.click();
+assert.equal(downloads.length, 0);
+dialog.doc.reconciliation_mode = 'Operativa';
+fields.download_collection_template.click();
+assert.equal(downloads.length, 1);
+assert.ok(downloads[0][0].endsWith('download_import_template?template_type=cobranza'));
+assert.equal(downloads[0][1], '_blank');
 assert.equal(evaluate(fields.cutoff_date.mandatory_depends_on, historical), false);
 assert.equal(JSON.stringify(schema), original, 'Quick Entry must not alter metadata used by the full form');
 const hooks = fs.readFileSync('credinomina_reconciliation/hooks.py', 'utf8');
@@ -59,6 +69,21 @@ for (const [date, cycle] of [['2026-09-15', 'Primera quincena'], ['2026-09-30', 
     assert.equal(quick.doc.reconciliation_mode, 'Operativa');
 }
 context.frappe._from_link = null;
+const nonBulk = new context.frappe.ui.form.CNReconciliationPeriodQuickEntryForm({__islocal:1,
+    employer:'USER-DEFAULT', payroll_month:'2026-11-01'});
+nonBulk.accounting_source = {doc:{doctype:'CN Accounting Import', employer:'SOURCE', rows:[
+    {event_type:'Deposito', event_date:'2025-01-01'},
+    {event_type:'Aplicacion', event_date:'2026-08-30'},
+    {event_type:'Aplicacion', event_date:'2026-08-15'},
+]}};
+nonBulk.set_meta_and_mandatory_fields();
+assert.equal(nonBulk.doc.employer, 'SOURCE');
+assert.equal(nonBulk.doc.payroll_month, '2026-08-01');
+assert.equal(nonBulk.doc.reconciliation_mode, 'Historica');
+const seeded = Object.fromEntries(nonBulk.docfields.map(field => [field.fieldname,field]));
+assert.equal(seeded.employer.default, 'SOURCE');
+assert.equal(seeded.payroll_month.default, '2026-08-01');
+assert.equal(seeded.reconciliation_mode.default, 'Historica');
 const historicalQuick = new context.frappe.ui.form.CNReconciliationPeriodQuickEntryForm({__islocal: 1, payroll_month: '2026-08-01'});
 historicalQuick.set_meta_and_mandatory_fields();
 assert.equal(historicalQuick.doc.reconciliation_mode, 'Historica');
