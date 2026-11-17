@@ -13,7 +13,7 @@ const html = context.accountingClientSummaryTable([row]);
 assert.ok(!html.includes('<img'));
 assert.ok(html.includes('&lt;img'));
 assert.ok(html.includes('75.39') && html.includes('24.61'));
-for (const label of ['Importe US$', 'Depósitos US$', 'Partidas complementarias US$', 'Saldo US$']) assert.ok(html.includes(label));
+for (const label of ['Importe US$', 'Depósitos US$', 'Partidas comp. US$', 'Saldo US$']) assert.ok(html.includes(label));
 assert.ok(!html.includes('Aplicado neto US$') && !html.includes('Ajuste de centavos US$'));
 assert.ok(html.includes('var(--text-color)'));
 assert.ok(html.includes('var(--bg-color)'));

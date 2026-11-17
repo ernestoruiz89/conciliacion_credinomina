@@ -222,7 +222,7 @@ function accountingClientSummaryTable(rows, page = 0) {
                 : ""}</td></tr>`;
     }).join("");
     return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px);color:var(--text-color);background-color:var(--bg-color);--bs-table-color:var(--text-color);--bs-table-bg:var(--bg-color);--bs-table-border-color:var(--border-color)">
-        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Importe US$", "Depósitos US$", "Partidas complementarias US$", "Saldo US$", "Estado", "Registros relacionados"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
+        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Importe US$", "Depósitos US$", "Partidas comp. US$", "Saldo US$", "Estado", "Registros relacionados"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${body || `<tr><td colspan="8">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
         <tfoot><tr><th colspan="2">${esc(__("Total de clientes filtrados"))} (${rows.length})</th>
         ${fields.map(field => `<th class="text-right" style="white-space:nowrap">${amount(total(field))}</th>`).join("")}<th></th><th></th></tr></tfoot>
@@ -351,7 +351,7 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
         showBalance(accountingBalanceSummary(response.message.totals));
         if (!wrapper) return;
         const filters = frm._client_summary_filters?.name === name
-            ? frm._client_summary_filters : {name, query: "", onlyPending: false};
+            ? frm._client_summary_filters : {name, query: "", onlyPending: true};
         frm._client_summary_filters = filters;
         wrapper.html(`<p class="text-muted">${esc(__("Solo aplicaciones efectivas de esta importación. Importe muestra la aplicación original; Partidas complementarias incluye los ajustes confirmados, los saldos a favor aplicados y los ajustes históricos de centavos con su signo de cobertura. No incluye cobranza ni saldos a favor sin vincular. Datos guardados, según la última conciliación."))}</p>
             <div class="flex mb-3" style="gap:12px;align-items:center;flex-wrap:wrap">

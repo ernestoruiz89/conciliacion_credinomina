@@ -19,6 +19,9 @@ add_to_apps_screen = [{
 
 required_apps = []
 
+# Register before make_quick_entry chooses its controller, including Link fields.
+app_include_js = ["/assets/credinomina_reconciliation/js/period_quick_entry.js"]
+
 override_whitelisted_methods = {
     'frappe.desk.query_report.export_query': 'credinomina_reconciliation.operational_statement_export.export_query',
 }
