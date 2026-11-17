@@ -63,7 +63,7 @@ def test_confirmed_application_adjustment_and_multiple_deposits_are_subtracted_o
         dict(deposito='D1', importe_usd=10), dict(deposito='D2', importe_usd=20)]))
     rows, _ = read([source], {'C':collection})
     assert rows[0]['amount_usd'] == 80 and rows[0]['pending_usd'] == 50
-    assert rows[0]['status'] == 'Depósito parcial'
+    assert rows[0]['status'] == 'Conciliación parcial'
 
 
 def test_signed_adjustments_and_documented_rounding_keep_their_financial_sign():

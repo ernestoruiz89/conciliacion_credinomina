@@ -40,11 +40,11 @@ def run():
             reconcile_deposit(deposit)
             source.reload()
             assert source.status == "Importado" and source.exception_count == 0
-            assert source.rows[0].deposit_match_status == "Depósito conciliado"
+            assert source.rows[0].deposit_match_status == "Conciliado"
             # The company-level reconciliation has the same operative pass.
             _reconcile_sources(employer.name, preserve_deposits=True)
             source.reload()
-            assert source.rows[0].deposit_match_status == "Depósito conciliado"
+            assert source.rows[0].deposit_match_status == "Conciliado"
             close_period(period.name)
             period.reload(); deposit.reload(); source.reload()
             period_before, deposit_before = period.as_dict(), deposit.as_dict()
@@ -69,7 +69,7 @@ def run():
                 source.reload()
                 repaired = source.as_dict()
                 assert repaired.status == "Importado" and repaired.exception_count == 0
-                assert repaired.rows[0].deposit_match_status == "Depósito conciliado"
+                assert repaired.rows[0].deposit_match_status == "Conciliado"
                 # Only the explanatory reason differs from the original result.
                 source_before.rows[0].deposit_match_reason = repaired.rows[0].deposit_match_reason
                 assert repaired == source_before

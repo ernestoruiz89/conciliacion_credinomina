@@ -29,7 +29,7 @@ def mark_mixed_settlements(rows, collections):
                 row.deposit_match_reason = _("La cobertura de depósitos no coincide con el aplicado neto y sus ajustes; revise la distribución.")
                 continue
             if paid < expected:
-                row.deposit_match_status = "Depósito parcial" if paid > 0 else "Sin deposito"
+                row.deposit_match_status = "Conciliación parcial" if paid > 0 else "No conciliado"
                 row.deposit_match_reason = _("El aplicado neto conserva un saldo pendiente de cobertura con depósitos.")
                 continue
             complete = paid > 0 and paid == expected and money(row.get("historical_balance_usd")) == 0
@@ -51,7 +51,7 @@ def mark_mixed_settlements(rows, collections):
                     complete = False
                     break
                 if cash <= 0 or cash != expected:
-                    row.deposit_match_status = "Depósito parcial" if cash > 0 else "Sin deposito"
+                    row.deposit_match_status = "Conciliación parcial" if cash > 0 else "No conciliado"
                     complete = False
         if complete:
             row.deposit_match_status = MIXED_STATUS

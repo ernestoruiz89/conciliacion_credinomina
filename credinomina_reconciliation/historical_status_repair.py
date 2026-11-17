@@ -49,7 +49,7 @@ def verified_status(row, period, employer, evidence):
 def _verified_status(row, period, employer, evidence):
     if (row.get("event_type") != "Aplicacion" or not row.get("effective")
             or row.get("match_status") != "Conciliado"
-            or row.get("deposit_match_status") not in {"Sin deposito", "Ambiguo"}
+            or row.get("deposit_match_status") not in {"No conciliado", "Sin deposito", "Ambiguo"}
             or row.get("deposit_match_reason") != OVERWRITTEN_REASON
             or not period or period.get("reconciliation_mode") != "Historica"
             or period.get("employer") != employer
@@ -80,7 +80,7 @@ def _verified_status(row, period, employer, evidence):
     if stored != confirmed or sum(confirmed.values()) != applied:
         return None
     return {
-        "deposit_match_status": "Depósito conciliado",
+        "deposit_match_status": "Conciliado",
         "deposit_match_reason": (
             f"Aplicación histórica: {applied:.2f} US$ respaldados por distribuciones "
             "guardadas de depósitos confirmados; saldo pendiente 0.00 US$. "
@@ -96,7 +96,7 @@ def repair_historical_statuses(dry_run=True):
     candidates = frappe.get_all("CN Source Row", filters={
         "parenttype": "CN Accounting Import", "parentfield": "rows", "event_type": "Aplicacion",
         "effective": 1, "match_status": "Conciliado", "historical_period": ["is", "set"],
-        "deposit_match_status": ["in", ["Sin deposito", "Ambiguo"]],
+        "deposit_match_status": ["in", ["No conciliado", "Sin deposito", "Ambiguo"]],
         "deposit_match_reason": OVERWRITTEN_REASON,
     }, fields=["parent"], limit_page_length=0)
     result = {"dry_run": dry_run, "rows_repaired": 0, "imports_repaired": 0, "unverified_rows": []}
@@ -119,7 +119,7 @@ def repair_historical_statuses(dry_run=True):
         repaired = 0
         for row in document.rows:
             if (row.deposit_match_reason != OVERWRITTEN_REASON
-                    or row.deposit_match_status not in {"Sin deposito", "Ambiguo"}
+                    or row.deposit_match_status not in {"No conciliado", "Sin deposito", "Ambiguo"}
                     or not row.historical_period):
                 continue
             changes = verified_status(row, periods.get(row.historical_period), document.employer, evidence.get(row.name))

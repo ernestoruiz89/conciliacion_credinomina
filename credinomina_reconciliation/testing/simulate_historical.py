@@ -60,7 +60,7 @@ def run():
     source.insert()
     reconcile_all_sources()
     source = frappe.get_doc("CN Accounting Import", source.name)
-    if any(row.deposit_match_status == "Depósito conciliado" for row in source.rows):
+    if any(row.deposit_match_status == "Conciliado" for row in source.rows):
         raise AssertionError("No debe aparecer un depósito antes del depósito.")
 
     deposit = frappe.get_doc({
@@ -97,7 +97,7 @@ def run():
     if (
         deposit.detail_status != "Conciliado"
         or round(deposit.allocated_usd, 4) != 83
-        or any(row.deposit_match_status != "Depósito conciliado" for row in source.rows)
+        or any(row.deposit_match_status != "Conciliado" for row in source.rows)
         or period.status != "Conciliado"
     ):
         raise AssertionError({

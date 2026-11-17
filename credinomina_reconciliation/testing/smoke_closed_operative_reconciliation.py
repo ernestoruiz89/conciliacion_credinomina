@@ -152,7 +152,7 @@ def _run():
         original_import.reload()
         assert original_import.rows[0].match_status == "Conciliado"
         assert original_import.rows[0].collection_row_id == period.collection_rows[0].name
-        assert original_import.rows[0].deposit_match_status == "Sin deposito"
+        assert original_import.rows[0].deposit_match_status == "No conciliado"
         assert original_import.matched_count == 0 and original_import.exception_count >= 1
         assert original_import.rows[0].historical_remitted_usd == 0
         assert original_import.rows[0].historical_balance_usd == 50
@@ -191,7 +191,7 @@ def _run():
         assert period.collection_rows[0].application_status == "Aplicado y remitido"
         confirmed_import = frappe.get_doc("CN Accounting Import", original_import.name)
         assert confirmed_import.rows[0].match_status == "Conciliado"
-        assert confirmed_import.rows[0].deposit_match_status == "Depósito conciliado"
+        assert confirmed_import.rows[0].deposit_match_status == "Conciliado"
 
         frappe.db.savepoint("mixed_payroll_status")
         period.append("collection_rows", {

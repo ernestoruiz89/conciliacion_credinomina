@@ -38,12 +38,12 @@ class HistoricalStatusRepairTests(unittest.TestCase):
         self.row.historical_period = None
         self.row.deposit_match_status = "Depósito conciliado"
         engine._rebuild_period_balances([], [self.row], [], _allocation(), {}, {}, [])
-        self.assertEqual(self.row.deposit_match_status, "Sin deposito")
+        self.assertEqual(self.row.deposit_match_status, "No conciliado")
 
     def test_restores_only_status_and_reason_when_both_sides_agree(self):
         changes = self.verified()
         self.assertEqual(set(changes), {"deposit_match_status", "deposit_match_reason"})
-        self.assertEqual(changes["deposit_match_status"], "Depósito conciliado")
+        self.assertEqual(changes["deposit_match_status"], "Conciliado")
 
     def test_closed_period_and_zero_balance_alone_do_not_prove_payment(self):
         for changes in ({"docstatus": 0}, {"docstatus": 2}, {"employer": "OTHER"},

@@ -6,6 +6,7 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.accounting_client_summary import _client_group_key
+from credinomina_reconciliation.application_deposit_status import SETTLED, current as current_deposit_status
 from credinomina_reconciliation.client_identity import name_key
 from credinomina_reconciliation.complementary_balances import (
     FIELDS as COMPLEMENTARY_FIELDS, load_balances, reconciliation_state,
@@ -103,13 +104,13 @@ def _application_rows(employer, identity):
 
     visible = [row for row in matched if row.parent in readable]
     progress = _operative_progress(employer) if any(not row.historical_period for row in visible) else {}
-    settled = {'Depósito conciliado', 'Aplicación compensada', 'Conciliada: depósito + ajuste'}
+    settled = SETTLED
     result = []
     for row in visible:
         net = money(row.net_applied_usd if row.net_applied_usd is not None else
                     money(row.amount_usd) - money(row.application_adjustment_usd))
         historical = bool(row.historical_period)
-        status = row.deposit_match_status or 'Pendiente'
+        status = current_deposit_status(row.deposit_match_status) or 'Pendiente'
         observations = []
         if historical:
             pending = money(row.historical_balance_usd)
@@ -133,7 +134,7 @@ def _application_rows(employer, identity):
                 if current['state'] == 'Revisar distribución':
                     pending, status = None, 'Revisar distribución'
                 elif money(current['assigned_usd']) > 0:
-                    status = 'Depósito parcial'
+                    status = 'Conciliación parcial'
                 else:
                     status = 'Parcial' if current['state'] == 'Parcial' else 'Sin depósito'
         result.append(dict(type='Aplicación', document=row.parent,

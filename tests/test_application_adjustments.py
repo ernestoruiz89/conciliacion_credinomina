@@ -144,12 +144,12 @@ class ApplicationAdjustmentTests(unittest.TestCase):
             historical_balance_usd=0)
         adjustments.mark_mixed_settlements([row], [])
         self.assertEqual(row.deposit_match_status, adjustments.MIXED_STATUS)
-        row.historical_balance_usd, row.deposit_match_status = 1, "Depósito parcial"
+        row.historical_balance_usd, row.deposit_match_status = 1, "Conciliación parcial"
         adjustments.mark_mixed_settlements([row], [])
-        self.assertEqual(row.deposit_match_status, "Depósito parcial")
+        self.assertEqual(row.deposit_match_status, "Conciliación parcial")
 
     def test_mixed_status_checks_amounts_even_if_cached_balance_is_zero(self):
-        for paid, status in ((80, adjustments.MIXED_STATUS), (81, 'Diferencia de importe'), (79, 'Depósito parcial')):
+        for paid, status in ((80, adjustments.MIXED_STATUS), (81, 'Diferencia de importe'), (79, 'Conciliación parcial')):
             row = frappe._dict(name='A', event_type='Aplicacion', effective=1, match_status='Conciliado',
                 amount=100, application_adjustment_usd=20, historical_period='P', historical_remitted_usd=paid,
                 historical_balance_usd=0, historical_detail='[]', deposit_match_status=adjustments.MIXED_STATUS)

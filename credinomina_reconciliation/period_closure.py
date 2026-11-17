@@ -5,6 +5,7 @@ import frappe
 
 from credinomina_reconciliation.remittance_periods import deposit_names_for_periods
 from credinomina_reconciliation.rounding import CASH_EPSILON
+from credinomina_reconciliation.application_deposit_status import SETTLED
 
 
 def entries(value):
@@ -177,7 +178,5 @@ def validate_direct_applications(period):
         rounding = sum((money(entry.get("diferencia_usd")) for entry in entries(source.get("historical_detail"))), money(0))
         if net < 0 or paid < 0 or paid > net + rounding:
             frappe.throw(_("La aplicación {0} tiene cobertura mayor al aplicado neto o importes inconsistentes. Revise su distribución antes del cierre.").format(source.name))
-        if paid < net + rounding or money(source.historical_balance_usd) > 0 or source.deposit_match_status not in {
-            "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste",
-        }:
+        if paid < net + rounding or money(source.historical_balance_usd) > 0 or source.deposit_match_status not in SETTLED:
             frappe.throw(_("Falta completar la conciliación 2 de la aplicación {0} con depósitos o ajustes confirmados.").format(source.name))

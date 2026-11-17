@@ -35,6 +35,9 @@ frappe.ui.form.on("CN Accounting Import", {
 
         if (frm.get_perm(0, "write")) {
             frm.add_custom_button(__("Conciliar período predeterminado"), () => reconcileCompany(frm));
+            if (frm.doc.docstatus !== 2 && (frm.doc.rows || []).length) {
+                frm.add_custom_button(__("Documentar diferencias del detalle"), () => reviewAccountingDifferences(frm), __("Más opciones"));
+            }
         }
     },
 
@@ -50,6 +53,96 @@ frappe.ui.form.on("CN Accounting Import", {
         frm.set_value("historical_period", "");
     },
 });
+
+async function reviewAccountingDifferences(frm) {
+    if (frm.is_new() || frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue la importación antes de documentar sus diferencias."));
+    const existing = frm._cn_accounting_difference_helper;
+    if (existing) {
+        if (existing.import_name !== frm.doc.name) return frappe.msgprint(__("Cierre el modal de la importación anterior antes de abrir otro."));
+        if (existing.is_minimized) existing.toggle_minimize();
+        else if (!existing.display) existing.show();
+        return existing;
+    }
+    if (frm._cn_accounting_difference_loading) return;
+    const name = frm.doc.name, method = "credinomina_reconciliation.accounting_difference_helper.";
+    frm._cn_accounting_difference_loading = true;
+    try {
+        const {message: data} = await frappe.call({method: method + "load", args: {name}});
+        if (frm.doc.name !== name || frm.is_dirty()) return;
+        if (String(frm.doc.modified) !== data.modified) return frappe.msgprint(__("La importación tiene cambios más recientes. Recárguela antes de abrir el modal."));
+        if (!data.rows.length) return frappe.msgprint(__("La importación no tiene filas para documentar."));
+        let modified = data.modified, busy = false;
+        const baseline = new Map(data.rows.map(row => [row.row_name, {
+            difference_reason: row.difference_reason || "", difference_notes: row.difference_notes || "",
+        }]));
+        const dialog = new frappe.ui.Dialog({
+            title: __("Documentar diferencias del detalle"), size: "extra-large", static: true, minimizable: true,
+            on_minimize_toggle(minimized) {
+                const label = minimized ? __("Restaurar diferencias del detalle") : __("Minimizar diferencias del detalle");
+                this.get_minimize_btn().attr({title: label, "aria-label": label});
+            },
+            onhide() {if (frm._cn_accounting_difference_helper === this) frm._cn_accounting_difference_helper = null;},
+            fields: [
+                {fieldtype: "HTML", options: `<p>${__("Edite la razón y la documentación de cada diferencia. Los cambios aparecen en 2. Conciliación de la fila. Guardar conserva importes, vínculos y estados de conciliación; no necesita volver a conciliar.")}</p>`},
+                {fieldname: "rows", fieldtype: "Table", label: __("Filas de la importación"),
+                    cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
+                    data: data.rows.map(row => ({...row})), fields: [
+                        {fieldname: "row_name", fieldtype: "Data", hidden: 1, read_only: 1},
+                        {fieldname: "source_row", fieldtype: "Int", label: __("Fila de origen"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "client_name", fieldtype: "Data", label: __("Cliente"), read_only: 1, in_list_view: 1, columns: 2},
+                        {fieldname: "loan_number", fieldtype: "Data", label: __("Crédito"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "event_date", fieldtype: "Date", label: __("Fecha"), read_only: 1},
+                        {fieldname: "event_type", fieldtype: "Data", label: __("Movimiento"), read_only: 1},
+                        {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe US$"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "deposit_match_status", fieldtype: "Data", label: __("Estado de depósito"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), in_list_view: 1, columns: 2},
+                        {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Documentación de la diferencia"), in_list_view: 1, columns: 2},
+                        {fieldname: "deposit_match_reason", fieldtype: "Small Text", label: __("Resultado de conciliación"), read_only: 1},
+                    ]},
+            ],
+            primary_action_label: __("Guardar diferencias"),
+            async primary_action() {
+                if (busy) return;
+                if (frm.doc.name !== name || frm.is_dirty()) return frappe.msgprint(__("Guarde o recargue los cambios de la importación antes de guardar el modal. Sus ediciones permanecen aquí."));
+                const changes = dialog.fields_dict.rows.grid.get_data().map(row => ({row_name: row.row_name,
+                    difference_reason: String(row.difference_reason || "").trim(), difference_notes: String(row.difference_notes || "").trim(),
+                })).filter(row => {
+                    const saved = baseline.get(row.row_name);
+                    return saved && (row.difference_reason !== saved.difference_reason || row.difference_notes !== saved.difference_notes);
+                });
+                if (!changes.length) return frappe.show_alert({message: __("No hay cambios para guardar."), indicator: "blue"});
+                if (changes.some(row => !row.difference_reason || !row.difference_notes)) return frappe.msgprint(__("Indique la razón y la documentación de la diferencia para cada fila modificada."));
+                busy = true; dialog.disable_primary_action(); dialog.get_close_btn().prop("disabled", true);
+                try {
+                    const requestVersion = modified;
+                    const response = (await frappe.call({method: method + "save", args: {name, modified, rows: changes}})).message;
+                    modified = response.modified;
+                    for (const row of response.rows) baseline.set(row.row_name, {
+                        difference_reason: row.difference_reason || "", difference_notes: row.difference_notes || "",
+                    });
+                    if (frm.doc.name === name && !frm.is_dirty() && String(frm.doc.modified) === requestVersion) {
+                        for (const saved of response.rows) {
+                            const row = (frm.doc.rows || []).find(item => item.name === saved.row_name);
+                            if (!row) continue;
+                            row.difference_reason = saved.difference_reason; row.difference_notes = saved.difference_notes;
+                            const gridRow = frm.fields_dict.rows?.grid?.grid_rows_by_docname?.[row.name];
+                            gridRow?.refresh_field("difference_reason"); gridRow?.refresh_field("difference_notes");
+                        }
+                        frm.doc.modified = response.modified;
+                    }
+                    dialog.set_alert(__("Diferencias guardadas. Puede seguir editando o cerrar; la conciliación se conserva."), "success");
+                } finally {busy = false; dialog.enable_primary_action(); dialog.get_close_btn().prop("disabled", false);}
+            },
+            secondary_action_label: __("Cerrar"), secondary_action() {if (!busy) dialog.hide();},
+        });
+        dialog.import_name = name;
+        dialog.get_close_btn().show();
+        dialog.get_minimize_btn().attr({title: __("Minimizar diferencias del detalle"), "aria-label": __("Minimizar diferencias del detalle")});
+        frm._cn_accounting_difference_helper = dialog;
+        dialog.show();
+        return dialog;
+    } finally {frm._cn_accounting_difference_loading = false;}
+}
 
 function loadAccountingMovements(frm) {
     const period = frm.doc.historical_period;
@@ -383,7 +476,7 @@ function importExceptionRows(rows) {
                 reason: row.match_reason || __("No hay una coincidencia única. Revise cliente, crédito, empresa y período.")});
         }
         if (row.event_type === "Aplicacion" && Number(row.effective)
-                && !["Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"].includes(row.deposit_match_status)) {
+                && !["Conciliado", "Compensada", "Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"].includes(row.deposit_match_status)) {
             if (!["Conciliado", "Ambiguo", "Sin coincidencia"].includes(row.match_status)) {
                 reasons.push({stage: __("Aplicación"),
                     reason: row.match_reason || __("La aplicación aún no tiene un vínculo confirmado con el período o la cobranza.")});
@@ -433,7 +526,7 @@ function accountingImportIssueRecords(row, doc) {
 function accountingImportIssueAction(row, doc, stage) {
     if (!doc.employer) return {field: "employer", text: __("Complete Empresa en la cabecera y guarde antes de conciliar.")};
     if (stage === __("Distribución del depósito")) return {field: "rows", text: __("Revise Destinos e importes en el depósito vinculado y vuelva a conciliar ese depósito.")};
-    if (stage === __("Depósito de la aplicación")) return {field: "rows", text: row.deposit_match_status === "Depósito parcial"
+    if (stage === __("Depósito de la aplicación")) return {field: "rows", text: ["Conciliación parcial", "Depósito parcial"].includes(row.deposit_match_status)
         ? __("Complete la evidencia del importe pendiente en los destinos del depósito y vuelva a conciliarlo.")
         : __("Identifique el depósito que paga esta aplicación y revise sus destinos. Use Ver registros relacionados para buscar pendientes del cliente.")};
     if (!row.loan_number && row.event_type === "Aplicacion") return {field: "rows", text: __("Revise Nro. Crédito de esta fila según el respaldo del movimiento.")};
@@ -584,7 +677,7 @@ function importExceptionAmounts(row, doc) {
     if (historical && row.match_status === "Conciliado" && row.historical_period) {
         paid = cents(row.historical_remitted_usd);
         pending = cents(row.historical_balance_usd);
-    } else if (historical || row.deposit_match_status === "Sin deposito") {
+    } else if (historical || ["No conciliado", "Sin deposito"].includes(row.deposit_match_status)) {
         paid = 0;
         pending = net;
     }

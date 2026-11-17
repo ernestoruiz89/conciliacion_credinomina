@@ -58,7 +58,7 @@ class PeriodPendingTests(unittest.TestCase):
         original = row.copy()
         result = pending.application_issue(row)
         self.assertEqual((result["source_row"], result["installment_number"]), ("APP-80", "4"))
-        self.assertEqual(result["status"], "Depósito parcial")
+        self.assertEqual(result["status"], "Conciliación parcial")
         self.assertEqual(result["reason"],
                          "La aplicación tiene US$ 25.95 vinculados a depósitos de un aplicado neto de US$ 25.96. "
                          "Quedan US$ 0.01 pendientes de cubrir.")

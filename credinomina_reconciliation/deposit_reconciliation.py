@@ -452,7 +452,7 @@ def reconcile_deposit(document, progress=None, undo=False):
     for row in active_sources:
         if row.effective and row.application_adjustment_usd and engine.net_amount(row) == 0:
             row.match_status = "Conciliado"
-            row.deposit_match_status = "Aplicación compensada"
+            row.deposit_match_status = "Compensada"
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     # Sync can only write the selected registered deposit.
     engine._sync_registered_deposit_detail(allocation)

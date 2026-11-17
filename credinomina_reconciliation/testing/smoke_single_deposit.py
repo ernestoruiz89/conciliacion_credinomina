@@ -69,7 +69,7 @@ def run():
                 first.reload(); second.reload(); source.reload(); period.reload()
                 assert first_state == document_state(first), "Other deposit changed"
                 assert second.allocated_usd == 60 and period.remitted_usd == 100
-                assert source.rows[0].deposit_match_status == "Depósito conciliado", source.rows[0].as_dict()
+                assert source.rows[0].deposit_match_status == "Conciliado", source.rows[0].as_dict()
                 for doc, snapshot in zip((unrelated, other_period, other_source), other_states):
                     doc.reload()
                     assert document_state(doc) == snapshot, ("Unrelated document changed", doc.name)
