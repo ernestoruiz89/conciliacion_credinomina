@@ -25,9 +25,7 @@ frappe.ui.form.on("CN Accounting Import", {
         showAccountingRecovery(frm);
         if (frm.is_new()) return;
 
-        if (frappe.model.can_create("CN Reconciliation Period")) {
-            frm.add_custom_button(__("Crear período"), () => createAccountingPeriod(frm));
-        }
+        updateAccountingPeriodButton(frm);
 
         frm.add_custom_button(__("Cargar movimientos contables"), () => loadAccountingMovements(frm));
         frm.add_custom_button(__("Saldos por cliente"), () => showAccountingClientSummary(frm), __("Consultas"));
@@ -48,6 +46,9 @@ frappe.ui.form.on("CN Accounting Import", {
         update_currency_fields(frm);
     },
 
+    historical_period(frm) {
+        updateAccountingPeriodButton(frm);
+    },
     employer(frm) {
         frm.set_value("portfolio_snapshot", "");
         frm.set_value("historical_period", "");
@@ -392,24 +393,43 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
     }
 }
 
+function updateAccountingPeriodButton(frm) {
+    if (frm.is_new()) return;
+    const create = __("Crear período"), view = __("Ver período");
+    frm.remove_custom_button(create);
+    frm.remove_custom_button(view);
+    if (frm.doc.historical_period) {
+        frm.add_custom_button(view, () => frappe.set_route("Form", "CN Reconciliation Period", frm.doc.historical_period));
+    } else if (frappe.model.can_create("CN Reconciliation Period")) {
+        frm.add_custom_button(create, () => createAccountingPeriod(frm));
+    }
+}
+
 async function createAccountingPeriod(frm) {
     if (frm._creating_period) return;
     frm._creating_period = true;
     try {
         if (frm.is_dirty()) await frm.save();
+        const doctype = "CN Reconciliation Period";
+        if (frm.doc.historical_period) return frappe.set_route("Form", doctype, frm.doc.historical_period);
         const {message: defaults} = await frappe.call({
             method: "credinomina_reconciliation.accounting_period.get_period_defaults",
             args: {import_name: frm.doc.name},
         });
+        const {payroll_frequency: _frequency, ...initialValues} = defaults;
+        await frappe.model.with_doctype(doctype);
+        const draft = frappe.model.get_new_doc(doctype);
+        Object.assign(draft, initialValues);
         const QuickEntry = frappe.ui.form.CNReconciliationPeriodQuickEntryForm;
-        const dialog = new QuickEntry("CN Reconciliation Period", null, null, null, true);
+        const dialog = new QuickEntry(doctype, null, null, draft, true);
         dialog.title = __("Crear período");
         dialog.accounting_source = frm;
         dialog.accounting_link = {row_name: null};
-        dialog.accounting_defaults = defaults;
+        dialog.accounting_defaults = initialValues;
         frappe.quick_entry = dialog;
         try {
             await dialog.setup();
+            await dialog.set_values(initialValues);
         } catch (error) {
             if (frappe.quick_entry === dialog) frappe.quick_entry = null;
             throw error;
