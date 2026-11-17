@@ -56,7 +56,10 @@ vm.runInContext(fs.readFileSync(path + 'cn_accounting_import/cn_accounting_impor
     assert.equal(dialog.doc.payroll_month, '2026-09-01');
     assert.equal(dialog.doc.reconciliation_mode, 'Operativa');
     assert.equal(dialog.doc.collection_cycle, 'Primera quincena');
+    assert.equal(dialog.docfields.find(field => field.fieldname === 'employer').default, 'A');
+    assert.equal(dialog.docfields.find(field => field.fieldname === 'payroll_month').default, '2026-09-01');
     assert.ok(dialog.docfields.some(field => field.fieldname === 'collection_file'));
+    assert.ok(dialog.docfields.some(field => field.fieldname === 'download_collection_template'));
     assert.equal(calls.length, 0, 'Opening the dialog must not create or reconcile anything');
     dialog.doc.collection_file = 'payroll.csv';
     await dialog.insert();
