@@ -239,7 +239,7 @@ def validate_adjustment(doc):
         doc.review_status = "Ajuste pendiente de completar"
         return
     if not doc.related_application or not doc.employer:
-        frappe.throw(_("Seleccione empresa y use Vincular a aplicación."))
+        frappe.throw(_("Seleccione empresa y use Distribuir entre aplicaciones."))
     # Serialize confirmations against the same application. Current reads below
     # see prior confirmations even under MariaDB repeatable-read transactions.
     frappe.db.sql("select name from `tabCN Source Row` where name=%s for update", doc.related_application)

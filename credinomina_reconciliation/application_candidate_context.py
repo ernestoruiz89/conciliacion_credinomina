@@ -18,6 +18,33 @@ def batches(values, size=500):
         yield values[offset:offset + size]
 
 
+def cash_journals(names):
+    """Bound preview reads without repeating LIKE scans of every cash journal.
+
+    Keep global cash evidence: another employer or an automatic distribution
+    without target children can reserve these applications too. Callers still
+    verify exact destinations after parsing the journal.
+    """
+    names = set(names) - {None, ''}
+    if not names:
+        return
+    if len(names) <= 20:
+        patterns = [name.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') for name in sorted(names)]
+        yield from frappe.get_all('CN Remittance Allocation', filters={'docstatus': 1},
+            or_filters=[['allocation_detail', 'like', '%' + pattern + '%'] for pattern in patterns],
+            fields=['name', 'allocation_detail'], limit_page_length=0)
+        return
+    cursor = ''
+    while True:
+        page = frappe.get_all('CN Remittance Allocation', filters={
+            'docstatus': 1, 'name': ['>', cursor], 'allocation_detail': ['not in', ['', '[]']]},
+            fields=['name', 'allocation_detail'], order_by='name asc', limit_page_length=500)
+        yield from page
+        if len(page) < 500:
+            return
+        cursor = page[-1].name
+
+
 class CandidateContext:
     def __init__(self, rows, parent, item):
         self.parent = parent
@@ -113,23 +140,14 @@ class CandidateContext:
                      else ('C', keys.get((row.period, row.row_key))))
             if claim[1]:
                 planned[(row.parent, claim)] += money(row.amount_usd)
-        seen = set()
-        for batch in batches(applications | {key[0] for key in keys}, size=100):
-            # Escape LIKE metacharacters. JSON parsing below verifies exact IDs.
-            patterns = [name.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') for name in batch]
-            for deposit in frappe.get_all('CN Remittance Allocation', filters={'docstatus': 1},
-                    or_filters=[['allocation_detail', 'like', '%' + pattern + '%'] for pattern in patterns],
-                    fields=['name', 'allocation_detail'], limit_page_length=0):
-                if deposit.name in seen:
-                    continue
-                seen.add(deposit.name)
-                for entry in entries(deposit.allocation_detail):
-                    claim = (('H', entry.get('aplicacion_id')) if entry.get('tipo') == 'Aplicacion historica'
-                             and entry.get('aplicacion_id') in applications else
-                             ('C', keys.get((entry.get('periodo'), entry.get('fila_id'))))
-                             if entry.get('tipo') == 'Cobranza' else None)
-                    if claim and claim[1]:
-                        paid[(deposit.name, claim)] += money(entry.get('importe_usd'))
+        for deposit in cash_journals(applications | {key[0] for key in keys}):
+            for entry in entries(deposit.allocation_detail):
+                claim = (('H', entry.get('aplicacion_id')) if entry.get('tipo') == 'Aplicacion historica'
+                         and entry.get('aplicacion_id') in applications else
+                         ('C', keys.get((entry.get('periodo'), entry.get('fila_id'))))
+                         if entry.get('tipo') == 'Cobranza' else None)
+                if claim and claim[1]:
+                    paid[(deposit.name, claim)] += money(entry.get('importe_usd'))
         for key in paid.keys() | planned.keys():
             self.reserved[key[1]] += max(paid[key], planned[key])
         from credinomina_reconciliation.credit_application import funding_totals
