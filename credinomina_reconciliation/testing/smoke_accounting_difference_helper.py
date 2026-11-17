@@ -1,4 +1,4 @@
-"""Batch-document partial/settled applications; retain executed cash and closure."""
+"""Document pending applications, excluding settled rows and preserving cash."""
 from unittest.mock import patch
 
 import frappe
@@ -51,22 +51,24 @@ def run():
             baseline = snapshot(imported)
             protected = {doc.name: document_state(doc) for doc in (period, deposit)}
             data = load(imported.name)
-            assert len(data['rows']) == 2
+            assert [row['row_name'] for row in data['rows']] == [imported.rows[0].name]
             changes = [dict(row_name=row.name, difference_reason=reason.name, difference_notes='Soporte ' + str(i))
-                       for i, row in enumerate(imported.rows)]
+                       for i, row in enumerate(imported.rows[:1])]
             result = save(imported.name, data['modified'], changes)
-            assert result['updated'] == 2
+            assert result['updated'] == 1
             imported.reload()
             assert snapshot(imported) == baseline
-            assert [row.difference_notes for row in imported.rows] == ['Soporte 0', 'Soporte 1']
+            assert imported.rows[0].difference_notes == 'Soporte 0'
+            assert not imported.rows[1].difference_notes
             assert len(frappe.get_all('Comment', filters={'reference_doctype': imported.doctype,
-                'reference_name': imported.name, 'content': ['like', '%Diferencia documentada%']})) == 2
+                'reference_name': imported.name, 'content': ['like', '%Diferencia documentada%']})) == 1
             repeat = save(imported.name, result['modified'], changes)
             assert repeat['updated'] == 0 and repeat['modified'] == result['modified']
             for doc in (period, deposit):
                 assert document_state(doc.reload()) == protected[doc.name], doc.name
             for version, rows in [(data['modified'], changes), (result['modified'],
-                    [changes[0], dict(changes[1], row_name='OTHER')])]:
+                    [changes[0], dict(changes[0], row_name='OTHER')]), (result['modified'],
+                    [changes[0], dict(changes[0], row_name=imported.rows[1].name)])]:
                 before = document_state(imported.reload())
                 try:
                     save(imported.name, version, rows)
@@ -76,7 +78,7 @@ def run():
                     raise AssertionError('Stale or foreign-row batch was accepted')
                 assert document_state(imported.reload()) == before
             return dict(batch_classification=True, audit_comments=True, no_op_idempotent=True,
-                partial_and_settled_rows_supported=True, money_and_links_preserved=True,
+                pending_rows_only=True, settled_rows_excluded_and_not_editable_in_batch=True, money_and_links_preserved=True,
                 closed_period_and_deposit_unchanged=True, stale_and_invalid_batches_rejected=True, rolled_back=True)
     finally:
         frappe.db.rollback()

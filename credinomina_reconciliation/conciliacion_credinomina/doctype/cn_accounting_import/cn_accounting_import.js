@@ -70,7 +70,7 @@ async function reviewAccountingDifferences(frm) {
         const {message: data} = await frappe.call({method: method + "load", args: {name}});
         if (frm.doc.name !== name || frm.is_dirty()) return;
         if (String(frm.doc.modified) !== data.modified) return frappe.msgprint(__("La importación tiene cambios más recientes. Recárguela antes de abrir el modal."));
-        if (!data.rows.length) return frappe.msgprint(__("La importación no tiene filas para documentar."));
+        if (!data.rows.length) return frappe.msgprint(__("No hay filas con diferencias pendientes para documentar."));
         let modified = data.modified, busy = false;
         const baseline = new Map(data.rows.map(row => [row.row_name, {
             difference_reason: row.difference_reason || "", difference_notes: row.difference_notes || "",
@@ -83,8 +83,8 @@ async function reviewAccountingDifferences(frm) {
             },
             onhide() {if (frm._cn_accounting_difference_helper === this) frm._cn_accounting_difference_helper = null;},
             fields: [
-                {fieldtype: "HTML", options: `<p>${__("Edite la razón y la documentación de cada diferencia. Los cambios aparecen en 2. Conciliación de la fila. Guardar conserva importes, vínculos y estados de conciliación; no necesita volver a conciliar.")}</p>`},
-                {fieldname: "rows", fieldtype: "Table", label: __("Filas de la importación"),
+                {fieldtype: "HTML", options: `<p>${__("Se muestran solo las filas con diferencias pendientes; se excluyen las conciliadas y compensadas. Edite su razón y documentación en 2. Conciliación. Guardar conserva importes, vínculos y estados de conciliación; no necesita volver a conciliar.")}</p>`},
+                {fieldname: "rows", fieldtype: "Table", label: __("Filas con diferencias"),
                     cannot_add_rows: true, cannot_delete_rows: true, in_place_edit: true,
                     data: data.rows.map(row => ({...row})), fields: [
                         {fieldname: "row_name", fieldtype: "Data", hidden: 1, read_only: 1},
