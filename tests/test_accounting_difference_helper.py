@@ -20,10 +20,11 @@ class Document(frappe._dict):
 def document():
     return Document(doctype=helper.DOCTYPE, name='IMPORT', modified='v1', docstatus=0,
         status='Importado', rows=[frappe._dict(name=name, doctype='CN Source Row', idx=i,
+            event_type='Aplicacion', effective=1, match_status='Conciliado',
             amount_usd=100, historical_remitted_usd=50, historical_balance_usd=50,
             historical_detail='[{"importe_usd":50}]', deposit_match_status=state,
             difference_reason='Anterior' if i == 2 else '', difference_notes='Anterior' if i == 2 else '')
-            for i, (name, state) in enumerate([('A', 'Conciliación parcial'), ('B', 'Conciliado')], 1)])
+            for i, (name, state) in enumerate([('A', 'Conciliación parcial'), ('B', 'No conciliado')], 1)])
 
 
 def environment(document):
@@ -37,7 +38,7 @@ def environment(document):
     return stack, write, lock, reason
 
 
-def test_load_includes_all_rows_and_existing_notes_without_writes(document):
+def test_load_includes_pending_rows_and_existing_notes_without_writes(document):
     before = deepcopy(document)
     stack, write, _, _ = environment(document)
     with stack:
@@ -46,6 +47,27 @@ def test_load_includes_all_rows_and_existing_notes_without_writes(document):
     assert result['rows'][1]['difference_notes'] == 'Anterior'
     assert document == before
     write.assert_not_called()
+
+
+@pytest.mark.parametrize('state', ['Conciliado', 'Compensada', 'Conciliada: depósito + ajuste',
+                                 'Depósito conciliado', 'Aplicación compensada'])
+def test_settled_rows_are_excluded_even_with_previous_documentation(document, state):
+    document.rows[1].deposit_match_status = state
+    assert [row['row_name'] for row in helper.detail_rows(document)] == ['A']
+    stack, write, _, _ = environment(document)
+    with stack, pytest.raises(frappe.ValidationError, match='ya no tiene diferencias'):
+        helper.save('IMPORT', 'v1', [dict(row_name='A', difference_reason='Motivo', difference_notes='Soporte'),
+            dict(row_name='B', difference_reason='Motivo', difference_notes='Soporte')])
+    write.assert_not_called()
+
+
+def test_inactive_ignored_and_settled_movements_are_excluded():
+    for changes in (dict(effective=0), dict(match_status='Ignorado'),
+                    dict(event_type='Deposito', unallocated_usd=0), dict(event_type='Ajuste')):
+        row = frappe._dict(dict(event_type='Aplicacion', effective=1, match_status='Conciliado'), **changes)
+        assert not helper.has_difference(row)
+    assert helper.has_difference(frappe._dict(event_type='Deposito', effective=1, unallocated_usd=20))
+    assert helper.has_difference(frappe._dict(event_type='Ajuste', effective=1, match_status='Ambiguo'))
 
 
 def test_save_updates_only_reason_and_notes_preserving_money_statuses_and_links(document):

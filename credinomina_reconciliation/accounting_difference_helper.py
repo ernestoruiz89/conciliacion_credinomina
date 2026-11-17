@@ -3,8 +3,20 @@ import frappe
 from frappe import _
 
 from credinomina_reconciliation.difference_documentation import _store_documentation, _touch_documentation
+from credinomina_reconciliation.application_deposit_status import SETTLED
+from credinomina_reconciliation.rounding import money
 
 DOCTYPE = 'CN Accounting Import'
+
+
+def has_difference(row):
+    if not row.get('effective') or row.get('match_status') == 'Ignorado' or row.get('deposit_match_status') in SETTLED:
+        return False
+    if row.get('event_type') == 'Aplicacion':
+        return True
+    if row.get('event_type') == 'Deposito' and money(row.get('unallocated_usd')):
+        return True
+    return row.get('match_status') in {'Ambiguo', 'Sin coincidencia'}
 
 
 def detail_rows(document):
@@ -13,7 +25,7 @@ def detail_rows(document):
         event_date=row.get('event_date'), event_type=row.get('event_type'), amount_usd=row.get('amount_usd'),
         deposit_match_status=row.get('deposit_match_status'), deposit_match_reason=row.get('deposit_match_reason'),
         difference_reason=row.get('difference_reason') or '', difference_notes=row.get('difference_notes') or '')
-        for row in document.get('rows') or []]
+        for row in document.get('rows') or [] if has_difference(row)]
 
 
 def check_document(document):
@@ -42,6 +54,7 @@ def save(name, modified, rows):
     if not isinstance(rows, list) or not rows:
         frappe.throw(_('No hay cambios de clasificación para guardar.'))
     children = {row.name: row for row in document.get('rows') or []}
+    eligible = {row.name for row in children.values() if has_difference(row)}
     checked, seen, reasons = [], set(), set()
     for change in rows:
         if not isinstance(change, dict) or set(change) - {'row_name', 'difference_reason', 'difference_notes'}:
@@ -49,6 +62,8 @@ def save(name, modified, rows):
         row_name = change.get('row_name')
         if not isinstance(row_name, str) or row_name not in children or row_name in seen:
             frappe.throw(_('La fila no pertenece a esta importación o está repetida.'))
+        if row_name not in eligible:
+            frappe.throw(_('La fila ya no tiene diferencias pendientes. Cierre y vuelva a abrir el modal.'))
         row = children[row_name]
         if row.doctype != 'CN Source Row':
             frappe.throw(_('La fila no corresponde al detalle contable.'))
