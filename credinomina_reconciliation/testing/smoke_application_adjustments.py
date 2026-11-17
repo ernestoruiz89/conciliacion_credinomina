@@ -62,7 +62,7 @@ def run():
         confirm_adjustment(full.name)
         hist.reload(); historical.reload()
         assert hist.rows[0].amount == 100 and hist.rows[0].net_applied_usd == 0
-        assert hist.rows[0].deposit_match_status == "Aplicación compensada"
+        assert hist.rows[0].deposit_match_status == "Compensada"
         assert historical.applied_usd == 0 and historical.remitted_usd == 0 and historical.status == "Conciliado"
         assert (historical.applied_total_usd, historical.remitted_total_usd, historical.pending_usd) == (100, 100, 0)
         assert hist.exception_count == 0

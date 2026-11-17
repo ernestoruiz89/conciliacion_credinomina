@@ -61,7 +61,7 @@ def run():
             pending.save()
             confirm_adjustment(pending.name)
             source.reload()
-            assert source.rows[0].deposit_match_status == "Aplicación compensada"
+            assert source.rows[0].deposit_match_status == "Compensada"
             assert source.exception_count == 0
             another = new_item(1)
             assert application_candidates(another.name, source.name) == []

@@ -101,7 +101,7 @@ class _RegisteredDeposit(dict):
 PROVISIONAL_APPLICATION = "Enlace provisional"
 from credinomina_reconciliation.application_adjustments import net_amount, refresh_rows, guard_source_changes, CATEGORY as APPLICATION_ADJUSTMENT
 
-SETTLED_APPLICATION_STATUSES = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
+from credinomina_reconciliation.application_deposit_status import SETTLED as SETTLED_APPLICATION_STATUSES, current as current_deposit_status
 
 
 def _has_application_adjustment_link(name):
@@ -805,7 +805,7 @@ def _reconciliation_feedback(rows):
                     "import_name": row._source_import, "row": row.source_row or row.idx,
                     "client_name": row.client_name or "", "loan_number": row.loan_number or "",
                     "reason": (_("Aplicación compensada totalmente por ajustes confirmados; sin depósito recibido.")
-                               if row.deposit_match_status == "Aplicación compensada"
+                               if current_deposit_status(row.deposit_match_status) == "Compensada"
                                else _("Aplicación y depósito conciliados.")
                                if row.event_type == "Aplicacion" else _("Movimiento conciliado.")),
                 })
@@ -1080,7 +1080,7 @@ def _reconcile_sources(employer=None, progress=None, *, preserve_deposits=True, 
     for row in all_rows:
         if row.event_type == "Aplicacion" and row.effective and row.application_adjustment_usd and net_amount(row) == 0:
             row.match_status = "Conciliado"
-            row.deposit_match_status = "Aplicación compensada"
+            row.deposit_match_status = "Compensada"
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     if not preserve_deposits:
         _sync_registered_deposit_detail(allocation)
@@ -3084,7 +3084,7 @@ def _rebuild_period_balances(
         if not targets:
             source.deposit_match_status = (
                 "Ambiguo" if clean_text(source.reference) in paired_references
-                else "Sin deposito"
+                else "No conciliado"
             )
             source.deposit_match_reason = _(
                 "La aplicacion aun no se enlaza de forma unica con una cobranza."
@@ -3097,11 +3097,11 @@ def _rebuild_period_balances(
         if any(target.application_status == "Diferencia aplicacion vs deposito" for target in targets):
             source.deposit_match_status = "Diferencia de importe"
         elif complete:
-            source.deposit_match_status = "Depósito conciliado"
+            source.deposit_match_status = "Conciliado"
         elif any(flt(target.remitted_usd) > AMOUNT_TOLERANCE for target in targets):
-            source.deposit_match_status = "Depósito parcial"
+            source.deposit_match_status = "Conciliación parcial"
         else:
-            source.deposit_match_status = "Sin deposito"
+            source.deposit_match_status = "No conciliado"
         source.deposit_match_reason = _(
             "{0} cobranza(s): {1} US$ de base respaldada, {2} US$ depositados; {3} US$ aplicados al credito; partida complementaria {4} US$."
         ).format(
@@ -3343,9 +3343,9 @@ def _rebuild_historical_balances(periods, source_rows, allocation):
         application.historical_detail = _historical_detail_json(details, application.historical_detail)
         application.deposit_match_status = (
             "Diferencia de importe" if money(remitted) > money(applied) + money(adjustment) or money(remitted) < 0
-            else "Depósito conciliado" if application.historical_balance_usd <= CASH_EPSILON
-            else "Depósito parcial" if remitted > CASH_EPSILON
-            else "Sin deposito"
+            else "Conciliado" if application.historical_balance_usd <= CASH_EPSILON
+            else "Conciliación parcial" if remitted > CASH_EPSILON
+            else "No conciliado"
         )
         application.deposit_match_reason = _(
             "Aplicación: {0} US$ aplicados al crédito; ajuste {1} US$; {2} US$ vinculados a depósitos; {3} US$ pendientes de evidencia de depósito."

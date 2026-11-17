@@ -48,6 +48,12 @@ assert.match(context.accountingImportIssuesHtml({...doc, rows:[unknown]}), /Dep�
 assert.equal(context.accountingImportIssueRecords({...unknown, allocation_detail:'[{"partida":{"bad":true}}]'}, {}).length, 0);
 const settled = {...source, deposit_match_status: 'Depósito conciliado'};
 assert.equal(context.accountingImportIssuesHtml({...doc, status:'Importado', rows:[settled]}), '');
+for (const status of ['Conciliado', 'Compensada', 'Conciliada: depósito + ajuste', 'Aplicación compensada']) {
+    assert.equal(context.accountingImportIssuesHtml({...doc, status:'Importado', rows:[{...settled, deposit_match_status:status}]}), '');
+}
+const renamedPartial = {...source, deposit_match_status: 'Conciliación parcial'};
+assert.match(context.accountingImportIssuesHtml({...doc, rows:[renamedPartial]}), /Complete la evidencia del importe pendiente/);
+assert.equal(context.importExceptionAmounts({...unknown, deposit_match_status:'No conciliado', amount_usd:100}, {}).pending, 10000);
 assert.equal(context.accountingImportIssuesHtml({...doc, docstatus:2}), '');
 assert.match(context.accountingImportIssuesHtml(doc, true), /cambios sin guardar/);
 const unlinked = {...unknown, match_status:'Sin coincidencia', match_reason:'Falta crédito del movimiento.', loan_number:''};

@@ -12,7 +12,7 @@ from credinomina_reconciliation.application_quality import collection_quality, a
 from credinomina_reconciliation.remittance_periods import selected_periods, attach_periods, deposit_names_for_periods
 
 
-SETTLED = {"Depósito conciliado", "Aplicación compensada", "Conciliada: depósito + ajuste"}
+from credinomina_reconciliation.application_deposit_status import SETTLED
 
 
 def application_issue(row, progress=None, no_collection=False):
@@ -34,7 +34,7 @@ def application_issue(row, progress=None, no_collection=False):
     # Older reconciliations can retain the operative "Sin deposito" reason
     # even though historical cash coverage has already been recorded.
     if paid is not None and balance is not None and paid > 0 and balance > 0:
-        status = "Depósito parcial"
+        status = "Conciliación parcial"
         reason = _(
             "La aplicación tiene US$ {0} vinculados a depósitos de un aplicado neto de US$ {1}. "
             "Quedan US$ {2} pendientes de cubrir."

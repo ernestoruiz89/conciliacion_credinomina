@@ -90,7 +90,7 @@ class IndependentReconciliationTests(unittest.TestCase):
              patch.object(engine, '_save_reconciled_document'):
             engine._rebuild_historical_balances([period], sources, allocation)
         self.assertEqual(sources[0].deposit_match_status, 'Diferencia de importe')
-        self.assertEqual(sources[1].deposit_match_status, 'Depósito parcial')
+        self.assertEqual(sources[1].deposit_match_status, 'Conciliación parcial')
         self.assertEqual(period.status, 'Parcial')
 
 

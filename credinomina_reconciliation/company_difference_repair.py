@@ -125,7 +125,7 @@ def plan(deposit, sources):
         values["historical_detail"] = json.dumps(values["historical_detail"], ensure_ascii=False)
         if source_id == gap_source:
             values.update(historical_remitted_usd=money_float(money(sources[source_id].historical_remitted_usd) + CENT_PRECISION),
-                historical_balance_usd=0, deposit_match_status="Depósito conciliado",
+                historical_balance_usd=0, deposit_match_status="Conciliado",
                 deposit_match_reason="Cobertura completa del cliente; diferencia inmaterial documentada en la empresa.")
     return dict(ledger=ledger, sources=source_updates, details=row_updates, proof=proof, gap_source=gap_source)
 

@@ -115,7 +115,7 @@ def run():
     )
     if len(applications) != 19 or any(
         row.match_status != "Conciliado"
-        or row.deposit_match_status != "Depósito conciliado"
+        or row.deposit_match_status != "Conciliado"
         for row in applications
     ):
         raise AssertionError({"application_states": applications})
@@ -164,7 +164,7 @@ def audit():
         or not deposit.detail_imported_on
         or any(
             row.match_status != "Conciliado"
-            or row.deposit_match_status != "Depósito conciliado"
+            or row.deposit_match_status != "Conciliado"
             for row in applications
         )
     ):

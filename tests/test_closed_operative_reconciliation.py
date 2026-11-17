@@ -127,7 +127,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
 
         self.assertEqual(row.applied_usd, 50)
         self.assertEqual(row.application_status, "Aplicacion encontrada")
-        self.assertEqual(application.deposit_match_status, "Sin deposito")
+        self.assertEqual(application.deposit_match_status, "No conciliado")
         self.assertIn("50.0 US$ aplicados", application.deposit_match_reason)
         self.assertEqual(application.quality_status, "Conforme según cobranza")
         self.assertEqual(row.quality_status, "Conforme según cobranza")
@@ -171,7 +171,7 @@ class ClosedOperativeReconciliationTests(unittest.TestCase):
                 [period], [application], [], _allocation(), {}, {}, [],
             )
         self.assertEqual(application.quality_status, "Conforme según cobranza")
-        self.assertEqual(application.deposit_match_status, "Sin deposito")
+        self.assertEqual(application.deposit_match_status, "No conciliado")
         self.assertEqual(row.deduction_status, "Pendiente de detalle")
         self.assertEqual((row.deducted_usd, row.remitted_usd), (0, 0))
         self.assertFalse(source_module._operative_period_fully_reconciled(period))

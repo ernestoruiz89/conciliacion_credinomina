@@ -80,7 +80,7 @@ def run():
             confirm_adjustment(full.name)
             unassigned.reload()
             assert unassigned.rows[0].net_applied_usd == 0
-            assert unassigned.rows[0].deposit_match_status == "Aplicación compensada"
+            assert unassigned.rows[0].deposit_match_status == "Compensada"
             assert unassigned.exception_count == 0
             assert frappe.get_doc(july.doctype, july.name).as_dict() == july_before
             return dict(cent_adjustment_confirmed=True, unrelated_closed_period_unchanged=True,

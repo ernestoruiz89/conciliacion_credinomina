@@ -389,7 +389,7 @@ def reconcile_scoped(item, scope, *, action="cancelar la partida"):
     for row in active_rows:
         if row.effective and row.application_adjustment_usd and engine.net_amount(row) == 0:
             row.match_status = "Conciliado"
-            row.deposit_match_status = "Aplicación compensada"
+            row.deposit_match_status = "Compensada"
             row.deposit_match_reason = _("Aplicación compensada totalmente por ajustes confirmados; no es un depósito recibido.")
     engine._sync_registered_deposit_detail(allocation)
     saved = 0

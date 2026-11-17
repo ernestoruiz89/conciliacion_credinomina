@@ -98,7 +98,7 @@ def run():
                 reconcile_deposit(deposit)
                 deposit.reload(); source.reload(); period.reload()
                 assert deposit.allocated_usd == 100 and deposit.detail_rows[0].pending_usd == 0, deposit.as_dict()
-                assert source.rows[0].deposit_match_status == "Depósito conciliado", source.rows[0].as_dict()
+                assert source.rows[0].deposit_match_status == "Conciliado", source.rows[0].as_dict()
                 assert period.applied_usd == period.remitted_usd == 100 and period.pending_usd == 0, period.as_dict()
                 cash = deposit.allocation_detail
                 if not first:

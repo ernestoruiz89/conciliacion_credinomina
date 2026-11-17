@@ -61,7 +61,7 @@ def run():
             engine._reconcile_sources(company.name)
             source.reload(); period.reload()
             assert source.rows[0].deposit_match_status == 'Diferencia de importe'
-            assert source.rows[1].deposit_match_status == 'Depósito parcial'
+            assert source.rows[1].deposit_match_status == 'Conciliación parcial'
             assert period.status == 'Parcial' and period.applied_usd == period.remitted_usd == 200
             try:
                 close_period(period.name)
