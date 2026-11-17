@@ -87,17 +87,13 @@ def run():
                                   reconciliation_mode=mode, collection_cycle='Primera quincena')
                     link = {'name':imported.name, 'modified':str(imported.modified)}
                     if mode == 'Historica':
-                        historical_draft = dict(fields, doctype=draft['doctype'], name=local_name, __islocal=1,
-                            historical_scope='Fecha exacta', historical_application_date=month+'-15',
-                            __cn_accounting_source=link)
-                        frappe.response['docs'] = []
-                        savedocs(json.dumps(historical_draft), 'Save')
-                        created_doc = next(doc for doc in frappe.response['docs'] if doc['doctype'] == draft['doctype'])
+                        fields.update(historical_scope='Fecha exacta', historical_application_date=month+'-15')
+                    created = api.create(fields, link)
+                    assert created['movements_loaded'] and not created['collection_loaded']
+                    created_doc = created['doc']
+                    if mode == 'Historica':
+                        assert created_doc['historical_scope'] == 'Fecha exacta'
                         assert str(created_doc['historical_application_date']) == month+'-15'
-                    else:
-                        created = api.create(fields, link)
-                        assert created['movements_loaded'] and not created['collection_loaded']
-                        created_doc = created['doc']
                 new_period = frappe.get_doc('CN Reconciliation Period', created_doc['name'])
                 imported.name = frappe.db.get_value('CN Accounting Import', {'historical_period':new_period.name}, 'name')
                 assert imported.reload().historical_period == new_period.name
