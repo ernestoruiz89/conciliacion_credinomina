@@ -3,10 +3,14 @@ from datetime import date
 from unittest.mock import Mock, patch
 
 import frappe
+from credinomina_reconciliation import hooks
 from credinomina_reconciliation import accounting_period as api
 
 
 class AccountingPeriodTests(unittest.TestCase):
+    def test_period_dialog_is_loaded_with_accounting_form(self):
+        self.assertIn("public/js/period_quick_entry.js", hooks.doctype_js["CN Accounting Import"])
+
     def source(self, *dates):
         return frappe._dict(employer="A", rows=[frappe._dict(event_type="Aplicacion", event_date=d) for d in dates])
 
