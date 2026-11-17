@@ -5,7 +5,7 @@ const rows = [{row_name: 'P', client_name: 'CLIENTE', amount_usd: 10, pending_us
     {row_name: 'C', client_name: 'SALDO A FAVOR', amount_usd: 1, pending_usd: 0, difference_reason: '', difference_notes: ''}];
 function button() {return {attrs: {}, show() {this.visible = true;}, prop(key, value) {this[key] = value;}, attr(values) {Object.assign(this.attrs, values);}};}
 const source = fs.readFileSync('credinomina_reconciliation/conciliacion_credinomina/doctype/cn_accounting_import/cn_accounting_import.js', 'utf8');
-const context = vm.createContext({__: value => value, frappe: {
+const context = vm.createContext({__: value => value, format_currency: value => `USD ${Number(value).toFixed(2)}`, frappe: {
     ui: {form: {on() {}}, Dialog: class {
         constructor(options) {
             this.options = options; this.fields_dict = {}; this.close = button(); this.minimize = button();
@@ -42,6 +42,11 @@ const frm = {doc: {name: 'IMPORT', modified: 'v1', total_usd: 11,
     assert.equal(dialog.options.minimizable, true);
     assert.equal(dialog.close.visible, true, 'Static dialog still exposes explicit X');
     const grid = dialog.fields_dict.rows;
+    const balanceField = grid.df.fields.find(field => field.fieldname === 'balance_usd');
+    assert.equal(balanceField.read_only, 1);
+    assert.equal(balanceField.formatter(.01), 'USD 0.01');
+    assert.equal(balanceField.formatter(null), '—');
+    assert.ok(grid.df.fields.filter(field => field.in_list_view).reduce((sum, field) => sum + field.columns, 0) <= 10);
     assert.equal(grid.df.cannot_add_rows, true); assert.equal(grid.df.cannot_delete_rows, true);
     assert.ok(!grid.df.fields.find(field => field.fieldname === 'difference_notes').reqd);
     grid.df.data[0].difference_reason = 'Cliente';

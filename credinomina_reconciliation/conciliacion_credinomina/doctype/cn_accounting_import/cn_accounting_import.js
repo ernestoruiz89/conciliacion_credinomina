@@ -94,8 +94,10 @@ async function reviewAccountingDifferences(frm) {
                         {fieldname: "event_date", fieldtype: "Date", label: __("Fecha"), read_only: 1},
                         {fieldname: "event_type", fieldtype: "Data", label: __("Movimiento"), read_only: 1},
                         {fieldname: "amount_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Importe US$"), read_only: 1, in_list_view: 1, columns: 1},
+                        {fieldname: "balance_usd", fieldtype: "Currency", options: "USD", precision: 2, label: __("Saldo pendiente US$"), read_only: 1, in_list_view: 1, columns: 1,
+                            formatter: value => value == null ? "—" : format_currency(value, "USD", 2)},
                         {fieldname: "deposit_match_status", fieldtype: "Data", label: __("Estado de depósito"), read_only: 1, in_list_view: 1, columns: 1},
-                        {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), in_list_view: 1, columns: 2},
+                        {fieldname: "difference_reason", fieldtype: "Link", options: "CN Difference Reason", label: __("Razón de la diferencia"), in_list_view: 1, columns: 1},
                         {fieldname: "difference_notes", fieldtype: "Small Text", label: __("Documentación de la diferencia"), in_list_view: 1, columns: 2},
                         {fieldname: "deposit_match_reason", fieldtype: "Small Text", label: __("Resultado de conciliación"), read_only: 1},
                     ]},
@@ -203,7 +205,7 @@ function showAccountingRecovery(frm) {
 
 function accountingClientSummaryTable(rows, page = 0) {
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
-    const fields = ["applied_usd", "assigned_usd", "rounding_usd", "balance_usd"];
+    const fields = ["amount_usd", "deposits_usd", "complementary_usd", "balance_usd"];
     const amount = value => value == null ? "—" : esc(format_currency(value, "USD", 2));
     const total = field => rows.some(row => row[field] == null) ? null
         : rows.reduce((sum, row) => sum + Math.round(Number(row[field]) * 100), 0) / 100;
@@ -220,7 +222,7 @@ function accountingClientSummaryTable(rows, page = 0) {
                 : ""}</td></tr>`;
     }).join("");
     return `<div class="table-responsive"><table class="table table-bordered table-hover" style="font-size:var(--text-base, 14px);color:var(--text-color);background-color:var(--bg-color);--bs-table-color:var(--text-color);--bs-table-bg:var(--bg-color);--bs-table-border-color:var(--border-color)">
-        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Aplicado neto US$", "Asignado a depósitos US$", "Ajuste de centavos US$", "Saldo US$", "Estado", "Registros relacionados"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
+        <thead><tr>${["Cliente / créditos", "Nro. Cliente", "Importe US$", "Depósitos US$", "Partidas complementarias US$", "Saldo US$", "Estado", "Registros relacionados"].map((label, i) => `<th class="${i >= 2 && i <= 5 ? "text-right" : ""}">${esc(__(label))}</th>`).join("")}</tr></thead>
         <tbody>${body || `<tr><td colspan="8">${esc(__("No hay clientes que coincidan."))}</td></tr>`}</tbody>
         <tfoot><tr><th colspan="2">${esc(__("Total de clientes filtrados"))} (${rows.length})</th>
         ${fields.map(field => `<th class="text-right" style="white-space:nowrap">${amount(total(field))}</th>`).join("")}<th></th><th></th></tr></tfoot>
@@ -351,7 +353,7 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
         const filters = frm._client_summary_filters?.name === name
             ? frm._client_summary_filters : {name, query: "", onlyPending: false};
         frm._client_summary_filters = filters;
-        wrapper.html(`<p class="text-muted">${esc(__("Solo aplicaciones efectivas de esta importación. El aplicado neto ya descuenta los ajustes confirmados; no incluye cobranza ni saldos a favor sin vincular. Datos guardados, según la última conciliación."))}</p>
+        wrapper.html(`<p class="text-muted">${esc(__("Solo aplicaciones efectivas de esta importación. Importe muestra la aplicación original; Partidas complementarias incluye los ajustes confirmados, los saldos a favor aplicados y los ajustes históricos de centavos con su signo de cobertura. No incluye cobranza ni saldos a favor sin vincular. Datos guardados, según la última conciliación."))}</p>
             <div class="flex mb-3" style="gap:12px;align-items:center;flex-wrap:wrap">
                 <input class="form-control input-sm cn-client-search" style="max-width:360px" aria-label="${esc(__("Buscar cliente, número o crédito"))}" placeholder="${esc(__("Buscar cliente, número o crédito"))}" value="${esc(filters.query)}">
                 <label class="checkbox-inline" style="white-space:nowrap"><input type="checkbox" class="cn-client-pending" ${filters.onlyPending ? "checked" : ""}> ${esc(__("Solo pendientes"))}</label>
@@ -359,7 +361,7 @@ async function loadAccountingClientSummary(frm, wrapper = null) {
             </div><div class="cn-client-table"></div>
             <div class="flex" style="gap:12px;align-items:center"><button type="button" class="btn btn-default btn-sm cn-client-prev">${esc(__("Anterior"))}</button>
                 <span class="cn-client-page"></span><button type="button" class="btn btn-default btn-sm cn-client-next">${esc(__("Siguiente"))}</button></div>
-            <p class="text-muted mt-2">${esc(__("Saldo = aplicado neto + ajuste de centavos − asignado. No se compensan saldos entre créditos. «—» indica que falta determinar un importe; el total tampoco se presenta como completo."))}</p>`);
+            <p class="text-muted mt-2">${esc(__("Saldo = importe − depósitos − partidas complementarias, considerando por separado las diferencias documentadas de empresa indicadas en las observaciones. Se suman los pendientes sin compensar sobrantes entre créditos. «—» indica que falta determinar un importe; el total tampoco se presenta como completo."))}</p>`);
         let page = 0;
         const render = () => {
             const filtered = rows.filter(row => (!filters.onlyPending || row.status !== "Conciliado")

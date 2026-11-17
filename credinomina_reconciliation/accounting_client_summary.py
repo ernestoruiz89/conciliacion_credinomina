@@ -85,8 +85,8 @@ def _client_group_key(row, index):
 def build_summary(document, collections, *, collection_usage=None, group_by_row=False):
     customers, claims = {}, defaultdict(list)
 
-    def add(group, net, paid=0, rounding=0, reason=''):
-        for field, value in [('applied_usd', net), ('assigned_usd', paid), ('rounding_usd', rounding)]:
+    def add(group, net, paid=0, rounding=0, reason='', credit=0):
+        for field, value in [('applied_usd', net), ('assigned_usd', paid), ('rounding_usd', rounding), ('credit_usd', credit)]:
             group[field] = None if value is None or group[field] is None else group[field] + money(value)
         balance = None if any(v is None for v in (net, paid, rounding)) else max(money(net) + money(rounding) - money(paid), money(0))
         group['balance_usd'] = None if balance is None or group['balance_usd'] is None else group['balance_usd'] + balance
@@ -102,7 +102,7 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
         group = customers.setdefault(identity, dict(client_name=row.get('client_name') or 'Sin identificar',
             client_number=row.get('client_number') or '', source_row_name=row.get('name') or '',
             loans=set(), applications=0,
-            applied_usd=money(0), assigned_usd=money(0), rounding_usd=money(0), balance_usd=money(0), observations=set()))
+            applied_usd=money(0), assigned_usd=money(0), rounding_usd=money(0), credit_usd=money(0), balance_usd=money(0), observations=set()))
         group['applications'] += 1
         if row.get('loan_number'):
             group['loans'].add(row.get('loan_number'))
@@ -114,7 +114,9 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
         if historical:
             linked = row.get('match_status') == 'Conciliado' and (row.get('historical_period') or document.get('historical_period'))
             add(group, net, row.get('historical_remitted_usd') or 0 if linked else 0,
-                sum_money(item.get('diferencia_usd') for item in entries(row.get('historical_detail'))) if linked else 0)
+                sum_money(item.get('diferencia_usd') for item in entries(row.get('historical_detail'))) if linked else 0,
+                credit=sum_money(item.get('importe_usd') for item in entries(row.get('historical_detail'))
+                                 if item.get('saldo_a_favor') or item.get('origen') == 'Saldo a favor') if linked else 0)
             continue
         links = collection_links(row, net)
         linked = sum_money(link.get('amount_usd') for link in links)
@@ -138,7 +140,12 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
                 previous = by_application.get(key, (group, money(0)))
                 by_application[key] = (group, previous[1] + amount)
             for (_group_id, name), (group, amount) in by_application.items():
-                add(group, amount, explicit.get(name, 0))
+                credit = sum_money(part.get('amount_usd')
+                    for item in entries(collection.get('remittance_detail'))
+                    if (item.get('saldo_a_favor') or item.get('origen') == 'Saldo a favor')
+                    and item.get('destino') != 'Partida complementaria' and not item.get('aplicacion_directa')
+                    for part in entries(item.get('aplicaciones_fifo')) if part.get('application_id') == name)
+                add(group, amount, explicit.get(name, 0), credit=credit)
             continue
         cash = sum_money(item.get('importe_usd') for item in entries(collection.get('remittance_detail'))
                          if item.get('destino') != 'Partida complementaria' and not item.get('aplicacion_directa')) if collection else 0
@@ -149,14 +156,17 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
             for group, amount, _name in parts:
                 add(group, amount, None, None, 'Distribución compartida o no disponible: no se puede atribuir el depósito a esta importación. Consulte el período.')
         else:
-            add(parts[0][0], local, cash, rounding)
+            credit = sum_money(item.get('importe_usd') for item in entries(collection.get('remittance_detail'))
+                if (item.get('saldo_a_favor') or item.get('origen') == 'Saldo a favor')
+                and item.get('destino') != 'Partida complementaria' and not item.get('aplicacion_directa'))
+            add(parts[0][0], local, cash, rounding, credit=credit)
 
     rows = []
     for group in customers.values():
         group['status'] = ('Revisar' if group['observations'] else 'Parcial' if group['balance_usd'] > 0 and group['assigned_usd'] > 0
                            else 'Pendiente' if group['balance_usd'] > 0 else 'Conciliado')
         rows.append({**group, 'loans': sorted(group['loans']), 'observations': sorted(group['observations']),
-                     **{field: None if group[field] is None else money_float(group[field]) for field in ('applied_usd', 'assigned_usd', 'rounding_usd', 'balance_usd')}})
+                     **{field: None if group[field] is None else money_float(group[field]) for field in ('applied_usd', 'assigned_usd', 'rounding_usd', 'credit_usd', 'balance_usd')}})
     rows.sort(key=lambda row: (row['client_name'].casefold(), row['client_number']))
     return rows
 
@@ -164,7 +174,7 @@ def build_summary(document, collections, *, collection_usage=None, group_by_row=
 def balance_totals(document, rows):
     """Import-level coverage from the same attributable client balances."""
     adjustments = sum_money(row.get('application_adjustment_usd') for row in document.get('rows') or []
-                            if row.get('event_type') == 'Aplicacion' and row.get('effective'))
+                            if row.get('event_type') == 'Aplicacion' and row.get('effective') and row.get('match_status') != 'Ignorado')
 
     def total(field):
         values = [row.get(field) for row in rows]
@@ -186,10 +196,15 @@ def balance_totals(document, rows):
         conversion -= money(proof['amount_usd'])
     if deposits is not None:
         deposits -= conversion
+    # Reused customer credit is coverage from a complementary item, not another
+    # bank receipt. Its persisted application entries identify the exact amount.
+    credits = total('credit_usd')
+    if deposits is not None:
+        deposits -= credits
     return {
         'amount_usd': money_float(net + adjustments) if net is not None else None,
         'deposits_usd': money_float(deposits) if deposits is not None else None,
-        'complementary_usd': money_float(adjustments - rounding) if rounding is not None else None,
+        'complementary_usd': money_float(adjustments - rounding + credits) if rounding is not None else None,
         'balance_usd': money_float(balance) if balance is not None else None,
         **({'conversion_usd': money_float(conversion) if conversion is not None else None} if proofs else {}),
     }
@@ -210,6 +225,34 @@ def row_amounts(document, collections):
                    if paid is not None and rounding is not None else None)
         result[name] = dict(applied_usd=money_float(applied) if applied is not None else None,
             balance_usd=row['balance_usd'], issue=' · '.join(row['observations']))
+    return result
+
+
+def client_statement_columns(document, rows):
+    """Use the import summary's four components for each actual client group.
+
+    Keep build_summary's net/coverage fields intact: reconciliation and row
+    balances depend on them. A company correction shared across clients remains
+    unattributable, just as it does across imports; never prorate it by amounts.
+    """
+    grouped, keys = defaultdict(list), {}
+    for index, source in enumerate(document.get('rows') or []):
+        if source.get('event_type') != 'Aplicacion' or not source.get('effective') or source.get('match_status') == 'Ignorado':
+            continue
+        key = _client_group_key(source, index)
+        grouped[key].append(source)
+        keys[source.get('name')] = key
+    result = []
+    for row in rows:
+        sources = grouped.get(keys.get(row['source_row_name']), [])
+        amounts = balance_totals({'rows': sources}, [row])
+        observations = list(row.get('observations') or [])
+        if amounts.get('conversion_usd') is None and 'conversion_usd' in amounts:
+            observations.append('Diferencia documentada de empresa compartida: el efectivo por cliente no se puede separar sin inventar un reparto.')
+        elif amounts.get('conversion_usd'):
+            observations.append(f"Diferencia documentada de empresa: US$ {amounts['conversion_usd']:.2f}. Se conserva por separado; no es una partida complementaria del core.")
+        result.append({**row, **{field: amounts[field] for field in ('amount_usd', 'deposits_usd', 'complementary_usd')},
+                       'observations': observations})
     return result
 
 
@@ -247,4 +290,5 @@ def get_client_summary(import_name):
     document.check_permission('read')
     collections = _collections_for_import(document, check_permissions=True)
     rows = build_summary(document, collections)
-    return {'rows': rows, 'totals': balance_totals(document, rows), 'row_amounts': row_amounts(document, collections)}
+    return {'rows': client_statement_columns(document, rows), 'totals': balance_totals(document, rows),
+            'row_amounts': row_amounts(document, collections)}

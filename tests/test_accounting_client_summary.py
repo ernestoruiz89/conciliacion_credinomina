@@ -66,6 +66,69 @@ class AccountingClientSummaryTests(unittest.TestCase):
         row = self.build([self.source(application_adjustment_usd=100)])[0]
         self.assertEqual(row['status'], 'Conciliado')
 
+    def test_client_statement_uses_original_amount_and_signed_complementary_coverage(self):
+        sources = [self.source(application_adjustment_usd=20, historical_remitted_usd=30)]
+        document = {'rows': sources}
+        base = self.build(sources)
+        row = summary.client_statement_columns(document, base)[0]
+        self.assertEqual([row[key] for key in ('amount_usd', 'deposits_usd', 'complementary_usd', 'balance_usd')],
+                         [100, 30, 20, 50])
+        self.assertEqual(base[0]['applied_usd'], 80)
+        self.assertNotIn('amount_usd', base[0], 'Presentation must not mutate balances used by reconciliation')
+        for delta, cash in ((.01, 100.01), (-.01, 99.99)):
+            sources = [self.source(historical_remitted_usd=cash, historical_detail=[{'diferencia_usd': delta}])]
+            row = summary.client_statement_columns({'rows': sources}, self.build(sources))[0]
+            self.assertEqual(row['complementary_usd'], -delta)
+            self.assertAlmostEqual(row['amount_usd'] - row['deposits_usd'] - row['complementary_usd'], row['balance_usd'])
+
+    def test_customer_credit_funding_is_complementary_not_new_bank_cash(self):
+        sources = [self.source(application_adjustment_usd=20, historical_remitted_usd=60,
+            historical_detail=[{'importe_usd':10, 'saldo_a_favor':'CREDIT'}])]
+        row = summary.client_statement_columns({'rows': sources}, self.build(sources))[0]
+        self.assertEqual([row[key] for key in ('amount_usd', 'deposits_usd', 'complementary_usd', 'balance_usd')],
+                         [100, 50, 30, 20])
+        totals = summary.balance_totals({'rows':sources}, self.build(sources))
+        self.assertEqual([totals[key] for key in ('amount_usd', 'deposits_usd', 'complementary_usd', 'balance_usd')],
+                         [100, 50, 30, 20])
+
+    def test_client_statement_groups_all_credit_movements_once(self):
+        sources = [self.source(name='A', amount=100, application_adjustment_usd=20, historical_remitted_usd=10),
+            self.source(name='B', amount=50, application_adjustment_usd=5, historical_remitted_usd=5),
+            self.source(name='C', client_number='OTHER', amount=30, historical_remitted_usd=10)]
+        rows = summary.client_statement_columns({'rows':sources}, self.build(sources))
+        self.assertEqual({row['client_number']: tuple(row[key] for key in ('amount_usd', 'deposits_usd', 'complementary_usd', 'balance_usd'))
+            for row in rows}, {'1':(150,15,25,110), 'OTHER':(30,10,0,20)})
+
+    def test_credit_funding_is_attributed_by_executed_fifo_and_ignores_stale_journals(self):
+        sources = [self.source(name=name, client_number=name, historical_period='', collection_row_id='C')
+                   for name in ('A', 'B')]
+        collection = dict(applied_usd=200, remittance_detail=[
+            dict(importe_usd=40, aplicaciones_fifo=[dict(application_id='A', amount_usd=40)]),
+            dict(importe_usd=30, saldo_a_favor='CREDIT', aplicaciones_fifo=[dict(application_id='B', amount_usd=30)])])
+        rows = summary.client_statement_columns({'rows':sources}, self.build(sources, {'C':collection}))
+        self.assertEqual({row['client_number']: (row['deposits_usd'], row['complementary_usd'], row['balance_usd'])
+                          for row in rows}, {'A':(40,0,60), 'B':(0,30,70)})
+        stale = self.source(match_status='Sin coincidencia', historical_detail=[dict(importe_usd=10, saldo_a_favor='STALE')])
+        ignored = self.source(name='IGNORED', match_status='Ignorado', application_adjustment_usd=20)
+        row = summary.client_statement_columns({'rows':[stale,ignored]}, self.build([stale,ignored]))[0]
+        self.assertEqual((row['amount_usd'], row['deposits_usd'], row['complementary_usd'], row['balance_usd']), (100,0,0,100))
+
+    def test_client_statement_retains_unknown_shared_collection_cash(self):
+        sources = [self.source(historical_period='', collection_row_id='C', amount=60)]
+        rows = self.build(sources, {'C': dict(applied_usd=100, remittance_detail=[{'importe_usd':40}])})
+        row = summary.client_statement_columns({'rows':sources}, rows)[0]
+        self.assertEqual(row['amount_usd'], 60)
+        self.assertIsNone(row['deposits_usd'])
+        self.assertIsNone(row['complementary_usd'])
+
+    def test_company_difference_is_not_divided_between_clients(self):
+        proof = dict(deposit='DEP', period='P', amount_usd=-.01, application_ids=['A','B'])
+        sources = [self.source(name=name, amount=amount, client_number=name, historical_remitted_usd=amount,
+            historical_detail=[dict(importe_usd=amount, conversion_empresa=proof)]) for name,amount in [('A',60),('B',40)]]
+        rows = summary.client_statement_columns({'rows':sources}, self.build(sources))
+        self.assertTrue(all(row['deposits_usd'] is None and row['complementary_usd'] == 0 for row in rows))
+        self.assertTrue(all('compartida' in row['observations'][-1] for row in rows))
+
     def test_signed_tolerance_and_nio_conversion(self):
         for gross, cash, delta in ((46.52, 46.53, .01), (46.53, 46.52, -.01)):
             row = self.build([self.source(amount=gross, historical_remitted_usd=cash,

@@ -21,6 +21,7 @@ def document():
     return Document(doctype=helper.DOCTYPE, name='IMPORT', modified='v1', docstatus=0,
         status='Importado', rows=[frappe._dict(name=name, doctype='CN Source Row', idx=i,
             event_type='Aplicacion', effective=1, match_status='Conciliado',
+            currency='USD', amount=100, historical_period='P',
             amount_usd=100, historical_remitted_usd=50, historical_balance_usd=50,
             historical_detail='[{"importe_usd":50}]', deposit_match_status=state,
             difference_reason='Anterior' if i == 2 else '', difference_notes='Anterior' if i == 2 else '')
@@ -45,8 +46,22 @@ def test_load_includes_pending_rows_and_existing_notes_without_writes(document):
         result = helper.load('IMPORT')
     assert [row['row_name'] for row in result['rows']] == ['A', 'B']
     assert result['rows'][1]['difference_notes'] == 'Anterior'
+    assert result['rows'][0]['balance_usd'] == 50
     assert document == before
     write.assert_not_called()
+
+
+def test_balance_includes_adjustments_and_keeps_unknown_shared_cash_unknown(document):
+    document.rows[0].application_adjustment_usd = 20
+    assert helper.detail_rows(document)[0]['balance_usd'] == 30
+    for row in document.rows:
+        row.historical_period = ''
+        row.collection_row_id = 'C'
+        row.application_allocation_detail = '[{"collection_row_id":"C","amount_usd":100}]'
+    document.rows[0].application_adjustment_usd = 0
+    collections = {'C': dict(applied_usd=200, remittance_detail=[{'importe_usd': 50}])}
+    with patch.object(helper, '_collections_for_import', return_value=collections):
+        assert all(row['balance_usd'] is None for row in helper.detail_rows(document))
 
 
 @pytest.mark.parametrize('state', ['Conciliado', 'Compensada', 'Conciliada: depósito + ajuste',

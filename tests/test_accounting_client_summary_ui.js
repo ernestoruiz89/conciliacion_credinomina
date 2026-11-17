@@ -8,12 +8,13 @@ const context = {frappe: {ui: {form: {on() {}}}, utils: {escape_html: value => S
 vm.createContext(context);
 vm.runInContext(code, context);
 const row = {client_name: '<img src=x>', client_number: '1', loans: ['<L>'], observations: [],
-    applied_usd: 100, assigned_usd: 75.39, rounding_usd: 0, balance_usd: 24.61, status: 'Parcial'};
+    amount_usd: 100, deposits_usd: 75.39, complementary_usd: 0, balance_usd: 24.61, status: 'Parcial'};
 const html = context.accountingClientSummaryTable([row]);
 assert.ok(!html.includes('<img'));
 assert.ok(html.includes('&lt;img'));
 assert.ok(html.includes('75.39') && html.includes('24.61'));
-assert.ok(html.includes('Aplicado neto US$'));
+for (const label of ['Importe US$', 'Depósitos US$', 'Partidas complementarias US$', 'Saldo US$']) assert.ok(html.includes(label));
+assert.ok(!html.includes('Aplicado neto US$') && !html.includes('Ajuste de centavos US$'));
 assert.ok(html.includes('var(--text-color)'));
 assert.ok(html.includes('var(--bg-color)'));
 assert.ok(!html.includes('green-50') && !html.includes('background:transparent'));
@@ -21,12 +22,12 @@ const reconciled = context.accountingClientSummaryTable([{...row, status: 'Conci
 const review = context.accountingClientSummaryTable([{...row, status: 'Revisar'}]);
 assert.ok(reconciled.includes('var(--green-500'));
 assert.ok(review.includes('var(--orange-500'));
-const many = Array.from({length: 51}, (_, i) => ({...row, client_name: `Cliente ${i}`, applied_usd: .1, assigned_usd: 0, balance_usd: .1}));
+const many = Array.from({length: 51}, (_, i) => ({...row, client_name: `Cliente ${i}`, amount_usd: .1, deposits_usd: 0, balance_usd: .1}));
 const first = context.accountingClientSummaryTable(many, 0);
 assert.ok(!first.includes('<strong>Cliente 50</strong>'));
 assert.ok(first.includes('5.10')); // Total over all filtered customers, not the page.
 assert.ok(context.accountingClientSummaryTable(many, 1).includes('<strong>Cliente 50</strong>'));
-const unknown = context.accountingClientSummaryTable([{...row, assigned_usd: null, balance_usd: null}]);
+const unknown = context.accountingClientSummaryTable([{...row, deposits_usd: null, balance_usd: null}]);
 assert.ok(unknown.includes('—'));
 assert.ok(!unknown.includes('24.61'));
 assert.ok(code.includes('frm._client_summary_request === request'));

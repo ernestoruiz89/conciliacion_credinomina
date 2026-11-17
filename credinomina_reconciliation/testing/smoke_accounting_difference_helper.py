@@ -4,6 +4,7 @@ from unittest.mock import patch
 import frappe
 
 from credinomina_reconciliation.accounting_difference_helper import load, save
+from credinomina_reconciliation.accounting_client_summary import get_client_summary
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
 from credinomina_reconciliation.reconciliation_scope import document_state
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import.cn_accounting_import import _reconcile_sources
@@ -50,8 +51,16 @@ def run():
             period.reload()
             baseline = snapshot(imported)
             protected = {doc.name: document_state(doc) for doc in (period, deposit)}
+            summary = get_client_summary(imported.name)
+            by_source = {row['source_row_name']: row for row in summary['rows']}
+            for source, expected in zip(imported.rows, ((100, 70, 0, 30), (50, 50, 0, 0))):
+                assert tuple(by_source[source.name][field] for field in
+                    ('amount_usd', 'deposits_usd', 'complementary_usd', 'balance_usd')) == expected
+            assert snapshot(imported.reload()) == baseline
             data = load(imported.name)
             assert [row['row_name'] for row in data['rows']] == [imported.rows[0].name]
+            assert data['rows'][0]['amount_usd'] == 100
+            assert data['rows'][0]['balance_usd'] == 30
             changes = [dict(row_name=row.name, difference_reason=reason.name, difference_notes='Soporte ' + str(i))
                        for i, row in enumerate(imported.rows[:1])]
             result = save(imported.name, data['modified'], changes)
@@ -78,7 +87,7 @@ def run():
                     raise AssertionError('Stale or foreign-row batch was accepted')
                 assert document_state(imported.reload()) == before
             return dict(batch_classification=True, audit_comments=True, no_op_idempotent=True,
-                pending_rows_only=True, settled_rows_excluded_and_not_editable_in_batch=True, money_and_links_preserved=True,
+                client_summary_components=True, pending_rows_only=True, settled_rows_excluded_and_not_editable_in_batch=True, money_and_links_preserved=True,
                 closed_period_and_deposit_unchanged=True, stale_and_invalid_batches_rejected=True, rolled_back=True)
     finally:
         frappe.db.rollback()
