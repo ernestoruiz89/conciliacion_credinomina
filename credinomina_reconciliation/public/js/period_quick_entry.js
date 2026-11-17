@@ -15,12 +15,21 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                     ? {row_name: frappe._from_link.doc?.doctype === "CN Source Row" ? frappe._from_link.doc.name : null} : null);
                 const source = this.doc.__islocal ? this.accounting_source?.doc : null;
                 this.source_date = this.application_date(source);
-                if (source) {
+                const defaults = this.doc.__islocal && this.accounting_defaults;
+                const historicalFields = ["historical_scope", "historical_application_date", "historical_start_date", "historical_end_date"];
+                if (defaults) {
+                    for (const field of ["employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", ...historicalFields]) {
+                        this.doc[field] = defaults[field];
+                    }
+                    const historicalDocfields = this.meta.fields.filter(field => historicalFields.includes(field.fieldname));
+                    this.docfields = [...this.docfields, ...historicalDocfields.filter(field =>
+                        !this.docfields.some(existing => existing.fieldname === field.fieldname))];
+                } else if (source) {
                     this.doc.employer = source.employer;
                     if (this.source_date) this.doc.payroll_month = this.source_date.slice(0, 7) + "-01";
                 }
                 if (this.doc.__islocal && this.doc.payroll_month) this.doc.reconciliation_mode = this.mode_for_month(this.doc.payroll_month);
-                if (!this.doc.collection_cycle && this.source_date) {
+                if (!defaults && !this.doc.collection_cycle && this.source_date) {
                     const day = this.source_date.slice(8);
                     this.doc.collection_cycle = day === "15" ? "Primera quincena" : day === "30" ? "Segunda quincena" : "Fecha exacta";
                 }
@@ -40,6 +49,9 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                     }
                     if (copy.fieldname === "collection_file") {
                         copy.depends_on = "eval:doc.reconciliation_mode == 'Operativa' && !doc.no_collection";
+                    }
+                    if (historicalFields.includes(copy.fieldname) && copy.fieldtype === "Date") {
+                        copy.mandatory_depends_on = copy.depends_on;
                     }
                     if (copy.fieldname === "payroll_month") {
                         const onchange = copy.onchange;
@@ -97,7 +109,7 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                     }
                     const {message: result} = await frappe.call({
                         method: "credinomina_reconciliation.period_quick_entry.create",
-                        args: {values: this.doc, source_link: sourceLink}, freeze: true,
+                        args: {values: {...this.doc, collection_file: load ? this.doc.collection_file : null}, source_link: sourceLink}, freeze: true,
                         freeze_message: __(load ? "Guardando período, cargando cobranza y movimientos contables…"
                             : sourceLink ? "Guardando período y cargando movimientos contables…" : "Guardando período…"),
                     });

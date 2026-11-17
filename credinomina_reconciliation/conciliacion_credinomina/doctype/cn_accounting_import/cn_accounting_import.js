@@ -397,24 +397,23 @@ async function createAccountingPeriod(frm) {
     frm._creating_period = true;
     try {
         if (frm.is_dirty()) await frm.save();
-        const source = {name: frm.doc.name, modified: frm.doc.modified};
         const {message: defaults} = await frappe.call({
             method: "credinomina_reconciliation.accounting_period.get_period_defaults",
-            args: {import_name: source.name},
+            args: {import_name: frm.doc.name},
         });
-        const doctype = "CN Reconciliation Period";
-        await frappe.model.with_doctype(doctype);
-        const period = frappe.model.get_new_doc(doctype);
-        for (const field of ["employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date"]) {
-            period[field] = defaults[field];
+        const QuickEntry = frappe.ui.form.CNReconciliationPeriodQuickEntryForm;
+        const dialog = new QuickEntry("CN Reconciliation Period", null, null, null, true);
+        dialog.title = __("Crear período");
+        dialog.accounting_source = frm;
+        dialog.accounting_link = {row_name: null};
+        dialog.accounting_defaults = defaults;
+        frappe.quick_entry = dialog;
+        try {
+            await dialog.setup();
+        } catch (error) {
+            if (frappe.quick_entry === dialog) frappe.quick_entry = null;
+            throw error;
         }
-        if (period.reconciliation_mode === "Historica") {
-            for (const field of ["historical_scope", "historical_application_date", "historical_start_date", "historical_end_date"]) {
-                period[field] = defaults[field];
-            }
-        }
-        period.__cn_accounting_source = source;
-        await frappe.set_route("Form", doctype, period.name);
     } finally {
         frm._creating_period = false;
     }

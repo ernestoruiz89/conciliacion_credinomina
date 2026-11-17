@@ -15,6 +15,14 @@ def create(values, source_link=None):
     fields = {field: values.get(field) for field in (
         "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "collection_file",
     )}
+    if fields["reconciliation_mode"] == "Historica":
+        scope = values.get("historical_scope") or "Mensual"
+        fields["historical_scope"] = scope
+        if scope == "Fecha exacta":
+            fields["historical_application_date"] = values.get("historical_application_date")
+        elif scope == "Rango de fechas":
+            for field in ("historical_start_date", "historical_end_date"):
+                fields[field] = values.get(field)
     period = frappe.get_doc({"doctype": "CN Reconciliation Period", **fields})
     return insert_period(period, source_link, period.insert)
 
