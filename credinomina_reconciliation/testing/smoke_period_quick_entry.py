@@ -1,8 +1,10 @@
-"""Create/load a period through Quick Entry on the disposable site; roll back."""
+"""Create and load periods through both form entry points on a disposable site."""
+import json
 from unittest.mock import patch
 
 import frappe
 from frappe.core.doctype.file.file import File
+from frappe.desk.form.save import savedocs
 
 from credinomina_reconciliation import period_quick_entry as api
 from credinomina_reconciliation.deposit_reconciliation import reconcile_deposit
@@ -35,10 +37,12 @@ def run():
                 targets=[dict(historical_application=source.rows[0].name, amount_usd=50)])).insert().submit()
             reconcile_deposit(deposit)
             protected = {doc.name: document_state(doc.reload()) for doc in (source, old, deposit)}
-            # Emulate the unattached file produced by an Attach control in a dialog.
-            # The content is mocked; no test file is left on disk after rollback.
+            local_name = 'new-cn-reconciliation-period-' + frappe.generate_hash(length=10)
+            # Emulate a full-form upload before the document gets its final name.
             file = frappe.get_doc(dict(doctype='File', name=marker, file_name=marker + '.csv',
-                file_url=f'/private/files/{marker}.csv', is_private=1, owner='Administrator'))
+                file_url=f'/private/files/{marker}.csv', is_private=1, owner='Administrator',
+                attached_to_doctype='CN Reconciliation Period', attached_to_name=local_name,
+                attached_to_field='collection_file', creation=frappe.utils.now_datetime()))
             file.db_insert()
             content = ('Nro. Cliente,Nombre y Apellidos del Cliente,Nro. Crédito,Monto de la cuota en US$\n'
                        f'{marker},{marker},9918565-1,80\n').encode()
@@ -53,22 +57,25 @@ def run():
                 currency='USD', source_file=f'/private/files/{marker}-current.csv')).insert()
             values = dict(employer=company.name, payroll_month='2026-09-01', reconciliation_mode='Operativa',
                           collection_cycle='Segunda quincena', collection_file=file.file_url)
+            draft = dict(values, doctype='CN Reconciliation Period', name=local_name, __islocal=1,
+                         __cn_accounting_source={'name':current.name, 'modified':str(current.modified)})
+            frappe.response['docs'] = []
             with patch.object(File, 'get_content', return_value=content), \
                  patch.object(engine, '_attached_file', return_value=(frappe._dict(file_name='core.csv'),
                     core_file('2026-09-30', 80, 'current'))), \
                  patch.object(engine, '_reconcile_sources', wraps=engine._reconcile_sources) as reconciled:
-                result = api.create(values, {'name':current.name, 'modified':str(current.modified)})
+                savedocs(json.dumps(draft), 'Save')
                 assert reconciled.call_count == 1, 'Payroll and core must share one reconciliation pass'
-            current.name = result['source_import']  # A first load assigns the dated import name.
-            period = frappe.get_doc('CN Reconciliation Period', result['doc']['name'])
-            assert result['collection_loaded'] and result['reconciliation']['reviewed'] == 1, result
-            assert result['reconciliation']['conforming'] == 1, result
+            saved = next(doc for doc in frappe.response['docs'] if doc['doctype'] == draft['doctype'])
+            assert saved['localname'] == local_name and '__cn_accounting_source' not in saved
+            period = frappe.get_doc('CN Reconciliation Period', saved['name'])
+            current.name = frappe.db.get_value('CN Accounting Import', {'historical_period': period.name}, 'name')
             assert period.expected_usd == period.applied_usd == 80 and period.remitted_usd == 0
             assert len(period.collection_rows) == 1 and period.collection_rows[0].client == client.name
             assert current.reload().historical_period == period.name
             assert current.rows[0].collection_row_id == period.collection_rows[0].name
             assert file.reload().attached_to_name == period.name
-            assert result['movements_loaded'] and current.status in ('Importado', 'Importado con excepciones')
+            assert current.status in ('Importado', 'Importado con excepciones')
 
             # No payroll is required for either historical or operative creation.
             for mode, month in (('Historica', '2025-08'), ('Operativa', '2026-10')):
@@ -76,12 +83,23 @@ def run():
                     currency='USD', source_file=f'/private/files/{marker}-{mode}.csv')).insert()
                 with patch.object(engine, '_attached_file', return_value=(frappe._dict(file_name='core.csv'),
                         core_file(month+'-15', 35, mode))):
-                    created = api.create(dict(employer=company.name, payroll_month=month+'-01',
-                        reconciliation_mode=mode, collection_cycle='Primera quincena'),
-                        {'name':imported.name, 'modified':str(imported.modified)})
-                new_period = frappe.get_doc('CN Reconciliation Period', created['doc']['name'])
-                imported.name = created['source_import']
-                assert created['movements_loaded'] and not created['collection_loaded']
+                    fields = dict(employer=company.name, payroll_month=month+'-01',
+                                  reconciliation_mode=mode, collection_cycle='Primera quincena')
+                    link = {'name':imported.name, 'modified':str(imported.modified)}
+                    if mode == 'Historica':
+                        historical_draft = dict(fields, doctype=draft['doctype'], name=local_name, __islocal=1,
+                            historical_scope='Fecha exacta', historical_application_date=month+'-15',
+                            __cn_accounting_source=link)
+                        frappe.response['docs'] = []
+                        savedocs(json.dumps(historical_draft), 'Save')
+                        created_doc = next(doc for doc in frappe.response['docs'] if doc['doctype'] == draft['doctype'])
+                        assert str(created_doc['historical_application_date']) == month+'-15'
+                    else:
+                        created = api.create(fields, link)
+                        assert created['movements_loaded'] and not created['collection_loaded']
+                        created_doc = created['doc']
+                new_period = frappe.get_doc('CN Reconciliation Period', created_doc['name'])
+                imported.name = frappe.db.get_value('CN Accounting Import', {'historical_period':new_period.name}, 'name')
                 assert imported.reload().historical_period == new_period.name
                 assert len(imported.rows) == 1 and imported.rows[0].historical_period == new_period.name
                 assert new_period.applied_usd == 35 and new_period.remitted_usd == 0

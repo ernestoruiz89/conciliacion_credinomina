@@ -27,6 +27,26 @@ class AccountingPeriodTests(unittest.TestCase):
             self.assertEqual(result["historical_scope"], scope)
             self.assertEqual(result["historical_application_date"], dates[0] if dates else None)
 
+    def test_full_form_prefills_from_bulk_date_before_rows_are_loaded(self):
+        for date_value, frequency, mode, cycle in (
+            ("2026-08-15", "Quincenal", "Historica", ""),
+            ("2026-09-15", "Quincenal", "Operativa", "Primera quincena"),
+            ("2026-09-30", "Mensual", "Operativa", "Mensual"),
+            ("2026-10-31", "Quincenal", "Operativa", "Fecha exacta"),
+        ):
+            with self.subTest(date_value=date_value, frequency=frequency):
+                source = self.source()
+                source.bulk_event_date = date_value
+                with patch.object(api, "_source", return_value=(source, frappe._dict(payroll_frequency=frequency))):
+                    result = api.get_period_defaults("I")
+                self.assertEqual(result["payroll_month"], date_value[:7] + "-01")
+                self.assertEqual(result["reconciliation_mode"], mode)
+                self.assertEqual(result["collection_cycle"], cycle)
+                self.assertEqual(result["cutoff_date"], date_value if cycle == "Fecha exacta" else None)
+                if mode == "Historica":
+                    self.assertEqual(result["historical_scope"], "Fecha exacta")
+                    self.assertEqual(result["historical_application_date"], date_value)
+
     def test_create_empty_draft_ignores_injected_fields(self):
         doc = Mock(name="period")
         doc.name, doc.status = "P", "Borrador"

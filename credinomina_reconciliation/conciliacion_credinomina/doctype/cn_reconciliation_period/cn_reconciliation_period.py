@@ -76,6 +76,17 @@ PENDING_REMITTANCE_DETAILS = (
 
 
 class CNReconciliationPeriod(Document):
+    def insert(self, *args, **kwargs):
+        source_link = self.get("__cn_accounting_source")
+        insert = super().insert
+        if not source_link:
+            return insert(*args, **kwargs)
+
+        self.delete_key("__cn_accounting_source")
+        from credinomina_reconciliation.period_quick_entry import insert_period
+        insert_period(self, source_link, lambda: insert(*args, **kwargs))
+        return self
+
     def autoname(self):
         self.name = new_period_name(self.employer, self.payroll_month)
 
@@ -337,12 +348,11 @@ class CNReconciliationPeriod(Document):
 def _attached_file(document, file_url):
     if not file_url:
         frappe.throw(_("Adjunte el archivo antes de ejecutar la importacion."))
-    file_doc = frappe.get_doc("File", {"file_url": file_url})
-    if (
-        file_doc.attached_to_doctype != document.doctype
-        or file_doc.attached_to_name != document.name
-    ):
+    file_name = frappe.db.exists("File", {"file_url": file_url,
+        "attached_to_doctype": document.doctype, "attached_to_name": document.name})
+    if not file_name:
         frappe.throw(_("El archivo debe estar adjunto a este periodo."))
+    file_doc = frappe.get_doc("File", file_name)
     content = file_doc.get_content()
     if isinstance(content, str):
         content = content.encode("utf-8")

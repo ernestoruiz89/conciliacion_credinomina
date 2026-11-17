@@ -4,7 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
-from credinomina_reconciliation.historical import is_historical_date
+from credinomina_reconciliation.cadence import EXACT_DATE, FIRST_HALF, MONTHLY, SECOND_HALF
+from credinomina_reconciliation.historical import OPERATIVE_START, is_historical_date
 
 
 def _source(import_name):
@@ -23,10 +24,27 @@ def get_period_defaults(import_name: str):
     source, employer = _source(import_name)
     dates = sorted({getdate(row.event_date) for row in source.rows or []
                     if row.event_type == "Aplicacion" and row.event_date})
+    event_date = getdate(source.bulk_event_date) if source.bulk_event_date else next(iter(dates), None)
+    if source.bulk_event_date:
+        dates = [event_date]
+    month = event_date.replace(day=1) if event_date else None
+    historical = month is not None and month < OPERATIVE_START
+    frequency = employer.payroll_frequency or MONTHLY
+    cycle = ""
+    if not historical:
+        if event_date and event_date.day not in (15, 30):
+            cycle = EXACT_DATE
+        elif frequency == MONTHLY:
+            cycle = MONTHLY
+        elif event_date:
+            cycle = FIRST_HALF if event_date.day == 15 else SECOND_HALF
     return {
         "employer": source.employer,
-        "payroll_month": dates[0].replace(day=1).isoformat() if dates else None,
-        "payroll_frequency": employer.payroll_frequency or "Mensual",
+        "payroll_month": month.isoformat() if month else None,
+        "reconciliation_mode": "Historica" if historical else "Operativa",
+        "payroll_frequency": frequency,
+        "collection_cycle": cycle,
+        "cutoff_date": event_date.isoformat() if cycle == EXACT_DATE else None,
         "historical_scope": "Fecha exacta" if len(dates) == 1 else "Rango de fechas" if dates else "Mensual",
         "historical_application_date": dates[0].isoformat() if len(dates) == 1 else None,
         "historical_start_date": dates[0].isoformat() if len(dates) > 1 else None,
