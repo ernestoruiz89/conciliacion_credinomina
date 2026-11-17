@@ -281,7 +281,7 @@ function cn_classify_pending(frm) {
         add("Identificar empresa o cliente", "Complete los vínculos sin modificar la evidencia contable original.", () => frm.scroll_to_field("employer"));
     }
     for (const [label, hint, action] of [
-        ["Vincular a aplicación", "Ajuste o reversión total/parcial del core. Seleccione la aplicación real.", () => cn_select_original_application(frm)],
+        ["Distribuir entre aplicaciones", "Distribuya el remanente entre aplicaciones reales del core.", () => cn_distribute_applications(frm)],
         ["Vincular a depósito", "Seleccione el depósito y el importe. La partida se agrega directamente a sus destinos.", () => cn_link_deposit(frm)],
         ["Compensar con otra partida", "Vincule la contrapartida; no basta con cambiar el concepto.", () => cn_compensate_items_dialog(frm)],
         ["Documentar seguimiento de CxC", "Documente el soporte; el saldo y los vínculos históricos se conservan.", () => cn_receivable_recovery_dialog(frm)],
@@ -485,8 +485,7 @@ frappe.ui.form.on("CN Complementary Item", {
     },
     refresh(frm) {
         cn_add_cancel_action(frm);
-        window.credinominaWorkbenchHandoff?.(frm, result => frm.doc.docstatus === 1
-            ? cn_distribute_applications(frm, result) : cn_select_original_application(frm, result));
+        window.credinominaWorkbenchHandoff?.(frm, result => cn_distribute_applications(frm, result));
         if (frm.doc.origin_deposit) {
             frm.toolbar?.set_indicator?.();
             frm.dashboard.set_headline_alert(__("Vinculado a depósito. Se conserva como evidencia, sin saldo disponible y sin contar como partida conciliada ni pendiente. No puede utilizarse en otro depósito ni compensar otras partidas."), "blue");
@@ -600,7 +599,6 @@ frappe.ui.form.on("CN Complementary Item", {
         }
         cn_render_application_links(frm);
         if (frm.doc.docstatus === 0 && !frm.is_new()) {
-            if (!betweenItems && !compensated && frm.doc.category !== "Saldo a favor del cliente") frm.add_custom_button(__("Vincular a aplicación"), () => cn_select_original_application(frm));
             if (frm.doc.review_action === "Ajuste de aplicación" && frm.get_perm(0, "submit")) {
                 frm.add_custom_button(__("Confirmar ajuste"), () => frappe.confirm(
                     __("Se reducirá el aplicado neto de la aplicación vinculada. No se registrará un depósito. ¿Confirmar ajuste?"),
@@ -1570,10 +1568,13 @@ async function cn_distribute_applications(frm, initial = null) {
     }
     if (frm.is_dirty()) await frm.save();
     const used = cn_application_links(frm.doc).reduce((sum, row) => sum + Number(row.application_adjustment_usd || 0), 0);
-    const remaining = Math.round((Math.abs(frm.doc.amount_usd || 0) - (frm.doc.docstatus === 1 ? used : 0)) * 100) / 100;
+    const remaining = Math.round((Math.abs(frm.doc.amount_usd || 0) - (frm.doc.docstatus === 1 ? used + Number(frm.doc.compensated_usd || 0) : 0)) * 100) / 100;
     if (!(remaining > 0)) {frappe.msgprint(__("La partida no tiene remanente disponible.")); return;}
-    let request = 0, busy = false, candidates = [], search = "";
+    let request = 0, busy = false, loading = false, closed = false, requestedImport = null, candidates = [], search = "";
     const selected = new Map();
+    const cents = value => Math.round(Number(value || 0) * 100);
+    const limit = cents(remaining);
+    const selectedTotal = () => [...selected.values()].reduce((sum, row) => sum + cents(row.amount_usd), 0);
     if (frm.doc.docstatus === 0) for (const link of cn_application_links(frm.doc)) {
         const previous = selected.get(link.related_application)?.amount_usd || 0;
         selected.set(link.related_application, {application: link.related_application, amount_usd: previous + Number(link.application_adjustment_usd || 0)});
@@ -1581,16 +1582,55 @@ async function cn_distribute_applications(frm, initial = null) {
     function remember() {
         const rows = dialog.fields_dict.applications.df.data || [];
         for (const row of rows) {
-            if (Number(row.amount_usd) < 0) throw new Error(__("Los importes deben ser positivos o cero para omitir la fila."));
-            if (Number(row.amount_usd) > 0) selected.set(row.application, {application: row.application, amount_usd: Number(row.amount_usd)});
+            if (!Number.isFinite(Number(row.amount_usd || 0)) || cents(row.amount_usd) < 0) throw new Error(__("Los importes deben ser positivos o cero para omitir la fila."));
+            if (cents(row.amount_usd) > cents(row.adjustable_usd)) throw new Error(__("El ajuste supera el disponible de la aplicación o el remanente de la partida."));
+            if (cents(row.amount_usd) > 0) selected.set(row.application, {application: row.application, amount_usd: cents(row.amount_usd) / 100});
             else selected.delete(row.application);
+            row.__checked = cents(row.amount_usd) > 0 ? 1 : 0;
         }
+        updateSummary();
+    }
+    function updateSummary() {
+        const chosen = selectedTotal();
+        dialog.fields_dict.distribution_summary.$wrapper.html(`<div style="display:flex;flex-wrap:wrap;gap:24px;margin-bottom:12px">
+            ${[["Remanente disponible", limit], ["Seleccionado", chosen], ["Por distribuir", limit - chosen]]
+                .map(([label, value]) => `<div><div class="text-muted">${__(label)}</div><strong>${format_currency(value / 100, "USD", 2)}</strong></div>`).join("")}
+            </div><p class="text-muted">${__("Marque una aplicación para completar su ajuste hasta el disponible y el remanente de la partida. Al desmarcarla se libera ese importe. Puede ajustar el importe manualmente y seleccionar aplicaciones de varias importaciones.")}</p>`);
+    }
+    function changeAmount(row) {
+        if (!row || busy || closed) return;
+        const other = selectedTotal() - cents(selected.get(row.application)?.amount_usd);
+        const maximum = Math.max(0, Math.min(cents(row.adjustable_usd), limit - other));
+        const requested = Number(row.amount_usd || 0);
+        row.amount_usd = (Number.isFinite(requested) ? Math.max(0, Math.min(cents(requested), maximum)) : 0) / 100;
+        row.__checked = row.amount_usd > 0 ? 1 : 0;
+        if (row.amount_usd) selected.set(row.application, {application: row.application, amount_usd: row.amount_usd});
+        else selected.delete(row.application);
+        dialog.fields_dict.applications.grid.grid_rows_by_docname?.[row.name]?.refresh_check();
+        updateSummary();
+    }
+    function selectApplications() {
+        if (busy || loading || closed) return;
+        const rows = dialog.fields_dict.applications.df.data || [];
+        // Free all unchecked amounts before assigning newly checked rows in order.
+        for (const row of rows) if (!row.__checked) {
+            selected.delete(row.application);
+            row.amount_usd = 0;
+        }
+        for (const row of rows) if (row.__checked && !selected.has(row.application)) {
+            row.amount_usd = Math.max(0, Math.min(cents(row.adjustable_usd), limit - selectedTotal())) / 100;
+            changeAmount(row);
+        }
+        dialog.fields_dict.applications.grid.refresh();
+        updateSummary();
     }
     function renderApplications() {
         dialog.fields_dict.applications.df.data = candidates.filter(row => cn_application_matches_search(row, search)).map(row => ({
+            name: row.name, __checked: selected.has(row.name) ? 1 : 0,
             application: row.name, client_name: row.client_name, loan_number: row.loan_number, event_date: row.event_date,
             adjustable_usd: row.adjustable_usd, amount_usd: selected.get(row.name)?.amount_usd || 0}));
         dialog.fields_dict.applications.grid.refresh();
+        updateSummary();
     }
     function filterApplications(value) {
         try {remember();} catch (error) {frappe.msgprint(error.message); return;}
@@ -1598,28 +1638,42 @@ async function cn_distribute_applications(frm, initial = null) {
         renderApplications();
     }
     const dialog = new frappe.ui.Dialog({title: __("Distribuir entre aplicaciones"), size: "extra-large", fields: [
-        {fieldtype: "HTML", options: `<p><strong>${__("Remanente disponible")}: ${format_currency(remaining, "USD")}</strong><br>${__("Indique el importe para cada aplicación. Deje cero para omitirla. Puede seleccionar aplicaciones de varias importaciones antes de guardar.")}</p>`},
+        {fieldtype: "HTML", fieldname: "distribution_summary"},
         {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"), options: "CN Accounting Import",
             get_query: () => ({query: "credinomina_reconciliation.accounting_review.application_import_query", filters: {employer: frm.doc.employer}}),
             async onchange() {
+                const name = dialog.get_value("accounting_import");
+                if (closed || name === requestedImport) return;
                 try {remember();} catch (error) {frappe.msgprint(error.message); return;}
-                const current = ++request, name = dialog.get_value("accounting_import");
+                const current = ++request;
+                requestedImport = name;
                 candidates = [];
                 dialog.fields_dict.applications.df.data = [];
                 dialog.fields_dict.applications.grid.refresh();
+                loading = Boolean(name);
                 if (!name) return;
-                const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
-                    args: {item_name: frm.doc.name, accounting_import: name}});
-                if (current !== request) return;
-                if (initial && name === initial.application.document) {
-                    const candidate = (response.message || []).find(row => row.name === initial.application.row_name);
-                    if (candidate && initial.proposed_usd > 0 && initial.proposed_usd <= candidate.adjustable_usd) {
-                        selected.set(candidate.name, {application: candidate.name, amount_usd: initial.proposed_usd});
+                try {
+                    const response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
+                        args: {item_name: frm.doc.name, accounting_import: name}});
+                    if (closed || current !== request) return;
+                    if (initial && name === initial.application.document) {
+                        const candidate = (response.message || []).find(row => row.name === initial.application.row_name);
+                        if (candidate && initial.proposed_usd > 0 && initial.proposed_usd <= candidate.adjustable_usd) {
+                            selected.set(candidate.name, {application: candidate.name,
+                                amount_usd: Math.min(cents(initial.proposed_usd), Math.max(0, limit - selectedTotal())) / 100});
+                        }
+                        initial = null;
                     }
-                    initial = null;
+                    candidates = response.message || [];
+                    renderApplications();
+                } catch (error) {
+                    if (!closed && current === request) {
+                        requestedImport = null;
+                        frappe.msgprint(__("No se pudieron consultar las aplicaciones. Seleccione nuevamente la importación para reintentar."));
+                    }
+                } finally {
+                    if (current === request) loading = false;
                 }
-                candidates = response.message || [];
-                renderApplications();
             }},
         {fieldtype: "Data", fieldname: "client_search", label: __("Buscar cliente"),
             description: __("Busque por nombre, número de cliente o crédito en la importación seleccionada. Los importes seleccionados se conservan al filtrar."),
@@ -1631,10 +1685,11 @@ async function cn_distribute_applications(frm, initial = null) {
                 {fieldtype: "Data", fieldname: "loan_number", label: __("Crédito"), read_only: 1, in_list_view: 1, columns: 2},
                 {fieldtype: "Date", fieldname: "event_date", label: __("Fecha"), read_only: 1, in_list_view: 1, columns: 2},
                 {fieldtype: "Currency", fieldname: "adjustable_usd", label: __("Disponible US$"), options: "USD", read_only: 1, in_list_view: 1, columns: 1, precision: 2},
-                {fieldtype: "Currency", fieldname: "amount_usd", label: __("Ajuste US$"), options: "USD", in_list_view: 1, columns: 2, precision: 2},
+                {fieldtype: "Currency", fieldname: "amount_usd", label: __("Ajuste US$"), options: "USD", in_list_view: 1, columns: 2, precision: 2,
+                    onchange() {changeAmount(this.doc);}},
             ]},
     ], primary_action_label: __(frm.doc.docstatus === 1 ? "Confirmar distribución adicional" : "Guardar distribución"), async primary_action() {
-        if (busy) return;
+        if (busy || loading) return;
         try {remember();} catch (error) {frappe.msgprint(error.message); return;}
         const rows = [...selected.values()];
         if (!rows.length || rows.reduce((sum, row) => sum + row.amount_usd, 0) > remaining + .000001) {
@@ -1649,109 +1704,12 @@ async function cn_distribute_applications(frm, initial = null) {
             await frm.reload_doc();
             frappe.show_alert({message: __(frm.doc.docstatus === 1 ? "Distribución confirmada y saldos actualizados." : "Distribución guardada. Use Confirmar ajuste para aplicarla."), indicator: "green"});
         } finally {busy = false; dialog.enable_primary_action();}
-    }});
+    }, onhide() {closed = true; request++;}});
     dialog.show();
+    updateSummary();
+    const grid = dialog.fields_dict.applications.grid;
+    grid.wrapper.on("change.cnApplicationDistribution", ".grid-row-check", () => setTimeout(selectApplications, 0));
     dialog.fields_dict.client_search?.$input?.on("input.cnApplicationClientSearch", () =>
         filterApplications(dialog.fields_dict.client_search.$input.val()));
-    if (initial) await dialog.set_value("accounting_import", initial.application.document);
-}
-
-async function cn_select_original_application(frm, initial = null) {
-    if (!frm.doc.employer) { frappe.msgprint(__("Identifique y guarde primero la empresa de la partida.")); return; }
-    if (cn_application_direction_invalid(frm.doc)) {
-        frappe.msgprint(__("La partida importada debe registrar crédito positivo y débito cero para cancelar una aplicación de débito."));
-        return;
-    }
-    if (frm.is_dirty()) await frm.save();
-    let rows = [];
-    let search = "", selectedApplication = null;
-    let request = 0;
-    let requestedImport = null;
-    function renderApplications() {
-        const esc = value => frappe.utils.escape_html(String(value ?? ""));
-        const visible = rows.map((row, index) => ({row, index})).filter(({row}) => cn_application_matches_search(row, search));
-        dialog.get_primary_btn().prop("disabled", !visible.length);
-        if (!visible.length) {
-            dialog.fields_dict.applications.$wrapper.html(`<p class="text-muted">${esc(__(rows.length
-                ? "No hay aplicaciones que coincidan con la búsqueda del cliente."
-                : "No hay aplicaciones válidas para vincular a esta partida en la importación seleccionada."))}</p>`);
-            return;
-        }
-        dialog.fields_dict.applications.$wrapper.html(`<div style="max-height:50vh;overflow:auto"><table class="table table-bordered"><thead><tr>
-            <th></th><th>${__("Cliente")}</th><th>${__("Crédito")}</th><th>${__("Fecha")}</th><th>${__("Aplicado original US$")}</th><th>${__("Ajustes US$")}</th><th>${__("Aplicado neto US$")}</th><th>${__("Depósitos / reservas US$")}</th><th>${__("Disponible para ajuste US$")}</th><th>${__("Asiento")}</th></tr></thead><tbody>${visible.map(({row, index}) => `<tr>
-            <td><input type="radio" name="original_application" value="${index}" ${selectedApplication === row.name ? "checked" : ""} aria-label="${esc(__("Seleccionar aplicación"))}"></td>
-            <td>${esc(row.client_name)}${row.client_number ? `<div class="text-muted small">${esc(__("Nro. Cliente"))}: ${esc(row.client_number)}</div>` : ""}</td><td>${esc(row.loan_number)}</td><td>${esc(frappe.datetime.str_to_user(row.event_date))}</td>
-            <td>${esc(format_currency(row.amount_usd, "USD"))}</td><td>${esc(format_currency(row.application_adjustment_usd || 0, "USD"))}</td><td>${esc(format_currency(row.net_applied_usd, "USD"))}</td><td>${esc(format_currency(row.protected_usd || 0, "USD"))}</td><td>${esc(format_currency(row.adjustable_usd || 0, "USD"))}</td><td>${esc(row.voucher)}</td></tr>`).join("")}</tbody></table></div>`);
-    }
-    function filterApplications(value) {
-        const selected = dialog.fields_dict.applications.$wrapper.find("input:checked").val();
-        if (selected !== undefined && rows[Number(selected)]) selectedApplication = rows[Number(selected)].name;
-        search = value || "";
-        if (requestedImport && rows.length) renderApplications();
-    }
-    const dialog = new frappe.ui.Dialog({
-        title: __("Vincular a aplicación"), size: "extra-large",
-        fields: [
-            {fieldtype: "Link", fieldname: "accounting_import", label: __("Importación contable"),
-                options: "CN Accounting Import", reqd: 1, get_query: () => ({
-                    query: "credinomina_reconciliation.accounting_review.application_import_query",
-                    filters: {employer: frm.doc.employer}}),
-                async onchange() {
-                    const selected = dialog.get_value("accounting_import") || "";
-                    // Link validation can fire again on blur when selecting a row.
-                    // Keep the displayed rows and radio selection for the same import.
-                    if (selected === requestedImport) return;
-                    requestedImport = selected;
-                    const currentRequest = ++request;
-                    rows = [];
-                    selectedApplication = initial?.application.row_name || null;
-                    dialog.get_primary_btn().prop("disabled", true);
-                    dialog.fields_dict.applications.$wrapper.empty();
-                    if (!selected) return;
-                    let response;
-                    try {
-                        response = await frappe.call({method: "credinomina_reconciliation.accounting_review.application_candidates",
-                            args: {item_name: frm.doc.name, accounting_import: selected}});
-                    } catch (error) {
-                        if (currentRequest === request) requestedImport = null;
-                        throw error;
-                    }
-                    if (currentRequest !== request || selected !== dialog.get_value("accounting_import")) return;
-                    rows = (response.message || []).filter(row => Number(row.adjustable_usd) > 0);
-                    renderApplications();
-                }},
-            {fieldtype: "Data", fieldname: "client_search", label: __("Buscar cliente"),
-                description: __("Busque por nombre, número de cliente o crédito en la importación seleccionada."),
-                onchange() {filterApplications(dialog.get_value("client_search"));}},
-            {fieldtype: "HTML", fieldname: "applications"},
-            {fieldtype: "Currency", fieldname: "amount_usd", label: __("Importe del ajuste US$"), options: "USD", precision: 2,
-                default: initial?.proposed_usd || null,
-                description: __("Deje vacío para usar el máximo disponible. Puede indicar un importe menor para un ajuste parcial.")},
-        ],
-        primary_action_label: __("Vincular"),
-        async primary_action() {
-            const selected = dialog.fields_dict.applications.$wrapper.find("input:checked").val();
-            if (selected === undefined || !rows[Number(selected)]) { frappe.msgprint(__("Seleccione una aplicación.")); return; }
-            const row = rows[Number(selected)];
-            if (!(Number(row.adjustable_usd) > 0)) {
-                frappe.msgprint(__("Esta aplicación no tiene saldo disponible para ajustar. Revise los depósitos asignados o reservados."));
-                return;
-            }
-            const maximum = Math.min(Math.abs(frm.doc.amount_usd || 0), row.adjustable_usd || 0);
-            const requested = dialog.fields_dict.amount_usd.$input.val();
-            const amount = String(requested ?? "").trim() === "" ? maximum : Number(dialog.get_value("amount_usd"));
-            if (!Number.isFinite(amount) || amount <= 0 || amount > maximum) {
-                return frappe.msgprint(__("Indique un importe positivo que no supere el disponible de la aplicación ni de la partida."));
-            }
-            await frm.set_value({related_application: row.name, review_action: "Ajuste de aplicación",
-                category: "Ajuste de aplicación", application_adjustment_usd: amount});
-            await frm.save();
-            dialog.hide();
-        },
-    });
-    dialog.show();
-    dialog.fields_dict.client_search?.$input?.on("input.cnApplicationClientSearch", () =>
-        filterApplications(dialog.fields_dict.client_search.$input.val()));
-    dialog.get_primary_btn().prop("disabled", true);
     if (initial) await dialog.set_value("accounting_import", initial.application.document);
 }

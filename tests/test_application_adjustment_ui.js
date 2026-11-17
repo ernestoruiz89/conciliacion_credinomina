@@ -14,7 +14,7 @@ const frm = {doc: {name: "NC", docstatus: 0, category: "Ajuste de aplicación", 
     dashboard: {set_headline_alert() {}}, save: async () => calls.push("save"), reload_doc: async () => calls.push("reload")};
 (async () => {
     handlers.refresh(frm);
-    assert.equal(typeof actions["Vincular a aplicación"], "function");
+    assert.equal(actions["Vincular a aplicación"], undefined);
     assert.equal(typeof actions["Confirmar ajuste"], "function");
     await actions["Confirmar ajuste"]();
     assert.equal(calls[0], "save");
@@ -57,5 +57,5 @@ const frm = {doc: {name: "NC", docstatus: 0, category: "Ajuste de aplicación", 
         assert.equal(frm.doc.related_application, "APP");
     }
     assert.equal(updates.length, before);
-    console.log("OK: Vincular a aplicación, guardar antes de confirmar, permiso y recarga.");
+    console.log("OK: acción obsoleta retirada, guardar antes de confirmar, permiso y recarga.");
 })().catch(error => {console.error(error); process.exitCode = 1;});

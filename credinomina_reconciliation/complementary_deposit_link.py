@@ -22,7 +22,7 @@ def _check_item(item):
     if not item.employer or not money(item.amount_usd):
         frappe.throw(_("Complete la empresa y el importe de la partida."))
     if item.accounting_classification in {"Aplicación de pago", "ND de Aplicación de pago"}:
-        frappe.throw(_("Este movimiento debe revisarse con Vincular a aplicación."))
+        frappe.throw(_("Este movimiento debe revisarse con Distribuir entre aplicaciones."))
     if item.period and frappe.db.get_value("CN Reconciliation Period", item.period, "status") == "Cerrado":
         frappe.throw(_("Reabra el período de la partida antes de vincularla."))
 
