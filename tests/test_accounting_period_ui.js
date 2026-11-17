@@ -24,8 +24,15 @@ const context = vm.createContext({__: text => text, frappe: {
         }
         async setup() {
             this.set_meta_and_mandatory_fields();
+            this.fields_list = this.docfields.map(df => ({df}));
+            this.attach_doc_and_docfields(true);
             this.inputs = {}; // Rendering can reset a control independently of this.doc.
             dialogs.push(this);
+        }
+        attach_doc_and_docfields() {
+            for (const field of this.fields_list) {
+                field.df = schema.fields.find(df => df.fieldname === field.df.fieldname) || field.df;
+            }
         }
         async set_values(values) {
             for (const field of this.docfields) {
@@ -103,6 +110,9 @@ function visible(dialog, fieldname) {
     assert.equal(historical.inputs.payroll_month, '2026-08-01');
     assert.equal(historical.inputs.reconciliation_mode, 'Historica');
     assert.equal(historical.inputs.historical_application_date, '2026-08-15');
+    const modeControl = historical.fields_list.find(field => field.df.fieldname === 'reconciliation_mode');
+    assert.equal(modeControl.df.default, 'Historica', 'Refreshing controls must preserve the historical default');
+    assert.equal(modeControl.doc, historical.doc);
     assert.ok(visible(historical, 'historical_scope'));
     assert.ok(visible(historical, 'historical_application_date'));
     assert.ok(!visible(historical, 'historical_start_date'));
