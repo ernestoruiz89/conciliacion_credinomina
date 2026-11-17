@@ -35,7 +35,7 @@ frappe.ui.form.on("CN Reconciliation Period", {
             return;
         }
 
-        frm.add_custom_button(__("Registrar corte de control"), () => showControlCutDialog(frm));
+        frm.add_custom_button(__("Registrar corte de control"), () => showControlCutDialog(frm), __("Más opciones"));
 
         if (frm.doc.reconciliation_mode === "Historica") {
             frm.add_custom_button(__("Cerrar período histórico"), () => requestClose(frm));
