@@ -576,14 +576,14 @@ def _import_source_file(import_name: str, *, apply_default_period=False):
         identify_lines(parsed, document.bulk_source_hash or file_hash)
         if not document.employer:
             frappe.throw(_("Seleccione la empresa antes de cargar los movimientos contables."))
-        if document.bulk_source_hash:
-            _validate_bulk_reimport(document, parsed)
+        rows_by_snapshot = (_validate_bulk_reimport(document, parsed) if document.bulk_source_hash
+                            else {document.portfolio_snapshot: parsed})
         client_index = ClientIndex() if any(row.get("event_type") == "Aplicacion" for row in parsed) else None
-        parsed = enrich_accounting_records(
-            parsed, document.portfolio_snapshot,
-            "" if document.employer == UNIDENTIFIED_EMPLOYER else document.employer,
-            client_index=client_index,
-        )
+        for snapshot, rows in rows_by_snapshot.items():
+            enrich_accounting_records(
+                rows, snapshot, "" if document.employer == UNIDENTIFIED_EMPLOYER else document.employer,
+                client_index=client_index,
+            )
         parsed = enrich_source_import_clients(parsed, client_index=client_index)
     except SourceFileError as exc:
         document.status = "Fallido"
@@ -711,6 +711,7 @@ def _validate_bulk_reimport(document, records):
         "CN Employer", fields=["name", "employer_name", "employer_code"], limit_page_length=0,
     )
     attach_employer_aliases(employers)
+    dated_snapshots = _validate_missing_bulk_credits(document, records, AccountingEmployerResolver(employers))
     apply_assignments(records, employers, {str(row["source_row"]): row["_csv_employer_assignment"]
         for row in records if row.get("_csv_employer_assignment")})
     plan = group_applications(records, employers, document.employer)
@@ -724,9 +725,48 @@ def _validate_bulk_reimport(document, records):
         frappe.throw(_("El CSV debe contener únicamente aplicaciones de la empresa {0} y fecha {1}. No se recargó el documento.").format(
             document.employer, document.bulk_event_date,
         ))
+    rows_by_snapshot = defaultdict(list)
     for record in records:
         if document.employer != UNIDENTIFIED_EMPLOYER and not record.get("_manual_employer") and not record.get("employer_text") and not record.get("portfolio_employer"):
             record["employer_text"] = document.employer
+        rows_by_snapshot[dated_snapshots.get(record["source_row"], document.portfolio_snapshot)].append(record)
+    return rows_by_snapshot
+
+
+def _validate_missing_bulk_credits(document, records, resolver):
+    """Check the dated cut when the selected cut omits an already imported credit."""
+    if not document.portfolio_snapshot or document.employer == UNIDENTIFIED_EMPLOYER:
+        return {}
+    from credinomina_reconciliation.accounting_evidence import same_ledger_evidence
+
+    previous_rows = {row.source_row: row for row in document.rows or []
+                     if row.event_type == "Aplicacion" and row.portfolio_employer == document.employer}
+    missing = []
+    for record in records:
+        if (record.get("portfolio_validation_status") != "Crédito no encontrado en el corte"
+                or resolver.resolve_for_import(record, document.employer) == (document.employer, "")):
+            continue
+        previous = previous_rows.get(record["source_row"])
+        if (previous and record["accounting_source_key"] == previous.accounting_source_key
+                and record["source_key"] == previous.source_key
+                and clean_text(record.get("employer_text")) == clean_text(previous.employer_text)
+                and same_ledger_evidence(record, previous)):
+            missing.append(record)
+    if not missing:
+        return {}
+
+    # An alias can name the payer even when the credit belongs to another
+    # company. Require the dated cut to confirm the same company as the saved row.
+    candidates = [dict(record) for record in missing]
+    enrich_accounting_records(candidates, register_clients=False)
+    snapshots = {}
+    for record, candidate in zip(missing, candidates):
+        snapshot = candidate.get("portfolio_snapshot_used")
+        if (snapshot and candidate.get("portfolio_employer") == document.employer
+                and resolver.resolve(candidate) == (document.employer, "")):
+            record.update(candidate)
+            snapshots[record["source_row"]] = snapshot
+    return snapshots
 
 
 @frappe.whitelist(methods=["POST"])
