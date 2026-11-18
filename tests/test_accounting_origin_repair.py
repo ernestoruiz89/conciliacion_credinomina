@@ -63,6 +63,59 @@ class AccountingOriginRepairTests(unittest.TestCase):
                 accounting._validate_bulk_reimport(SimpleNamespace(), rows)
             enrich.assert_not_called()
 
+    def test_bulk_reload_checks_missing_credit_against_dated_cut(self):
+        rows = fixed_records((2500, 2501, 2502))
+        rows[0]["employer_text"] = rows[1]["employer_text"] = "Payer / Beneficiary"
+        rows[2]["employer_text"] = "Beneficiary"
+        saved = [frappe._dict({**row, "portfolio_employer": "Beneficiary"}) for row in rows]
+        document = SimpleNamespace(employer="Beneficiary", rows=saved, portfolio_snapshot="JAN",
+                                   bulk_event_date="2025-04-30")
+        employers = [{"name": "Payer", "aliases": ["Payer / Beneficiary"]}, {"name": "Beneficiary"}]
+
+        def enrich(records, snapshot="", *, register_clients):
+            self.assertFalse(register_clients)
+            for record in records:
+                if snapshot == "JAN" and record["source_row"] != 2500:
+                    record.update(portfolio_employer="", portfolio_validation_status="Crédito no encontrado en el corte")
+                else:
+                    record.update(portfolio_employer="Beneficiary", portfolio_snapshot_used=snapshot or "APR",
+                                  portfolio_validation_status="Cliente y empresa validados")
+
+        with patch.object(accounting.frappe, "get_all", return_value=employers), \
+             patch.object(accounting, "attach_employer_aliases"), \
+             patch.object(accounting, "enrich_accounting_records", side_effect=enrich):
+            snapshots = accounting._validate_bulk_reimport(document, rows)
+        self.assertEqual(dict(snapshots), {"JAN": [rows[0], rows[2]], "APR": [rows[1]]})
+        self.assertEqual(rows[1]["employer_text"], "Payer / Beneficiary")
+        self.assertEqual(rows[1]["portfolio_employer"], "Beneficiary")
+
+    def test_bulk_reload_retains_guards_on_different_origin_company_or_date(self):
+        for issue in ("origin", "selected_company", "dated_company", "date"):
+            with self.subTest(issue=issue):
+                rows = fixed_records()
+                rows[0]["employer_text"] = "Payer / Beneficiary"
+                saved = frappe._dict({**rows[0], "portfolio_employer": "Beneficiary"})
+                if issue == "origin":
+                    saved.source_debit += 1
+                group_date = "2025-04-29" if issue == "date" else "2025-04-30"
+                document = SimpleNamespace(employer="Beneficiary", rows=[saved], portfolio_snapshot="JAN",
+                                           bulk_event_date=group_date)
+                employers = [{"name": "Payer", "aliases": ["Payer / Beneficiary"]}, {"name": "Beneficiary"}]
+
+                def enrich(records, snapshot="", *, register_clients):
+                    company = "Payer" if issue in {"selected_company", "dated_company"} else "Beneficiary"
+                    if snapshot == "JAN" and issue != "selected_company":
+                        records[0].update(portfolio_validation_status="Crédito no encontrado en el corte")
+                    else:
+                        records[0].update(portfolio_employer=company, portfolio_snapshot_used=snapshot or "APR",
+                                          portfolio_validation_status="Cliente y empresa validados")
+
+                with patch.object(accounting.frappe, "get_all", return_value=employers), \
+                     patch.object(accounting, "attach_employer_aliases"), \
+                     patch.object(accounting, "enrich_accounting_records", side_effect=enrich), \
+                     self.assertRaisesRegex(frappe.ValidationError, "únicamente aplicaciones"):
+                    accounting._validate_bulk_reimport(document, rows)
+
     def test_plan_repairs_only_origin_and_false_mirrors_leaving_ids_money_and_links(self):
         records = fixed_records()
         saved = frappe._dict({**records[0], "name": "stable-row-id", "idx": 1,
