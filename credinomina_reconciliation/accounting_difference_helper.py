@@ -87,7 +87,7 @@ def save(name, modified, rows):
     # audit comments share the request transaction; never save/reconcile a parent.
     updated = 0
     for row, after in checked:
-        updated += int(_store_documentation(document, row, after))
+        updated += int(_store_documentation(row, after))
         row.update(after)
     version = _touch_documentation(document) if updated else str(document.modified)
     return dict(modified=version, updated=updated, rows=detail_rows(document))

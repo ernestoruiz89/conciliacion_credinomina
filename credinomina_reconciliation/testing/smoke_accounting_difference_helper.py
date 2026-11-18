@@ -69,8 +69,8 @@ def run():
             assert snapshot(imported) == baseline
             assert imported.rows[0].difference_notes == 'Soporte 0'
             assert not imported.rows[1].difference_notes
-            assert len(frappe.get_all('Comment', filters={'reference_doctype': imported.doctype,
-                'reference_name': imported.name, 'content': ['like', '%Diferencia documentada%']})) == 1
+            assert not frappe.db.exists('Comment', {'reference_doctype': imported.doctype,
+                'reference_name': imported.name, 'content': ['like', '%Diferencia documentada%']})
             repeat = save(imported.name, result['modified'], changes)
             assert repeat['updated'] == 0 and repeat['modified'] == result['modified']
             for doc in (period, deposit):
@@ -86,7 +86,7 @@ def run():
                 else:
                     raise AssertionError('Stale or foreign-row batch was accepted')
                 assert document_state(imported.reload()) == before
-            return dict(batch_classification=True, audit_comments=True, no_op_idempotent=True,
+            return dict(batch_classification=True, no_documentation_comments=True, no_op_idempotent=True,
                 client_summary_components=True, pending_rows_only=True, settled_rows_excluded_and_not_editable_in_batch=True, money_and_links_preserved=True,
                 closed_period_and_deposit_unchanged=True, stale_and_invalid_batches_rejected=True, rolled_back=True)
     finally:
