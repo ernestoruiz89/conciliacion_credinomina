@@ -1692,14 +1692,18 @@ def _prepare_remittance_details(
             "name", "parent", "employer", "source_row", "row_key", "client", "identity_reason", "client_name", "client_number", "employee_number",
             "national_id", "loan_number", "installment_number",
             "application_reference", "deducted_usd", "deducted_nio",
-            "amount_usd", "linked_usd", "match_status", "match_reason", "matched_targets",
+            "amount_usd", "linked_usd", "pending_usd", "client_credit_usd", "company_credit_usd",
+            "match_status", "match_reason", "matched_targets", "matched_targets_summary",
             "row_kind", "difference_amount_usd", "difference_basis", "difference_core_item",
+            "difference_core_pending_usd", "difference_core_status",
             "difference_reason", "difference_notes",
             "manual_reconciliation_required",
         ],
         order_by="parent asc, idx asc", limit_page_length=100000,
     ) if names else []
     rows_by_parent = defaultdict(list)
+    # Identity resolution below mutates the working rows before they are saved.
+    stored_rows = {row.name: dict(row) for row in detail_rows}
     for row in detail_rows:
         rows_by_parent[row.parent].append(row)
     from credinomina_reconciliation.remittance_detail_preservation import validate_application_rows
@@ -1708,32 +1712,38 @@ def _prepare_remittance_details(
         if deposit_id in by_deposit:
             validate_application_rows(item.name, rows_by_parent[item.name], prior_instructions, deposit_id)
     from credinomina_reconciliation.remittance_preserved_fifo import retained_instructions, retained_detail_instructions
+    claim_index = DetailClaimIndex(claims)
     retained = retained_instructions(remittances, rows_by_parent, registered_ids, prior_instructions)
     retained.extend(retained_detail_instructions(remittances, rows_by_parent, registered_ids,
-                                                prior_instructions, claims, allowed_by_remittance))
+                                                prior_instructions, claims, allowed_by_remittance,
+                                                claim_index=claim_index))
     prior_instructions = [*retained, *prior_instructions]
     detail_loan_clients = None
     if client_catalog is not None:
         from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
         allowed = {company for companies in allowed_by_remittance.values() for company in companies}
         detail_loan_clients = load_detail_loan_clients(detail_rows, client_catalog, allowed)
-    reserved = {
-        (entry["deposit_id"], entry["claim_id"])
-        for entry in prior_instructions
-    }
+    reserved = set()
     reserved_amounts = defaultdict(lambda: money(0))
+    prior_by_deposit = defaultdict(list)
+    prior_by_row = defaultdict(list)
     for entry in prior_instructions:
+        prior_by_deposit[entry["deposit_id"]].append(entry)
+        if entry.get("detail_row"):
+            prior_by_row[entry["deposit_id"], entry["detail_row"]].append(entry)
+        reserved.add((entry["deposit_id"], entry["claim_id"]))
         reserved_amounts[entry["claim_id"]] += money(entry["amount_usd"])
     instructions = []
     blocked = set()
     rounding_eligible = set()
     contexts = {}
-    claim_index = DetailClaimIndex(claims)
     for item in remittances:
         deposit_id = registered_ids.get(item.name)
         if deposit_id not in by_deposit:
             continue
         deposit = by_deposit[deposit_id]
+        deposit_instructions = prior_by_deposit[deposit_id]
+        periods = selected_periods(item)
         apply_fifo = bool(getattr(item, "apply_fifo", 0))
         rows = rows_by_parent[item.name]
         allowed_groups = allowed_by_remittance.get(item.name, [])
@@ -1747,10 +1757,7 @@ def _prepare_remittance_details(
         # collection-as-detail recognition) remain valid without a file.
         if not attached_detail:
             blocked.add(deposit_id)
-            explicit_amount = sum(
-                flt(entry["amount_usd"]) for entry in prior_instructions
-                if entry["deposit_id"] == deposit_id
-            )
+            explicit_amount = sum(flt(entry["amount_usd"]) for entry in deposit_instructions)
             contexts[item.name] = {
                 "status": (
                     "Distribución manual"
@@ -1770,10 +1777,9 @@ def _prepare_remittance_details(
         plans = []
         total_usd = 0.0
         rate = flt(item.fx_rate) if remittance_fx_basis(item) else 0
-        difference = prepare(item, rows, claims, [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id])
+        difference = prepare(item, rows, claims, deposit_instructions)
         from credinomina_reconciliation.company_conversion import documented_coverage, PREFIX as CONVERSION_PREFIX
-        conversion = (documented_coverage(item, rows, claims,
-            [entry for entry in prior_instructions if entry["deposit_id"] == deposit_id],
+        conversion = (documented_coverage(item, rows, claims, deposit_instructions,
             [credit for credit in client_credits if registered_ids.get(credit.registered_deposit) == deposit_id],
             reserved_amounts, allowed_groups, claim_index=claim_index)
             if difference and not difference["error"] else None)
@@ -1793,8 +1799,7 @@ def _prepare_remittance_details(
             fifo_cash_left = max(money(deposit["amount_usd"]) - sum_money(
                 credit.amount_usd for credit in client_credits
                 if registered_ids.get(credit.registered_deposit) == deposit_id
-            ) - sum_money(entry["amount_usd"] for entry in prior_instructions
-                         if entry["deposit_id"] == deposit_id), money(0))
+            ) - sum_money(entry["amount_usd"] for entry in deposit_instructions), money(0))
         fifo_cash_limited = False
         for row in rows:
             if is_difference(row):
@@ -1812,8 +1817,8 @@ def _prepare_remittance_details(
         # targets, not to fictitious client detail rows. Linked complements
         # are already included in their row's net; count only separate ones.
         outside_complements = [
-            entry for entry in prior_instructions
-            if entry["deposit_id"] == deposit_id and not entry.get("detail_row")
+            entry for entry in deposit_instructions
+            if not entry.get("detail_row")
             and entry["claim_id"].startswith("X:")
         ]
         covered_total = money_float(money(total_usd) + sum_money(
@@ -1828,7 +1833,7 @@ def _prepare_remittance_details(
             and abs(total_usd - flt(deposit["amount_usd"])) <= CASH_EPSILON
             and deposit.get("currency") == "USD"
             and deposit.get("bank_currency") == "USD"
-            and not any(entry["deposit_id"] == deposit_id for entry in prior_instructions)
+            and not deposit_instructions
         )
         for plan in plans:
             if difference and difference["error"]:
@@ -1845,9 +1850,7 @@ def _prepare_remittance_details(
                     plan["row"].client_number = credit.client_number
                     plan["row"].employer = credit.employer
                     plan["row"].identity_reason = "Cliente confirmado en saldo a favor"
-            manual = [entry for entry in prior_instructions
-                      if entry["deposit_id"] == deposit_id
-                      and entry.get("detail_row") == plan["row"].name]
+            manual = prior_by_row.get((deposit_id, plan["row"].name), [])
             plan["manual_targets"] = manual
             if plan["row"].get("manual_reconciliation_required") and not manual:
                 plan["status"] = "Pendiente manual"
@@ -1882,9 +1885,10 @@ def _prepare_remittance_details(
                 continue
             if manual:
                 plan["targets"], plan["reason"] = manual_detail_targets(
-                    plan["row"], claims, [dict(entry, allow_partial=True) for entry in manual], amount, item.employer, selected_periods(item),
+                    plan["row"], claims, [dict(entry, allow_partial=True) for entry in manual], amount, item.employer, periods,
                     allowed_groups=allowed_groups,
                     allow_other_periods=bool(item.get("allow_manual_other_periods")),
+                    claim_index=claim_index,
                 )
                 if not plan["targets"]:
                     plan["status"] = "Revisar"
@@ -1900,7 +1904,7 @@ def _prepare_remittance_details(
                 continue
             targets, reason = suggest_detail_targets(
                 plan["row"], claims, requested, item.employer,
-                selected_periods(item),
+                periods,
                 tolerance_by_employer.get(plan["row"].get("employer") or item.employer, 0) if one_to_one_candidate else 0,
                 allowed_groups=allowed_groups,
                 apply_fifo=apply_fifo, reserved_amounts=reserved_amounts,
@@ -1975,7 +1979,7 @@ def _prepare_remittance_details(
     return {
         "instructions": instructions, "blocked_deposits": blocked,
         "retained_instructions": retained,
-        "contexts": contexts, "rounding_eligible": rounding_eligible,
+        "contexts": contexts, "stored_rows": stored_rows, "rounding_eligible": rounding_eligible,
         "rejected_instructions": rejected,
         "client_credit_reservations": {deposit_id: money_float(sum_money(credit.amount_usd for credit in client_credits
                 if registered_ids.get(credit.registered_deposit) == deposit_id)) for deposit_id in registered_ids.values()},
@@ -2008,6 +2012,17 @@ def _sync_remittance_details(context, allocation, claims=()):
     ], claims)
     statuses = {}
     claim_companies = {claim["id"]: claim.get("group") for claim in claims}
+
+    def save_changed_row(row, updates):
+        stored = context.get("stored_rows", {}).get(row.name, {})
+        for field, value in updates.items():
+            previous = stored.get(field)
+            if previous is not None and field.endswith("_usd"):
+                previous, value = decimal_value(previous), decimal_value(value)
+            if previous != value:
+                frappe.db.set_value("CN Remittance Detail", row.name, updates, update_modified=False)
+                return
+
     for parent, state in context["contexts"].items():
         difference = state.get("difference")
         if state["rows"]:
@@ -2070,11 +2085,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
                 updates["match_status"] = review_status(updates["match_status"])
-                frappe.db.set_value(
-                    "CN Remittance Detail", plan["row"].name,
-                    updates,
-                    update_modified=False,
-                )
+                save_changed_row(plan["row"], updates)
             if not state["status"]:
                 outside_complements = state.get("outside_complements", [])
                 # Planned targets are not evidence of settlement: a draft,
@@ -2109,7 +2120,7 @@ def _sync_remittance_details(context, allocation, claims=()):
             amount = money_float(difference["amount"])
             targets = ([{"claim_id": difference["core"]["id"], "amount_usd": amount}]
                        if core_applied else [])
-            frappe.db.set_value("CN Remittance Detail", difference["row"].name, {
+            save_changed_row(difference["row"], {
                 "amount_usd": amount, "linked_usd": amount if core_applied else 0,
                 "pending_usd": 0 if core_applied else amount,
                 "difference_core_pending_usd": 0 if core_applied else abs(amount),
@@ -2118,7 +2129,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                 "match_reason": difference["error"] or ("Partida importada del core conciliada" if core_applied else "Diferencia documentada; no es efectivo ni pago al crédito"),
                 "matched_targets": json.dumps(targets, ensure_ascii=False),
                 "matched_targets_summary": difference["core"]["id"] if core_applied else "Pendiente de respaldo del core",
-            }, update_modified=False)
+            })
         statuses[parent] = state["status"]
         changes = {"detail_status": state["status"]}
         if "total_usd" in state:
@@ -2476,6 +2487,7 @@ def _distribute_deposits(
         if deposit_id in result["deposit_remaining"]:
             result["deposit_remaining"][deposit_id] = money_float(money(result["deposit_remaining"][deposit_id]) + money(amount))
     detail_statuses = _sync_remittance_details(detail_context, result, claims)
+    detail_context.pop("stored_rows", None)
     detail_identities = {plan["row"].name: plan["row"] for state in detail_context["contexts"].values() for plan in state["rows"]}
     movements = rounding_movements(
         deposits, claims, result["allocations"], result["deposit_remaining"],

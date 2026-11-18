@@ -25,8 +25,13 @@ def run(count=100):
             return original_sql(*args, **kwargs)
 
         started = perf_counter()
-        with patch.object(frappe.db, "sql", new=sql):
+        with patch.object(frappe.db, "sql", new=sql), patch(
+            "credinomina_reconciliation.deposit_reconciliation.document_state", wraps=document_state
+        ) as snapshot:
             result = reconcile_remittance(document.name)
+        snapshot_names = {call.args[0].name for call in snapshot.call_args_list}
+        assert {source.name, period.name} <= snapshot_names
+        assert not {other_source.name, other_period.name} & snapshot_names
         measurements.append(dict(stage=label, queries=queries, seconds=round(perf_counter() - started, 3)))
         document.reload()
         assert document.allocated_usd == count * 30, document.allocated_usd
@@ -55,6 +60,13 @@ def run(count=100):
                     client_number=client.name, loan_number=f"{i + 1}-1") for i, client in enumerate(clients)])).insert()
             _reconcile_sources(company.name)
             source.reload()
+            other_period = frappe.get_doc(dict(doctype="CN Reconciliation Period", employer=company.name,
+                payroll_month="2025-05-01", reconciliation_mode="Historica")).insert()
+            other_source = frappe.get_doc(dict(doctype="CN Accounting Import", employer=company.name,
+                source_file=f"/private/files/{marker}-other.csv", status="Importado", currency="USD",
+                historical_backfill=1, rows=[dict(event_type="Aplicacion", event_date="2025-05-30",
+                    amount=10, amount_usd=10, currency="USD", effective=1, historical_period=other_period.name,
+                    source_key=marker + "-other", client=clients[0].name, client_number=clients[0].name)])).insert()
 
             def deposit(suffix, manual):
                 doc = frappe.get_doc(dict(doctype="CN Remittance Allocation", employer=company.name,

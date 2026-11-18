@@ -1,5 +1,6 @@
 import copy
 import unittest
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import frappe
@@ -41,6 +42,35 @@ class DepositDifferenceTests(unittest.TestCase):
             statuses = engine._sync_remittance_details(context, result, self.claims)
             updates = {call.args[1]: call.args[2] for call in db.set_value.call_args_list if call.args[0] == "CN Remittance Detail"}
         return result, statuses, updates
+
+    def test_identical_detail_and_company_difference_skip_writes_on_repeat(self):
+        self.setup_case(delta=.03)
+        original, statuses, first = self.reconcile()
+        for row in self.rows:
+            row.update(first[row.name])
+        self.diff.pending_usd = Decimal("0.030000000")
+        repeated, repeated_statuses, updates = self.reconcile()
+        self.assertEqual((repeated, repeated_statuses), (original, statuses))
+        self.assertEqual(updates, {})
+
+        self.rows[1].matched_targets = "[]"
+        self.diff.linked_usd = None
+        _, _, updates = self.reconcile()
+        self.assertEqual(set(updates), {"R1", "DIFF"})
+        self.assertEqual(updates["R1"]["matched_targets"], first["R1"]["matched_targets"])
+        self.assertEqual(updates["DIFF"]["linked_usd"], 0)
+
+    def test_identity_completed_during_planning_is_saved_even_when_balances_match(self):
+        self.setup_case(.03)
+        credit = frappe._dict(name="C", registered_deposit="DEP", credit_detail_row="R0",
+            category="Saldo a favor del cliente", amount_usd=60, credit_client="C0", client_number="0", employer="EMP")
+        _, _, first = self.reconcile(credits=[credit])
+        for row in self.rows:
+            row.update(first[row.name])
+        self.rows[0].client = ""
+        _, _, updates = self.reconcile(credits=[credit])
+        self.assertEqual(set(updates), {"R0"})
+        self.assertEqual(updates["R0"]["client"], "C0")
 
     def test_negative_documented_difference_never_invents_cash_or_erases_claims(self):
         self.setup_case()

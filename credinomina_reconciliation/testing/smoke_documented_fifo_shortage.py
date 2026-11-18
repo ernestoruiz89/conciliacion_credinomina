@@ -99,7 +99,7 @@ def run(native=False, repair_existing=False, closed=False):
                                 no_reconciliation_replayed=True, company_pending=.01, cash_preserved=490.52)
             result = reconcile_deposit(deposit)
             deposit.reload(); imported.reload()
-            assert result["detail_pending"] == 0, result
+            assert result["detail_matched"] == len(amounts) and result["detail_pending"] == 1, result
             assert deposit.result == "Conciliado con diferencia documentada", deposit.as_dict()
             assert money(deposit.allocated_usd) == money(490.52)
             assert money(deposit.unallocated_usd) == 0
@@ -109,6 +109,7 @@ def run(native=False, repair_existing=False, closed=False):
             assert sum_money(row.linked_usd for row in ordinary) == money(490.53)
             assert sum_money(row.pending_usd for row in ordinary) == 0
             diff = next(row for row in deposit.detail_rows if row.row_kind == KIND)
+            assert diff.match_status == "Revisar: Diferencia documentada"
             assert diff.difference_notes == "Inmaterial" and not diff.difference_core_item
             assert money(diff.difference_core_pending_usd) == money(.01)
             assert money(diff.pending_usd) == money(-.01)

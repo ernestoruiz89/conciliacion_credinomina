@@ -22,7 +22,9 @@ class Row(dict):
         self[key] = value
 
     def append(self, key, value):
-        self.setdefault(key, []).append(Row(value))
+        row = Row(value)
+        self.setdefault(key, []).append(row)
+        return row
 
 
 class DepositIdentityTests(unittest.TestCase):

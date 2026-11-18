@@ -21,7 +21,7 @@ def documented_coverage(document, rows, claims, instructions, credits, reserved,
             or differences[0].get("difference_core_item")
             or not differences[0].get("difference_reason")):
         return None
-    by_id = {claim["id"]: claim for claim in claims}
+    by_id = claim_index.by_id if claim_index is not None else {claim["id"]: claim for claim in claims}
     used = dict(reserved)
     sources, usd, periods = set(), money(0), set()
     for row in rows:
