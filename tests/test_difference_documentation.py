@@ -32,6 +32,7 @@ class DifferenceDocumentationTests(unittest.TestCase):
                     self.assertEqual(write.call_args_list[-2].args,
                         ('CN Remittance Detail', 'DETAIL', {'difference_reason': 'Motivo', 'difference_notes': ''}))
             document.save.assert_not_called()
+            document.add_comment.assert_not_called()
         self.assertEqual(row.difference_notes, 'Anterior')
 
     def test_comments_stay_required_outside_deposit_detail(self):

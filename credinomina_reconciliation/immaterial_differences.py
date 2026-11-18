@@ -72,7 +72,7 @@ def classify_document(document, *, row_names=None):
     if not frappe.db.exists("CN Difference Reason", REASON):
         seed_reasons()
     for row, values in changes:
-        _store_documentation(document, row, values)
+        _store_documentation(row, values)
         row.update(values)
     document.modified = _touch_documentation(document)
     return len(changes)

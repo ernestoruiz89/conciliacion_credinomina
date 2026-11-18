@@ -55,20 +55,17 @@ def document_difference(doctype, name, modified, difference_reason, difference_n
     if not notes and row.doctype != "CN Remittance Detail":
         frappe.throw(_("Documente el motivo y el soporte de la diferencia."))
     after = {"difference_reason": difference_reason, "difference_notes": notes}
-    if _store_documentation(document, row, after):
+    if _store_documentation(row, after):
         _touch_documentation(document)
     return after
 
 
-def _store_documentation(document, row, after):
+def _store_documentation(row, after):
     before = {field: row.get(field) or "" for field in ("difference_reason", "difference_notes")}
     if before == after:
         return False
     # Whitelisted fields only; saving the parent would run financial hooks.
     frappe.db.set_value(row.doctype, row.name, after, update_modified=False)
-    from frappe.utils import escape_html
-    document.add_comment("Comment", _("Diferencia documentada en {0}. Antes: {1}. Después: {2}. Sin modificación de saldos.").format(
-        escape_html(row.name), escape_html(frappe.as_json(before)), escape_html(frappe.as_json(after))))
     return True
 
 

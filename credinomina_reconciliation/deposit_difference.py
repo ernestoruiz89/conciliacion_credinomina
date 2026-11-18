@@ -5,7 +5,7 @@ from contextvars import ContextVar
 
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, escape_html, cint
+from frappe.utils import now_datetime, cint
 
 from credinomina_reconciliation.rounding import money, money_float
 from credinomina_reconciliation.remittance_detail import detail_amount_usd
@@ -98,7 +98,6 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
     for target in doc.targets:
         doc._check_open_target(target)
     if cint(remove):
-        removed = [row.as_dict() for row in doc.detail_rows if is_difference(row)]
         doc.set("detail_rows", [row for row in doc.detail_rows if not is_difference(row)])
         token = WRITING.set(True)
         try:
@@ -107,8 +106,6 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
             WRITING.reset(token)
         frappe.db.set_value(doc.doctype, doc.name, {"result": "Pendiente", "financial_status": "Pendiente",
                             "detail_status": "Cargado; pendiente de conciliación"}, update_modified=False)
-        doc.add_comment("Comment", _("Diferencia de empresa retirada; requiere conciliar. Evidencia anterior: {0}").format(
-            escape_html(frappe.as_json(removed))))
         return dict(removed=True)
     amount = detail_difference(doc)
     if not amount:
@@ -122,7 +119,6 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
     if len(rows) > 1:
         frappe.throw(_("Hay más de una fila de diferencia; revise el detalle."))
     row = rows[0] if rows else doc.append("detail_rows", {})
-    before = {key: row.get(key) for key in (*FIELDS, "difference_reason", "difference_notes")}
     row.update(dict(row_kind=KIND, employer=doc.employer, client_name=doc.employer,
                     client="", client_number="", loan_number="", employee_number="", national_id="",
                     deducted_usd=0, deducted_nio=0, difference_amount_usd=money_float(amount),
@@ -142,9 +138,6 @@ def record(name, modified, difference_reason="", difference_notes="", core_item=
     # Save changes only the instructions; reconciliation is an explicit action.
     frappe.db.set_value(doc.doctype, doc.name, {"result": "Pendiente", "financial_status": "Pendiente",
                         "detail_status": "Cargado; pendiente de conciliación"}, update_modified=False)
-    after = {key: row.get(key) for key in (*FIELDS, "difference_reason", "difference_notes")}
-    doc.add_comment("Comment", _("Diferencia de empresa registrada. Antes: {0}. Después: {1}. Requiere conciliar.").format(
-        escape_html(frappe.as_json(before)), escape_html(frappe.as_json(after))))
     return dict(row=row.name, amount_usd=money_float(amount))
 
 

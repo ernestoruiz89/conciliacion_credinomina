@@ -73,7 +73,7 @@ def save(name, modified, rows):
     # the entire request if any persistence or audit operation fails.
     updated = 0
     for row, after in checked:
-        if _store_documentation(document, row, after):
+        if _store_documentation(row, after):
             updated += 1
         row.update(after)
     version = _touch_documentation(document) if updated else str(document.modified)
