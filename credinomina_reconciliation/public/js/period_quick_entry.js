@@ -19,7 +19,7 @@ Object.defineProperty(frappe.ui.form, "CNReconciliationPeriodQuickEntryForm", {
                 const historicalFields = ["historical_scope", "historical_application_date", "historical_start_date", "historical_end_date"];
                 if (defaults) {
                     const fields = new Set([...this.docfields.map(field => field.fieldname),
-                        ...historicalFields, "collection_cycle", "cutoff_date", "collection_file"]);
+                        ...historicalFields, "collection_cycle", "cutoff_date", "collection_file", "remark"]);
                     this.docfields = this.meta.fields.filter(field => fields.has(field.fieldname) && !field.read_only);
                 } else if (source) {
                     this.doc.employer = source.employer;
