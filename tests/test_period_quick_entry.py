@@ -89,7 +89,8 @@ class PeriodQuickEntryTests(unittest.TestCase):
                      patch.object(api, '_source_link', return_value=(source, None)), \
                      patch.object(api.accounting, '_import_source_file', side_effect=load) as core, \
                      patch.object(api.api, 'import_collection') as collection:
-                    result = api.create({'reconciliation_mode':mode}, {'name':'I'})
+                    result = api.create({'reconciliation_mode':mode, 'remark':'Observación del período'}, {'name':'I'})
+                self.assertEqual(period.remark, 'Observación del período')
                 self.assertEqual(result['source_import'], 'DATED-IMPORT')
                 self.assertTrue(result['movements_loaded'])
                 self.assertEqual(result['movement_rows'], 3)

@@ -95,6 +95,7 @@ function visible(dialog, fieldname) {
     assert.equal(dialog.inputs.reconciliation_mode, 'Operativa');
     assert.equal(dialog.doc.collection_cycle, 'Mensual', 'Use the suggested cycle for the company');
     assert.ok(visible(dialog, 'collection_file'));
+    assert.ok(dialog.docfields.some(field => field.fieldname === 'remark'));
     assert.ok(!visible(dialog, 'historical_scope'));
     assert.equal(routes.length, 0);
     assert.equal(calls.length, 1, 'Opening the modal does not create the period');
@@ -117,7 +118,9 @@ function visible(dialog, fieldname) {
     assert.ok(visible(historical, 'historical_application_date'));
     assert.ok(!visible(historical, 'historical_start_date'));
     assert.ok(!visible(historical, 'collection_file'));
+    await historical.set_values({remark: 'Segunda quincena de agosto'});
     await historical.insert();
+    assert.equal(calls[2].args.values.remark, 'Segunda quincena de agosto');
     assert.equal(calls[2].args.values.historical_application_date, '2026-08-15');
     assert.equal(calls[2].args.source_link.name, 'I');
     assert.equal(calls[2].args.source_link.modified, 'saved');

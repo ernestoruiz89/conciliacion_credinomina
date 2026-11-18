@@ -13,7 +13,7 @@ def create(values, source_link=None):
         frappe.throw(_("Datos del período inválidos."))
     # Only creation inputs; never accept computed balances, rows or saved names.
     fields = {field: values.get(field) for field in (
-        "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "collection_file",
+        "employer", "payroll_month", "reconciliation_mode", "collection_cycle", "cutoff_date", "collection_file", "remark",
     )}
     if fields["reconciliation_mode"] == "Historica":
         scope = values.get("historical_scope") or "Mensual"
