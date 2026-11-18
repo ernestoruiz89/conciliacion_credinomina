@@ -59,6 +59,32 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         # Re-running reconstructs the same allocation rather than doubling it.
         self.assertEqual(self.reconcile()[1]["allocations"], result["allocations"])
 
+    def test_mixed_manual_instructions_keep_each_rows_order_and_deposit(self):
+        rows = [
+            frappe._dict(name="R1", parent="DEP", client_number="3538", deducted_usd=12),
+            frappe._dict(name="R2", parent="DEP", client_number="3538", deducted_usd=2),
+            frappe._dict(name="R3", parent="OTHER", client_number="3538", deducted_usd=5),
+        ]
+        remittances = [frappe._dict(name=name, employer="EMP", detail_hash="hash",
+            detail_source_file="detail.xlsx", detail_file="detail.xlsx", detail_periods=[])
+            for name in ("DEP", "OTHER")]
+        deposits = [dict(id="DEP", amount_usd=14), dict(id="OTHER", amount_usd=5)]
+        claims = self.claims + [self.claims[0] | {"id": "H:C"}]
+        links = [dict(id=key, deposit_id=row.parent, detail_row=row.name, claim_id=claim_id, amount_usd=amount)
+                 for key, row, claim_id, amount in [
+                     ("part-a", rows[0], "H:A", 8), ("other", rows[2], "H:A", 5),
+                     ("row2", rows[1], "H:C", 2), ("part-b", rows[0], "H:B", 4)]]
+        with patch.object(frappe, "get_all", return_value=rows), \
+             patch("credinomina_reconciliation.client_credit.load_credits", return_value=[]), \
+             patch("credinomina_reconciliation.paying_employers.load_payer_map", return_value={}):
+            context = source._prepare_remittance_details(remittances, {"DEP": "DEP", "OTHER": "OTHER"},
+                                                         deposits, claims, links, {})
+        planned = {plan["row"].name: [target["instruction_id"] for target in plan["targets"]]
+                   for state in context["contexts"].values() for plan in state["rows"]}
+        self.assertEqual(planned, {"R1": ["part-a", "part-b"], "R2": ["row2"], "R3": ["other"]})
+        self.assertEqual(context["instructions"], [])
+        self.assertEqual(context["rejected_instructions"], {})
+
     def test_automatic_detail_is_not_reported_as_manual(self):
         self.claims = self.claims[:1]
         context, result, statuses, _ = self.reconcile([])

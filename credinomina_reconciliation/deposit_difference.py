@@ -159,13 +159,17 @@ def prepare(document, rows, claims, instructions):
             or not row.get("difference_reason")
             or state["amount"] != detail_difference(document, rows)):
         state["error"] = "La diferencia documentada cambió; vuelva a clasificar / documentar antes de conciliar"
-    elif any(entry.get("detail_row") not in {r.name for r in rows if not is_difference(r)}
-             or not (str(entry.get("claim_id") or "").startswith(("H:", "C:"))
-                     or any(claim["id"] == entry.get("claim_id") and claim.get("kind") == "X"
-                            and claim.get("accounting_source_key") for claim in claims))
-             or money(entry.get("amount_usd")) <= 0 for entry in instructions):
-        state["error"] = "Revise los destinos manuales: vincule cada aplicación a su fila del detalle y revise las partidas complementarias antes de conciliar la diferencia"
-    elif row.get("difference_core_item"):
+        return state
+    if instructions:
+        client_rows = {r.name for r in rows if not is_difference(r)}
+        if any(entry.get("detail_row") not in client_rows
+               or not (str(entry.get("claim_id") or "").startswith(("H:", "C:"))
+                       or any(claim["id"] == entry.get("claim_id") and claim.get("kind") == "X"
+                              and claim.get("accounting_source_key") for claim in claims))
+               or money(entry.get("amount_usd")) <= 0 for entry in instructions):
+            state["error"] = "Revise los destinos manuales: vincule cada aplicación a su fila del detalle y revise las partidas complementarias antes de conciliar la diferencia"
+            return state
+    if row.get("difference_core_item"):
         claim = next((claim for claim in claims if claim["id"] == "X:" + row["difference_core_item"]), None)
         if (not claim or not claim.get("accounting_source_key") or claim.get("group") != document.employer
                 or claim.get("period_closed") or money(claim["amount_usd"]) * state["amount"] <= 0

@@ -7,7 +7,8 @@ from credinomina_reconciliation.deposit_reconciliation import entries, stored_en
 from credinomina_reconciliation.rounding import money, money_float
 
 
-def retained_detail_instructions(remittances, rows_by_parent, registered_ids, instructions, claims, allowed_by_parent):
+def retained_detail_instructions(remittances, rows_by_parent, registered_ids, instructions, claims, allowed_by_parent,
+                                 *, claim_index=None):
     """Switching to FIFO must not replay completed pre-FIFO detail decisions.
 
     Replay only the exact, fully paid historical links proved by both journals.
@@ -19,7 +20,7 @@ def retained_detail_instructions(remittances, rows_by_parent, registered_ids, in
     from credinomina_reconciliation.remittance_detail import _candidate_matches, detail_amount_usd
     from credinomina_reconciliation.remittance_periods import selected_periods
 
-    by_id = {claim['id']: claim for claim in claims}
+    by_id = claim_index.by_id if claim_index is not None else {claim['id']: claim for claim in claims}
     explicit = {(entry['deposit_id'], entry.get('detail_row')) for entry in instructions}
     requested = {(entry['deposit_id'], entry['claim_id']) for entry in instructions}
     result = []

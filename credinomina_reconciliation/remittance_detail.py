@@ -38,6 +38,7 @@ class DetailClaimIndex:
     """
     def __init__(self, claims):
         self.claims = tuple(claims)
+        self.by_id = {claim["id"]: claim for claim in self.claims}
         self.scopes = {}
 
     def candidates(self, row, periods, allowed, apply_fifo):
@@ -202,10 +203,11 @@ def _unidentified_complement_link(row, claim, instruction):
 
 
 def manual_detail_targets(row, claims, instructions, amount_usd, employer, period="", allowed_groups=None,
-                          allow_other_periods=False):
+                          allow_other_periods=False, *, claim_index=None):
     """Validate explicit row links; reuse their instruction IDs without booking twice."""
-    by_id = {claim["id"]: claim for claim in claims}
+    by_id = claim_index.by_id if claim_index is not None else {claim["id"]: claim for claim in claims}
     periods = _period_scope(period)
+    allowed = set(allowed_groups or [employer])
     targets = []
     unidentified_complements = []
     different_references = []
@@ -213,7 +215,6 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
     other_periods = set()
     for instruction in instructions:
         claim = by_id.get(instruction["claim_id"])
-        allowed = set(allowed_groups or [employer])
         generic = bool(claim and claim.get("kind") == "X" and claim.get("manual_only"))
         groups = set(claim.get("groups") or [claim.get("group")]) if claim else set()
         if not claim or not (groups & allowed if generic else clean_text(claim.get("group")) in allowed):

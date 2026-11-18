@@ -50,6 +50,35 @@ class DetailClaimIndexTests(unittest.TestCase):
             claims, 10, "A", claim_index=detail.DetailClaimIndex(claims))
         self.assertEqual(result, ([], "Fila ID duplicada"))
 
+    def test_manual_links_use_all_claims_by_id_and_repeat_the_same_validations(self):
+        claims = [
+            claim("app", period="P2"),
+            claim("signed", id="X:signed", kind="X", amount_usd=-2, manual_only=True,
+                  groups=["A", "B"], period=""),
+            claim("other", group="B"),
+        ]
+        index = detail.DetailClaimIndex(claims)
+        row = dict(loan_number="123-1", employer="A")
+        app = dict(id="first", claim_id="H:app", amount_usd=10)
+        comp = dict(id="next", claim_id="X:signed", amount_usd=-2)
+        cases = [
+            ([app, comp], 8, True, True), ([app, comp], 8, False, False),
+            ([app], 9, True, False), ([app | {"claim_id": "H:other"}], 10, True, False),
+            ([app | {"claim_id": "H:missing"}], 10, True, False),
+        ]
+        for links, amount, other_periods, valid in cases:
+            with self.subTest(links=links, amount=amount, other_periods=other_periods):
+                expected = detail.manual_detail_targets(
+                    row, claims, copy.deepcopy(links), amount, "A", "P1", allow_other_periods=other_periods)
+                # All lookups must come from the shared index, including signed and manual-only claims.
+                actual = detail.manual_detail_targets(
+                    row, (), copy.deepcopy(links), amount, "A", "P1",
+                    allow_other_periods=other_periods, claim_index=index)
+                self.assertEqual(actual, expected)
+                self.assertEqual(bool(actual[0]), valid)
+                if valid:
+                    self.assertEqual([target["instruction_id"] for target in actual[0]], ["first", "next"])
+
     def test_fifo_uses_updated_reservations_without_caching_assignments(self):
         claims = [claim("early"), claim("late", fifo_applications=[
             dict(id="late", event_date="2025-02-15", amount_usd=10)])]

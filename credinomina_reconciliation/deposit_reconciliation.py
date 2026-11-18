@@ -348,16 +348,17 @@ def reconcile_deposit(document, progress=None, undo=False):
         document._validate_deposit()
     imports = engine.load_scoped_imports(companies)
     source_rows = [row for imported in imports for row in imported.rows]
+    # Pairing the bank movement can update its source row before distribution
+    # identifies the affected applications. Snapshot those parents up front.
+    bank_parents = {row.parent for row in source_rows if row.event_type == "Deposito" and row.effective}
     for imported in imports:
-        imported._reconciliation_original_state = document_state(imported)
+        if imported.name in bank_parents:
+            imported._reconciliation_original_state = document_state(imported)
         for row in imported.rows:
             row._source_import, row._source_employer = imported.name, imported.employer
     scope = ["in", companies]
     periods = engine._load_open_periods(scope)
-    for period in periods:
-        period._reconciliation_original_state = document_state(period)
     collections = [row for period in periods for row in period.collection_rows]
-    originals = [row.as_dict() for row in source_rows]
     complements = frappe.get_all("CN Complementary Item", filters={
         "docstatus": 1, "employer": scope,
         "origin_deposit": ["is", "not set"],
@@ -397,7 +398,7 @@ def reconcile_deposit(document, progress=None, undo=False):
     fixed_allocations, coverage = frozen_cash(others, periods, fixed_movements)
     closed_state = {period.name: engine._operative_period_state(period) for period in periods
                     if period.reconciliation_mode != "Historica" and period.status == "Cerrado"}
-    closed_links = (engine._operative_links(periods, originals, [document, *others], complements, closed_state)
+    closed_links = (engine._operative_links(periods, source_rows, [document, *others], complements, closed_state)
                     if closed_state else {})
     report(35, _("Conciliando el detalle y los destinos de este depósito…"))
     pairs, registered = engine._registered_deposit_pairs(source_rows, [document])
@@ -414,6 +415,7 @@ def reconcile_deposit(document, progress=None, undo=False):
     active_periods = [period for period in periods if period.name in affected]
     for period in active_periods:
         period.check_permission("write")
+        period._reconciliation_original_state = document_state(period)
     # Stale tolerance movements of this deposit can be reversed, others stay intact.
     engine._sync_rounding_movements(allocation["rounding_movements"], allocation, source_rows,
                                     deposit_name=document.name)
@@ -432,6 +434,13 @@ def reconcile_deposit(document, progress=None, undo=False):
     active_sources = [row for row in source_rows if row.event_type == "Aplicacion" and (
         row.historical_period in affected or any(link["collection_row_id"] in active_collection_ids
                                                 for link in engine._application_allocations(row)))]
+    active_parents = {row.parent for row in active_sources}
+    for account, bank in pairs:
+        if bank.name != document.name and bank.get("parent"):
+            active_parents.add(bank.parent)
+    for imported in imports:
+        if imported.name in active_parents and imported.name not in bank_parents:
+            imported._reconciliation_original_state = document_state(imported)
     movements_by_application = defaultdict(list)
     for movement in allocation["rounding_movements"]:
         if movement.get("application_id"):
@@ -478,10 +487,6 @@ def reconcile_deposit(document, progress=None, undo=False):
         record_transition(document.name, before, snapshot({**before, **values}))
         from credinomina_reconciliation.complementary_state import deposit_changed
         deposit_changed({"name": document.name, "allocation_detail": "[]"}, previous=before)
-    active_parents = {row.parent for row in active_sources}
-    for account, bank in pairs:
-        if bank.name != document.name and bank.get("parent"):
-            active_parents.add(bank.parent)
     saved = 0
     for imported in imports:
         if imported.name not in active_parents:
