@@ -230,11 +230,18 @@ def read_table(
         return result
     if suffix == ".csv":
         text = content.decode("utf-8-sig")
-        try:
-            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-        except csv.Error:
-            dialect = csv.excel
-        return [list(row) for row in csv.reader(io.StringIO(text), dialect)]
+        stream = io.StringIO(text, newline="")
+        header = stream.readline().rstrip("\r\n").split(",")
+        stream.seek(0)
+        dialect = csv.excel
+        # Our individual accounting CSVs use csv.writer's Excel dialect.
+        # Leading apostrophes protect cell values and must remain literal.
+        if not {"CUENTA_CONTABLE", "CN_FILA_ORIGEN"}.issubset(header):
+            try:
+                dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+            except csv.Error:
+                pass
+        return list(csv.reader(stream, dialect))
     raise SourceFileError("Use un archivo .xlsx, .xls o .csv.")
 
 
