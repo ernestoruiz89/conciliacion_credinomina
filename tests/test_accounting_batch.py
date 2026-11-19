@@ -56,6 +56,17 @@ class AccountingBatchTest(unittest.TestCase):
         self.assertEqual(reimported[0]["source_debit"], 824.78)
         self.assertEqual(reimported[0]["source_description"], rows[0]["source_description"])
 
+    def test_negative_cells_do_not_merge_consecutive_group_csv_rows(self):
+        raw = {n: {"cuenta_contable": "160209013004", "fecha_aplica": "2026-02-28",
+                   "tmov": "12", "tdoc": "19", "debito_del_mes": 20, "movimiento_general": -20,
+                   "descripcion": "Pago aplicado 'A'"} for n in (6044, 6045, 6358)}
+        content = accounting_group_csv(raw, [{"source_row": n} for n in raw])
+        indexed = accounting_source_records("individual.csv", content)
+        self.assertEqual(list(indexed), list(raw))
+        self.assertTrue(all(row["movimiento_general"] == "'-20" for row in indexed.values()))
+        records = parse_accounting_movements("individual.csv", content)
+        self.assertEqual([row["source_row"] for row in records], list(raw))
+
     def test_groups_by_company_and_exact_day_across_months_and_years(self):
         records = [movement(event_date=day, employer_text=company)
                    for day in ("2025-04-15", "2025-04-30", "2025-05-03", "2026-04-15")
