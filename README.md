@@ -420,11 +420,16 @@ Desde la lista de **Importación contable**, use **Carga masiva**
 para subir un archivo con aplicaciones de varios meses o empresas:
 
 Para actualizar un reporte que contiene los movimientos anteriores más los nuevos,
-mantenga **Archivo acumulado (conservar movimientos ya registrados)** y adjunte
-tanto el reporte nuevo como el **Archivo acumulado anterior**, completos y con
-el mismo alcance y moneda. No elimine las cargas anteriores. La comparación
-conserva las aplicaciones, partidas complementarias y líneas de depósitos que ya
-existen, incluidos sus identificadores, tratamientos y conciliación. Solo crea
+mantenga **Archivo acumulado (conservar movimientos ya registrados)**. El sistema
+elige automáticamente el último archivo de una carga masiva completada para cada
+mes presente en el reporte, con la misma moneda y empresa predeterminada. La vista
+previa muestra cuáles archivos anteriores se consideraron. Si necesita comparar
+con otro reporte, puede indicarlo en **Archivo acumulado anterior (opcional)**;
+debe ser completo y tener el mismo alcance y moneda. Si un mes no tiene carga
+anterior completada, se conservan las coincidencias ya registradas, pero no se
+pueden señalar movimientos ausentes de ese mes. No elimine las cargas anteriores.
+La comparación conserva las aplicaciones, partidas complementarias y líneas de
+depósitos que ya existen, incluidos sus identificadores, tratamientos y conciliación. Solo crea
 las ocurrencias adicionales; dos líneas idénticas presentes en el reporte siguen
 siendo dos movimientos. Se comparan fecha, cuenta, moneda, asiento, referencia,
 débito, crédito, descripción, TMOV/TDOC y crédito del cliente, sin depender del

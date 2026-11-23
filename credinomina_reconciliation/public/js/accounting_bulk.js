@@ -18,10 +18,10 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             {fieldtype: "HTML", options: `<p>${__("Cargue un archivo de varios meses. Se creará una importación por empresa y fecha exacta de aplicación. La contabilidad de depósitos se vinculará a los registros existentes cuando la coincidencia sea única y completa, conservando su conciliación.")}</p>`},
             {fieldtype: "Attach", fieldname: "source_file", label: __("Archivo de movimientos contables"), reqd: 1},
             {fieldtype: "Check", fieldname: "cumulative_import", label: __("Archivo acumulado (conservar movimientos ya registrados)"), default: 1,
-                description: __("Mantenga esta opción si el archivo incluye movimientos anteriores y nuevos. Desmárquela para la primera carga o para archivos que solo contienen movimientos nuevos.")},
-            {fieldtype: "Attach", fieldname: "previous_source_file", label: __("Archivo acumulado anterior"),
-                depends_on: "eval:doc.cumulative_import", mandatory_depends_on: "eval:doc.cumulative_import",
-                description: __("Seleccione el reporte completo de la carga anterior, del mismo alcance y moneda. Permite señalar movimientos ausentes para revisión manual. No seleccione el CSV individual de una empresa.")},
+                description: __("Se comparará automáticamente con la última carga completada de cada mes, de la misma moneda y empresa predeterminada. Desmárquela si el archivo solo contiene movimientos nuevos.")},
+            {fieldtype: "Attach", fieldname: "previous_source_file", label: __("Archivo acumulado anterior (opcional)"),
+                depends_on: "eval:doc.cumulative_import",
+                description: __("Úselo solo para elegir manualmente otro reporte completo del mismo alcance y moneda, o si el nuevo archivo está vacío. No seleccione el CSV individual de una empresa.")},
             {fieldtype: "Select", fieldname: "currency", label: __("Moneda del archivo"), options: "\nUSD\nNIO", reqd: 1},
             {fieldtype: "Float", fieldname: "manual_fx_rate", label: __("Tipo de cambio C$ por US$"), precision: 8,
                 depends_on: "eval:doc.currency == 'NIO'", mandatory_depends_on: "eval:doc.currency == 'NIO'",
@@ -227,6 +227,9 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
         previewRows = new Map();
         let html = `<p><strong>${__("Importaciones nuevas")}: ${summary.group_count ?? summary.groups.length} · ${__("Aplicaciones nuevas")}: ${summary.rows} · ${__("Partidas en revisión")}: ${summary.complementary_count || 0}</strong></p>`;
         if (summary.cumulative_import) html += `<p class="alert alert-info">${__("Actualización acumulada: las coincidencias conservan sus documentos, vínculos y conciliación. Solo se agregarán las ocurrencias nuevas. Un movimiento ausente requiere revisión manual; no se anula ni se elimina automáticamente.")}</p>`;
+        if (summary.previous_sources?.length) html += `<p><strong>${__("Archivos anteriores considerados")}</strong>: ${summary.previous_sources.map(source =>
+            `${esc(source.file_name)}${source.months?.length ? ` (${esc(source.months.join(", "))})` : ""}`).join("; ")}</p>`;
+        if (summary.months_without_previous?.length) html += `<p class="alert alert-warning">${__("No se encontró una carga anterior completada para")}: ${esc(summary.months_without_previous.join(", "))}. ${__("Los movimientos ya registrados se conservan, pero no se pueden señalar ausencias de esos meses.")}</p>`;
         html += missingOrigins(summary);
         if (choicesDirty) html += `<p class="alert alert-warning">${__("Hay selecciones de empresa sin analizar. Pulse Nuevo análisis y luego Analizar archivo para reagrupar antes de importar.")}</p>`;
         if (Object.keys(choices).length) html += `<p>${__("Empresas seleccionadas manualmente")}: ${Object.keys(choices).length} <button type="button" class="btn btn-xs btn-default cn-clear-employers">${__("Quitar selecciones de empresa")}</button></p>`;
@@ -346,8 +349,11 @@ frappe.credinomina.openAccountingBulk = function (onComplete) {
             const state = response.message;
             if (closed) return;
             currentPhase = state.phase || "preview";
-            if (state.options) await dialog.set_values({...state.options,
-                cumulative_import: state.options.cumulative_import || 0, previous_source_file: state.options.previous_source_file || ""});
+            if (state.options) {
+                const {previous_source_files, ...visibleOptions} = state.options;
+                await dialog.set_values({...visibleOptions,
+                    cumulative_import: state.options.cumulative_import || 0, previous_source_file: state.options.previous_source_file || ""});
+            }
             if (state.options && (!choicesDirty || (choiceFile && choiceFile !== state.options.source_file))) {
                 choices = state.draft_assignments ?? state.options.employer_assignments ?? {};
                 choiceFile = state.options.source_file;

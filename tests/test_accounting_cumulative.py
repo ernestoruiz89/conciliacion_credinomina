@@ -136,6 +136,76 @@ def test_real_bulk_plan_filters_all_three_types_before_creation():
     assert all("_cumulative_baseline" in row for row in plan["complementary"] + plan["deposits"])
 
 
+def test_auto_previous_export_selects_latest_completed_file_per_month_and_pins_it():
+    import json
+
+    def batch(name, months, status="Completado"):
+        return frappe._dict(name=name, source_file=name + ".csv",
+                            state_json=json.dumps({"status": status, "source_months": months}))
+
+    candidates = [batch("current", ["2026-09", "2026-10"]),
+                  batch("unfinished", ["2026-10"], "Vista previa"),
+                  batch("october", ["2026-10"]), batch("wrong-currency", ["2026-09"]),
+                  batch("september", ["2026-09", "2026-10"]), batch("old-october", ["2026-10"])]
+    files = {
+        "october.csv": [movement(event_date="2026-10-15")],
+        "september.csv": [movement(event_date="2026-09-15"), movement(event_date="2026-10-15")],
+    }
+    def configuration(_, name, field):
+        assert field == "configuration_json"
+        return json.dumps({"options": {"currency": "NIO" if name == "wrong-currency" else "USD", "employer": ""}})
+    options = {"source_file": "current.csv", "currency": "USD", "employer": ""}
+    with patch.object(frappe, "get_all", return_value=candidates), \
+         patch.object(frappe, "db", Mock(get_value=Mock(side_effect=configuration))), \
+         patch.object(bulk, "_file", side_effect=lambda url: (frappe._dict(file_name=url), url.encode())), \
+         patch.object(bulk, "parse_accounting_movements", side_effect=lambda name, _, **kw: deepcopy(files[name])):
+        previous, digest, sources, uncovered = bulk._previous_export(options, [
+            movement(event_date="2026-09-20"), movement(event_date="2026-10-20")])
+        assert options["previous_source_files"] == {"2026-10": "october.csv", "2026-09": "september.csv"}
+        assert {row["event_date"] for row in previous} == {"2026-09-15", "2026-10-15"}
+        assert len(previous) == 2, "The October row from the older September export is outside its selected month"
+        assert digest and not uncovered
+        assert {source["file_name"] for source in sources} == {"october.csv", "september.csv"}
+    with patch.object(bulk, "_latest_month_sources", side_effect=AssertionError("Selection changed")), \
+         patch.object(bulk, "_file", side_effect=lambda url: (frappe._dict(file_name=url), url.encode())), \
+         patch.object(bulk, "parse_accounting_movements", side_effect=lambda name, _, **kw: deepcopy(files[name])):
+        replay, replay_digest, _, _ = bulk._previous_export(options, [
+            movement(event_date="2026-09-20"), movement(event_date="2026-10-20")])
+    assert replay == previous and replay_digest == digest
+
+
+def test_auto_previous_export_reports_months_without_completed_history():
+    options = {"source_file": "new.csv", "currency": "USD"}
+    with patch.object(frappe, "get_all", return_value=[]):
+        previous, digest, sources, uncovered = bulk._previous_export(options, [movement(event_date="2026-11-15")])
+    assert options["previous_source_files"] == {}
+    assert not previous and not digest and not sources
+    assert uncovered == ["2026-11"]
+
+
+def test_auto_previous_export_reads_month_from_older_batch_without_month_metadata():
+    import json
+
+    legacy = frappe._dict(name="legacy", source_file="legacy.csv", state_json=json.dumps({"status": "Completado"}))
+    options = {"source_file": "new.csv", "currency": "USD"}
+    with patch.object(frappe, "get_all", return_value=[legacy]), \
+         patch.object(frappe, "db", Mock(get_value=Mock(return_value=json.dumps({"options": {"currency": "USD"}})))), \
+         patch.object(bulk, "_file", return_value=(frappe._dict(file_name="legacy.csv"), b"legacy")), \
+         patch.object(bulk, "parse_accounting_movements", return_value=[movement(event_date="2026-10-15")]):
+        previous, _, sources, uncovered = bulk._previous_export(options, [movement(event_date="2026-10-20")])
+    assert options["previous_source_files"] == {"2026-10": "legacy.csv"}
+    assert len(previous) == 1 and sources[0]["months"] == ["2026-10"] and not uncovered
+
+
+def test_manual_previous_export_still_supports_empty_current_report():
+    options = {"source_file": "empty.csv", "currency": "USD", "previous_source_file": "old.csv"}
+    with patch.object(bulk, "_file", return_value=(frappe._dict(file_name="old.csv"), b"old")), \
+         patch.object(bulk, "parse_accounting_movements", return_value=[movement()]):
+        previous, digest, sources, uncovered = bulk._previous_export(options, [])
+    assert len(previous) == 1 and digest and sources[0]["file_name"] == "old.csv"
+    assert not uncovered
+
+
 def test_full_absence_report_is_durable_beyond_first_hundred_rows():
     rows = [{**cumulative.reference(origin(n)), "reason": "Revisar"} for n in range(620)]
     payloads = {}

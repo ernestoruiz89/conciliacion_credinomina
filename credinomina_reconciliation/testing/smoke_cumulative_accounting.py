@@ -5,7 +5,7 @@ import io
 import frappe
 
 from credinomina_reconciliation import bulk_accounting_import as bulk
-from credinomina_reconciliation.accounting_batch_store import creation_guard
+from credinomina_reconciliation.accounting_batch_store import creation_guard, save_state
 from credinomina_reconciliation.accounting_cumulative import guard_block
 
 
@@ -69,6 +69,12 @@ def run():
 
         added = [line("A", "APP"), line("C", "NEW-INTERNAL"), line("D", "NEW-BANK")]
         second = export(list(reversed(original)) + added, "-second")
+        save_state(marker + "-batch", {"status": "Completado", "source_months": ["2025-05"], "options": options})
+        automatic = dict(options, source_file=second.file_url, cumulative_import=1)
+        automatic_plan = bulk._plan(automatic)
+        assert automatic["previous_source_files"] == {"2025-05": first.file_url}
+        assert len(automatic_plan["already_imported"]) == 3 and not automatic_plan["missing_origins"]
+        assert sum(group["count"] for group in automatic_plan["groups"]) == 1
         updated = dict(options, source_file=second.file_url, previous_source_file=first.file_url, cumulative_import=1)
         with creation_guard():
             plan = bulk._plan(updated)

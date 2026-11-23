@@ -90,6 +90,89 @@ def _file(url):
     frappe.throw(_("No tiene acceso al archivo seleccionado."), frappe.PermissionError)
 
 
+def _record_months(records):
+    return sorted({str(row["event_date"])[:7] for row in records if row.get("event_date")})
+
+
+def _latest_month_sources(options, months):
+    """Find the most recent completed, readable bulk export for each month."""
+    from credinomina_reconciliation.accounting_batch_store import BATCH, MUTEX
+
+    selected = {}
+    for batch in frappe.get_all(BATCH, filters={"name": ["!=", MUTEX]},
+                                fields=["name", "source_file", "state_json"],
+                                order_by="creation desc", limit_page_length=0):
+        if len(selected) == len(months):
+            break
+        if not batch.source_file or batch.source_file == options["source_file"]:
+            continue
+        try:
+            runtime = json.loads(batch.state_json or "{}")
+        except (TypeError, ValueError):
+            continue
+        if runtime.get("status") != "Completado":
+            continue
+        pending = set(months) - selected.keys()
+        known_months = runtime.get("source_months")
+        if known_months is not None and not pending.intersection(known_months):
+            continue
+        try:
+            configuration = json.loads(frappe.db.get_value(BATCH, batch.name, "configuration_json") or "{}")
+        except (TypeError, ValueError):
+            continue
+        previous_options = configuration.get("options") or {}
+        if (previous_options.get("currency") != options["currency"]
+                or clean_text(previous_options.get("employer")) != clean_text(options.get("employer"))):
+            continue
+        try:
+            file_doc, content = _file(batch.source_file)
+            candidate_months = known_months if known_months is not None else _record_months(
+                parse_accounting_movements(file_doc.file_name, content, allow_empty=True))
+        except (frappe.PermissionError, SourceFileError):
+            continue
+        for month in sorted(pending.intersection(candidate_months)):
+            selected[month] = batch.source_file
+    return selected
+
+
+def _previous_export(options, records):
+    """Resolve and pin the monthly comparison before confirmation/retry."""
+    months = _record_months(records)
+    override = options.get("previous_source_file")
+    if override:
+        selected = {month: override for month in months}
+        urls = [override]
+    else:
+        if "previous_source_files" not in options:
+            options["previous_source_files"] = _latest_month_sources(options, months)
+        selected = options["previous_source_files"]
+        if not isinstance(selected, dict) or set(selected) - set(months):
+            raise SourceFileError("Cambió el período del archivo. Genere un nuevo análisis para seleccionar el acumulado anterior.")
+        urls = list(dict.fromkeys(selected[month] for month in sorted(selected)))
+
+    previous_records, hashes, sources, covered_months = [], [], [], set()
+    for url in urls:
+        previous_file, previous_content = _file(url)
+        parsed = apply_accounting_currency_override(
+            parse_accounting_movements(previous_file.file_name, previous_content, allow_empty=True),
+            options["currency"], options.get("manual_fx_rate", 0))
+        if len(parsed) > MAX_MOVEMENTS:
+            raise SourceFileError("El archivo anterior supera el límite de 100,000 movimientos. Divida ambos reportes con el mismo alcance.")
+        available = set(_record_months(parsed))
+        if not override:
+            assigned = {month for month, source in selected.items() if source == url}
+            parsed = [row for row in parsed if str(row.get("event_date"))[:7] in assigned]
+            available.intersection_update(assigned)
+        previous_records.extend(parsed)
+        if len(previous_records) > MAX_MOVEMENTS:
+            raise SourceFileError("Los archivos anteriores reúnen más de 100,000 movimientos. Divida la carga por meses.")
+        digest = file_sha256(previous_content)
+        hashes.append(f"{url}:{digest}")
+        sources.append({"file_name": previous_file.file_name, "months": sorted(available)})
+        covered_months.update(available)
+    return previous_records, source_key(*sorted(hashes)) if hashes else "", sources, sorted(set(months) - covered_months)
+
+
 def _plan(options):
     _permissions()
     snapshot = _required_portfolio_snapshot(options.get("portfolio_snapshot"))
@@ -107,6 +190,7 @@ def _plan(options):
         parse_accounting_movements(file_doc.file_name, content, allow_empty=bool(cint(options.get("cumulative_import")))),
         options["currency"], options.get("manual_fx_rate", 0),
     )
+    source_months = _record_months(records)
     if len(records) > MAX_MOVEMENTS:
         frappe.throw(_("La carga supera {0} movimientos. Divida el archivo.").format(f"{MAX_MOVEMENTS:,}"))
     file_hash = file_sha256(content)
@@ -121,19 +205,13 @@ def _plan(options):
         seen_evidence.add(key)
     identify_lines(records, file_hash)
     comparison = None
+    previous_sources, months_without_previous = [], []
     if cint(options.get("cumulative_import")):
-        if not options.get("previous_source_file"):
-            raise SourceFileError("Seleccione el archivo acumulado anterior para delimitar la comparación y detectar movimientos ausentes.")
-        previous_file, previous_content = _file(options["previous_source_file"])
-        previous_records = apply_accounting_currency_override(
-            parse_accounting_movements(previous_file.file_name, previous_content, allow_empty=True),
-            options["currency"], options.get("manual_fx_rate", 0))
-        if len(previous_records) > MAX_MOVEMENTS:
-            raise SourceFileError("El archivo anterior supera el límite de 100,000 movimientos. Divida ambos reportes con el mismo alcance.")
+        previous_records, previous_hash, previous_sources, months_without_previous = _previous_export(options, records)
         from credinomina_reconciliation.accounting_cumulative import compare, live_origins
         comparison = compare(records, previous_records, live_origins(records + previous_records), file_hash)
         records = comparison["records"]
-        comparison["previous_file_hash"] = file_sha256(previous_content)
+        comparison["previous_file_hash"] = previous_hash
     # Preview must never create clients or modify portfolio/master documents.
     records = enrich_accounting_records(records, snapshot, register_clients=False)
     parents = frappe.get_all(
@@ -191,7 +269,9 @@ def _plan(options):
         else:
             existing_review.add(row["accounting_source_key"])
             plan["complementary"].append(row)
-    plan.update(file_hash=file_sha256(content), file_name=file_doc.file_name)
+    plan.update(file_hash=file_hash, file_name=file_doc.file_name, source_months=source_months,
+                cumulative_import=bool(cint(options.get("cumulative_import"))),
+                previous_sources=previous_sources, months_without_previous=months_without_previous)
     if comparison is not None:
         plan["already_imported"].extend(comparison["already_imported"])
         plan["issues"].extend(comparison["issues"])
@@ -206,7 +286,9 @@ def _summary(plan):
     groups = [{key: value for key, value in group.items() if key != "rows"} for group in plan["groups"]]
     return {
         "file_hash": plan.get("file_hash"),
-        "cumulative_import": bool(plan.get("previous_file_hash")),
+        "cumulative_import": plan.get("cumulative_import", False),
+        "previous_sources": plan.get("previous_sources", []),
+        "months_without_previous": plan.get("months_without_previous", []),
         "missing_origins": plan.get("missing_origins", [])[:100],
         "missing_origins_count": len(plan.get("missing_origins", [])),
         "sections": {key: _identification_summary(plan, unidentified)
@@ -276,9 +358,8 @@ def preview_bulk_import(source_file, currency, manual_fx_rate=0, employer="", po
     portfolio_snapshot = _required_portfolio_snapshot(portfolio_snapshot)
     _file(source_file)
     if cint(cumulative_import):
-        if not previous_source_file:
-            frappe.throw(_("Seleccione el archivo acumulado anterior. Para la primera carga desmarque Archivo acumulado."))
-        _file(previous_source_file)
+        if previous_source_file:
+            _file(previous_source_file)
     from credinomina_reconciliation.accounting_batch_store import ensure_mutex
     ensure_mutex()
     assignments = frappe.parse_json(employer_assignments) if isinstance(employer_assignments, str) else employer_assignments or {}
@@ -537,6 +618,7 @@ def run_bulk_job(token, user, attempt=None):
             from credinomina_reconciliation.accounting_cumulative_review import save_missing
             missing_chunks = save_missing(token, plan.get("missing_origins", []))
             state.update(status="Vista previa", summary=_summary(plan), signature=_signature(plan), error="",
+                         source_months=plan["source_months"],
                          preview_chunks=preview_chunks, missing_chunks=missing_chunks)
             state['summary']['paginated_review'] = True
             _store(token, state)

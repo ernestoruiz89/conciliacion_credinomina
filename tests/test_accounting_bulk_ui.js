@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 
-let dialog, calls = [], phase = "preview", html = "", legacy = false, handlers = {};
+let dialog, calls = [], phase = "preview", html = "", legacy = false, autoPrevious = false, handlers = {};
 const storage = new Map();
 const options = {source_file: "/private/files/all.xlsx", currency: "USD", manual_fx_rate: 0, portfolio_snapshot: "CUT"};
 const state = {status: "Vista previa", options, summary: {
@@ -41,6 +41,7 @@ const context = vm.createContext({
         call: async args => {
             calls.push(args);
             if (args.method.endsWith("preview_bulk_import")) state.options = {...args.args,
+                ...(autoPrevious ? {previous_source_files: {"2026-10": "/private/files/previous.xlsx"}} : {}),
                 employer_assignments: JSON.parse(args.args.employer_assignments || "{}")};
             if (args.method.endsWith("get_bulk_import_status")) {
                 if (!legacy) addSections(state.summary);
@@ -75,7 +76,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     context.frappe.credinomina.openAccountingBulk();
     const portfolioField = dialog.opts.fields.find(field => field.fieldname === "portfolio_snapshot");
     assert.equal(dialog.opts.fields.find(field => field.fieldname === "cumulative_import").default, 1);
-    assert.equal(dialog.opts.fields.find(field => field.fieldname === "previous_source_file").mandatory_depends_on, "eval:doc.cumulative_import");
+    assert.equal(dialog.opts.fields.find(field => field.fieldname === "previous_source_file").mandatory_depends_on, undefined);
     assert.equal(portfolioField.reqd, 1);
     assert.equal(portfolioField.label, "Corte de cartera");
     await dialog.primary();
@@ -182,10 +183,15 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "../credinomina_reconciliat
     assert.ok(html.includes("Pulse Nuevo análisis"));
     legacy = false;
     dialog.secondary();
+    autoPrevious = true;
     Object.assign(state.summary, {cumulative_import: true, missing_origins_count: 620, deposit_count: 0,
+        previous_sources: [{file_name: "<anterior>.xlsx", months: ["2026-10"]}], months_without_previous: ["2026-11"],
         complementary_count: 0, rows: 0, missing_origins: [{doctype: "CN Remittance Allocation", document: "DEP/ORIGIN",
             row: 2, employer: "<Empresa>", voucher: "<script>", event_date: "2026-10-15", currency: "USD", debit: 0, credit: 100}]});
     await dialog.primary();
+    assert.equal(dialog.values.previous_source_files, undefined, "Internal month selection must not become a dialog field");
+    assert.ok(html.includes("&lt;anterior&gt;.xlsx (2026-10)"));
+    assert.ok(html.includes("2026-11") && html.includes("no se pueden señalar ausencias"));
     assert.equal(dialog.disabled, true, "Absence review alone must not create or delete documents");
     assert.ok(html.includes("Descargar lista completa para revisión (CSV)"));
     assert.ok(html.includes("missing_origins?token=token"));
