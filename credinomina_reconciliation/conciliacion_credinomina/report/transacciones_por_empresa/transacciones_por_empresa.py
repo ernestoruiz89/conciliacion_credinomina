@@ -1,5 +1,6 @@
 import frappe
 from calendar import monthrange
+from collections import defaultdict
 from datetime import date
 from frappe import _
 from frappe.utils import cint, nowdate
@@ -11,10 +12,16 @@ from credinomina_reconciliation import complementary_transactions
 from credinomina_reconciliation import reconciliation_trace
 from credinomina_reconciliation.application_context import import_company_scope, application_employer
 from credinomina_reconciliation.report_records import records as readable_records, child_records
+from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 TRANSACTION_DOCTYPES = {"Aplicaciones": "CN Accounting Import", "Depósitos": "CN Remittance Allocation",
                        **{kind: "CN Complementary Item" for kind in complementary_transactions.KINDS}}
 STATE_FILTERS = {"Conciliado", "Parcial", "Pendiente", "Revisar distribución", "Distribuciones inconsistentes"}
+VISUALIZATIONS = {"Número de transacciones", "Importe"}
+AMOUNT_STATES = (("Conciliado", "conciliado", "Conciliadas", "Green"),
+                 ("Parcial", "parcial", "Parcialmente conciliadas", "Orange"),
+                 ("Pendiente", "pendiente", "Pendientes", "Red"),
+                 ("Revisar distribución", "review", "Distribuciones inconsistentes", "Red"))
 
 
 def normalize_state_filter(value):
@@ -51,6 +58,9 @@ def execute(filters=None):
     kind = filters.get("transaction_type") or "Aplicaciones"
     if kind not in TRANSACTION_DOCTYPES:
         frappe.throw(_("Seleccione un tipo de transacción válido."))
+    visualization = filters.get("visualization") or "Número de transacciones"
+    if visualization not in VISUALIZATIONS:
+        frappe.throw(_("Seleccione una visualización válida."))
     selected_state = normalize_state_filter(filters.get("state"))
     if selected_state is None:
         frappe.throw(_("Seleccione un estado de conciliación válido."))
@@ -77,6 +87,8 @@ def execute(filters=None):
                if kind == "Aplicaciones" else complementary_transactions.month_amounts(sources)
                if kind in complementary_transactions.KINDS else deposit_month_amounts(sources))
     data = monthly_counts(records, year, amounts)
+    amount_totals = (apply_amount_visualization(data, records, sources, progress, kind, year)
+                     if visualization == "Importe" else None)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
         if cutoff:
@@ -86,8 +98,12 @@ def execute(filters=None):
         if user:
             row["_detail_filters"]["reconciled_by"] = user
     if data:
-        data.append({"employer": _("Total"), "_is_total": True,
-                     **{key: sum(row[key] for row in data) for key in ["total", *[f"m{month:02}" for month in range(1, 13)]]}})
+        keys = ["total", *[f"m{month:02}" for month in range(1, 13)]]
+        totals = ({key: None if any(row[key] is None for row in data) else money_float(sum_money(row[key] for row in data))
+                   for key in keys} if amount_totals is not None else
+                  {key: sum(row[key] for row in data) for key in keys})
+        data.append({"employer": _("Total"), "_is_total": True, "_visualization": visualization,
+                     **({"usd_currency": "USD"} if amount_totals is not None else {}), **totals})
     message = _("Verde: todas las transacciones conciliadas. Parciales: naranja si el importe conciliado es menor al 50%; amarillo desde el 50%. "
                 "Rojo: todas pendientes. —: sin transacciones. Pulse una celda para ver sus transacciones. "
                 "Use Estado de conciliación para limitar la matriz a un estado, por ejemplo Distribuciones inconsistentes. "
@@ -114,14 +130,72 @@ def execute(filters=None):
         message += " " + _("Compensaciones confirmadas y tratamientos ya documentados se incluyen aunque el documento permanezca en borrador.")
     if cutoff:
         message += " " + _("Fecha de corte: {0}. Incluye transacciones hasta esa fecha dentro del año seleccionado; el estado y la cobertura son los actuales.").format(cutoff)
-    summary = transaction_summary(records)
-    return columns(), data, message, None, summary
+    if amount_totals is not None:
+        message += " " + _("Importe: suma en US$ el importe completo de las transacciones de cada estado, incluida la parte aún pendiente de las parciales. "
+            "El total anual suma los meses; N/D indica que falta un importe válido o convertible y no se presenta un total incompleto. "
+            "Los colores y porcentajes siguen indicando la cobertura conciliada.")
+    summary = amount_summary(amount_totals) if amount_totals is not None else transaction_summary(records)
+    return columns(visualization), data, message, None, summary
 
 
 def transaction_summary(records):
     return [{"label": _(label), "value": sum(record["state"] == state for record in records), "datatype": "Int", "indicator": color}
         for state, label, color in (("Conciliado", "Conciliadas", "Green"), ("Parcial", "Parcialmente conciliadas", "Orange"),
                                     ("Pendiente", "Pendientes", "Red"), ("Revisar distribución", "Distribuciones inconsistentes", "Red"))]
+
+
+def apply_amount_visualization(data, records, sources, progress, kind, year):
+    """Sum the full USD amount of each selected transaction by its current state."""
+    by_name = {source["name"]: source for source in sources}
+    monthly = defaultdict(lambda: {state: money(0) for state, _, _, _ in AMOUNT_STATES})
+    for record in records:
+        try:
+            day = date.fromisoformat(str(record.get("date") or "")[:10])
+        except ValueError:
+            continue
+        if day.year != year:
+            continue
+        state = record["state"]
+        source = by_name.get(record["name"])
+        if kind == "Aplicaciones":
+            raw = progress.get(record["name"], {}).get("total_usd")
+        elif kind in complementary_transactions.KINDS:
+            raw = source.get("_progress", {}).get("original_usd") if source else None
+        else:
+            raw = source.get("amount_usd") if source else None
+        amount = money(raw) if raw is not None else None
+        if amount is not None and (amount < 0 or (kind != "Aplicaciones" and amount == 0)):
+            amount = None
+        group = monthly[(record.get("employer") or "", day.month)]
+        if group[state] is not None:
+            group[state] = None if amount is None else group[state] + amount
+
+    totals = {state: money(0) for state, _, _, _ in AMOUNT_STATES}
+    for row in data:
+        annual = money(0)
+        row["total_count"] = row["total"]
+        row["_visualization"] = "Importe"
+        row["usd_currency"] = "USD"
+        for month in range(1, 13):
+            key = f"m{month:02}"
+            row[key + "_count"] = row[key]
+            group = monthly[(row["employer"], month)]
+            for state, suffix, _, _ in AMOUNT_STATES:
+                amount = group[state]
+                row[key + "_" + suffix + "_usd"] = None if amount is None else money_float(amount)
+                if totals[state] is not None:
+                    totals[state] = None if amount is None else totals[state] + amount
+            month_total = None if any(value is None for value in group.values()) else sum_money(group.values())
+            row[key] = None if month_total is None else money_float(month_total)
+            annual = None if annual is None or month_total is None else annual + month_total
+        row["total"] = None if annual is None else money_float(annual)
+    return totals
+
+
+def amount_summary(totals):
+    return [{"label": _(label), "value": money_float(totals[state]) if totals[state] is not None else _("N/D"),
+             "datatype": "Currency" if totals[state] is not None else "Data", "currency": "USD", "indicator": color}
+            for state, suffix, label, color in AMOUNT_STATES]
 
 
 def filter_user(kind, records, sources, collections, user):
@@ -243,12 +317,20 @@ def _application_progress(records, sources, imports):
     return progress, collections
 
 
-def columns():
+def columns(visualization="Número de transacciones"):
     months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sept", "Oct", "Nov", "Dic"]
+    amount = visualization == "Importe"
+
+    def numeric_column(fieldname, label, width):
+        column = {"fieldname": fieldname, "label": _(label) + (" US$" if amount else ""),
+                  "fieldtype": "Currency" if amount else "Int", "width": width}
+        if amount:
+            column.update(options="usd_currency", precision=2)
+        return column
     return [{"fieldname": "employer", "label": _("Empresa"), "fieldtype": "Link", "options": "CN Employer", "width": 240},
-            *[{"fieldname": f"m{index:02}", "label": _(label), "fieldtype": "Int", "width": 70}
+            *[numeric_column(f"m{index:02}", label, 135 if amount else 70)
               for index, label in enumerate(months, 1)],
-            {"fieldname": "total", "label": _("Total"), "fieldtype": "Int", "width": 85}]
+            numeric_column("total", "Total", 145 if amount else 85)]
 
 
 @frappe.whitelist()

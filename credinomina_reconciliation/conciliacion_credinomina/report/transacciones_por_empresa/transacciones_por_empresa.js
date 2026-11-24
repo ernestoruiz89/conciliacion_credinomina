@@ -6,6 +6,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
             description: __("Incluye transacciones hasta esta fecha dentro del año seleccionado. Estado y cobertura actuales.")},
         {fieldname: "transaction_type", label: __("Tipo de transacción"), fieldtype: "Select", reqd: 1,
             options: "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable", default: "Aplicaciones"},
+        {fieldname: "visualization", label: __("Visualización"), fieldtype: "Select", reqd: 1,
+            options: "Número de transacciones\nImporte", default: "Número de transacciones"},
         {fieldname: "state", label: __("Estado de conciliación"), fieldtype: "Select",
             options: "Todos\nConciliado\nParcial\nPendiente\nDistribuciones inconsistentes", default: "Todos"},
         {fieldname: "employer", label: __("Empresa"), fieldtype: "Link", options: "CN Employer"},
@@ -23,17 +25,19 @@ frappe.query_reports["Transacciones por Empresa"] = {
     },
     formatter(value, row, column, data, default_formatter) {
         const key = column?.fieldname || "";
+        const isAmount = data?._visualization === "Importe";
         if (data?._is_total) {
-            const total = key === "employer" ? __("Total") : default_formatter(value, row, column, data);
+            const total = key === "employer" ? __("Total") : isAmount && value == null ? __("N/D") : default_formatter(value, row, column, data);
             return `<div style="font-weight:700;text-align:${key === "employer" ? "left" : "right"}">${total}</div>`;
         }
-        const html = default_formatter(value, row, column, data);
+        const html = isAmount && value == null ? __("N/D") : default_formatter(value, row, column, data);
         if (key === "employer" && data && !value) return __("Sin empresa identificada");
         if (key === "total" && data) return `<div style="font-weight:bold;text-align:right">${html}</div>`;
         if (!/^m(0[1-9]|1[0-2])$/.test(key) || !data) {
             return html;
         }
-        if (!Number(value)) return '<span class="text-muted" title="' + __("Sin transacciones") + '">—</span>';
+        if (!(isAmount ? Number(data[key + "_count"]) : Number(value)))
+            return '<span class="text-muted" title="' + __("Sin transacciones") + '">—</span>';
         const state = data[key + "_state"] || "Pendiente";
         const colors = {Conciliado: ["#dcfce7", "#14532d"], Parcial: ["#fb923c", "#431407"], Pendiente: ["#fee2e2", "#991b1b"]};
         const percentage = data[key + "_percentage"];
@@ -42,12 +46,14 @@ frappe.query_reports["Transacciones por Empresa"] = {
             ? ["#fef9c3", "#713f12"] : colors[state] || colors.Pendiente;
         const count = suffix => Math.max(0, Number(data[key + suffix]) || 0);
         const formatAmount = amount => Number(amount).toLocaleString("es-NI", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const stateAmount = suffix => data[key + suffix] == null ? __("N/D") : `US$ ${formatAmount(data[key + suffix])}`;
         const percentageLabel = known && Number(percentage) < 50 && Number(percentage).toFixed(2) === "50.00"
             ? "<50" : formatAmount(percentage);
         const progress = known
             ? `${__("Importe conciliado")}: ${percentageLabel}% · US$ ${formatAmount(data[key + "_covered_usd"])} / ${formatAmount(data[key + "_total_usd"])}`
             : __("Porcentaje del importe no disponible");
-        const description = `${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}`;
+        const breakdown = isAmount ? ` · ${__("Importe de transacciones por estado")}: ${__("Conciliadas")}: ${stateAmount("_conciliado_usd")} · ${__("Parciales")}: ${stateAmount("_parcial_usd")} · ${__("Pendientes")}: ${stateAmount("_pendiente_usd")} · ${__("Revisar distribución")}: ${stateAmount("_review_usd")}` : "";
+        const description = `${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}${breakdown}`;
         const escaped = frappe.utils.escape_html(description);
         // Offset DataTable's content padding so the status fills the cell.
         // Partial-state color uses the amount covered, never transaction count.

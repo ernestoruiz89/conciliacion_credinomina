@@ -64,6 +64,70 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(result["m04_percentage"], 0.9)
         self.assertFalse(result["m04_half_covered"])
 
+    def test_amount_view_totals_full_transaction_usd_by_state_and_filter(self):
+        rows = [
+            frappe._dict(name="C", employer="A", deposit_date="2025-04-01", docstatus=1,
+                         amount_usd=100, allocated_usd=100, result="Conciliado"),
+            frappe._dict(name="P", employer="A", deposit_date="2025-04-02", docstatus=1,
+                         amount_usd=150, allocated_usd=60, result="Parcial"),
+            frappe._dict(name="N", employer="A", deposit_date="2025-04-03", docstatus=1,
+                         amount_usd=50, allocated_usd=0, result="Pendiente"),
+            frappe._dict(name="M", employer="A", deposit_date="2025-05-01", docstatus=1,
+                         amount_usd=25, allocated_usd=0, result="Pendiente"),
+            frappe._dict(name="B", employer="B", deposit_date="2025-04-01", docstatus=1,
+                         amount_usd=40, allocated_usd=40, result="Conciliado"),
+        ]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            columns, data, _, _, summary = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe"))
+            filtered = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe", state="Parcial"))
+            counts = report.execute(dict(year=2025, transaction_type="Depósitos"))
+        a, b, total = data
+        self.assertEqual((a["m04"], a["m05"], a["total"]), (300, 25, 325))
+        self.assertEqual((a["m04_conciliado_usd"], a["m04_parcial_usd"], a["m04_pendiente_usd"]), (100, 150, 50))
+        self.assertEqual((a["m04_count"], a["total_count"], a["m04_percentage"]), (3, 4, 160 / 300 * 100))
+        self.assertEqual((b["m04"], b["total"], total["m04"], total["total"]), (40, 40, 340, 365))
+        self.assertEqual([item["value"] for item in summary], [140, 150, 75, 0])
+        self.assertTrue(all(item["datatype"] == "Currency" and item["currency"] == "USD" for item in summary))
+        self.assertEqual((columns[1]["fieldtype"], columns[1]["options"], columns[1]["precision"]), ("Currency", "usd_currency", 2))
+        self.assertEqual((a["usd_currency"], total["usd_currency"]), ("USD", "USD"))
+        self.assertEqual(filtered[1][0]["m04"], 150)
+        self.assertEqual(filtered[1][0]["m04_parcial_usd"], 150)
+        self.assertEqual(filtered[4][1]["value"], 150)
+        self.assertEqual((counts[1][0]["m04"], counts[1][0]["total"]), (3, 4))
+        self.assertEqual(counts[0][1]["fieldtype"], "Int")
+
+    def test_amount_view_keeps_missing_usd_undetermined_and_other_months_known(self):
+        rows = [frappe._dict(name="UNKNOWN", employer="A", deposit_date="2025-04-01", docstatus=1,
+                             amount_usd=None, allocated_usd=0, result="Pendiente"),
+                frappe._dict(name="KNOWN", employer="A", deposit_date="2025-05-01", docstatus=1,
+                             amount_usd=20, allocated_usd=0, result="Pendiente")]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            _, data, _, _, summary = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe"))
+        self.assertIsNone(data[0]["m04"])
+        self.assertEqual(data[0]["m04_count"], 1)
+        self.assertEqual(data[0]["m05"], 20)
+        self.assertIsNone(data[0]["total"])
+        self.assertIsNone(data[-1]["total"])
+        self.assertEqual(summary[-1]["value"], "N/D")
+
+    def test_application_amount_view_includes_negative_adjustment_in_original_amount(self):
+        parent = frappe._dict(name="I", employer="A", status="Importado", historical_period="P")
+        rows = [frappe._dict(name="C", parent="I", event_date="2025-04-01", event_type="Aplicacion",
+                             currency="USD", amount=100, effective=1, match_status="Conciliado", historical_remitted_usd=100),
+                frappe._dict(name="P", parent="I", event_date="2025-04-02", event_type="Aplicacion",
+                             currency="USD", amount=200, effective=1, match_status="Conciliado", historical_remitted_usd=50),
+                frappe._dict(name="N", parent="I", event_date="2025-04-03", event_type="Aplicacion",
+                             currency="USD", amount=25, application_adjustment_usd=-5, effective=1,
+                             match_status="Conciliado", historical_remitted_usd=0)]
+        with patch.object(frappe, "has_permission", return_value=True), \
+             patch.object(report, "load_transactions", return_value=(
+                 [dict(name=row.name, employer="A", date=row.event_date, state="Pendiente") for row in rows], rows, {"I": parent})), \
+             patch.object(report, "load_application_collections", return_value={}):
+            _, data, _, _, summary = report.execute(dict(year=2025, visualization="Importe"))
+        self.assertEqual((data[0]["m04"], data[0]["m04_conciliado_usd"], data[0]["m04_parcial_usd"],
+                          data[0]["m04_pendiente_usd"]), (330, 100, 200, 30))
+        self.assertEqual([item["value"] for item in summary[:3]], [100, 200, 30])
+
     def test_zero_applications_are_settled_without_hiding_invalid_distributions(self):
         row = dict(event_type="Aplicacion", currency="USD", amount=0, effective=1, match_status="Conciliado")
         for scope in ({}, {"historical_period": "P"}):
@@ -346,6 +410,10 @@ class CompanyTransactionsTests(unittest.TestCase):
                     patch.object(frappe, "get_list") as listed, self.assertRaises(ValueError):
                 report.execute(filters)
             listed.assert_not_called()
+        with patch.object(frappe, "throw", side_effect=ValueError), \
+             patch.object(report, "load_transactions") as loader, self.assertRaises(ValueError):
+            report.execute({"year": 2025, "visualization": "Otra"})
+        loader.assert_not_called()
 
     def test_empty_permission_scope_never_reads_child_table(self):
         with patch.object(frappe, "has_permission", return_value=True), \

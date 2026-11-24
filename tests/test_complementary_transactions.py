@@ -126,10 +126,15 @@ class ComplementaryTransactionsTests(unittest.TestCase):
             item = self.item(docstatus=0, category="Compensación entre partidas", compensated_usd=50)
             with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=[item]):
                 _, data, _, _, summary = report.execute(dict(year=2025, transaction_type=kind))
+                _, amounts, _, _, amount_summary = report.execute(dict(year=2025, transaction_type=kind, visualization="Importe"))
                 result = report.get_month_detail(2025, 4 if transactions.KINDS[kind] else 5, "A", transaction_type=kind, search="Ana")
             self.assertEqual(data[0]["total"], 1)
             self.assertEqual(data[-1]["total"], 1)
             self.assertEqual(summary[1]["value"], 1)
+            month = "m04" if transactions.KINDS[kind] else "m05"
+            self.assertEqual(amounts[0][month], 100)
+            self.assertEqual(amounts[0][month + "_parcial_usd"], 100)
+            self.assertEqual(amount_summary[1]["value"], 100)
             self.assertEqual(result["totals"], dict(original_usd=100, resolved_usd=50, pending_usd=50))
             self.assertEqual(result["rows"][0]["doctype"], "CN Complementary Item")
             with patch.object(frappe, "has_permission", return_value=False), \

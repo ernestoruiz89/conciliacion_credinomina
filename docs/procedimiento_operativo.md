@@ -1094,6 +1094,16 @@ Los estados de aplicaciones se calculan desde cobertura monetaria vigente, no de
 
 ### Leer Transacciones por Empresa
 
+**Visualización** muestra **Número de transacciones** por defecto. Cambie a
+**Importe** para consultar en US$ el importe completo de las transacciones de
+cada estado. Con Estado **Todos**, la celda suma conciliadas, parciales,
+pendientes y distribuciones por revisar; al elegir un estado se limita a ese
+grupo. Los indicadores y la fila Total cambian también a US$. Pase el cursor
+por la celda para ver el desglose de importes. Una transacción parcial aporta
+su importe completo al grupo Parcial; el porcentaje y el color indican la
+cobertura efectivamente conciliada. **N/D** señala un importe sin conversión o
+determinación suficiente y evita mostrar un total incompleto.
+
 **Usuario de conciliación** limita la matriz a transacciones **Conciliadas** o **Parciales** con participación registrada del usuario. Se combina con empresa, año, tipo y estado; el usuario se conserva al abrir el mes y al paginar. En el modal puede cambiarlo o quitarlo. Sus indicadores y totales respetan el usuario seleccionado. Una transacción puede aparecer para varios usuarios, pero se cuenta una sola vez en cada consulta. **Solo con diferencias**, combinado con usuario, muestra las parciales.
 
 En **Conciliaciones por usuario**, dentro del estado de cada fila del modal, se muestran usuario, fecha/hora de registro, documento de origen y movimiento US$ de cada asignación. Un aumento registra la porción adicional; una reducción o reversión registra un importe negativo y conserva los eventos anteriores. Los depósitos distintos sobre una aplicación conservan su autoría individual. Las asignaciones a cobranzas vinculadas se identifican como tales y no se presentan como un reparto inventado entre aplicaciones. También se registran ajustes, compensaciones y aplicaciones de saldos a favor. Una edición de comentarios o una actualización de cartera no atribuye una conciliación al editor.

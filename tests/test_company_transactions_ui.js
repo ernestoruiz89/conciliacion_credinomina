@@ -13,6 +13,9 @@ assert.equal(filters.cutoff_date.label, "Fecha de corte");
 assert.ok(!filters.cutoff_date.reqd);
 assert.equal(filters.transaction_type.default, "Aplicaciones");
 assert.equal(filters.transaction_type.options, "Aplicaciones\nDepósitos\nPartidas complementarias contables\nPartidas complementarias sin origen contable");
+assert.equal(filters.visualization.label, "Visualización");
+assert.equal(filters.visualization.default, "Número de transacciones");
+assert.equal(filters.visualization.options, "Número de transacciones\nImporte");
 assert.equal(filters.state.default, "Todos");
 assert.ok(filters.state.options.includes("Distribuciones inconsistentes"));
 assert.equal(filters.include_drafts.default, 0);
@@ -59,4 +62,19 @@ assert.ok(!clickable.includes("<script>"));
 assert.ok(!formatter(0, "m04", {_detail_filters: {year: 2025}}).includes("<button"));
 assert.ok(!formatter(5, "m04", {_is_total: true, _detail_filters: {year: 2025}}).includes("cn-month-transactions"));
 assert.equal(report.formatter("Total", null, {fieldname: "employer"}, {_is_total: true}, () => "BAD LINK"), '<div style="font-weight:700;text-align:left">Total</div>');
+const amount = {_visualization: "Importe", m04_count: 3, m04_state: "Parcial", m04_percentage: 60,
+    m04_total_usd: 100, m04_covered_usd: 60, m04_conciliado: 1, m04_parcial: 1, m04_pendiente: 1,
+    m04_conciliado_usd: 20, m04_parcial_usd: 50, m04_pendiente_usd: 30, m04_review_usd: 0,
+    _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones"}};
+const amountCell = formatter(100, "m04", amount);
+assert.ok(amountCell.includes("Importe de transacciones por estado"));
+assert.ok(amountCell.includes("Conciliadas: US$ 20.00"));
+assert.ok(amountCell.includes("Parciales: US$ 50.00"));
+assert.ok(amountCell.includes("Pendientes: US$ 30.00"));
+assert.ok(amountCell.includes("cn-month-transactions"));
+assert.ok(formatter(null, "m04", {...amount, m04_pendiente_usd: null}).includes("N/D"));
+assert.ok(formatter(0, "m04", {...amount, m04_count: 1}).includes(">0</button>"));
+assert.ok(!formatter(0, "m04", {...amount, m04_count: 0}).includes("<button"));
+assert.ok(formatter(null, "total", amount).includes("N/D"));
+assert.ok(formatter(null, "total", {_is_total: true, _visualization: "Importe"}).includes("N/D"));
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");
