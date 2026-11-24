@@ -463,7 +463,7 @@ function remittanceReconciliationSummaryHtml(doc, result = {}) {
             <div class="text-muted" style="font-size:12px;margin-bottom:5px">${esc(__("Períodos afectados"))}</div>
             <div style="font-size:13px;overflow-wrap:anywhere">${esc((result.periods || []).join(", ") || "—")}</div>
         </div>
-    </section>`;
+    </section>${remittanceIssuesHtml(doc)}`;
 }
 
 async function showReconciliationHistory(frm) {
@@ -1691,7 +1691,7 @@ function updateDetailPendingAmounts(frm) {
 }
 
 function remittanceIssues(doc, dirty = false) {
-    if (doc.docstatus === 2) return [];
+    if (doc.docstatus === 2 || doc.consolidated_deposit || doc.cash_identity_status === "Origen vinculado") return [];
     const issues = [];
     const add = (text, field = "detail_rows") => issues.push({text, field});
     if (dirty) add("Hay cambios sin guardar. Guarde y use Conciliar para actualizar los motivos mostrados.", "targets");
@@ -1703,12 +1703,35 @@ function remittanceIssues(doc, dirty = false) {
     }
     for (const row of rows) {
         const label = [`Fila ${row.source_row || row.idx || "—"}`, row.client_name,
-            row.loan_number && `Crédito ${row.loan_number}`].filter(Boolean).join(" · ");
+            row.row_kind !== "Diferencia documentada" && row.employer && `Empresa ${row.employer}`,
+            row.loan_number && `Crédito ${row.loan_number}`,
+            row.row_kind !== "Diferencia documentada" && Number(row.amount_usd) > 0
+                && `US$ ${remittanceMoney(row.amount_usd)}`].filter(Boolean).join(" · ");
         if (row.row_kind !== "Diferencia documentada" && Number(row.pending_usd) < -0.005) {
             add(`${label}: los vínculos superan el importe de la fila en US$ ${remittanceMoney(-row.pending_usd)}. Ajuste los destinos manuales; las asignaciones confirmadas se conservan.`, "targets");
             continue;
         }
+        if (row.row_kind === "Diferencia documentada" && doc.result === "Conciliado con diferencia documentada"
+                && doc.detail_status === doc.result) continue;
         if (["Conciliada", "No deducido", "Conciliada con diferencia documentada"].includes(row.match_status)) continue;
+        if (row.row_kind === "Diferencia documentada" && row.difference_core_status === "Pendiente de respaldo del core") {
+            add(`Diferencia documentada de US$ ${remittanceMoney(Math.abs(Number(row.difference_amount_usd ?? row.amount_usd)))}: pendiente de respaldo del core. Revise el detalle original y las aplicaciones; si existe una partida del core de igual empresa, importe y signo, vincúlela a la diferencia.`);
+            continue;
+        }
+        if (row.match_reason === "Conflicto: el crédito no tiene evidencia en la empresa de la fila") {
+            // Notes are a display hint only; the server still validates the actual core claim.
+            const destinationCredits = [...new Set(targets.filter(target => target.detail_row === row.name)
+                .map(target => String(target.notes || "").match(/(?:^|·\s*)Cr[eé]dito\s+([^·\s]+)/i)?.[1])
+                .filter(Boolean))];
+            const destinationCredit = destinationCredits.length === 1 && destinationCredits[0] !== row.loan_number
+                ? ` El destino seleccionado indica el crédito ${destinationCredits[0]}.` : "";
+            add(`${label}: el crédito ${row.loan_number || "indicado"} no tiene evidencia en ${row.employer || doc.employer || "la empresa de la fila"}.${destinationCredit} Verifique el crédito en cartera, corrija la fila con «Vincular crédito desde cartera» y vuelva a conciliar.`);
+            continue;
+        }
+        if (String(row.match_status || "").includes("Cobertura parcial") && Number(row.pending_usd) > 0) {
+            add(`${label}: quedaron US$ ${remittanceMoney(row.pending_usd)} sin aplicación en el core. Revise el importe aplicado y la diferencia documentada.`);
+            continue;
+        }
         add(`${label}: ${row.match_reason || "Pendiente de comprobar. Guarde y pulse Conciliar para obtener el resultado de esta fila."}`);
     }
     const hints = {
@@ -1720,7 +1743,8 @@ function remittanceIssues(doc, dirty = false) {
         "Excede cobranza o partida complementaria": "La suma asignada supera el pendiente del destino. Revise importes y otras asignaciones.",
     };
     for (const target of targets) {
-        const label = target.complementary_item || target.historical_application || [target.period, target.row_key].filter(Boolean).join(" / ") || "sin seleccionar";
+        const label = target.notes || target.complementary_item || target.historical_application
+            || [target.period, target.row_key].filter(Boolean).join(" / ") || "sin seleccionar";
         if (!target.complementary_item && !target.historical_application && !(target.period && target.row_key)) {
             add(`Destino ${target.idx || "—"}: seleccione una aplicación o partida válida.`, "targets");
         } else if (target.result && target.result !== "Aplicada") {
@@ -1743,7 +1767,7 @@ function remittanceIssuesHtml(doc, dirty = false, interactive = false) {
     const issues = remittanceIssues(doc, dirty);
     if (!issues.length) return "";
     const esc = value => frappe.utils.escape_html(String(value ?? ""));
-    return `<div class="alert alert-warning" style="margin-top:16px"><strong>${esc(__("Qué falta para conciliar"))}</strong>
+    return `<div class="alert alert-warning" role="alert" style="margin-top:16px"><strong>${esc(__("Qué falta para conciliar"))}</strong>
         <p class="small">${esc(__("Motivos de la última conciliación. Al corregir los datos, guarde y vuelva a Conciliar."))}</p>
         <ul style="padding-left:20px;margin-bottom:0">${issues.slice(0, 25).map(issue => `<li style="margin-bottom:6px">${esc(issue.text)}
             ${interactive ? `<button type="button" class="btn btn-default btn-xs" data-cn-issue-field="${esc(issue.field)}">${esc(__("Revisar"))}</button>` : ""}</li>`).join("")}</ul>
@@ -1777,6 +1801,7 @@ function renderRemittanceOverview(frm) {
     </div><p class="text-muted" style="margin:12px 0 0">${escape(__("Última conciliación: depósito = créditos + partidas complementarias + sin distribuir. Las partidas incluyen saldos a favor documentados."))}
         ${confirmed && cash.credit ? `${escape(__("Saldo a favor documentado"))}: US$ ${remittanceMoney(cash.credit)}.` : ""}</p>
     <p>${escape(__("Estado del detalle"))}: ${escape(frm.doc.detail_status || __("Sin detalle cargado"))}</p>
+    ${remittanceIssuesHtml(frm.doc, frm.is_dirty(), !!frm.get_perm(0, "write"))}
     ${remittanceDetailDifferenceHtml(frm.doc, frm.doc.docstatus !== 2 && !!frm.get_perm(0, "write")
         ,
         confirmed && !!frm.get_perm(0, "write"))}
@@ -1792,6 +1817,13 @@ function renderRemittanceOverview(frm) {
         this.disabled = true;
         try {await action.run();} finally {this.disabled = false;}
     });
+    frm.$wrapper.off("click.cn_remittance_issue", "[data-cn-issue-field]")
+        .on("click.cn_remittance_issue", "[data-cn-issue-field]", function () {
+            const field = this.getAttribute("data-cn-issue-field");
+            if (["detail_rows", "detail_periods", "targets", "deposit_amount", "detail_file"].includes(field)) {
+                frm.scroll_to_field(field);
+            }
+        });
     frm.$wrapper.off("click.cn_reconcile_difference", ".cn-reconcile-detail-difference")
         .on("click.cn_reconcile_difference", ".cn-reconcile-detail-difference", async function () {
             if (this.disabled || frm.reconciliation_running || frm.doc.docstatus !== 1 || !frm.get_perm(0, "write")) return;

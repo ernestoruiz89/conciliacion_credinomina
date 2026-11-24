@@ -1106,13 +1106,15 @@ determinación suficiente y evita mostrar un total incompleto.
 Si abre una celda con **Importe** seleccionado, las tarjetas del detalle mensual
 también muestran US$ por estado.
 
-**Solo pendientes en tabla** limita las cifras de la matriz y su fila Total a
-transacciones en estado **Pendiente**. En Número de transacciones muestra su
-cantidad; en Importe muestra el valor completo en US$ de esas transacciones.
-Los KPI siguen mostrando todos los estados que cumplen los demás filtros. Una
-celda con cero pendientes puede abrir el detalle completo del mes, incluidas
-conciliadas y parciales. Este check no modifica el filtro Estado de
-conciliación ni las tarjetas del detalle.
+**Solo pendientes en tabla** cambia la matriz y su fila Total. En **Número de
+transacciones** cuenta las filas en estado **Pendiente**. En **Importe** suma el
+saldo que falta de todas las transacciones seleccionadas, incluidas las
+**Parciales**: **Sin distribuir US$** para depósitos y **Pendiente US$** para
+aplicaciones y partidas complementarias. Si algún saldo no se puede determinar,
+la celda y su total muestran **N/D**. Los KPI siguen mostrando el importe
+completo de todos los estados que cumplen los demás filtros. Una celda con cero
+pendiente puede abrir el detalle completo del mes. Este check no modifica el
+filtro Estado de conciliación ni las tarjetas del detalle.
 
 **Usuario de conciliación** limita la matriz a transacciones **Conciliadas** o **Parciales** con participación registrada del usuario. Se combina con empresa, año, tipo y estado; el usuario se conserva al abrir el mes y al paginar. En el modal puede cambiarlo o quitarlo. Sus indicadores y totales respetan el usuario seleccionado. Una transacción puede aparecer para varios usuarios, pero se cuenta una sola vez en cada consulta. **Solo con diferencias**, combinado con usuario, muestra las parciales.
 

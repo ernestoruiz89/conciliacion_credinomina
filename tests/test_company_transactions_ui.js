@@ -69,7 +69,7 @@ const amount = {_visualization: "Importe", m04_count: 3, m04_state: "Parcial", m
     m04_conciliado_usd: 20, m04_parcial_usd: 50, m04_pendiente_usd: 30, m04_review_usd: 0,
     _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones", visualization: "Importe"}};
 const amountCell = formatter(100, "m04", amount);
-assert.ok(amountCell.includes("Importe de transacciones por estado"));
+assert.ok(amountCell.includes("Importe completo de transacciones por estado"));
 assert.ok(amountCell.includes("Conciliadas: US$ 20.00"));
 assert.ok(amountCell.includes("Parciales: US$ 50.00"));
 assert.ok(amountCell.includes("Pendientes: US$ 30.00"));
@@ -83,11 +83,12 @@ const pendingCount = formatter(0, "m04", {_pending_only_table: true, m04_count: 
     m04_state: "Conciliado", m04_conciliado: 3, m04_pendiente: 0,
     _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones"}});
 assert.ok(pendingCount.includes(">0</button>"));
-assert.ok(pendingCount.includes("Solo pendientes en tabla"));
+assert.ok(pendingCount.includes("Solo transacciones en estado Pendiente"));
 assert.ok(!pendingCount.includes("pending_only_table&quot;"));
 assert.ok(!formatter(0, "m04", {_pending_only_table: true, m04_count: 0}).includes("<button"));
-const pendingAmount = formatter(0, "m04", {...amount, _pending_only_table: true});
-assert.ok(pendingAmount.includes(">0</button>"));
+const pendingAmount = formatter(80, "m04", {...amount, _pending_only_table: true, m04_pending_balance_usd: 80});
+assert.ok(pendingAmount.includes(">80</button>"));
+assert.ok(pendingAmount.includes("Saldo pendiente en tabla: US$ 80.00"));
 assert.ok(pendingAmount.includes("cn-month-transactions"));
 assert.ok(pendingAmount.includes("&quot;visualization&quot;:&quot;Importe&quot;"));
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");

@@ -98,8 +98,8 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(filtered[4][1]["value"], 150)
         self.assertEqual((counts[1][0]["m04"], counts[1][0]["total"]), (3, 4))
         self.assertEqual(counts[0][1]["fieldtype"], "Int")
-        self.assertEqual((pending_amount[1][0]["m04"], pending_amount[1][0]["m05"], pending_amount[1][0]["total"]), (50, 25, 75))
-        self.assertEqual((pending_amount[1][1]["m04"], pending_amount[1][-1]["total"]), (0, 75))
+        self.assertEqual((pending_amount[1][0]["m04"], pending_amount[1][0]["m05"], pending_amount[1][0]["total"]), (140, 25, 165))
+        self.assertEqual((pending_amount[1][1]["m04"], pending_amount[1][-1]["total"]), (0, 165))
         self.assertEqual([item["value"] for item in pending_amount[4]], [140, 150, 75, 0])
         self.assertEqual(pending_amount[1][0]["_detail_filters"]["visualization"], "Importe")
         self.assertNotIn("pending_only_table", pending_amount[1][0]["_detail_filters"])
@@ -124,8 +124,23 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertIsNone(data[0]["total"])
         self.assertIsNone(data[-1]["total"])
         self.assertEqual(summary[-1]["value"], "N/D")
-        self.assertEqual(pending[0]["m04"], 0)
+        self.assertIsNone(pending[0]["m04"])
         self.assertEqual(pending[0]["m04_count"], 1)
+
+    def test_deposit_pending_amount_subtracts_documented_surplus(self):
+        rows = [frappe._dict(name="PARTIAL", employer="A", deposit_date="2025-04-01", docstatus=1,
+                             amount_usd=100, allocated_usd=50, justified_surplus_usd=20,
+                             unclassified_usd=30, result="Parcial"),
+                frappe._dict(name="DRAFT", employer="A", deposit_date="2025-04-02", docstatus=0,
+                             amount_usd=40, allocated_usd=0, justified_surplus_usd=0,
+                             unclassified_usd=0, result="Pendiente")]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            _, data, _, _, _ = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe",
+                                                   pending_only_table=1, include_drafts=1))
+            detail = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", include_drafts=1)
+        self.assertEqual((data[0]["m04"], data[0]["total"], data[-1]["total"]), (70, 70, 70))
+        self.assertEqual({item["name"]: item["pending_usd"] for item in detail["rows"]},
+                         {"PARTIAL": 30, "DRAFT": 40})
 
     def test_application_amount_view_includes_negative_adjustment_in_original_amount(self):
         parent = frappe._dict(name="I", employer="A", status="Importado", historical_period="P")
@@ -141,9 +156,12 @@ class CompanyTransactionsTests(unittest.TestCase):
                  [dict(name=row.name, employer="A", date=row.event_date, state="Pendiente") for row in rows], rows, {"I": parent})), \
              patch.object(report, "load_application_collections", return_value={}):
             _, data, _, _, summary = report.execute(dict(year=2025, visualization="Importe"))
+            _, pending, _, _, pending_summary = report.execute(dict(year=2025, visualization="Importe", pending_only_table=1))
         self.assertEqual((data[0]["m04"], data[0]["m04_conciliado_usd"], data[0]["m04_parcial_usd"],
                           data[0]["m04_pendiente_usd"]), (330, 100, 200, 30))
         self.assertEqual([item["value"] for item in summary[:3]], [100, 200, 30])
+        self.assertEqual((pending[0]["m04"], pending[0]["total"], pending[-1]["total"]), (180, 180, 180))
+        self.assertEqual([item["value"] for item in pending_summary[:3]], [100, 200, 30])
 
     def test_month_detail_cards_follow_visualization_while_pending_table_keeps_all_rows(self):
         rows = [frappe._dict(name="C", employer="A", deposit_date="2025-04-01", docstatus=1,
@@ -158,7 +176,7 @@ class CompanyTransactionsTests(unittest.TestCase):
                                                  pending_only_table=1))[1][0]
             detail_count = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos")
             detail_amount = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", visualization="Importe")
-        self.assertEqual((pending_count["m04"], pending_amount["m04"]), (1, 50))
+        self.assertEqual((pending_count["m04"], pending_amount["m04"]), (1, 140))
         self.assertEqual((detail_count["filtered_count"], detail_amount["filtered_count"]), (3, 3))
         self.assertEqual([item["value"] for item in detail_count["summary"]], [1, 1, 1, 0])
         self.assertEqual([item["value"] for item in detail_amount["summary"]], [100, 150, 50, 0])

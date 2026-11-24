@@ -15,7 +15,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
             description: __("Conciliadas y parciales con participación del usuario; incluye la atribución inicial al último editor.")},
         {fieldname: "include_drafts", label: __("Incluir borradores"), fieldtype: "Check", default: 0},
         {fieldname: "pending_only_table", label: __("Solo pendientes en tabla"), fieldtype: "Check", default: 0,
-            description: __("Muestra solo el estado Pendiente en la matriz. Los indicadores y el detalle conservan la selección completa de los demás filtros.")},
+            description: __("Con Número de transacciones muestra solo el estado Pendiente; con Importe muestra el saldo pendiente, incluso de las parciales. Los indicadores y el detalle conservan los demás filtros.")},
     ],
     onload(report) {
         report.page.wrapper.off("click.cn_month_transactions", ".cn-month-transactions");
@@ -54,8 +54,11 @@ frappe.query_reports["Transacciones por Empresa"] = {
         const progress = known
             ? `${__("Importe conciliado")}: ${percentageLabel}% · US$ ${formatAmount(data[key + "_covered_usd"])} / ${formatAmount(data[key + "_total_usd"])}`
             : __("Porcentaje del importe no disponible");
-        const breakdown = isAmount ? ` · ${__("Importe de transacciones por estado")}: ${__("Conciliadas")}: ${stateAmount("_conciliado_usd")} · ${__("Parciales")}: ${stateAmount("_parcial_usd")} · ${__("Pendientes")}: ${stateAmount("_pendiente_usd")} · ${__("Revisar distribución")}: ${stateAmount("_review_usd")}` : "";
-        const description = `${data._pending_only_table ? `${__("Solo pendientes en tabla")} · ` : ""}${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}${breakdown}`;
+        const breakdown = isAmount ? ` · ${__("Importe completo de transacciones por estado")}: ${__("Conciliadas")}: ${stateAmount("_conciliado_usd")} · ${__("Parciales")}: ${stateAmount("_parcial_usd")} · ${__("Pendientes")}: ${stateAmount("_pendiente_usd")} · ${__("Revisar distribución")}: ${stateAmount("_review_usd")}` : "";
+        const pendingDescription = data._pending_only_table
+            ? isAmount ? `${__("Saldo pendiente en tabla")}: ${stateAmount("_pending_balance_usd")} · `
+                : `${__("Solo transacciones en estado Pendiente")} · ` : "";
+        const description = `${pendingDescription}${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}${breakdown}`;
         const escaped = frappe.utils.escape_html(description);
         // Offset DataTable's content padding so the status fills the cell.
         // Partial-state color uses the amount covered, never transaction count.

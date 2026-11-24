@@ -88,7 +88,8 @@ def execute(filters=None):
                if kind == "Aplicaciones" else complementary_transactions.month_amounts(sources)
                if kind in complementary_transactions.KINDS else deposit_month_amounts(sources))
     data = monthly_counts(records, year, amounts)
-    amount_totals = (apply_amount_visualization(data, records, sources, progress, kind, year)
+    amount_totals = (apply_amount_visualization(data, records, sources, progress, kind, year,
+                     pending_balances=pending_only_table)
                      if visualization == "Importe" else None)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
@@ -137,12 +138,14 @@ def execute(filters=None):
     if cutoff:
         message += " " + _("Fecha de corte: {0}. Incluye transacciones hasta esa fecha dentro del año seleccionado; el estado y la cobertura son los actuales.").format(cutoff)
     if amount_totals is not None:
-        message += " " + _("Importe: suma en US$ el importe completo de las transacciones de cada estado, incluida la parte aún pendiente de las parciales. "
+        message += " " + _("Importe: los indicadores suman en US$ el importe completo de las transacciones de cada estado, incluida la parte aún pendiente de las parciales. "
+            "La tabla muestra ese importe completo cuando Solo pendientes en tabla está desactivado. "
             "El total anual suma los meses; N/D indica que falta un importe válido o convertible y no se presenta un total incompleto. "
             "Los colores y porcentajes siguen indicando la cobertura conciliada.")
     if pending_only_table:
-        message += " " + _("Solo pendientes en tabla: las celdas y la fila Total muestran únicamente transacciones en estado Pendiente. "
-            "Los indicadores y el detalle al pulsar una celda conservan la selección completa de los demás filtros; una celda con cero pendientes también puede abrir el detalle del mes.")
+        message += " " + _("Solo pendientes en tabla: con Número de transacciones cuenta las filas en estado Pendiente; con Importe suma los saldos pendientes en US$ de las transacciones, incluidas las parciales. "
+            "En depósitos usa Sin distribuir US$; en aplicaciones y partidas complementarias usa Pendiente US$. "
+            "N/D indica que algún saldo no se puede determinar. Los indicadores y el detalle al pulsar una celda conservan la selección completa de los demás filtros.")
     summary = amount_summary(amount_totals) if amount_totals is not None else transaction_summary(records)
     return columns(visualization, pending_only_table), data, message, None, summary
 
@@ -165,6 +168,41 @@ def transaction_amount_usd(record, by_name, progress, kind):
     if amount is not None and (amount < 0 or (kind != "Aplicaciones" and amount == 0)):
         return None
     return amount
+
+
+def deposit_pending_usd(row, state):
+    """Same cash remainder shown as Sin distribuir US$ in the month detail."""
+    if row.get("amount_usd") is None or state == "Revisar distribución":
+        return None
+    total = money(row["amount_usd"])
+    if total <= 0:
+        return None
+    if row.get("docstatus") != 1:
+        return total
+    assigned = money(row.get("allocated_usd"))
+    surplus = money(row.get("justified_surplus_usd"))
+    pending = total - assigned - surplus
+    if assigned < 0 or surplus < 0 or pending < 0:
+        return None
+    saved = row.get("unclassified_usd")
+    if saved is not None and money(saved) != pending:
+        return None
+    return pending
+
+
+def transaction_pending_usd(record, by_name, progress, kind):
+    """Outstanding balance by transaction; unknown or invalid coverage stays N/D."""
+    source = by_name.get(record["name"])
+    if not source or record["state"] == "Revisar distribución":
+        return None
+    if kind == "Aplicaciones":
+        raw = progress.get(record["name"], {}).get("pending_usd")
+    elif kind in complementary_transactions.KINDS:
+        raw = source.get("_progress", {}).get("pending_usd")
+    else:
+        return deposit_pending_usd(source, record["state"])
+    amount = money(raw) if raw is not None else None
+    return amount if amount is not None and amount >= 0 else None
 
 
 def transaction_amount_summary(records, sources, progress, kind):
@@ -190,7 +228,7 @@ def show_pending_only(data, visualization):
             key = f"m{month:02}"
             if not amount:
                 row[key + "_count"] = row[key]
-            value = row[key + ("_pendiente_usd" if amount else "_pendiente")]
+            value = row[key + ("_pending_balance_usd" if amount else "_pendiente")]
             row[key] = value
             values.append(value)
         if amount:
@@ -199,10 +237,11 @@ def show_pending_only(data, visualization):
             row["total"] = sum(values)
 
 
-def apply_amount_visualization(data, records, sources, progress, kind, year):
+def apply_amount_visualization(data, records, sources, progress, kind, year, *, pending_balances=False):
     """Sum the full USD amount of each selected transaction by its current state."""
     by_name = {source["name"]: source for source in sources}
     monthly = defaultdict(lambda: {state: money(0) for state, _, _, _ in AMOUNT_STATES})
+    outstanding = defaultdict(lambda: money(0))
     for record in records:
         try:
             day = date.fromisoformat(str(record.get("date") or "")[:10])
@@ -212,9 +251,13 @@ def apply_amount_visualization(data, records, sources, progress, kind, year):
             continue
         state = record["state"]
         amount = transaction_amount_usd(record, by_name, progress, kind)
-        group = monthly[(record.get("employer") or "", day.month)]
+        key = (record.get("employer") or "", day.month)
+        group = monthly[key]
         if group[state] is not None:
             group[state] = None if amount is None else group[state] + amount
+        if pending_balances and outstanding[key] is not None:
+            pending = transaction_pending_usd(record, by_name, progress, kind)
+            outstanding[key] = None if pending is None else outstanding[key] + pending
 
     totals = {state: money(0) for state, _, _, _ in AMOUNT_STATES}
     for row in data:
@@ -226,6 +269,9 @@ def apply_amount_visualization(data, records, sources, progress, kind, year):
             key = f"m{month:02}"
             row[key + "_count"] = row[key]
             group = monthly[(row["employer"], month)]
+            if pending_balances:
+                pending = outstanding[(row["employer"], month)]
+                row[key + "_pending_balance_usd"] = None if pending is None else money_float(pending)
             for state, suffix, _, _ in AMOUNT_STATES:
                 amount = group[state]
                 row[key + "_" + suffix + "_usd"] = None if amount is None else money_float(amount)
@@ -457,11 +503,12 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
             confirmed = row.get("docstatus") == 1
             assigned = money(row.get("allocated_usd")) if confirmed else money(0)
             surplus = money(row.get("justified_surplus_usd")) if confirmed else money(0)
+            pending = deposit_pending_usd(row, states[row.name])
             item.update(document=row.name, date=row.get("deposit_date"), reference=row.get("deposit_reference"),
                         voucher=row.get("deposit_voucher"), bank_account=row.get("bank_account"),
                         original_currency=row.get("deposit_currency"), original_amount=row.get("deposit_amount"),
                         original_usd=row.get("amount_usd"), assigned_usd=money_float(assigned), surplus_usd=money_float(surplus),
-                        pending_usd=money_float(max(money(row.get("amount_usd")) - assigned - surplus, 0)),
+                        pending_usd=None if pending is None else money_float(pending),
                         difference_reason=row.get("difference_reason") or "",
                         status_detail=row.get("result") if confirmed else "Borrador")
         for field in amount_fields:
