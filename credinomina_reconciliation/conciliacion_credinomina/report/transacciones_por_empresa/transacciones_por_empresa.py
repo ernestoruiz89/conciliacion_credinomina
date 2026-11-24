@@ -66,6 +66,7 @@ def execute(filters=None):
         frappe.throw(_("Seleccione un estado de conciliación válido."))
     cutoff = normalize_cutoff(filters.get("cutoff_date"))
     drafts = bool(cint(filters.get("include_drafts")))
+    pending_only_table = bool(cint(filters.get("pending_only_table")))
     doctype = TRANSACTION_DOCTYPES[kind]
     if not frappe.has_permission(doctype, "read"):
         frappe.throw(_("No tiene permiso para consultar estas transacciones."), frappe.PermissionError)
@@ -91,18 +92,23 @@ def execute(filters=None):
                      if visualization == "Importe" else None)
     for row in data:
         row["_detail_filters"] = {"year": year, "transaction_type": kind, "include_drafts": int(drafts), "employer": row["employer"]}
+        if visualization == "Importe":
+            row["_detail_filters"]["visualization"] = visualization
         if cutoff:
             row["_detail_filters"]["cutoff_date"] = cutoff
         if selected_state:
             row["_detail_filters"]["state"] = selected_state
         if user:
             row["_detail_filters"]["reconciled_by"] = user
+    if pending_only_table:
+        show_pending_only(data, visualization)
     if data:
         keys = ["total", *[f"m{month:02}" for month in range(1, 13)]]
         totals = ({key: None if any(row[key] is None for row in data) else money_float(sum_money(row[key] for row in data))
                    for key in keys} if amount_totals is not None else
                   {key: sum(row[key] for row in data) for key in keys})
         data.append({"employer": _("Total"), "_is_total": True, "_visualization": visualization,
+                     "_pending_only_table": pending_only_table,
                      **({"usd_currency": "USD"} if amount_totals is not None else {}), **totals})
     message = _("Verde: todas las transacciones conciliadas. Parciales: naranja si el importe conciliado es menor al 50%; amarillo desde el 50%. "
                 "Rojo: todas pendientes. —: sin transacciones. Pulse una celda para ver sus transacciones. "
@@ -134,14 +140,63 @@ def execute(filters=None):
         message += " " + _("Importe: suma en US$ el importe completo de las transacciones de cada estado, incluida la parte aún pendiente de las parciales. "
             "El total anual suma los meses; N/D indica que falta un importe válido o convertible y no se presenta un total incompleto. "
             "Los colores y porcentajes siguen indicando la cobertura conciliada.")
+    if pending_only_table:
+        message += " " + _("Solo pendientes en tabla: las celdas y la fila Total muestran únicamente transacciones en estado Pendiente. "
+            "Los indicadores y el detalle al pulsar una celda conservan la selección completa de los demás filtros; una celda con cero pendientes también puede abrir el detalle del mes.")
     summary = amount_summary(amount_totals) if amount_totals is not None else transaction_summary(records)
-    return columns(visualization), data, message, None, summary
+    return columns(visualization, pending_only_table), data, message, None, summary
 
 
 def transaction_summary(records):
     return [{"label": _(label), "value": sum(record["state"] == state for record in records), "datatype": "Int", "indicator": color}
         for state, label, color in (("Conciliado", "Conciliadas", "Green"), ("Parcial", "Parcialmente conciliadas", "Orange"),
                                     ("Pendiente", "Pendientes", "Red"), ("Revisar distribución", "Distribuciones inconsistentes", "Red"))]
+
+
+def transaction_amount_usd(record, by_name, progress, kind):
+    source = by_name.get(record["name"])
+    if kind == "Aplicaciones":
+        raw = progress.get(record["name"], {}).get("total_usd")
+    elif kind in complementary_transactions.KINDS:
+        raw = source.get("_progress", {}).get("original_usd") if source else None
+    else:
+        raw = source.get("amount_usd") if source else None
+    amount = money(raw) if raw is not None else None
+    if amount is not None and (amount < 0 or (kind != "Aplicaciones" and amount == 0)):
+        return None
+    return amount
+
+
+def transaction_amount_summary(records, sources, progress, kind):
+    by_name = {source["name"]: source for source in sources}
+    totals = {state: money(0) for state, _, _, _ in AMOUNT_STATES}
+    for record in records:
+        state = record["state"]
+        amount = transaction_amount_usd(record, by_name, progress, kind)
+        if totals[state] is not None:
+            totals[state] = None if amount is None else totals[state] + amount
+    return amount_summary(totals)
+
+
+def show_pending_only(data, visualization):
+    """Change only matrix values; leave cards and drill-down scope intact."""
+    amount = visualization == "Importe"
+    for row in data:
+        row["_pending_only_table"] = True
+        if not amount:
+            row["total_count"] = row["total"]
+        values = []
+        for month in range(1, 13):
+            key = f"m{month:02}"
+            if not amount:
+                row[key + "_count"] = row[key]
+            value = row[key + ("_pendiente_usd" if amount else "_pendiente")]
+            row[key] = value
+            values.append(value)
+        if amount:
+            row["total"] = None if any(value is None for value in values) else money_float(sum_money(values))
+        else:
+            row["total"] = sum(values)
 
 
 def apply_amount_visualization(data, records, sources, progress, kind, year):
@@ -156,16 +211,7 @@ def apply_amount_visualization(data, records, sources, progress, kind, year):
         if day.year != year:
             continue
         state = record["state"]
-        source = by_name.get(record["name"])
-        if kind == "Aplicaciones":
-            raw = progress.get(record["name"], {}).get("total_usd")
-        elif kind in complementary_transactions.KINDS:
-            raw = source.get("_progress", {}).get("original_usd") if source else None
-        else:
-            raw = source.get("amount_usd") if source else None
-        amount = money(raw) if raw is not None else None
-        if amount is not None and (amount < 0 or (kind != "Aplicaciones" and amount == 0)):
-            amount = None
+        amount = transaction_amount_usd(record, by_name, progress, kind)
         group = monthly[(record.get("employer") or "", day.month)]
         if group[state] is not None:
             group[state] = None if amount is None else group[state] + amount
@@ -317,33 +363,35 @@ def _application_progress(records, sources, imports):
     return progress, collections
 
 
-def columns(visualization="Número de transacciones"):
+def columns(visualization="Número de transacciones", pending_only_table=False):
     months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sept", "Oct", "Nov", "Dic"]
     amount = visualization == "Importe"
+    month_width = (160 if pending_only_table else 135) if amount else (110 if pending_only_table else 70)
+    total_width = (170 if pending_only_table else 145) if amount else (115 if pending_only_table else 85)
 
     def numeric_column(fieldname, label, width):
-        column = {"fieldname": fieldname, "label": _(label) + (" US$" if amount else ""),
+        column = {"fieldname": fieldname, "label": _(label) + (" US$" if amount else "") + (" pendiente" if pending_only_table else ""),
                   "fieldtype": "Currency" if amount else "Int", "width": width}
         if amount:
             column.update(options="usd_currency", precision=2)
         return column
     return [{"fieldname": "employer", "label": _("Empresa"), "fieldtype": "Link", "options": "CN Employer", "width": 240},
-            *[numeric_column(f"m{index:02}", label, 135 if amount else 70)
+            *[numeric_column(f"m{index:02}", label, month_width)
               for index, label in enumerate(months, 1)],
-            numeric_column("total", "Total", 145 if amount else 85)]
+            numeric_column("total", "Total", total_width)]
 
 
 @frappe.whitelist()
 def get_month_detail(year, month, employer, transaction_type="Aplicaciones", include_drafts=0, state="", search="", start=0,
-                     only_differences=0, reconciled_by="", cutoff_date=""):
+                     only_differences=0, reconciled_by="", cutoff_date="", visualization="Número de transacciones"):
     """Read-only detail of one cell, with the same inclusion rules as the report."""
     from credinomina_reconciliation.rounding import money, money_float
 
     if not str(year).isdigit() or not 1900 <= int(year) <= 9998 or not str(month).isdigit() or not 1 <= int(month) <= 12:
         frappe.throw(_("Indique un año y mes válidos."))
     normalized_state = normalize_state_filter(state)
-    if transaction_type not in TRANSACTION_DOCTYPES or normalized_state is None:
-        frappe.throw(_("Tipo de transacción o estado inválido."))
+    if transaction_type not in TRANSACTION_DOCTYPES or normalized_state is None or visualization not in VISUALIZATIONS:
+        frappe.throw(_("Tipo de transacción, estado o visualización inválido."))
     state = normalized_state
     cutoff = normalize_cutoff(cutoff_date)
     doctype = TRANSACTION_DOCTYPES[transaction_type]
@@ -423,5 +471,6 @@ def get_month_detail(year, month, employer, transaction_type="Aplicaciones", inc
             item["reconciliation_history"] = history.get(row.name, [])
             details.append(item)
     return {"rows": details, "total": len(records), "filtered_count": count, "start": start, "page_length": 100,
-            "summary": transaction_summary(records),
+            "summary": transaction_amount_summary(records, sources, progress, transaction_type)
+            if visualization == "Importe" else transaction_summary(records),
             "totals": {field: None if value is None else money_float(value) for field, value in totals.items()}}

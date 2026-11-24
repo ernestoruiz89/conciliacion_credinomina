@@ -157,5 +157,24 @@ const payload = (rows, totals = {original_usd: 10500, adjustment_usd: 2100, comp
         assert.ok(complementary.html.includes("no equivale a efectivo recibido"));
         assert.ok(!complementary.html.includes("/app/cn-remittance-allocation/COMP-1"));
     }
+    const amountDialog = report.show_month_detail({year: 2025, month: 4, employer: "A",
+        transaction_type: "Aplicaciones", visualization: "Importe"});
+    assert.equal(calls.at(-1).args.visualization, "Importe");
+    const amountResponse = payload([]);
+    amountResponse.message.summary = [
+        {label: "Conciliadas", value: 205.5, datatype: "Currency", currency: "USD"},
+        {label: "Parcialmente conciliadas", value: 50, datatype: "Currency", currency: "USD"},
+        {label: "Pendientes", value: "N/D", datatype: "Data"},
+    ];
+    requests.shift().resolve(amountResponse);
+    await flush();
+    assert.ok(amountDialog.html.includes("USD 205.50"));
+    assert.ok(amountDialog.html.includes("USD 50.00"));
+    assert.ok(amountDialog.html.includes("N/D"));
+    assert.ok(amountDialog.html.includes("Los indicadores suman en US$"));
+    amountDialog.primary_action();
+    assert.equal(calls.at(-1).args.visualization, "Importe");
+    requests.shift().resolve(amountResponse);
+    await flush();
     console.log("OK: month drill-down, filters, paging, dates, document links, escaping, races and errors.");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -81,6 +81,9 @@ class CompanyTransactionsTests(unittest.TestCase):
             columns, data, _, _, summary = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe"))
             filtered = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe", state="Parcial"))
             counts = report.execute(dict(year=2025, transaction_type="Depósitos"))
+            pending_amount = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe",
+                                                 pending_only_table=1))
+            pending_counts = report.execute(dict(year=2025, transaction_type="Depósitos", pending_only_table=1))
         a, b, total = data
         self.assertEqual((a["m04"], a["m05"], a["total"]), (300, 25, 325))
         self.assertEqual((a["m04_conciliado_usd"], a["m04_parcial_usd"], a["m04_pendiente_usd"]), (100, 150, 50))
@@ -95,6 +98,16 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual(filtered[4][1]["value"], 150)
         self.assertEqual((counts[1][0]["m04"], counts[1][0]["total"]), (3, 4))
         self.assertEqual(counts[0][1]["fieldtype"], "Int")
+        self.assertEqual((pending_amount[1][0]["m04"], pending_amount[1][0]["m05"], pending_amount[1][0]["total"]), (50, 25, 75))
+        self.assertEqual((pending_amount[1][1]["m04"], pending_amount[1][-1]["total"]), (0, 75))
+        self.assertEqual([item["value"] for item in pending_amount[4]], [140, 150, 75, 0])
+        self.assertEqual(pending_amount[1][0]["_detail_filters"]["visualization"], "Importe")
+        self.assertNotIn("pending_only_table", pending_amount[1][0]["_detail_filters"])
+        self.assertEqual((pending_counts[1][0]["m04"], pending_counts[1][0]["total"], pending_counts[1][-1]["total"]), (1, 2, 2))
+        self.assertEqual(pending_counts[1][1]["m04_count"], 1)
+        self.assertEqual([item["value"] for item in pending_counts[4]], [2, 1, 2, 0])
+        self.assertNotIn("pending_only_table", pending_counts[1][0]["_detail_filters"])
+        self.assertIn("pendiente", pending_amount[0][1]["label"])
 
     def test_amount_view_keeps_missing_usd_undetermined_and_other_months_known(self):
         rows = [frappe._dict(name="UNKNOWN", employer="A", deposit_date="2025-04-01", docstatus=1,
@@ -103,12 +116,16 @@ class CompanyTransactionsTests(unittest.TestCase):
                              amount_usd=20, allocated_usd=0, result="Pendiente")]
         with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
             _, data, _, _, summary = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe"))
+            _, pending, _, _, _ = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe",
+                                                       pending_only_table=1))
         self.assertIsNone(data[0]["m04"])
         self.assertEqual(data[0]["m04_count"], 1)
         self.assertEqual(data[0]["m05"], 20)
         self.assertIsNone(data[0]["total"])
         self.assertIsNone(data[-1]["total"])
         self.assertEqual(summary[-1]["value"], "N/D")
+        self.assertEqual(pending[0]["m04"], 0)
+        self.assertEqual(pending[0]["m04_count"], 1)
 
     def test_application_amount_view_includes_negative_adjustment_in_original_amount(self):
         parent = frappe._dict(name="I", employer="A", status="Importado", historical_period="P")
@@ -127,6 +144,26 @@ class CompanyTransactionsTests(unittest.TestCase):
         self.assertEqual((data[0]["m04"], data[0]["m04_conciliado_usd"], data[0]["m04_parcial_usd"],
                           data[0]["m04_pendiente_usd"]), (330, 100, 200, 30))
         self.assertEqual([item["value"] for item in summary[:3]], [100, 200, 30])
+
+    def test_month_detail_cards_follow_visualization_while_pending_table_keeps_all_rows(self):
+        rows = [frappe._dict(name="C", employer="A", deposit_date="2025-04-01", docstatus=1,
+                             amount_usd=100, allocated_usd=100, result="Conciliado"),
+                frappe._dict(name="P", employer="A", deposit_date="2025-04-02", docstatus=1,
+                             amount_usd=150, allocated_usd=60, result="Parcial"),
+                frappe._dict(name="N", employer="A", deposit_date="2025-04-03", docstatus=1,
+                             amount_usd=50, allocated_usd=0, result="Pendiente")]
+        with patch.object(frappe, "has_permission", return_value=True), patch.object(frappe, "get_list", return_value=rows):
+            pending_count = report.execute(dict(year=2025, transaction_type="Depósitos", pending_only_table=1))[1][0]
+            pending_amount = report.execute(dict(year=2025, transaction_type="Depósitos", visualization="Importe",
+                                                 pending_only_table=1))[1][0]
+            detail_count = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos")
+            detail_amount = report.get_month_detail(2025, 4, "A", transaction_type="Depósitos", visualization="Importe")
+        self.assertEqual((pending_count["m04"], pending_amount["m04"]), (1, 50))
+        self.assertEqual((detail_count["filtered_count"], detail_amount["filtered_count"]), (3, 3))
+        self.assertEqual([item["value"] for item in detail_count["summary"]], [1, 1, 1, 0])
+        self.assertEqual([item["value"] for item in detail_amount["summary"]], [100, 150, 50, 0])
+        self.assertTrue(all(item["datatype"] == "Currency" for item in detail_amount["summary"]))
+        self.assertEqual(detail_amount["totals"]["original_usd"], 300)
 
     def test_zero_applications_are_settled_without_hiding_invalid_distributions(self):
         row = dict(event_type="Aplicacion", currency="USD", amount=0, effective=1, match_status="Conciliado")
@@ -351,7 +388,8 @@ class CompanyTransactionsTests(unittest.TestCase):
 
     def test_detail_invalid_filters_and_permission_fail_before_loading(self):
         for values in (dict(year=2025, month=13), dict(year="sql", month=1), dict(year=2025, month=1, state="Otro"),
-                       dict(year=2025, month=1, transaction_type="Otro"), dict(year=2025, month=1)):
+                       dict(year=2025, month=1, transaction_type="Otro"),
+                       dict(year=2025, month=1, visualization="Otra"), dict(year=2025, month=1)):
             with patch.object(frappe, "has_permission", return_value=False), \
                     patch.object(frappe, "throw", side_effect=ValueError), \
                     patch.object(report, "load_transactions") as loader, self.assertRaises(ValueError):

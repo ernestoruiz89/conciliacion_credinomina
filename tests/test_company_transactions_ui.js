@@ -19,6 +19,8 @@ assert.equal(filters.visualization.options, "Número de transacciones\nImporte")
 assert.equal(filters.state.default, "Todos");
 assert.ok(filters.state.options.includes("Distribuciones inconsistentes"));
 assert.equal(filters.include_drafts.default, 0);
+assert.equal(filters.pending_only_table.fieldtype, "Check");
+assert.equal(filters.pending_only_table.default, 0);
 assert.equal(filters.reconciled_by.fieldtype, "Link");
 assert.equal(filters.reconciled_by.options, "User");
 const formatter = (value, field, data) => report.formatter(value, null, {fieldname: field}, data, value => String(value));
@@ -65,7 +67,7 @@ assert.equal(report.formatter("Total", null, {fieldname: "employer"}, {_is_total
 const amount = {_visualization: "Importe", m04_count: 3, m04_state: "Parcial", m04_percentage: 60,
     m04_total_usd: 100, m04_covered_usd: 60, m04_conciliado: 1, m04_parcial: 1, m04_pendiente: 1,
     m04_conciliado_usd: 20, m04_parcial_usd: 50, m04_pendiente_usd: 30, m04_review_usd: 0,
-    _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones"}};
+    _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones", visualization: "Importe"}};
 const amountCell = formatter(100, "m04", amount);
 assert.ok(amountCell.includes("Importe de transacciones por estado"));
 assert.ok(amountCell.includes("Conciliadas: US$ 20.00"));
@@ -77,4 +79,15 @@ assert.ok(formatter(0, "m04", {...amount, m04_count: 1}).includes(">0</button>")
 assert.ok(!formatter(0, "m04", {...amount, m04_count: 0}).includes("<button"));
 assert.ok(formatter(null, "total", amount).includes("N/D"));
 assert.ok(formatter(null, "total", {_is_total: true, _visualization: "Importe"}).includes("N/D"));
+const pendingCount = formatter(0, "m04", {_pending_only_table: true, m04_count: 3,
+    m04_state: "Conciliado", m04_conciliado: 3, m04_pendiente: 0,
+    _detail_filters: {year: 2025, employer: "A", transaction_type: "Aplicaciones"}});
+assert.ok(pendingCount.includes(">0</button>"));
+assert.ok(pendingCount.includes("Solo pendientes en tabla"));
+assert.ok(!pendingCount.includes("pending_only_table&quot;"));
+assert.ok(!formatter(0, "m04", {_pending_only_table: true, m04_count: 0}).includes("<button"));
+const pendingAmount = formatter(0, "m04", {...amount, _pending_only_table: true});
+assert.ok(pendingAmount.includes(">0</button>"));
+assert.ok(pendingAmount.includes("cn-month-transactions"));
+assert.ok(pendingAmount.includes("&quot;visualization&quot;:&quot;Importe&quot;"));
 console.log("OK: monthly transaction filters, counts, traffic-light colors, tooltips, accessibility and empty cells.");

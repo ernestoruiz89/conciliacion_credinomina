@@ -787,6 +787,14 @@ estado. Al pasar el cursor por una celda se ve el desglose por estado. La parte
 pendiente de una transacción parcial sigue dentro de su importe parcial; el
 porcentaje y el color muestran por separado cuánto está cubierto. Si falta un
 importe convertible, la celda y los totales afectados muestran **N/D**.
+Al abrir un mes desde **Importe**, las tarjetas del detalle también muestran
+valores en US$ por estado.
+
+Marque **Solo pendientes en tabla** para mostrar en la matriz únicamente el
+número o el importe US$ de las transacciones en estado **Pendiente**, según
+**Visualización**. Los KPI conservan todos los estados de la selección y cada
+celda abre el detalle completo del mes; un cero puede abrir movimientos
+conciliados o parciales. El check no cambia los demás filtros.
 
 - Aplicaciones: cuenta las filas de tipo Aplicación en `CN Accounting Import`,
   por fecha del movimiento, no la cantidad de documentos ni de períodos.

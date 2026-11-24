@@ -14,6 +14,8 @@ frappe.query_reports["Transacciones por Empresa"] = {
         {fieldname: "reconciled_by", label: __("Usuario de conciliación"), fieldtype: "Link", options: "User",
             description: __("Conciliadas y parciales con participación del usuario; incluye la atribución inicial al último editor.")},
         {fieldname: "include_drafts", label: __("Incluir borradores"), fieldtype: "Check", default: 0},
+        {fieldname: "pending_only_table", label: __("Solo pendientes en tabla"), fieldtype: "Check", default: 0,
+            description: __("Muestra solo el estado Pendiente en la matriz. Los indicadores y el detalle conservan la selección completa de los demás filtros.")},
     ],
     onload(report) {
         report.page.wrapper.off("click.cn_month_transactions", ".cn-month-transactions");
@@ -36,7 +38,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
         if (!/^m(0[1-9]|1[0-2])$/.test(key) || !data) {
             return html;
         }
-        if (!(isAmount ? Number(data[key + "_count"]) : Number(value)))
+        if (!((isAmount || data._pending_only_table) ? Number(data[key + "_count"]) : Number(value)))
             return '<span class="text-muted" title="' + __("Sin transacciones") + '">—</span>';
         const state = data[key + "_state"] || "Pendiente";
         const colors = {Conciliado: ["#dcfce7", "#14532d"], Parcial: ["#fb923c", "#431407"], Pendiente: ["#fee2e2", "#991b1b"]};
@@ -53,7 +55,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
             ? `${__("Importe conciliado")}: ${percentageLabel}% · US$ ${formatAmount(data[key + "_covered_usd"])} / ${formatAmount(data[key + "_total_usd"])}`
             : __("Porcentaje del importe no disponible");
         const breakdown = isAmount ? ` · ${__("Importe de transacciones por estado")}: ${__("Conciliadas")}: ${stateAmount("_conciliado_usd")} · ${__("Parciales")}: ${stateAmount("_parcial_usd")} · ${__("Pendientes")}: ${stateAmount("_pendiente_usd")} · ${__("Revisar distribución")}: ${stateAmount("_review_usd")}` : "";
-        const description = `${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}${breakdown}`;
+        const description = `${data._pending_only_table ? `${__("Solo pendientes en tabla")} · ` : ""}${__(state)} · ${progress} · ${__("Conciliadas")}: ${count("_conciliado")} · ${__("Parciales")}: ${count("_parcial")} · ${__("Pendientes")}: ${count("_pendiente")} · ${__("Revisar distribución")}: ${count("_review")}${breakdown}`;
         const escaped = frappe.utils.escape_html(description);
         // Offset DataTable's content padding so the status fills the cell.
         // Partial-state color uses the amount covered, never transaction count.
@@ -84,7 +86,7 @@ frappe.query_reports["Transacciones por Empresa"] = {
                 if (closed || request !== sequence) return;
                 const data = response.message;
                 if (!data?.rows) throw new Error("Respuesta sin detalle");
-                const cards = data.summary.map(item => `<div style="flex:1;min-width:150px;padding:12px;border:1px solid var(--border-color);border-radius:8px"><div>${esc(item.label)}</div><strong style="font-size:20px">${esc(item.value)}</strong></div>`).join("");
+                const cards = data.summary.map(item => `<div style="flex:1;min-width:150px;padding:12px;border:1px solid var(--border-color);border-radius:8px"><div>${esc(item.label)}</div><strong style="font-size:20px">${item.datatype === "Currency" && item.value != null ? money(item.value) : esc(item.value)}</strong></div>`).join("");
                 const headers = isApplication
                     ? ["Fecha", "Documento / fila", "Cliente", "Crédito", "Aplicado US$", "Partidas complementarias US$", "Depositado US$", "Pendiente US$", "Estado"]
                     : isComplementary ? ["Fecha", "Partida / concepto", "Cliente", "Crédito", "Importe absoluto US$", "Resuelto US$", "Pendiente US$", "Estado"]
@@ -128,7 +130,9 @@ frappe.query_reports["Transacciones por Empresa"] = {
                     ${amountFields.map(field => `<td style="text-align:right;white-space:nowrap">${money(data.totals?.[field])}</td>`).join("")}<td></td></tr></tfoot>`;
                 const end = start + data.rows.length;
                 wrapper.html(`<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">${cards}</div>
-                    <p class="text-muted">${__("Los indicadores cuentan transacciones de esta empresa y mes, no celdas del calendario.")}${activeFilters.reconciled_by ? ` ${__("Limitados al usuario seleccionado.")}` : ""}</p>
+                    <p class="text-muted">${args.visualization === "Importe"
+                        ? __("Los indicadores suman en US$ el importe completo de las transacciones de esta empresa y mes por estado.")
+                        : __("Los indicadores cuentan transacciones de esta empresa y mes, no celdas del calendario.")}${activeFilters.reconciled_by ? ` ${__("Limitados al usuario seleccionado.")}` : ""}</p>
                     <div style="overflow:auto;max-height:55vh"><table class="table table-bordered" style="font-size:12px;line-height:1.4"><thead><tr>${headers.map(label => `<th style="white-space:nowrap;position:sticky;top:0;background:var(--fg-color);z-index:1">${__(label)}</th>`).join("")}</tr></thead>
                     <tbody>${body || `<tr><td colspan="${headers.length}">${__("No hay transacciones con estos filtros.")}</td></tr>`}</tbody>${footer}</table></div>
                     <p class="text-muted">${__("El total incluye todas las páginas con los filtros actuales. Importes en US$. — indica que falta conversión o atribución individual; el total de esa columna también queda sin determinar.")}</p>
