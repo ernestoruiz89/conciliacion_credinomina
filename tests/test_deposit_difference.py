@@ -36,11 +36,14 @@ class DepositDifferenceTests(unittest.TestCase):
         result = allocate_cash(available, self.claims, [*manual, *context["instructions"]], context["blocked_deposits"])
         for name, amount in reservations.items():
             result['deposit_remaining'][name] = float(difference.money(result['deposit_remaining'][name]) + difference.money(amount))
-        with patch.object(frappe, "db", Mock()) as db, patch(
+        with patch.object(frappe, "db", Mock()) as db, patch.object(frappe, "cache", Mock()), patch(
                 "credinomina_reconciliation.remittance_target_summary.load_target_descriptions", return_value={}):
             db.get_single_value.return_value = "yyyy-mm-dd"
             statuses = engine._sync_remittance_details(context, result, self.claims)
             updates = {call.args[1]: call.args[2] for call in db.set_value.call_args_list if call.args[0] == "CN Remittance Detail"}
+            for call in db.bulk_update.call_args_list:
+                if call.args[0] == "CN Remittance Detail":
+                    updates.update(call.args[1])
         return result, statuses, updates
 
     def test_identical_detail_and_company_difference_skip_writes_on_repeat(self):
@@ -70,7 +73,7 @@ class DepositDifferenceTests(unittest.TestCase):
         self.rows[0].client = ""
         _, _, updates = self.reconcile(credits=[credit])
         self.assertEqual(set(updates), {"R0"})
-        self.assertEqual(updates["R0"]["client"], "C0")
+        self.assertEqual(updates["R0"], {"client": "C0"})
 
     def test_negative_documented_difference_never_invents_cash_or_erases_claims(self):
         self.setup_case()

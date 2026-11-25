@@ -22,13 +22,14 @@ class ManualRemittanceDetailTests(unittest.TestCase):
                             amount_usd=22.52, detail_row="ROW")]
         self.deposits = [dict(id="DEP", amount_usd=22.52, group="EMP", currency="USD", bank_currency="NIO")]
 
-    def reconcile(self, manual=None, descriptions=None):
+    def reconcile(self, manual=None, descriptions=None, client_catalog=None):
         manual = self.manual if manual is None else manual
         remittance = frappe._dict(name="DEP", employer="EMP", detail_file="detail.xlsx",
                                  detail_hash="hash", detail_source_file="detail.xlsx", fx_rate=36.6243)
         with patch.object(source.frappe, "get_all", return_value=[self.row]):
             context = source._prepare_remittance_details(
                 [remittance], {"DEP": "DEP"}, self.deposits, self.claims, manual, {},
+                client_catalog=client_catalog,
             )
         valid, rejected = source._validated_remittance_instructions(context, manual + context["instructions"])
         result = allocate_cash(self.deposits, self.claims, valid,
@@ -442,6 +443,49 @@ class ManualRemittanceDetailTests(unittest.TestCase):
         # Both applications still need explicit links; linking only the fee is insufficient.
         self.manual = self.manual[-1:]
         self.assertEqual(self.reconcile()[2]["DEP"], "Revisar filas")
+
+    def test_nonclient_detail_requires_explicit_override_for_partial_complement(self):
+        self.row.update(client_name="JENIFER FRANCELA CHAVARRIA LUMBI", client_number="",
+                        national_id="2411709051000W", loan_number="4-1",
+                        deducted_nio=949.88)
+        self.claims = [dict(id="X:CN-COMP-2026-00210", kind="X", group="EMP",
+                            amount_usd=51.87, accounting_source_key="CORE-LINE")]
+        self.manual = [dict(id="TARGET", deposit_id="DEP", claim_id=self.claims[0]["id"],
+                            amount_usd=25.94, detail_row="ROW")]
+        self.deposits[0]["amount_usd"] = 25.94
+        _, without, statuses, row = self.reconcile(client_catalog=[])
+        self.assertEqual(without["allocations"], [])
+        self.assertEqual(statuses["DEP"], "Revisar filas")
+        self.assertIn("Nro. Cédula", row["match_reason"])
+
+        self.row.update(manual_client_override=1)
+        _, automatic, statuses, row = self.reconcile(manual=[], client_catalog=[])
+        self.assertEqual(automatic["allocations"], [])
+        self.assertEqual(statuses["DEP"], "Revisar filas")
+        self.assertIn("Seleccione destinos manuales", row["match_reason"])
+
+        _, result, statuses, row = self.reconcile(client_catalog=[])
+        self.assertEqual(statuses["DEP"], "Conciliado")
+        self.assertEqual(row["match_status"], "Conciliada")
+        self.assertIn("cliente no validado", row["match_reason"])
+        self.assertEqual(result["allocations"][0]["amount_usd"], 25.94)
+        self.assertEqual(result["claim_remaining"][self.claims[0]["id"]], 25.93)
+
+    def test_client_override_is_manual_and_stays_within_company(self):
+        row = dict(name="ROW", employer="EMP", client_name="PEDRO", client_number="PEDRO-1",
+                   loan_number="PEDRO-LOAN", manual_client_override=1)
+        claim = dict(id="H:JUAN", kind="H", group="EMP", period="APRIL", amount_usd=25.94,
+                     client_name="JUAN", client_number="JUAN-1", loan_number="JUAN-LOAN")
+        target = dict(id="T", claim_id="H:JUAN", amount_usd=25.94, detail_row="ROW")
+        selected, reason = manual_detail_targets(row, [claim], [target], 25.94, "EMP", "APRIL")
+        self.assertEqual(selected[0]["claim_id"], "H:JUAN")
+        self.assertIn("cliente no validado", reason)
+        for changes in ({"manual_client_override": 0}, {"employer": "OTHER"}):
+            with self.subTest(changes=changes):
+                self.assertEqual(manual_detail_targets(row | changes, [claim], [target], 25.94,
+                                                       "EMP", "APRIL")[0], [])
+        self.assertEqual(manual_detail_targets(row, [claim], [target], 25.95, "EMP", "APRIL")[0], [])
+        self.assertEqual(suggest_detail_targets(row, [claim], 25.94, "EMP")[0], [])
 
     def test_unidentified_complement_requires_correct_explicit_row_link(self):
         self.income_in_client_detail()

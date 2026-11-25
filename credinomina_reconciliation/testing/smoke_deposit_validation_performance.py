@@ -38,11 +38,21 @@ def run(count=100):
         assert all(row.pending_usd == 0 for row in document.detail_rows)
         assert result["detail_matched"] == count, result
         # Allow framework bookkeeping, while catching per-target query growth.
-        if label == "manual":
-            assert queries < count * 8 + 200, measurements
+        if label in {"manual", "fifo"}:
+            assert queries < count * 3 + 200, measurements
         elif label.startswith("repeat"):
             assert queries < count * 4 + 200, measurements
             assert result["saved_imports"] == 0, result
+        assert all(target.result == "Aplicada" for target in document.targets)
+        traces = frappe.get_all("CN Reconciliation Trace",
+            filters={"source_doctype": document.doctype, "source_name": document.name},
+            fields=["detail_row", "target_doctype", "target_name", "delta_usd", "performed_by"],
+            limit_page_length=0)
+        expected = {(row.name, "CN Source Row", application.name, 30, "Administrator")
+                    for row, application in zip(document.detail_rows, source.rows)}
+        assert len(traces) == count and {
+            (t.detail_row, t.target_doctype, t.target_name, t.delta_usd, t.performed_by) for t in traces
+        } == expected
 
     try:
         with patch.object(frappe, "enqueue"), patch.object(frappe, "publish_realtime"):

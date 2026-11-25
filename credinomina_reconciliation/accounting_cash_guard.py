@@ -102,15 +102,24 @@ def guard_cash_changes(document, previous=None, deleting=False, *, verified_reco
     # would hide the debt while its confirmed or reserved cash still exists.
     visibility_changed = ((previous.get('status') in IMPORTED_STATUSES)
                           != (document.get('status') in IMPORTED_STATUSES))
+    source_changed = any(str(previous.get(field) or '') != str(document.get(field) or '')
+                         for field in ('employer', 'source_file', 'file_hash', 'historical_backfill'))
+    old_default = previous.get('historical_period') or ''
+    new_default = document.get('historical_period') or ''
     changed_rows = []
     for old in previous.rows or []:
         if old.get('event_type') != 'Aplicacion':
             continue
         row = current.get(old.name)
-        changed = (not row or visibility_changed
+        # Completing a blank header for an already assigned row with a known
+        # route keeps its persisted destination. Actual routing changes still
+        # go through the deposit guard.
+        default_changed = old_default != new_default and not (
+            not old_default and old.get('historical_period') == new_default
+            and (previous.get('historical_backfill') or old.get('processing_route') in ('Historica', 'Operativa'))
+        )
+        changed = (not row or visibility_changed or source_changed or default_changed
             or (old.get('match_status') == 'Ignorado') != (row.get('match_status') == 'Ignorado')
-            or any(str(previous.get(field) or '') != str(document.get(field) or '')
-                                 for field in ('employer', 'source_file', 'file_hash', 'historical_backfill', 'historical_period'))
             or any(str(old.get(field) or '') != str(row.get(field) or '') for field in IDENTITY_FIELDS)
             or (not verified_reconciliation and _derived_changed(old, row))
             or any(decimal_value(old.get(field)) != decimal_value(row.get(field)) for field in AMOUNT_FIELDS))

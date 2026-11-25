@@ -1,5 +1,6 @@
 import json
 import unittest
+from hashlib import sha256
 from unittest.mock import Mock, patch
 
 import frappe
@@ -51,6 +52,47 @@ class ReconciliationTraceTests(unittest.TestCase):
         self.assertEqual(create.call_args.args[0]["performed_by"], "last-editor")
         self.assertEqual(create.call_args.args[0]["delta_usd"], 0)
         self.assertEqual(doc.insert.call_args.kwargs["set_name"], create.call_args.args[0]["name"])
+
+    def test_large_version_checks_trace_keys_in_batches_and_preserves_a_partial_rescan(self):
+        version = self.version("V", "Ana", [], [self.allocation(12, f"A{i}") for i in range(505)])
+        stored, queried = {}, []
+
+        def existing(doctype, filters, pluck, limit_page_length):
+            self.assertEqual((doctype, pluck, limit_page_length), (trace.DOCTYPE, "name", 0))
+            names = filters["name"][1]
+            queried.append(len(names))
+            return [name for name in names if name in stored]
+
+        def get_doc(values):
+            def insert(**kwargs):
+                self.assertEqual(kwargs, dict(ignore_permissions=True, ignore_links=True,
+                                              ignore_if_duplicate=True, set_name=values["name"]))
+                self.assertNotIn(values["name"], stored)
+                stored[values["name"]] = values
+            return Mock(insert=insert)
+
+        old_name = sha256(json.dumps([trace.DEPOSIT, version.docname, trace.APPLICATION,
+                                     "A0", [version.name, "R1"]], ensure_ascii=False).encode()).hexdigest()
+        stored[old_name] = dict(name=old_name, performed_by="Usuario anterior")
+        with patch.object(frappe, "get_all", side_effect=existing), \
+             patch.object(frappe, "get_doc", side_effect=get_doc) as create, \
+             patch.object(frappe.db, "exists", side_effect=AssertionError("Per-row lookup")):
+            trace.capture_version(version)
+            trace.capture_version(version)
+        self.assertEqual(queried, [500, 5, 500, 5])
+        self.assertEqual(create.call_count, 504)
+        self.assertEqual(stored.pop(old_name)["performed_by"], "Usuario anterior")
+        self.assertEqual({(row["performed_by"], row["performed_on"], row["before_usd"], row["after_usd"],
+                           row["delta_usd"], row["detail_row"], row["evidence"]) for row in stored.values()},
+                         {("Ana", version.creation, 0, 12, 12, "R1", "V")})
+
+    def test_new_trace_validation_errors_propagate_to_the_financial_transaction(self):
+        version = self.version("V", "Ana", [], [self.allocation(12)])
+        doc = Mock()
+        doc.insert.side_effect = frappe.ValidationError("Traza rechazada")
+        with patch.object(frappe, "get_all", return_value=[]), patch.object(frappe, "get_doc", return_value=doc), \
+             self.assertRaisesRegex(frappe.ValidationError, "Traza rechazada"):
+            trace.capture_version(version)
 
     def test_journals_keep_original_actor_even_when_another_user_saves(self):
         item = frappe._dict(doctype=trace.ITEM, name="I", docstatus=1,

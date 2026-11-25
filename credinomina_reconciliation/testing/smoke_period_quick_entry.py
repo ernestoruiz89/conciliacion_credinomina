@@ -12,6 +12,64 @@ from credinomina_reconciliation.reconciliation_scope import document_state
 from credinomina_reconciliation.conciliacion_credinomina.doctype.cn_accounting_import import cn_accounting_import as engine
 
 
+def _check_existing_import(employer, marker, content):
+    first_period = frappe.get_doc(dict(doctype='CN Reconciliation Period', employer=employer,
+        payroll_month='2025-09-01', reconciliation_mode='Historica')).insert()
+    filename = f'{marker}-existing.csv'
+    source = frappe.get_doc(dict(doctype='CN Accounting Import', employer=employer,
+        currency='USD', source_file='/private/files/' + filename)).insert()
+    attachment = frappe.get_doc(dict(doctype='File', file_name=filename, content=content,
+        is_private=1, attached_to_doctype=source.doctype, attached_to_name=source.name,
+        attached_to_field='source_file')).insert()
+    source.db_set('source_file', attachment.file_url)
+    loaded = engine.import_source_file(source.name)
+    source = frappe.get_doc(source.doctype, loaded['import_name'])
+    assert len(source.rows) == 2
+    source.rows[0].historical_period = first_period.name
+    source.save()
+    engine._reconcile_sources(employer, import_name=source.name)
+    source.reload()
+    assert not source.historical_period and not source.rows[1].historical_period
+    assert first_period.reload().applied_usd == 33
+    ids = [row.name for row in source.rows]
+    amounts = [row.amount_usd for row in source.rows]
+    fields = dict(employer=employer, payroll_month='2025-10-01', reconciliation_mode='Historica')
+    link = dict(name=source.name, modified=str(source.modified))
+
+    # Even a reservation on the row retaining its explicit period protects the parent change.
+    frappe.db.savepoint('before_draft_reservation')
+    draft = frappe.get_doc(dict(doctype='CN Remittance Allocation', employer=employer,
+        deposit_date='2025-09-16', deposit_reference=marker+'-reserved', deposit_currency='USD',
+        deposit_amount=5, targets=[dict(historical_application=ids[0], amount_usd=5)])).insert()
+    protected = {doc.name: document_state(doc.reload()) for doc in (source, first_period, draft)}
+    period_count = frappe.db.count('CN Reconciliation Period', {'employer': employer})
+    frappe.db.savepoint('reserved_quick_entry')
+    try:
+        api.create(fields, link)
+    except frappe.ValidationError as error:
+        assert 'dinero asignado o destinos reservados' in str(error), error
+        frappe.db.rollback(save_point='reserved_quick_entry')
+    else:
+        raise AssertionError('A reserved application allowed the import to change periods')
+    assert frappe.db.count('CN Reconciliation Period', {'employer': employer}) == period_count
+    for doc in (source, first_period, draft):
+        assert document_state(doc.reload()) == protected[doc.name]
+    frappe.db.rollback(save_point='before_draft_reservation')
+
+    with patch.object(engine.CNAccountingImport, 'save', autospec=True,
+                      side_effect=engine.CNAccountingImport.save) as saves:
+        result = api.create(fields, link)
+    assert [call.args[0].name for call in saves.call_args_list] == [source.name, source.name]
+    assert result['movement_rows'] == 2 and result['source_import'] == source.name
+    created = frappe.get_doc('CN Reconciliation Period', result['doc']['name'])
+    source.reload()
+    assert source.historical_period == created.name
+    assert [row.name for row in source.rows] == ids
+    assert [row.amount_usd for row in source.rows] == amounts == [33, 21]
+    assert [row.historical_period for row in source.rows] == [first_period.name, created.name]
+    assert first_period.reload().applied_usd == 33 and created.applied_usd == 21
+
+
 def run():
     if frappe.local.site != 'cn-reconciliation-test.local':
         raise RuntimeError('Solo para cn-reconciliation-test.local')
@@ -101,6 +159,8 @@ def run():
                 assert new_period.applied_usd == 35 and new_period.remitted_usd == 0
             for doc in (source, old, deposit):
                 assert document_state(doc.reload()) == protected[doc.name], doc.name
+            _check_existing_import(company.name, marker, core_file('2025-09-15', 33, 'first')
+                                   + core_file('2025-10-15', 21, 'second').split(b'\n', 1)[1])
             pending = frappe.get_doc(dict(doctype='CN Accounting Import', employer=company.name,
                 currency='USD', status='Importado', source_file=f'/private/files/{marker}-pending.csv',
                 rows=[dict(event_type='Aplicacion', event_date='2026-10-30', currency='USD',
@@ -138,6 +198,7 @@ def run():
             assert document_state(pending.reload()) == pending_state
             return dict(payroll_loaded=True, source_link_saved=True, first_reconciliation=True, file_attached=True,
                 historical_and_operative_core_loaded=True, single_reconciliation_pass=True,
+                existing_import_saves=2, explicit_row_period_preserved=True, draft_reservation_protected=True,
                 existing_deposits_and_applications_unchanged=True, invalid_post_rolled_back=True, rolled_back=True)
     finally:
         frappe.db.rollback()

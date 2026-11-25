@@ -31,23 +31,41 @@ def entries(value):
 
 
 def append(source_type, source, target_type, target, *, key, user, timestamp,
-           before=0, after=0, description="", detail_row="", origin="Operación", evidence=""):
+           before=0, after=0, description="", detail_row="", origin="Operación", evidence="", batch=None):
     if not source or not target or not user or not timestamp:
         return
     if origin != INITIAL and money(before) == money(after):
         return
     name = sha256(json.dumps([source_type, source, target_type, target, key],
                             ensure_ascii=False).encode()).hexdigest()
-    # The deterministic primary key makes journal rescans and the patch idempotent.
-    if frappe.db.exists(DOCTYPE, name):
-        return
-    doc = frappe.get_doc(dict(doctype=DOCTYPE, name=name, source_doctype=source_type,
+    values = dict(doctype=DOCTYPE, name=name, source_doctype=source_type,
         source_name=source, target_doctype=target_type, target_name=target,
         performed_by=user, performed_on=timestamp, origin=origin, evidence=evidence,
         before_usd=money_float(before), after_usd=money_float(after),
         delta_usd=money_float(money(after) - money(before)), detail_row=detail_row,
-        description=description))
-    doc.insert(ignore_permissions=True, ignore_links=True, ignore_if_duplicate=True, set_name=name)
+        description=description)
+    if batch is not None:
+        batch.append(values)
+    elif not frappe.db.exists(DOCTYPE, name):
+        _insert(values)
+
+
+def _insert(values):
+    # The Trace DocType uses default naming. An explicit "hash" autoname would
+    # retry an existing event under a random name when two rescans race.
+    frappe.get_doc(values).insert(ignore_permissions=True, ignore_links=True, ignore_if_duplicate=True,
+                                  set_name=values["name"])
+
+
+def _insert_missing(batch):
+    for offset in range(0, len(batch), 500):
+        rows = batch[offset:offset + 500]
+        existing = set(frappe.get_all(DOCTYPE, filters={"name": ["in", [row["name"] for row in rows]]},
+                                      pluck="name", limit_page_length=0))
+        for row in rows:
+            if row["name"] not in existing:
+                _insert(row)
+                existing.add(row["name"])
 
 
 def capture_saved_item(name):
@@ -90,17 +108,19 @@ def capture_version(version, method=None):
         return
     before, after = audit.get("before") or {}, audit.get("after") or {}
     old, new = _allocation_index(before.get("allocation_detail")), _allocation_index(after.get("allocation_detail"))
+    batch = []
     for target_type, target, detail in sorted(old.keys() | new.keys()):
         identity = (target_type, target, detail)
         append(DEPOSIT, version.docname, target_type, target,
             key=[version.name, detail], user=version.owner, timestamp=version.creation,
             before=old[identity], after=new[identity], detail_row=detail,
-            description=audit.get("action") or "Distribución de depósito", evidence=version.name)
+            description=audit.get("action") or "Distribución de depósito", evidence=version.name, batch=batch)
     # Documented surplus is an operation on the deposit itself, not on a loan.
     append(DEPOSIT, version.docname, DEPOSIT, version.docname,
         key=[version.name, "surplus"], user=version.owner, timestamp=version.creation,
         before=before.get("justified_surplus_usd"), after=after.get("justified_surplus_usd"),
-        description="Saldo a favor documentado", evidence=version.name)
+        description="Saldo a favor documentado", evidence=version.name, batch=batch)
+    _insert_missing(batch)
 
 
 def capture_deposit_cancel(doc, method=None):

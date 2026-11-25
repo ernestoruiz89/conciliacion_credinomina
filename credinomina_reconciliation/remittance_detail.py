@@ -238,12 +238,17 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         elif _unidentified_complement_link(row, claim, instruction):
             unidentified_complements.append(claim["id"].removeprefix("X:"))
         elif not _candidate_matches(row, claim):
-            if not _manual_application_identity_matches(row, claim, employer):
-                return [], f"{_destination_label(claim)}: {_candidate_mismatch(row, claim)}"
-            if canonical_credit_number(row.get("loan_number")) != canonical_credit_number(claim.get("loan_number")):
-                different_credits.append(f"{_destination_label(claim)} ({row['loan_number']} → {claim['loan_number']})")
-            else:
-                different_references.append(claim["id"].removeprefix("H:"))
+            override_company = clean_text(row.get("employer") or employer)
+            manual_override = (row.get("manual_client_override")
+                and claim.get("kind") in {"C", "H", "X"}
+                and override_company == clean_text(claim.get("group")))
+            if not manual_override:
+                if not _manual_application_identity_matches(row, claim, employer):
+                    return [], f"{_destination_label(claim)}: {_candidate_mismatch(row, claim)}"
+                if canonical_credit_number(row.get("loan_number")) != canonical_credit_number(claim.get("loan_number")):
+                    different_credits.append(f"{_destination_label(claim)} ({row['loan_number']} → {claim['loan_number']})")
+                else:
+                    different_references.append(claim["id"].removeprefix("H:"))
         if not money(instruction['amount_usd']):
             return [], f"{_destination_label(claim)}: indique un importe distinto de cero para el vínculo."
         if money(instruction['amount_usd']) < 0 and claim.get('kind') != 'X':
@@ -276,6 +281,8 @@ def manual_detail_targets(row, claims, instructions, amount_usd, employer, perio
         reason += "; complementarias sin cliente/crédito atribuidas por vínculo manual explícito: " + ", ".join(
             dict.fromkeys(unidentified_complements)
         )
+    if row.get("manual_client_override"):
+        reason += "; cliente no validado por selección manual de esta fila"
     return targets, reason
 
 

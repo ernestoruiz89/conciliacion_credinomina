@@ -7,7 +7,7 @@ function form(amount) {
     return {doc: {targets: [{name: "T", complementary_item: "ONE", amount_usd: amount, employer: "LALA"}]},
         add_child(table, values) { assert.equal(table, "targets"); this.doc.targets.push({name: "T" + this.doc.targets.length, ...values}); }};
 }
-const row = {name: "ANA", client_name: "Ana", source_row: 2, employer: "LALA"};
+const row = {name: "ANA", client_name: "Ana", source_row: 2, employer: "LALA", amount_usd: 500, pending_usd: 500};
 for (const sign of [1, -1]) {
     const frm = form(sign * 500);
     assert.equal(split(frm, row, [{target_id: "T", linked: 1, amount_usd: sign * 200}]), "");
@@ -31,4 +31,17 @@ const frm = form(50);
 delete frm.doc.targets[0].complementary_item;
 frm.doc.targets[0].historical_application = "CORE";
 assert.ok(split(frm, row, [{target_id: "T", linked: 1, amount_usd: 20}]));
+const capped = form(51.87), detail = {...row, amount_usd: 25.94, pending_usd: 25.94};
+assert.ok(split(capped, detail, [{target_id: "T", linked: 1, amount_usd: 51.87}]).includes("superan"));
+assert.equal(capped.doc.targets[0].detail_row, undefined);
+assert.equal(split(capped, detail, [{target_id: "T", linked: 1, amount_usd: 25.94}]), "");
+assert.equal(capped.doc.targets[0].amount_usd, 25.94);
+assert.equal(capped.doc.targets[1].amount_usd, 25.93);
+const multiple = form(20);
+multiple.doc.targets.push({name: "SECOND", complementary_item: "TWO", amount_usd: 20, employer: "LALA"});
+assert.ok(split(multiple, detail, [
+    {target_id: "T", linked: 1, amount_usd: 15},
+    {target_id: "SECOND", linked: 1, amount_usd: 15},
+]).includes("superan"));
+assert.equal(multiple.doc.targets.length, 2);
 console.log("OK: shared complementary amount split by row, signed amounts and validation without financial writes.");

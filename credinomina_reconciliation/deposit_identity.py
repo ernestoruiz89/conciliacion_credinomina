@@ -66,14 +66,13 @@ def load_detail_loan_clients(rows, clients, allowed):
     """Batch-load only the requested loans; unknown/conflicting evidence blocks matching."""
     import frappe
     loans = {credit_key(row.get("loan_number")) for row in rows if row.get("loan_number")}
-    if not clients:
-        return DetailIdentityEvidence()
     result = defaultdict(set)
     evidence_index = DetailIdentityEvidence()
-    by_name = {client["name"]: client for client in clients}
     # Client number / national ID are stable person identifiers. Current company
     # and current employee number are NOT historical company membership proof.
-    global_index = ClientIdentityIndex(clients)
+    global_index = clients if isinstance(clients, ClientIdentityIndex) else ClientIdentityIndex(clients or ())
+    if not global_index.records:
+        return evidence_index
     evidence_index.current_index = global_index
 
     def add(record, loan, link, number):
@@ -83,7 +82,7 @@ def load_detail_loan_clients(rows, clients, allowed):
                     "client_name": record.get("client_name")}
         client, _reason = choose_client(evidence, global_index)
         if link:
-            linked = by_name.get(link)
+            linked = global_index.by_name.get(link)
             if not linked or (client and client["name"] != link):
                 result[credit_key(loan)].add(None)
                 return
@@ -120,7 +119,7 @@ def load_detail_loan_clients(rows, clients, allowed):
         link_field = 'matched_client' if doctype == 'CN Credit Portfolio Row' else 'client'
         number_field = 'client_number_core' if doctype == 'CN Credit Portfolio Row' else 'client_number'
         # Old rows may lack the Link; stable core numbers still prove identity.
-        numbers = [client.get('client_number') for client in clients if client['name'] in requested_clients and client.get('client_number')]
+        numbers = [client.get('client_number') for client in global_index if client['name'] in requested_clients and client.get('client_number')]
         employees = sorted({value for row in rows for value in (clean_text(row.get('employee_number')), canonical_identifier(row.get('employee_number'))) if value}) if doctype == 'CN Source Row' else []
         for offset in range(0, max(len(requested_clients), len(numbers), len(employees)), 500):
             identifiers = []

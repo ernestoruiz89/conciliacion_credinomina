@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from openpyxl import load_workbook
 
+from credinomina_reconciliation.client_identity import ClientIdentityIndex
 from credinomina_reconciliation.deposit_identity import load_detail_loan_clients
 from credinomina_reconciliation.paying_employers import choose_detail_client
 from credinomina_reconciliation.parsers import SourceFileError, parse_collection_file
@@ -152,9 +153,11 @@ class DepositIdentityTests(unittest.TestCase):
                 "CN Accounting Import": [Row(name="IMPORT", employer="EMP")],
                 "CN Source Row": [Row(parent="IMPORT", loan_number="13376-1", client="2", client_number="2")],
             }[doctype]
+        catalog = ClientIdentityIndex(self.clients)
         with patch.object(frappe, "get_all", side_effect=get_all), \
              patch("credinomina_reconciliation.deposit_identity.get_credit_rows", side_effect=get_all):
-            result = load_detail_loan_clients([{"loan_number": "13375"}, {"loan_number": "13376-1"}], self.clients, {"EMP"})
+            result = load_detail_loan_clients([{"loan_number": "13375"}, {"loan_number": "13376-1"}], catalog, {"EMP"})
+        self.assertIs(result.current_index, catalog)
         self.assertEqual(result, self.loans)
         self.assertEqual(len(calls), 4)
         self.assertEqual(calls[1][1]["filters"]["employer"], ["in", ["EMP"]])

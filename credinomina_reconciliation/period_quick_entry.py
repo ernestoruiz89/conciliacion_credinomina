@@ -43,15 +43,18 @@ def insert_period(period, source_link, insert):
         frappe.get_doc("File", file_filters).check_permission("read")
     source, row = _source_link(source_link, period.employer) if source_link else (None, None)
     insert()
-    if source:
-        if row is None:
-            source.historical_period = period.name
-        else:
-            row.historical_period = period.name
-        source.save()  # Normal cash, evidence, assignment and closed-period guards.
-    summary = None
     # A row-specific Link must not reload/reassign the rest of its import.
     load_movements = source is not None and row is None
+    if load_movements:
+        source.historical_period = period.name
+        if source.rows:
+            # Check the existing rows against the selected cut before the file
+            # can replace any of them. The loader saves the header with its rows.
+            source._validate_historical_periods()
+    elif row is not None:
+        row.historical_period = period.name
+        source.save()
+    summary = None
     collection_result = None
     if load:
         if load_movements:
@@ -62,10 +65,9 @@ def insert_period(period, source_link, insert):
             collection_result = api.import_collection(period.name)
     movement_result = None
     if load_movements:
-        # Use the implementation without its standalone transaction retry:
-        # a rollback/retry here would discard the period we just inserted.
-        # Default=False preserves periods already assigned to individual rows.
-        movement_result = accounting._import_source_file(source.name, apply_default_period=False)
+        # The locked source, its new period and the refreshed rows share one
+        # normal save. Leave transaction rollback to the outer request.
+        movement_result = accounting._load_source_movements(source)
     if load:
         period.reload()
         reconciliation = movement_result if movement_result is not None else collection_result.get("source_reconciliation")

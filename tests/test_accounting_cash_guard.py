@@ -198,6 +198,40 @@ class AccountingCashGuardTests(unittest.TestCase):
             with self.assertRaises(frappe.ValidationError):
                 guard.guard_cash_changes(doc)
 
+    def test_filling_default_keeps_an_explicit_paid_historical_period(self):
+        doc = self.document(historical_backfill=1, historical_period='APRIL')
+        row = frappe._dict(doc.rows[0], historical_period='APRIL', historical_remitted_usd=100)
+        doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado',
+            historical_backfill=1, rows=[row])
+        doc.rows = [row]
+        with patch.object(guard, 'cash_coverage') as coverage:
+            guard.guard_cash_changes(doc)
+        coverage.assert_not_called()
+        self.lock_mock.assert_not_called()
+
+    def test_filling_default_keeps_a_paid_row_with_explicit_operative_route(self):
+        doc = self.document(historical_period='SEP')
+        row = frappe._dict(doc.rows[0], historical_period='SEP', processing_route='Operativa', historical_remitted_usd=100)
+        doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado', rows=[row])
+        doc.rows = [row]
+        with patch.object(guard, 'cash_coverage') as coverage:
+            guard.guard_cash_changes(doc)
+        coverage.assert_not_called()
+
+    def test_filling_default_cannot_move_paid_rows_or_change_origin(self):
+        for explicit_period, new_period, changes in [('', 'APRIL', {}), ('APRIL', 'MAY', {}),
+                                                    ('APRIL', 'APRIL', {'loan_number': 'NEW'})]:
+            with self.subTest(explicit_period=explicit_period, new_period=new_period, changes=changes):
+                doc = self.document(historical_backfill=1, historical_period=new_period)
+                old = frappe._dict(doc.rows[0], historical_period=explicit_period, historical_remitted_usd=100)
+                doc.get_doc_before_save = lambda: frappe._dict(employer='A', status='Importado',
+                    historical_backfill=1, rows=[old])
+                doc.rows = [frappe._dict(old, **changes)]
+                with patch.object(guard, 'cash_coverage', return_value=dict(protected_usd=100, snapshots={})), \
+                     patch.object(frappe, 'throw', side_effect=frappe.ValidationError), \
+                     self.assertRaises(frappe.ValidationError):
+                    guard.guard_cash_changes(doc)
+
     def test_batch_proves_absence_without_using_stored_pending_status(self):
         rows = [frappe._dict(name=f'APP-{i}', historical_remitted_usd=0,
                             deposit_match_status='Sin deposito') for i in range(542)]

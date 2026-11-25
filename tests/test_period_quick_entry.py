@@ -40,26 +40,34 @@ class PeriodQuickEntryTests(unittest.TestCase):
         self.assertEqual(row.historical_period, 'EXISTING')
         source.check_permission.assert_called_with('write')
 
-    def test_binding_saves_only_selected_blank_link_before_loading(self):
+    def test_header_and_row_links_are_available_when_loading_payroll(self):
         for row_link in (False, True):
             with self.subTest(row_link=row_link):
                 current = frappe._dict(name='ROW', historical_period='')
                 other = frappe._dict(name='KEEP', historical_period='OTHER-PERIOD')
-                source = frappe._dict(name='I', historical_period='', rows=[current, other], save=Mock())
+                source = frappe._dict(name='I', historical_period='', rows=[current, other],
+                                      save=Mock(), _validate_historical_periods=Mock())
                 period = Mock()
                 period.name = 'P'
                 period.insert.return_value = period
                 def imported(name, **kwargs):
                     self.assertEqual(name, 'P')
-                    source.save.assert_called_once_with()
-                    self.assertEqual(current.historical_period if row_link else source.historical_period, 'P')
+                    if row_link:
+                        source.save.assert_called_once_with()
+                        self.assertEqual(current.historical_period, 'P')
+                        self.assertEqual(source.historical_period, '')
+                    else:
+                        source.save.assert_not_called()
+                        source._validate_historical_periods.assert_called_once_with()
+                        self.assertEqual(source.historical_period, 'P')
+                        self.assertEqual(current.historical_period, '')
                     self.assertEqual(other.historical_period, 'OTHER-PERIOD')
                     return {'source_reconciliation':{}}
                 with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
                      patch.object(api, '_source_link', return_value=(source, current if row_link else None)), \
                      patch.object(api.api, 'import_collection', side_effect=imported), \
                      patch.object(api.api, '_import_collection', side_effect=imported) as collection, \
-                     patch.object(api.accounting, '_import_source_file', return_value={'rows':1}) as core, \
+                     patch.object(api.accounting, '_load_source_movements', return_value={'rows':1}) as core, \
                      patch.object(api.api, '_first_reconciliation_result', return_value={}):
                     result = api.create({'reconciliation_mode':'Operativa', 'collection_file':'payroll.csv'}, {'name':'I'})
                 self.assertEqual(result['source_import'], 'I')
@@ -69,25 +77,28 @@ class PeriodQuickEntryTests(unittest.TestCase):
                     collection.assert_not_called()
                 else:
                     collection.assert_called_once_with('P', reconcile=False)
-                    core.assert_called_once_with('I', apply_default_period=False)
+                    core.assert_called_once_with(source)
+                    source.save.assert_not_called()
 
-    def test_historical_and_operative_without_payroll_save_header_and_load_core(self):
+    def test_historical_and_operative_without_payroll_load_core_with_the_locked_source(self):
         for mode in ('Historica', 'Operativa'):
             with self.subTest(mode=mode):
                 other = frappe._dict(historical_period='KEEP')
-                source = frappe._dict(name='I', historical_period='', rows=[other], save=Mock())
+                source = frappe._dict(name='I', historical_period='', rows=[other],
+                                      save=Mock(), _validate_historical_periods=Mock())
                 period = Mock()
                 period.name = 'P'
                 period.insert.return_value = period
-                def load(name, *, apply_default_period):
-                    self.assertFalse(apply_default_period)
-                    source.save.assert_called_once_with()
+                def load(locked_source):
+                    self.assertIs(locked_source, source)
+                    source.save.assert_not_called()
+                    source._validate_historical_periods.assert_called_once_with()
                     self.assertEqual(source.historical_period, 'P')
                     self.assertEqual(other.historical_period, 'KEEP')
                     return {'rows':3, 'import_name':'DATED-IMPORT'}
                 with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
                      patch.object(api, '_source_link', return_value=(source, None)), \
-                     patch.object(api.accounting, '_import_source_file', side_effect=load) as core, \
+                     patch.object(api.accounting, '_load_source_movements', side_effect=load) as core, \
                      patch.object(api.api, 'import_collection') as collection:
                     result = api.create({'reconciliation_mode':mode, 'remark':'Observación del período'}, {'name':'I'})
                 self.assertEqual(period.remark, 'Observación del período')
@@ -95,22 +106,43 @@ class PeriodQuickEntryTests(unittest.TestCase):
                 self.assertTrue(result['movements_loaded'])
                 self.assertEqual(result['movement_rows'], 3)
                 self.assertFalse(result['collection_loaded'])
-                core.assert_called_once_with('I', apply_default_period=False)
+                core.assert_called_once_with(source)
                 collection.assert_not_called()
 
+    def test_invalid_existing_rows_stop_creation_before_loading_payroll_or_core(self):
+        def reject_binding():
+            self.assertEqual(source.historical_period, 'P')
+            raise frappe.ValidationError('El período no corresponde a la fila.')
+
+        source = frappe._dict(name='I', historical_period='', rows=[frappe._dict(name='ROW')], save=Mock(),
+                              _validate_historical_periods=Mock(side_effect=reject_binding))
+        period = Mock()
+        period.name = 'P'
+        with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
+             patch.object(api, '_source_link', return_value=(source, None)), \
+             patch.object(api.api, '_import_collection') as collection, \
+             patch.object(api.accounting, '_load_source_movements') as core:
+            with self.assertRaisesRegex(frappe.ValidationError, 'no corresponde'):
+                api.create({'reconciliation_mode':'Operativa', 'collection_file':'payroll.csv'}, {'name':'I'})
+        source.save.assert_not_called()
+        collection.assert_not_called()
+        core.assert_not_called()
+        period.as_dict.assert_not_called()
+
     def test_nested_core_failure_never_retries_or_rolls_back_the_middle_of_creation(self):
-        source = frappe._dict(name='I', historical_period='', save=Mock())
+        source = frappe._dict(name='I', historical_period='', rows=[], save=Mock())
         period = Mock()
         period.name = 'P'
         period.insert.return_value = period
         with patch.object(api.frappe, 'has_permission'), self.mock_documents(period), \
              patch.object(api, '_source_link', return_value=(source, None)), \
-             patch.object(api.accounting, '_import_source_file', side_effect=frappe.QueryDeadlockError) as core, \
+             patch.object(api.accounting, '_load_source_movements', side_effect=frappe.QueryDeadlockError) as core, \
              patch.object(api.accounting, 'import_source_file') as standalone, \
              patch.object(api.frappe.db, 'rollback') as rollback:
             with self.assertRaises(frappe.QueryDeadlockError):
                 api.create({'reconciliation_mode':'Historica'}, {'name':'I'})
-        core.assert_called_once_with('I', apply_default_period=False)
+        core.assert_called_once_with(source)
+        source.save.assert_not_called()
         standalone.assert_not_called()
         rollback.assert_not_called()  # The complete HTTP request handles rollback.
 

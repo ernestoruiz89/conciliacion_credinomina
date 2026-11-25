@@ -269,6 +269,84 @@ class FifoDetailEngineTests(unittest.TestCase):
         self.assertEqual([t["detail_row"] for t in result["allocations"]], ["ROW1", "ROW2", "ROW2"])
         self.assertEqual(self.run_engine()[1], result)  # Reconciliation is repeatable.
 
+    def test_company_shortfall_uses_only_cash_left_after_confirmed_fifo(self):
+        from credinomina_reconciliation.deposit_difference import KIND, basis
+        from credinomina_reconciliation.deposit_reconciliation import assert_preserved_allocations
+
+        self.doc.amount_usd = self.deposit["amount_usd"] = 99.98
+        self.doc.allocated_usd = 60
+        self.rows[0].deducted_usd = 40
+        self.rows[1].deducted_usd = 60
+        parts = [dict(application_id="B", event_date="2025-04-30", amount_usd=60)]
+        self.rows[1].update(linked_usd=60, match_status="Conciliada",
+                            matched_targets=json.dumps([dict(claim_id="H:B", amount_usd=60, fifo_applications=parts)]))
+        self.doc.allocation_detail = json.dumps([dict(tipo="Aplicacion historica", aplicacion_id="B",
+            importe_usd=60, origen=FIFO, fila_detalle="ROW2", aplicaciones_fifo=parts)])
+        self.rows.append(frappe._dict(name="DIFF", parent="DEP", row_kind=KIND,
+            difference_amount_usd=-.02, difference_reason="Diferencia Inmaterial"))
+        self.rows[-1].difference_basis = basis(self.doc, self.rows)
+
+        context, result = self.run_engine()
+        self.assertEqual([(entry["detail_row"], entry["claim_id"], entry["amount_usd"], entry["origin"])
+                          for entry in result["allocations"]],
+                         [("ROW2", "H:B", 60, FIFO), ("ROW1", "H:A", 39.98, FIFO)])
+        self.assertEqual(result["allocations"][0]["fifo_applications"], parts)
+        self.assertEqual(result["claim_remaining"], {"H:A": .02, "H:B": 0})
+        self.assertEqual(result["deposit_remaining"], {"DEP": 0})
+        self.assertEqual(context["contexts"]["DEP"]["difference"]["amount"], money("-.02"))
+        assert_preserved_allocations(self.doc, result, [])
+
+        self.rows[1].matched_targets = "[]"
+        unproven, result = self.run_engine()
+        self.assertEqual(unproven["retained_instructions"], [])
+        with self.assertRaises(frappe.ValidationError):
+            assert_preserved_allocations(self.doc, result, [])
+
+    def test_company_shortfall_keeps_verified_partial_links_when_other_cash_is_available(self):
+        from credinomina_reconciliation.deposit_difference import KIND, basis
+
+        self.doc.amount_usd = self.deposit['amount_usd'] = 109.98
+        self.doc.allocated_usd = 59.98
+        self.rows[0].update(deducted_usd=40, client='111', client_number='111')
+        self.claims[0].update(client='111', client_number='111')
+        self.rows[1].deducted_usd = 60
+        parts = [dict(application_id='B', event_date='2025-04-30', amount_usd=59.98)]
+        self.rows[1].update(linked_usd=59.98, pending_usd=.02,
+            match_status='Revisar: Cobertura parcial; diferencia de empresa', match_reason='Diferencia ya documentada',
+            matched_targets=json.dumps([dict(claim_id='H:B', amount_usd=59.98, fifo_applications=parts)]))
+        self.doc.allocation_detail = json.dumps([dict(tipo='Aplicacion historica', aplicacion_id='B',
+            importe_usd=59.98, origen=FIFO, fila_detalle='ROW2', aplicaciones_fifo=parts)])
+        self.rows.append(frappe._dict(name='ROW3', parent='DEP', client='222', client_number='222', deducted_usd=10))
+        difference = frappe._dict(name='DIFF', parent='DEP', row_kind=KIND,
+            difference_amount_usd=-.02, difference_reason='Diferencia Inmaterial')
+        self.rows.append(difference)
+        difference.difference_basis = basis(self.doc, self.rows)
+
+        context, result = self.run_engine()
+        self.assertEqual([(entry['detail_row'], entry['claim_id'], entry['amount_usd'], entry['origin'])
+                          for entry in result['allocations']],
+                         [('ROW2', 'H:B', 59.98, FIFO), ('ROW1', 'H:A', 40, FIFO)])
+        self.assertEqual(result['allocations'][0]['fifo_applications'], parts)
+        self.assertEqual(result['deposit_remaining'], {'DEP': 10})
+        state = context['contexts']['DEP']
+        self.assertFalse(state['fifo_cash_limited'])
+        self.assertTrue(state['rows'][1]['retained_company_shortfall'])
+        self.assertEqual(state['rows'][1]['reason'], 'Diferencia ya documentada')
+
+        for unproven in ('stale_difference', 'inconsistent_journal', 'ordinary_partial'):
+            with self.subTest(unproven=unproven):
+                original = copy.deepcopy(self.rows)
+                if unproven == 'stale_difference':
+                    difference.difference_basis = 'stale'
+                elif unproven == 'inconsistent_journal':
+                    self.rows[1].matched_targets = '[]'
+                else:
+                    self.rows[1].match_status = 'Revisar'
+                context, _ = self.run_engine()
+                self.assertEqual(context['retained_instructions'], [])
+                self.rows[:] = original
+                difference = self.rows[-1]
+
     def completed_detail_before_fifo(self):
         self.rows = [frappe._dict(name='ROW1', parent='DEP', client='5464', client_number='5464', loan_number='',
             deducted_usd=83.10, amount_usd=83.10, linked_usd=83.10, match_status='Conciliada', matched_targets=json.dumps([

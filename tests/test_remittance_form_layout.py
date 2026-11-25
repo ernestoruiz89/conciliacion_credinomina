@@ -46,8 +46,9 @@ class RemittanceFormLayoutTests(unittest.TestCase):
         editable = [field["fieldname"] for field in child_fields
                     if not field.get("read_only") and field["fieldtype"] not in
                     ("Section Break", "Column Break", "Tab Break", "Button", "HTML")]
-        self.assertEqual(editable, ["manual_reconciliation_required", "employer", "loan_number"])
+        self.assertEqual(editable, ["manual_reconciliation_required", "manual_client_override", "employer", "loan_number"])
         self.assertTrue(next(field for field in child_fields if field["fieldname"] == "manual_reconciliation_required")["allow_on_submit"])
+        self.assertTrue(next(field for field in child_fields if field["fieldname"] == "manual_client_override")["allow_on_submit"])
         self.assertTrue(next(field for field in child_fields if field["fieldname"] == "loan_number")["allow_on_submit"])
         button = next(field for field in child_fields if field["fieldname"] == "create_client_credit")
         self.assertEqual(button["fieldtype"], "Button")

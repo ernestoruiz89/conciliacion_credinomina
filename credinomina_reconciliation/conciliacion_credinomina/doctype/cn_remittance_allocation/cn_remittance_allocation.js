@@ -1255,6 +1255,13 @@ function splitRemittanceTargetsForDetail(frm, detail, selections) {
         if (amount !== original && !target.complementary_item) return __("Solo las partidas complementarias pueden dividirse desde este selector.");
         plans.push({target, amount, remainder: original - amount});
     }
+    const existing = targets.filter(target => target.detail_row === detail.name)
+        .reduce((total, target) => total + toScaledInteger(target.amount_usd, 2), 0n);
+    const capacity = toScaledInteger(detail.pending_usd ?? detail.amount_usd, 2) + existing;
+    const proposed = plans.reduce((total, plan) => total + plan.amount, 0n);
+    if (proposed > capacity) {
+        return __("Los destinos vinculados superan el importe pendiente de esta fila. Reduzca Importe a vincular antes de guardar.");
+    }
     // Validate every edit before changing the form. The shared claim is never duplicated.
     for (const target of [...targets]) {
         if (target.detail_row === detail.name && !chosen.has(target.name)) {
@@ -1999,7 +2006,7 @@ class RemittanceTargetPicker {
         this.detailPeriods = new Set((frm.doc.detail_periods || []).map(row => row.period).filter(Boolean));
         const filterSelectedPeriods = this.detailPeriods.size && !Number(frm.doc.allow_manual_other_periods) ? 1 : 0;
         this.dialog = new frappe.ui.Dialog({
-            title: this.detailRowName ? __("Seleccionar partidas pendientes del cliente") : __("Seleccionar partidas pendientes"), size: "extra-large",
+            title: this.detailRowName && !data.manual_client_override ? __("Seleccionar partidas pendientes del cliente") : __("Seleccionar partidas pendientes"), size: "extra-large",
             onhide: () => {
                 if (this.frm.detail_target_picker === this) this.frm.detail_target_picker = null;
             },
@@ -2050,7 +2057,9 @@ class RemittanceTargetPicker {
         const detailIntro = this.detailRowName ? `<p class="alert alert-info"><strong>${this.escape(client?.client_name || detailRow?.client_name || __("Cliente de la fila"))}</strong>
             ${client?.client_number ? `· ${__("Nro. Cliente")}: ${this.escape(client.client_number)}` : ""}
             ${detailRow?.loan_number ? `· ${__("Crédito")}: ${this.escape(detailRow.loan_number)}` : ""}<br>
-            ${__("La lista muestra únicamente partidas pendientes de este cliente. Cada destino agregado quedará vinculado automáticamente a esta fila del detalle.")}</p>` : "";
+            ${data.manual_client_override
+                ? __("No validar cliente está marcado: se muestran destinos de la misma empresa. Elija el destino y un importe que no supere el pendiente de la fila.")
+                : __("La lista muestra únicamente partidas pendientes de este cliente. Cada destino agregado quedará vinculado automáticamente a esta fila del detalle.")}</p>` : "";
         this.dialog.fields_dict.intro.$wrapper.html(`<p>Empresa pagadora: <strong>${this.escape(data.employer)}</strong> · US$</p>
             ${detailIntro}
             <div class="alert alert-info" role="note">${__("Las aplicaciones deben tener un período abierto asignado y estar procesadas para aparecer en este selector. «Ver registros pendientes» también muestra aplicaciones sin período o pendientes de procesar. Desmarcar «Usar períodos del detalle» permite buscar en otros períodos abiertos; las aplicaciones sin período siguen excluidas. Asígneles el período correcto y procese su importación para habilitarlas.")}</div>

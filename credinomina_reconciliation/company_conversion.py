@@ -27,7 +27,7 @@ def documented_coverage(document, rows, claims, instructions, credits, reserved,
     for row in rows:
         if is_difference(row):
             continue
-        if row.get("manual_reconciliation_required"):
+        if row.get("manual_reconciliation_required") or row.get("manual_client_override"):
             return None
         amount, _reason = detail_amount_usd(row, float(document.get("fx_rate") or 0))
         targets, _reason = suggest_detail_targets(row, claims, amount, document.employer,

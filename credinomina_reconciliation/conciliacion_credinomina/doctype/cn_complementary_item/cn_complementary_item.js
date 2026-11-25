@@ -239,7 +239,16 @@ async function cn_link_deposit(frm) {
             description: __("Puede vincular un importe parcial. Positivo consume depósito; negativo documenta un faltante. La partida confirmada conserva su signo.")},
         {fieldname: "detail_row", fieldtype: "Select", label: __("Fila del detalle (opcional)"),
             options: [{value: "", label: __("Sin vincular a una fila del detalle")}],
-            description: __("Solo se muestran filas de clientes con importe pendiente mayor que cero. Seleccione una fila cuando la partida deba explicar ese pago.")},
+            description: __("Solo se muestran filas con importe pendiente mayor que cero. Si selecciona una, el importe a vincular se limita a lo que esa fila puede recibir."),
+            onchange: () => {
+                if (!context) return;
+                const row = context.rows.find(item => item.name === dialog.get_value("detail_row"));
+                if (row && context.suggested_usd > 0) {
+                    dialog.set_value("amount_usd", Math.min(context.suggested_usd, row.pending_usd));
+                } else if (!row) {
+                    dialog.set_value("amount_usd", context.suggested_usd || null);
+                }
+            }},
         ...(draft ? [
             {fieldtype: "Section Break", label: __("Confirmación de la partida")},
             {fieldname: "category", fieldtype: "Select", label: __("Concepto"), reqd: 1,
@@ -253,6 +262,11 @@ async function cn_link_deposit(frm) {
     ], primary_action_label: __(draft ? "Confirmar y vincular" : "Vincular"), async primary_action(values) {
         if (busy || !context || context.existing) return;
         if (frm.doc.name !== itemName || frm.is_dirty()) return frappe.msgprint(__("La partida cambió. Guarde o recargue y vuelva a vincular."));
+        const selected = context.rows.find(row => row.name === values.detail_row);
+        if (selected && Number(values.amount_usd) > 0 &&
+                Math.round(Number(values.amount_usd) * 100) > Math.round(Number(selected.pending_usd) * 100)) {
+            return frappe.msgprint(__("El importe supera lo que esta fila del depósito puede recibir. Reduzca Importe a vincular."));
+        }
         busy = true;
         dialog.disable_primary_action();
         try {

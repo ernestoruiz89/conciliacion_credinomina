@@ -128,8 +128,9 @@ class CNRemittanceAllocation(Document):
             self.unallocated_usd = self.amount_usd
             self.unclassified_usd = self.amount_usd
         self._invalidate_changed_detail_credits()
-        from credinomina_reconciliation.detail_balances import update_detail_balances
+        from credinomina_reconciliation.detail_balances import update_detail_balances, assert_detail_capacity
         update_detail_balances(self)
+        assert_detail_capacity(self)
         self._update_financial_status()
         self._update_coverage_totals()
 
@@ -189,6 +190,9 @@ class CNRemittanceAllocation(Document):
                     frappe.throw(_("Fila {0}: indique al menos un identificador del cliente.").format(row.idx))
                 if row.get("employer") and row.employer not in allowed:
                     frappe.throw(_("La empresa del detalle no está autorizada por la empresa pagadora."))
+                if row.get("manual_client_override"):
+                    if row.get("row_kind") == "Diferencia documentada":
+                        frappe.throw(_("La opción No validar cliente solo se permite en filas de detalle."))
             # Historical company membership is proved by portfolio/application
             # evidence; today's master company must not exclude transferred staff.
             clients = load_client_index()
@@ -482,11 +486,11 @@ class CNRemittanceAllocation(Document):
             return True
         detail_fields = ("name", "employer", "client", "client_number", "client_name", "loan_number",
                          "national_id", "employee_number", "installment_number", "application_reference", "row_key",
-                         "deducted_usd", "deducted_nio", "manual_reconciliation_required", "row_kind",
+                         "deducted_usd", "deducted_nio", "manual_reconciliation_required", "manual_client_override", "row_kind",
                          "difference_basis", "difference_amount_usd", "difference_core_item")
         def detail_identity(document):
             return [tuple(money(row.get(field)) if field in {"deducted_usd", "deducted_nio", "difference_amount_usd"}
-                          else cint(row.get(field)) if field == "manual_reconciliation_required"
+                          else cint(row.get(field)) if field in {"manual_reconciliation_required", "manual_client_override"}
                           else str(row.get(field) or "") for field in detail_fields)
                     for row in (document.get("detail_rows") or [])]
         return detail_identity(self) != detail_identity(previous)

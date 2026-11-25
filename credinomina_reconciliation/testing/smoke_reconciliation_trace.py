@@ -59,6 +59,17 @@ def run():
             count = frappe.db.count(trace.DOCTYPE)
             reconcile_deposit(deposits[0].reload())
             assert frappe.db.count(trace.DOCTYPE) == count
+            # A concurrent rescan can miss an event in its initial lookup.
+            # Exercise the actual primary-key collision with a different payload.
+            event = frappe.get_all(trace.DOCTYPE,
+                filters=dict(source_name=deposits[0].name, target_name=application),
+                fields=["name", "performed_by", "performed_on", "evidence"])[0]
+            trace._insert(dict(doctype=trace.DOCTYPE, name=event.name, source_doctype=trace.DEPOSIT,
+                source_name=deposits[0].name, target_doctype=trace.APPLICATION, target_name=application,
+                performed_by=users[1], performed_on=event.performed_on, origin="Operación",
+                before_usd=0, after_usd=99, delta_usd=99, evidence=event.evidence))
+            assert frappe.db.count(trace.DOCTYPE) == count
+            assert frappe.db.get_value(trace.DOCTYPE, event.name, ["performed_by", "delta_usd"]) == (users[0], 30)
             # Rollback removes the new trace together with the financial operation.
             frappe.db.savepoint("trace_rollback")
             frappe.set_user(users[1])

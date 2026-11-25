@@ -77,7 +77,7 @@ def choose_detail_client(row, clients, payer, allowed=None, loan_clients=None):
     if historical_index is not None:
         candidates = historical_index.candidates(row)
         if row.get('loan_number'):
-            candidates += [profile for records in profiles.values() for name, profile in records.items() if name in loan_names]
+            candidates.extend(records[name] for records in profiles.values() for name in loan_names if name in records)
         profiles = {}
         for profile in candidates:
             profiles.setdefault(profile['employer'], {})[profile['name']] = profile

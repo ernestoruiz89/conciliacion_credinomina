@@ -61,6 +61,7 @@ from credinomina_reconciliation.parsers import (
 from credinomina_reconciliation.period_lock import period_write_action
 from credinomina_reconciliation.period_totals import PeriodTotalsContext, update_period_totals
 from credinomina_reconciliation.reconciliation_scope import document_state, load_scoped_imports
+from credinomina_reconciliation.reconciliation_writes import update_child_results
 from credinomina_reconciliation.reconciliation import (
     AMOUNT_TOLERANCE,
     application_matches_collection,
@@ -548,6 +549,10 @@ def import_source_file(import_name: str, apply_default_period: int = 0):
 
 def _import_source_file(import_name: str, *, apply_default_period=False):
     document = frappe.get_doc("CN Accounting Import", import_name)
+    return _load_source_movements(document, apply_default_period=apply_default_period)
+
+
+def _load_source_movements(document, *, apply_default_period=False):
     document.check_permission("write")
     if apply_default_period and not document.historical_period:
         frappe.throw(_("Seleccione el período predeterminado antes de aplicarlo a todas las filas."))
@@ -1697,7 +1702,7 @@ def _prepare_remittance_details(
             "row_kind", "difference_amount_usd", "difference_basis", "difference_core_item",
             "difference_core_pending_usd", "difference_core_status",
             "difference_reason", "difference_notes",
-            "manual_reconciliation_required",
+            "manual_reconciliation_required", "manual_client_override",
         ],
         order_by="parent asc, idx asc", limit_page_length=100000,
     ) if names else []
@@ -1852,14 +1857,15 @@ def _prepare_remittance_details(
                     plan["row"].identity_reason = "Cliente confirmado en saldo a favor"
             manual = prior_by_row.get((deposit_id, plan["row"].name), [])
             plan["manual_targets"] = manual
-            if plan["row"].get("manual_reconciliation_required") and not manual:
+            if (plan["row"].get("manual_reconciliation_required") or plan["row"].get("manual_client_override")) and not manual:
                 plan["status"] = "Pendiente manual"
                 plan["reason"] = "Seleccione destinos manuales; la conciliación automática está desactivada para esta fila"
                 continue
             identity_reason = clean_text(plan["row"].identity_reason)
-            if identity_reason.startswith("Conflicto") or (
+            manual_override = bool(plan["row"].get("manual_client_override") and manual)
+            if not manual_override and (identity_reason.startswith("Conflicto") or (
                 identity_reason.startswith("Nombre ambiguo") and not clean_text(plan["row"].loan_number)
-            ):
+            )):
                 plan["status"] = "Revisar"
                 plan["reason"] = plan["row"].identity_reason
                 continue
@@ -1892,8 +1898,14 @@ def _prepare_remittance_details(
                 )
                 if not plan["targets"]:
                     plan["status"] = "Revisar"
+                elif manual_override:
+                    plan["row"].identity_reason = "Cliente exceptuado por vínculo manual"
                 elif all(entry.get('retained_detail') for entry in manual):
-                    plan['reason'] = 'Asignaciones confirmadas conservadas; FIFO solo aplica al efectivo pendiente'
+                    if any(entry.get('retained_company_shortfall') for entry in manual):
+                        plan['retained_company_shortfall'] = True
+                        plan['reason'] = plan['row'].get('match_reason') or 'Cobertura parcial conservada; diferencia documentada en la empresa'
+                    else:
+                        plan['reason'] = 'Asignaciones confirmadas conservadas; FIFO solo aplica al efectivo pendiente'
                 # These instructions already exist. Only associate their results.
                 continue
             requested = amount if fifo_cash_left is None else money_float(min(money(amount), fifo_cash_left))
@@ -2013,17 +2025,19 @@ def _sync_remittance_details(context, allocation, claims=()):
     statuses = {}
     claim_companies = {claim["id"]: claim.get("group") for claim in claims}
 
-    def save_changed_row(row, updates):
+    def changed_fields(row, updates):
         stored = context.get("stored_rows", {}).get(row.name, {})
+        changes = {}
         for field, value in updates.items():
             previous = stored.get(field)
             if previous is not None and field.endswith("_usd"):
                 previous, value = decimal_value(previous), decimal_value(value)
             if previous != value:
-                frappe.db.set_value("CN Remittance Detail", row.name, updates, update_modified=False)
-                return
+                changes[field] = updates[field]
+        return changes
 
     for parent, state in context["contexts"].items():
+        detail_updates = {}
         difference = state.get("difference")
         if state["rows"]:
             for plan in state["rows"]:
@@ -2079,13 +2093,15 @@ def _sync_remittance_details(context, allocation, claims=()):
                     # Applying every FIFO instruction does not settle a row
                     # whose amount exceeds the available application balance.
                     plan["status"] = updates["match_status"] = (
-                        "Cobertura parcial; diferencia de empresa" if state.get("fifo_cash_limited")
+                        "Cobertura parcial; diferencia de empresa" if (state.get("fifo_cash_limited") or plan.get('retained_company_shortfall'))
                         and all(value == "Aplicada" for value in results) else "Revisar")
                 companies = {target.get("group") or claim_companies.get(target.get("claim_id")) for target in targets} - {None, ""}
                 if len(companies) == 1:
                     updates["employer"] = next(iter(companies))
                 updates["match_status"] = review_status(updates["match_status"])
-                save_changed_row(plan["row"], updates)
+                changes = changed_fields(plan["row"], updates)
+                if changes:
+                    detail_updates[plan["row"].name] = changes
             if not state["status"]:
                 outside_complements = state.get("outside_complements", [])
                 # Planned targets are not evidence of settlement: a draft,
@@ -2104,7 +2120,7 @@ def _sync_remittance_details(context, allocation, claims=()):
                     for plan in state["rows"]
                 ) or not outside_applied:
                     state["status"] = "Revisar filas"
-                elif state.get("fifo_cash_limited"):
+                elif state.get("fifo_cash_limited") or any(plan.get('retained_company_shortfall') for plan in state['rows']):
                     state["status"] = "Parcial; diferencia de empresa pendiente"
                 elif difference:
                     from credinomina_reconciliation.deposit_difference import SETTLED
@@ -2120,7 +2136,7 @@ def _sync_remittance_details(context, allocation, claims=()):
             amount = money_float(difference["amount"])
             targets = ([{"claim_id": difference["core"]["id"], "amount_usd": amount}]
                        if core_applied else [])
-            save_changed_row(difference["row"], {
+            changes = changed_fields(difference["row"], {
                 "amount_usd": amount, "linked_usd": amount if core_applied else 0,
                 "pending_usd": 0 if core_applied else amount,
                 "difference_core_pending_usd": 0 if core_applied else abs(amount),
@@ -2130,6 +2146,9 @@ def _sync_remittance_details(context, allocation, claims=()):
                 "matched_targets": json.dumps(targets, ensure_ascii=False),
                 "matched_targets_summary": difference["core"]["id"] if core_applied else "Pendiente de respaldo del core",
             })
+            if changes:
+                detail_updates[difference["row"].name] = changes
+        update_child_results("CN Remittance Detail", detail_updates)
         statuses[parent] = state["status"]
         changes = {"detail_status": state["status"]}
         if "total_usd" in state:
@@ -2335,10 +2354,9 @@ def _distribute_deposits(
         )
     # Keep global identifier conflict detection, but resolve each claim through
     # an index rather than scanning every client and normalizing every alias.
-    client_catalog = None
+    client_lookup = None
     if deposits or manual_allocations:
-        client_catalog = load_client_index()
-        client_lookup = ClientIdentityIndex(client_catalog)
+        client_lookup = ClientIdentityIndex(load_client_index())
         for claim in claims:
             claim["client_names"] = names_for_claim(claim, client_lookup, claim.get("group"))
             client, reason = choose_client(claim, client_lookup, claim.get("group"))
@@ -2468,7 +2486,7 @@ def _distribute_deposits(
 
     detail_context = _prepare_remittance_details(
         manual_allocations, registered_ids, deposits, claims, instructions,
-        tolerance_by_employer, client_catalog=client_catalog,
+        tolerance_by_employer, client_catalog=client_lookup,
     )
     instructions = [*detail_context["retained_instructions"], *instructions, *detail_context["instructions"]]
     claims_by_id.update({claim["id"]: claim for claim in claims})
@@ -2507,13 +2525,12 @@ def _distribute_deposits(
     cash_by_claim = defaultdict(float)
     for entry in result["allocations"]:
         cash_by_claim[entry["claim_id"]] += flt(entry["amount_usd"])
+    target_updates = {}
     for target in target_rows:
         status = manual_results.get(target.name, "Pendiente")
         if target.result != status:
-            frappe.db.set_value(
-                "CN Remittance Target", target.name, "result", status,
-                update_modified=False,
-            )
+            target_updates[target.name] = {"result": status}
+    update_child_results("CN Remittance Target", target_updates)
     for item in manual_allocations:
         deposit_id = registered_ids[item.name]
         allocated = money_float(

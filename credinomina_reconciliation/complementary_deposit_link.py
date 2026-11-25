@@ -118,6 +118,14 @@ def link(item_name: str, deposit_name: str, item_modified: str, deposit_modified
     row = next((row for row in deposit.detail_rows or [] if row.name == detail_row), None)
     if detail_row and not row:
         frappe.throw(_("La fila seleccionada no pertenece al depósito."))
+    if row and amount > 0:
+        from credinomina_reconciliation.detail_balances import update_detail_balances
+
+        update_detail_balances(deposit)
+        capacity = max(money(row.pending_usd), money(0))
+        if amount > capacity:
+            frappe.throw(_("La fila {0} solo puede recibir US$ {1}. Reduzca el importe a vincular; el resto de la partida puede destinarse a otra fila o depósito.").format(
+                row.source_row or row.idx, capacity))
     if item.docstatus == 0:
         item.check_permission("submit")
         if category not in CATEGORIES or not cint(reviewed):

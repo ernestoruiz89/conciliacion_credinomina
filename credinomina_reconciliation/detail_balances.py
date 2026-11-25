@@ -98,3 +98,14 @@ def update_detail_balances(document):
         row.client_credit_usd = credits.get(row.get("name"), 0)
         row.company_credit_usd = company_credits.get(row.get("name"), 0)
         row.pending_usd = money_float(money(row.pending_usd) - money(row.client_credit_usd) - money(row.company_credit_usd))
+
+
+def assert_detail_capacity(document):
+    """Reject a saved destination that makes any receipt detail row negative."""
+    import frappe
+    from frappe import _
+
+    for row in document.get("detail_rows") or []:
+        if row.get("row_kind") != "Diferencia documentada" and money(row.get("pending_usd")) < 0:
+            frappe.throw(_("Fila {0}: los destinos y saldos a favor superan el importe US$ {1} de la fila. Reduzca los destinos vinculados antes de guardar.").format(
+                row.get("source_row") or row.get("idx"), money(row.get("amount_usd"))))
