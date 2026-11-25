@@ -6,4 +6,5 @@ node_modules/
 *.egg-info/
 dist/
 tmp/
+outputs/
 
