@@ -45,10 +45,13 @@ class CompanySummaryExportTests(TestCase):
             self.assertEqual(sheet.cell(5, by_field[field]).number_format, MONEY_FORMAT)
         self.assertEqual(sheet.cell(6, by_field['core_pending_usd']).value, 'N/D')
         self.assertEqual(sheet.cell(6, by_field['core_balance_usd']).value, 0)
+        self.assertEqual(sheet.cell(7, by_field['employer']).value, 'Total general')
+        self.assertEqual(sheet.cell(7, by_field['client_credit_usd']).value, -154.28)
+        self.assertEqual(sheet.cell(7, by_field['management_net_usd']).value, 'N/D')
         self.assertNotIn('balance_usd', by_field)
         from openpyxl.utils import get_column_letter
-        self.assertEqual(sheet.auto_filter.ref, f'A4:{get_column_letter(len(columns))}6')
-        paragraphs = [sheet.cell(i, 1).value for i in range(9, sheet.max_row + 1)]
+        self.assertEqual(sheet.auto_filter.ref, f'A4:{get_column_letter(len(columns))}7')
+        paragraphs = [sheet.cell(i, 1).value for i in range(10, sheet.max_row + 1)]
         self.assertEqual(paragraphs[1], 'Cómo comparar con el Excel')
         self.assertEqual(' '.join(paragraphs).split(), re.sub(r'<[^>]+>', ' ', message).split())
 

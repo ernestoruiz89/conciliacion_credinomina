@@ -25,6 +25,8 @@ assert.equal(report.formatter(-3.61, null, amount,
     {_is_statement_total:true, statement_amount_usd:-3.61, employer:'ACEREAL'}, base), '<strong>formatted:-3.61</strong>');
 assert.match(report.formatter(null, null, amount, {_is_statement_total:true, statement_amount_usd:null}, base), /—/);
 assert.equal(report.formatter(null, null, amount, {_is_statement_total:true}, base), '');
+assert.equal(report.formatter('Total general', null, {fieldname:'employer', fieldtype:'Link'},
+    {_is_statement_total:true, employer:'Total general'}, base), '<strong>Total general</strong>');
 assert.equal(report.formatter(null, null, {fieldname:'statement_amount_nio',fieldtype:'Currency'},
     {statement_scope:'Gestión',statement_amount_nio:null}, base), '');
 let drill, back;

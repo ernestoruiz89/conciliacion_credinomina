@@ -69,9 +69,11 @@ class CompanyStatementTests(unittest.TestCase):
             result = report.execute({'employer': 'REPSA'})
             load.assert_called_once_with({'employer': 'REPSA', '_include_deposit_details': True,
                                           'include_paying_companies': 0})
-            self.assertEqual(len(result[1]), 1)
+            self.assertEqual(len(result[1]), 2)
             self.assertEqual(result[1][0]['core_balance_usd'], 0)
             self.assertEqual(result[1][0]['client_credit_usd'], -154.28)
+            self.assertTrue(result[1][-1]['_is_statement_total'])
+            self.assertEqual(result[1][-1]['client_credit_usd'], -154.28)
             displayed = report.execute({'view_mode': 'Detalle'})[1]
             from credinomina_reconciliation.company_accounting_statement import management_detail
             self.assertEqual([{key: value for key, value in row.items()

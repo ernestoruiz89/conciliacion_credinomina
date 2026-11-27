@@ -2,7 +2,7 @@ import json
 from html import escape
 
 from frappe import _
-from credinomina_reconciliation.rounding import money, money_float
+from credinomina_reconciliation.rounding import money_float, sum_money
 
 from credinomina_reconciliation.company_statement import TRANSFERRED_CREDIT, load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
@@ -98,10 +98,26 @@ def _presentation(detail, filters):
     section = CORE if selected_scope(filters) == CORE else MANAGEMENT
     states = sorted({row['status'] for row in detail if row.get('status') and row['statement_scope'] == section})
     selected = [row for row in detail if matches(row, filters)]
-    data = _detail_presentation(selected, filters) if filters.get('view_mode') == 'Detalle' else summarize(selected)
+    if filters.get('view_mode') == 'Detalle':
+        data = _detail_presentation(selected, filters)
+    else:
+        data = summarize(selected)
+        if data:
+            amounts = {field: _total_amount(data, field) for field in (
+                *CORE_FIELDS, *MANAGEMENT_FIELDS, *POSITION_FIELDS,
+                'reconciliation_difference_usd', 'pending_core_difference_usd')}
+            counts = {field: sum(row[field] for row in data) for field in (
+                'core_movement_count', 'pending_count', 'accounting_pending_count')}
+            data.append(dict(employer=_('Total general'), _is_statement_total=True,
+                usd_currency='USD', nio_currency='NIO', **amounts, **counts))
     if data:
         data[0]['_available_statuses'] = states
     return data
+
+
+def _total_amount(rows, field):
+    values = [row.get(field) for row in rows]
+    return None if None in values else money_float(sum_money(values))
 
 
 def _detail_presentation(selected, filters):
@@ -113,12 +129,8 @@ def _detail_presentation(selected, filters):
         statement_amount_nio=row.get('core_balance_nio') if row['statement_scope'] == CORE else None,
     ) for row in rows]
 
-    def total(rows, field):
-        values = [row.get(field) for row in rows]
-        return None if any(value is None for value in values) else money_float(sum((money(value) for value in values), money(0)))
-
     if section == CORE and rows:
-        amounts = {field: total(rows, field) for field in CORE_FIELDS}
+        amounts = {field: _total_amount(rows, field) for field in CORE_FIELDS}
         data.append(dict(_is_statement_total=True, _total_component='core_balance_usd', statement_scope=CORE,
             client_name=_('Saldo contable del core'), position_type=_('Débitos − créditos'),
             usd_currency='USD', nio_currency='NIO', statement_amount_usd=amounts['core_balance_usd'],
@@ -126,8 +138,8 @@ def _detail_presentation(selected, filters):
     elif section == MANAGEMENT and (rows or (selected and _comparison_available(filters))):
         # A fully settled company may still have core evidence, hence a zero
         # pending total rather than a fabricated second set of cash movements.
-        amount = total(rows, 'management_amount_usd')
-        amounts = {field: total(rows, field) for field in MANAGEMENT_FIELDS}
+        amount = _total_amount(rows, 'management_amount_usd')
+        amounts = {field: _total_amount(rows, field) for field in MANAGEMENT_FIELDS}
         data.append(dict(_is_statement_total=True, _total_component='management_net_usd', statement_scope=MANAGEMENT,
             client_name=_('Saldo'), position_type=_('Pendientes menos créditos'), usd_currency='USD', nio_currency='NIO',
             statement_amount_usd=amount, management_net_usd=amount, management_amount_usd=amount, **amounts))

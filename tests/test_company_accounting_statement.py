@@ -158,13 +158,41 @@ def test_transferred_credit_is_informational_in_current_summary_and_drill():
         _, rows, _ = report.execute({'view_mode': 'Detalle', 'component': 'transferred_credit_pending_usd'})
 
     assert any(c['fieldname'] == 'transferred_credit_pending_usd' and not c.get('hidden') for c in columns)
-    total, = summary
+    total, footer = summary
     assert (total['client_credit_usd'], total['management_net_usd'], total['reconciliation_difference_usd']) == (-10, -10, 0)
     assert total['transferred_credit_pending_usd'] == 61.88
+    assert footer['_is_statement_total'] and footer['management_net_usd'] == total['management_net_usd']
     detail, footer = rows
     assert (detail['source_document'], detail['related_deposits'], detail['reference']) == ('CREDIT', 'DEP', 'AS-1')
     assert detail['transferred_credit_pending_usd'] == footer['transferred_credit_pending_usd'] == 61.88
     assert detail['statement_amount_usd'] == footer['statement_amount_usd'] == 0
+
+
+def test_summary_total_uses_selected_companies_and_preserves_unknown_amounts():
+    accounting = ledger([evidence('HIT-APP', debit=100), dict(evidence('OTHER-DEPOSIT', credit=25), employer='OTHER')])
+    pending = [
+        dict(employer='ACEREAL', source_document='HIT-APP', _component='application_pending_usd',
+             application_pending_usd=100, balance_usd=100),
+        dict(employer='OTHER', source_document='OTHER-DEPOSIT', _component='deposit_pending_usd',
+             deposit_pending_usd=-20, balance_usd=-20, accounting_pending=True),
+        dict(employer='OTHER', source_document='LIABILITY', _component='transferred_credit_pending_usd',
+             transferred_credit_pending_usd=5, balance_usd=0),
+    ]
+    rows = [*accounting, *statement.management_detail(pending)]
+    first, second, total = report._presentation(rows, {})
+    assert [first['employer'], second['employer'], total['employer']] == ['ACEREAL', 'OTHER', 'Total general']
+    assert total['_is_statement_total']
+    assert (total['core_debit_usd'], total['core_credit_usd'], total['core_balance_usd']) == (100, 25, 75)
+    assert (total['management_net_usd'], total['reconciliation_difference_usd'], total['transferred_credit_pending_usd']) == (80, 5, 5)
+    assert (total['core_movement_count'], total['pending_count'], total['accounting_pending_count']) == (2, 3, 1)
+    company, filtered = report._presentation(rows, {'search': 'HIT'})
+    assert company['employer'] == 'ACEREAL' and filtered['management_net_usd'] == filtered['core_balance_usd'] == 100
+    assert filtered['transferred_credit_pending_usd'] == 0
+    assert report._presentation(rows, {'search': 'NO MATCH'}) == []
+    rows[0]['core_balance_usd'] = None
+    unknown = report._presentation(rows, {})[-1]
+    assert unknown['core_balance_usd'] is None and unknown['reconciliation_difference_usd'] is None
+    assert unknown['management_net_usd'] == 80
 
 
 def test_compact_detail_has_one_signed_amount_and_one_pending_balance():

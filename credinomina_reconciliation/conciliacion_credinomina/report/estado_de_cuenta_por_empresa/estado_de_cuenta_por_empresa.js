@@ -120,6 +120,9 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
     formatter(value, row, column, data, default_formatter) {
         if (data?._is_statement_total) {
             if (data[column.fieldname] === undefined) return "";
+            if (column.fieldname === "employer" && !data.bridge_row_type) {
+                return `<strong>${frappe.utils.escape_html(data.employer)}</strong>`;
+            }
             const total = column.fieldtype === "Currency" && data[column.fieldname] === null
                 ? `<span class="text-muted" title="${__("Total sin determinar; hay movimientos sin conversión.")}">—</span>`
                 : default_formatter(value, row, column, data);
