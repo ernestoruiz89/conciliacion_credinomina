@@ -4,7 +4,7 @@ from html import escape
 from frappe import _
 from credinomina_reconciliation.rounding import money, money_float
 
-from credinomina_reconciliation.company_statement import load_detail
+from credinomina_reconciliation.company_statement import TRANSFERRED_CREDIT, load_detail
 from credinomina_reconciliation.deposit_difference_report import load as load_deposit_differences
 from credinomina_reconciliation.difference_reasons import CREDIT_COMPONENTS, attach_treatments
 from credinomina_reconciliation.report_employers import company_scopes
@@ -51,8 +51,8 @@ def execute(filters=None):
     attach_treatments(detail, classify_credits=True)
     data = _presentation(detail, filters)
     message = (_('Saldo contable del core = débitos originales − créditos originales. ')
-        if section == CORE else _('Saldo = pendientes − saldos a favor − otros créditos pendientes. '
-        'Los saldos a favor y los créditos se presentan con signo negativo. '
+        if section == CORE else _('Saldo = pendientes − saldos a favor en la cuenta − otros créditos pendientes. '
+        'El pasivo pendiente de gestión se muestra como dato informativo. '
         'Resumen y Detalle usan las mismas partidas y filtros; documentar un saldo a favor no duplica el crédito del depósito. '))
     if filters.get('view_mode') == 'Detalle':
         message += (_('Contabilidad del core muestra los movimientos completos: débitos positivos, créditos negativos y saldo contable al pie. ')
@@ -73,8 +73,8 @@ def execute(filters=None):
         'Desde/Hasta limitan movimientos: con Desde no se incorpora un saldo anterior a esa fecha. '
         'Los filtros de cuenta y moneda original aplican solo a Contabilidad del core; los pendientes conservan el alcance por empresa. '
         'Conciliar, documentar un saldo a favor, compensar o registrar una CxC manual no cambia el saldo contable. '
-        'Gestión muestra los remanentes por atender, incluyendo devoluciones, aplicaciones, compensaciones y reversiones. '
-        'Las aplicaciones y CxC pendientes son positivas; los saldos a favor y depósitos sin asignar son negativos. '
+        'Gestión muestra los remanentes por atender. Los saldos a favor se descuentan hasta su traslado al pasivo. '
+        'Las aplicaciones y CxC pendientes son positivas. Los créditos en la cuenta y depósitos sin asignar son negativos. '
         'Core por conciliar conserva el signo débito/crédito. Otros créditos pendientes agrupa los créditos del core '
         'por conciliar y los depósitos sin asignar. Pendientes agrupa los importes positivos antes de descontar los créditos. '
         'En Detalle se consulta una base por vez: pendientes o movimientos contables completos. '
@@ -204,7 +204,8 @@ def get_columns(filters=None):
         ]
         # The compact view keeps a single amount; expanded columns retain the audit detail.
         leading = ('employer', 'event_date', 'client_name', 'client_number', 'loan_number',
-                   'statement_scope', 'position_type', 'statement_amount_usd', 'pending_core_difference_usd', 'origin_type', 'accounting_status', 'source_document')
+                   'statement_scope', 'position_type', 'statement_amount_usd', TRANSFERRED_CREDIT,
+                   'pending_core_difference_usd', 'origin_type', 'accounting_status', 'source_document')
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     else:
@@ -216,7 +217,8 @@ def get_columns(filters=None):
                            'fieldtype': 'Int', 'width': 180})
         leading = (('employer', 'core_debit_usd', 'core_credit_usd', 'core_balance_usd', 'core_movement_count') if section == CORE else
             ('employer', 'management_pending_usd', 'client_credit_usd', 'company_credit_usd', 'other_credit_usd',
-             'management_net_usd', 'core_balance_usd', 'reconciliation_difference_usd', 'pending_core_difference_usd', 'pending_count', 'accounting_pending_count'))
+             'management_net_usd', 'core_balance_usd', 'reconciliation_difference_usd', TRANSFERRED_CREDIT,
+             'pending_core_difference_usd', 'pending_count', 'accounting_pending_count'))
         by_field = {column['fieldname']: column for column in columns}
         columns = [by_field[field] for field in leading] + [column for column in columns if column['fieldname'] not in leading]
     if (filters or {}).get('cutoff_date'):
@@ -227,7 +229,7 @@ def get_columns(filters=None):
     if str((filters or {}).get('compact_view', '0')) in {'1', 'True'}:
         if (filters or {}).get('view_mode') == 'Detalle':
             visible = ('employer', 'event_date', 'client_name', 'statement_scope', 'position_type',
-                       'statement_amount_usd', 'pending_core_difference_usd',
+                       'statement_amount_usd', TRANSFERRED_CREDIT, 'pending_core_difference_usd',
                        'status', 'difference_treatment', 'origin_type', 'accounting_status', 'source_document')
             by_field = {column['fieldname']: column for column in columns}
             columns = [by_field[field] for field in visible] + [column for column in columns if column['fieldname'] not in visible]

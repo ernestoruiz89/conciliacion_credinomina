@@ -12,6 +12,7 @@ from credinomina_reconciliation.report_records import records
 from credinomina_reconciliation.rounding import money, money_float, sum_money
 
 
+TRANSFERRED_CREDIT = 'transferred_credit_pending_usd'
 METRICS = (
     ('application_pending_usd', 'Aplicado sin depósito US$'),
     ('core_pending_usd', 'Partidas del core pendientes US$'),
@@ -20,10 +21,18 @@ METRICS = (
     ('deposit_pending_usd', 'Depósito sin conciliar US$'),
     ('company_receivable_usd', 'Saldo por cobrar a la empresa US$'),
     ('employee_receivable_usd', 'Saldo por cobrar al empleado US$'),
+    (TRANSFERRED_CREDIT, 'Pasivo pendiente de gestión US$'),
 )
 FIELDS = tuple(field for field, label in METRICS)
+NET_FIELDS = tuple(field for field in FIELDS if field != TRANSFERRED_CREDIT)
 CREDIT_CATEGORIES = {'Saldo a favor de la empresa', 'Saldo a favor del cliente'}
 PENDING_REGISTRATION = {'Pendiente de registro', 'Asiento informado'}
+
+
+def is_transferred_credit(item):
+    # These dates are recorded by the validated links to an imported core debit.
+    return bool(item.get('accounting_source_key') and item.get('credit_origin_date') and item.get('reclassification_date')
+                and not item.get('_reclassification_pending'))
 
 
 def _origin_type(source, doctype):
@@ -54,7 +63,7 @@ def _row(source, kind, doctype, document, event_date, field, amount, **extra):
     if field:
         result[field] = None if amount is None else money_float(amount)
     result['_component'] = field
-    result['balance_usd'] = result[field] if field else 0.0
+    result['balance_usd'] = result[field] if field in NET_FIELDS else 0.0
     result.update(extra)
     return result
 
@@ -111,12 +120,16 @@ def build_detail(applications, core_items, credits, deposits, filters=None, *, a
         if amount is not None and not money(amount) and not reviewing:
             continue
         company = item['category'] == 'Saldo a favor de la empresa'
+        transferred = is_transferred_credit(item)
+        field = TRANSFERRED_CREDIT if transferred else ('company_credit_usd' if company else 'client_credit_usd')
+        event_date = item['reclassification_date'] if transferred else item.get('credit_origin_date') or item.get('posting_date')
         result.append(_row(item, item['category'], 'CN Complementary Item', item['name'],
-            item.get('credit_origin_date') or item.get('posting_date'), 'company_credit_usd' if company else 'client_credit_usd',
-            None if amount is None else -money(amount), status=('Pendiente de reclasificación' if item.get('_reclassification_pending')
+            event_date, field, None if amount is None else money(amount) if transferred else -money(amount),
+            status=('Pendiente de reclasificación' if item.get('_reclassification_pending')
                 else reconciliation_state(balance)), treatment_status=balance['financial_status'],
             management_status=item.get('credit_management_status') or 'Pendiente',
-            category=item['category'], reference=item.get('reference'),
+            category=item['category'], reference=item.get('source_voucher') or item.get('reference'),
+            related_deposits=item.get('registered_deposit'),
             client_name='' if company else item.get('client_name'),
             client_number='' if company else item.get('client_number'),
             loan_number='' if company else item.get('loan_number'),
@@ -248,8 +261,8 @@ def summarize(detail):
     for employer in sorted(groups):
         row = groups[employer]
         row['accounting_pending_count'] = len(row.pop('_accounting_documents', set()))
-        row['balance_usd'] = (None if any(row[field] is None for field in FIELDS)
-                              else sum_money(row[field] for field in FIELDS))
+        row['balance_usd'] = (None if any(row[field] is None for field in NET_FIELDS)
+                              else sum_money(row[field] for field in NET_FIELDS))
         for field in (*FIELDS, 'balance_usd'):
             if row[field] is not None:
                 row[field] = money_float(row[field])
@@ -274,17 +287,21 @@ def load_detail(filters):
                     if wanted('application_pending_usd') else [])
     scope = {'employer': filters['employer']} if filters.get('employer') else {}
     core = load_core_items(employer=filters.get('employer')) if wanted('core_pending_usd') else []
+    include_credits = any(wanted(field) for field in ('company_credit_usd', 'client_credit_usd', TRANSFERRED_CREDIT))
     credits = list(records('CN Complementary Item', filters={**scope, 'docstatus': 1,
         'category': ['in', sorted(CREDIT_CATEGORIES)], 'result': 'Saldo a favor documentado'},
         fields=list(dict.fromkeys([*COMPLEMENTARY_FIELDS, 'name', 'employer', 'docstatus', 'result', 'category', 'posting_date', 'amount_usd',
                 'credit_pending_usd', 'credit_management_status', 'credit_usage_issue', 'client_name', 'client_number',
-                'loan_number', 'period', 'reference', 'description', 'reason_type', 'subcategory', 'accounting_status'])))) if (
-                    wanted('company_credit_usd') or wanted('client_credit_usd')) else []
-    if wanted('client_credit_usd') or wanted('company_credit_usd'):
+                'loan_number', 'period', 'reference', 'registered_deposit', 'source_voucher',
+                'description', 'reason_type', 'subcategory', 'accounting_status'])))) if include_credits else []
+    if include_credits:
         from credinomina_reconciliation.reclassification_distribution import FIELD as RECLASS_FIELD, deposit_credits
         readable_deposits = {row.name for row in records('CN Remittance Allocation', filters={'docstatus': 1}, fields=['name'])}
+        for credit in credits:
+            if credit.get('registered_deposit') not in readable_deposits:
+                credit['registered_deposit'] = None
         parents = list(records('CN Complementary Item', filters={'docstatus': 1,
-            RECLASS_FIELD: ['not in', ['', '[]']]}, fields=['name', RECLASS_FIELD, 'accounting_source_key', 'difference_reason'],
+            RECLASS_FIELD: ['not in', ['', '[]']]}, fields=['name', RECLASS_FIELD, 'accounting_source_key', 'difference_reason', 'source_voucher'],
             journal_deposits=readable_deposits))
         # A readable deposit may have a portion originating in a restricted
         # item. Refuse an incomplete total without revealing that item.

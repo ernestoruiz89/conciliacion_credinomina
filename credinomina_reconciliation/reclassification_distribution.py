@@ -128,6 +128,7 @@ def deposit_credits(items, deposits, *, cutoff=None):
                 credit_pending_usd=float(pending), credit_resolved_usd=float(resolved),
                 credit_management_status="Resuelto" if not pending else "Parcialmente resuelto" if resolved else "Pendiente",
                 credit_origin_date=entry.get("credit_origin_date"), posting_date=entry.get("credit_origin_date"),
+                reclassification_date=entry.get("effective_date"), source_voucher=item.get("source_voucher"),
                 accounting_source_key=item.get("accounting_source_key"), accounting_status="Importada del core", docstatus=1,
                 result="Saldo a favor documentado", period=entry.get("period"),
                 _reclassification_pending=bool(cutoff and getdate(entry["effective_date"]) > getdate(cutoff)),

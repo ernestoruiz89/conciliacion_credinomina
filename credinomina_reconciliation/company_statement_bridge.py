@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import nowdate
 
 from credinomina_reconciliation.company_accounting_statement import load_core_detail, validate_dates
+from credinomina_reconciliation.company_statement import CREDIT_CATEGORIES, TRANSFERRED_CREDIT, is_transferred_credit
 from credinomina_reconciliation.credit_application import journal_allocations
 from credinomina_reconciliation.historical_cutoff import load_cutoff, cutoff_message, reuse_cutoff_projection
 from credinomina_reconciliation.rounding import money, money_float, decimal_value
@@ -55,7 +56,8 @@ def execute(filters):
     from credinomina_reconciliation.difference_reasons import attach_treatments
     attach_treatments(rows)
     message = _('Saldo contable + diferencias identificadas + diferencia sin explicar = saldo de gestión. '
-        'El saldo de gestión suma aplicaciones pendientes y CxC, y resta saldos a favor y depósitos sin asignar. '
+        'El saldo de gestión suma aplicaciones pendientes y CxC, y resta saldos a favor en la cuenta y depósitos sin asignar. '
+        'Los saldos trasladados al pasivo se muestran en Pasivo pendiente de gestión como dato informativo. '
         'Se calcula de forma independiente: las diferencias de esta comparación no se suman nuevamente al saldo de gestión '
         'ni crean cargos, abonos o saldos a favor. El acumulado de conciliación solo explica el paso entre ambos saldos. '
         'Cada importe de diferencia conserva su signo; no representa por sí solo un asiento a registrar. '
@@ -95,6 +97,12 @@ def build_bridge(core, snapshot, employer=None):
         if key is not None:
             nodes[key]['amount'] = _total((nodes[key]['amount'], value))
 
+    def add_transferred_credit(credit):
+        # The transfer releases the reserved cash from the paying company.
+        # Refunds or other management of the liability do not change that amount.
+        payer = deposits.get(credit.get('registered_deposit'), {}).get('employer') or credit.get('employer')
+        add(node(payer, 'item', credit['name'], items.get(credit['name']) or credit), credit.get('amount_usd'))
+
     def root(key):
         while parents[key] != key:
             parents[key] = parents[parents[key]]
@@ -132,18 +140,22 @@ def build_bridge(core, snapshot, employer=None):
         if item.get('accounting_source_key') and not item.get('origin_deposit'):
             add(key, item.get('_signed_pending_usd'))
         if (item.get('docstatus') == 1 and item.get('result') == 'Saldo a favor documentado'
-                and item.get('category') in {'Saldo a favor del cliente', 'Saldo a favor de la empresa'}):
-            add(key, None if item.get('credit_usage_issue') else money(item.get('credit_resolved_usd')) - funding[item['name']])
+                and item.get('category') in CREDIT_CATEGORIES):
+            if is_transferred_credit(item):
+                add_transferred_credit(item)
+                add(key, -funding[item['name']])
+            else:
+                add(key, None if item.get('credit_usage_issue') else money(item.get('credit_resolved_usd')) - funding[item['name']])
         for entry in context['distributions'].get(item['name'], []):
             # Use the actual payer: cross-company funding cannot disappear in a net.
             deposit = deposits.get(entry.get('deposit'), {})
             add(node(deposit.get('employer'), 'item', item['name'], item), entry.get('amount_usd'))
-    # Portion credits retain their own management history and may belong to a
-    # different company than the imported movement. Only dated resolutions
-    # affect the bridge; the original deposit remains accounted for once.
     for credit in context.get('reclassification_credits', []):
-        add(node(credit.get('employer'), 'item', credit['name'], items.get(credit['name']) or credit),
-            credit.get('credit_resolved_usd'))
+        if is_transferred_credit(credit):
+            add_transferred_credit(credit)
+        else:
+            add(node(credit.get('employer'), 'item', credit['name'], items.get(credit['name']) or credit),
+                credit.get('credit_resolved_usd'))
     for row in snapshot['receivables']:
         add(node(row.get('employer'), 'item', row['name'], items.get(row['name'])), row.get('receivable_usd'))
 
@@ -177,6 +189,13 @@ def build_bridge(core, snapshot, employer=None):
         row['statement_amount_usd'] = _number(amount)
         changes[key[0]].append(row)
 
+    liabilities = defaultdict(list)
+    for row in detail:
+        if row.get('_component') == TRANSFERRED_CREDIT:
+            liabilities[row.get('employer') or ''].append(dict(row, bridge_row_type='documentary',
+                bridge_concept=_('Saldo a favor trasladado al pasivo'),
+                bridge_registration=row.get('management_status'), statement_amount_usd=0.0))
+
     output = []
     for company in sorted(companies):
         original = _total(row.get('core_balance_usd') for row in core if (row.get('employer') or '') == company)
@@ -196,6 +215,7 @@ def build_bridge(core, snapshot, employer=None):
                 bridge_row_type='unexplained', statement_amount_usd=_number(remainder), bridge_registration=_('Revisar'),
                 observation=_('Los vínculos disponibles no explican toda la diferencia. Revise alcance, efectivo entre empresas, '
                     'orígenes excluidos y conversiones. Este importe no es una partida ni un asiento propuesto.')))
+        rows.extend(liabilities[company])
         rows.append(dict(bridge_concept=_('Saldo de gestión'), bridge_row_type='closing',
             statement_amount_usd=_number(target), bridge_running_usd=_number(target), _is_statement_total=True,
             bridge_registration=_('Diferencia explicada') if remainder == 0 else _('Revisión pendiente'),
@@ -279,6 +299,7 @@ def get_columns(filters):
     columns = [dict(fieldname='employer', label=_('Empresa'), fieldtype='Link', options='CN Employer', width=150),
         dict(fieldname='bridge_concept', label=_('Concepto de conciliación'), fieldtype='Data', width=290),
         dict(fieldname='statement_amount_usd', label=_('Importe US$'), fieldtype='Currency', options='usd_currency', width=140, precision=2),
+        dict(fieldname=TRANSFERRED_CREDIT, label=_('Pasivo pendiente de gestión US$'), fieldtype='Currency', options='usd_currency', width=155, precision=2),
         dict(fieldname='pending_core_difference_usd', label=_('Diferencia depósito pendiente en core US$'), fieldtype='Currency', options='usd_currency', width=200, precision=2),
         dict(fieldname='source_document', label=_('Documento de origen'), fieldtype='Dynamic Link', options='source_doctype', width=200),
         dict(fieldname='difference_treatment', label=_('Tratamiento de diferencia'), fieldtype='Data', width=185),

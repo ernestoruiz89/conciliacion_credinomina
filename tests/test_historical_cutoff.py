@@ -134,14 +134,16 @@ class HistoricalCutoffTests(unittest.TestCase):
         before_detail = self.cut('2025-04-30', [deposit], [item], context=empty_context)['detail']
         self.assertEqual(next(row['status'] for row in before_detail if row['source_document'] == 'C'), 'Pendiente de reclasificación')
         after = self.cut('2025-06-01', [deposit], [item], context=empty_context)['summary'][0]
-        self.assertEqual((after['client_credit_usd'], after['core_pending_usd'], after['deposit_pending_usd']), (-20, 0, 0))
+        self.assertEqual((after['client_credit_usd'], after['core_pending_usd'], after['deposit_pending_usd']), (0, 0, 0))
+        self.assertEqual((after['transferred_credit_pending_usd'], after['balance_usd']), (20, 0))
 
         item.update(posting_date='2025-04-01', source_date='2025-04-01', credit_origin_date='2025-04-30',
                     reclassification_date='2025-04-30')
         before = self.cut('2025-04-15', [deposit], [item], context=empty_context)['summary'][0]
         self.assertEqual((before['client_credit_usd'], before['core_pending_usd']), (0, 20))
         after = self.cut('2025-04-30', [deposit], [item], context=empty_context)['summary'][0]
-        self.assertEqual((after['client_credit_usd'], after['core_pending_usd']), (-20, 0))
+        self.assertEqual((after['client_credit_usd'], after['core_pending_usd']), (0, 0))
+        self.assertEqual((after['transferred_credit_pending_usd'], after['balance_usd']), (20, 0))
 
     def test_split_reclassification_keeps_customer_company_income_and_other_separate(self):
         empty_context = ([], {}, {}, {}, {})
@@ -161,7 +163,8 @@ class HistoricalCutoffTests(unittest.TestCase):
                          (-.01, -.01, -.02))
         after = self.cut('2025-06-01', [deposit], [item], context=empty_context)['summary'][0]
         self.assertEqual((after['client_credit_usd'], after['company_credit_usd'], after['deposit_pending_usd'],
-                          after['core_pending_usd']), (-.01, -.01, 0, .06))
+                          after['core_pending_usd']), (0, 0, 0, .06))
+        self.assertEqual((after['transferred_credit_pending_usd'], after['balance_usd']), (.02, .06))
 
     def test_credit_application_plus_corrected_compensation_exhausts_balance_at_cutoff(self):
         deposit = self.deposit(amount_usd=32.63, deposit_date='2025-04-30', allocation_detail=[])

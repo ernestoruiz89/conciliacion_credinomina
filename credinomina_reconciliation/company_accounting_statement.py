@@ -9,7 +9,9 @@ from frappe.utils import getdate, nowdate
 from credinomina_reconciliation.accounting_control import build_rows, MONEY_FIELDS
 from credinomina_reconciliation.accounting_deposits import EVIDENCE_FIELDS
 from credinomina_reconciliation.application_context import import_company_scope
-from credinomina_reconciliation.company_statement import FIELDS as MANAGEMENT_FIELDS
+from credinomina_reconciliation.company_statement import (
+    FIELDS as MANAGEMENT_FIELDS, NET_FIELDS, TRANSFERRED_CREDIT,
+)
 from credinomina_reconciliation.deposit_accounting_sources import attach_sources
 from credinomina_reconciliation.report_records import records, child_records
 from credinomina_reconciliation.rounding import money, money_float
@@ -32,6 +34,7 @@ MANAGEMENT_METRICS = (
     ('application_pending_usd', 'Aplicaciones sin depósito US$'),
     ('core_pending_usd', 'Core por conciliar (+débito / −crédito) US$'),
     ('deposit_pending_usd', 'Depósitos sin asignar (−) US$'),
+    (TRANSFERRED_CREDIT, 'Pasivo pendiente de gestión US$'),
 )
 POSITION_METRICS = (
     ('management_pending_usd', 'Pendientes US$'),
@@ -162,7 +165,7 @@ def matches(row, filters):
     component = filters.get('component')
     amount = row.get('management_amount_usd')
     if component in POSITION_FIELDS:
-        if row.get('statement_scope') != MANAGEMENT:
+        if row.get('statement_scope') != MANAGEMENT or row.get('_component') == TRANSFERRED_CREDIT:
             return False
         # An unknown amount must remain available for review, not silently vanish.
         if component == 'management_pending_usd' and (row.get('_component') in DOCUMENTED_CREDITS
@@ -205,7 +208,7 @@ def summarize(detail):
                 group['_accounting_documents'].add(row['source_document'])
             # Split individual positions before summing: a core debit and credit
             # must not hide each other inside the headline pending amount.
-            for field in MANAGEMENT_FIELDS:
+            for field in NET_FIELDS:
                 value = row.get(field, 0)
                 if value is None:
                     if field not in DOCUMENTED_CREDITS | {'deposit_pending_usd'}:
@@ -231,8 +234,8 @@ def summarize(detail):
         for field in (*FIELDS, 'management_pending_usd', 'other_credit_usd', 'pending_core_difference_usd'):
             if group[field] is not None:
                 group[field] = money_float(group[field])
-        group['management_net_usd'] = (None if any(group[field] is None for field in MANAGEMENT_FIELDS) else money_float(
-            sum((money(group[field]) for field in MANAGEMENT_FIELDS), money(0))))
+        group['management_net_usd'] = (None if any(group[field] is None for field in NET_FIELDS) else money_float(
+            sum((money(group[field]) for field in NET_FIELDS), money(0))))
         group['reconciliation_difference_usd'] = (None if group['management_net_usd'] is None or group['core_balance_usd'] is None
             else money_float(money(group['management_net_usd']) - money(group['core_balance_usd'])))
         result.append(group)

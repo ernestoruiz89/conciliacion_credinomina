@@ -40,7 +40,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
         {fieldname: "source_account", label: __("Cuenta contable del core"), fieldtype: "Data",
             description: __("Filtra la sección contable. Gestión conserva el alcance por empresa.")},
         {fieldname: "source_currency", label: __("Moneda original del core"), fieldtype: "Select", options: "\nNIO\nUSD"},
-        {fieldname: "component", label: __("Componente del saldo"), fieldtype: "Select", options: [
+        {fieldname: "component", label: __("Componente"), fieldtype: "Select", options: [
             {label: __("Todos"), value: ""},
             ...[["core_balance_usd", "Saldo contable del core"], ["core_debit_usd", "Débitos originales del core"],
                 ["core_credit_usd", "Créditos originales del core"], ["core_balance_nio", "Saldo contable original C$"],
@@ -48,6 +48,7 @@ frappe.query_reports["Estado de Cuenta por Empresa"] = {
                 ["management_pending_usd", "Pendientes positivos"], ["other_credit_usd", "Otros créditos pendientes"],
                 ["application_pending_usd", "Aplicado sin depósito"], ["core_pending_usd", "Partidas del core pendientes"],
                 ["company_credit_usd", "Saldo a favor empresa"], ["client_credit_usd", "Saldo a favor clientes"],
+                ["transferred_credit_pending_usd", "Pasivo pendiente de gestión"],
                 ["deposit_pending_usd", "Depósitos sin conciliar"], ["company_receivable_usd", "CxC a la empresa por ajustes"], ["employee_receivable_usd", "CxC al empleado por ajustes"]]
                 .map(([value, label]) => ({value, label: __(label)}))]},
         {fieldname: "accounting_queue", label: __("Solo pendientes de registro"), fieldtype: "Check", default: 0,

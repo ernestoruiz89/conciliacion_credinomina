@@ -51,7 +51,8 @@ class CompanyStatementTests(unittest.TestCase):
             accounting_pending_count=0,
             application_pending_usd=4474.07, core_pending_usd=-7.35,
             company_credit_usd=-.18, client_credit_usd=-154.28,
-            deposit_pending_usd=-3173.81, company_receivable_usd=0, employee_receivable_usd=0, balance_usd=1138.45)])
+            deposit_pending_usd=-3173.81, company_receivable_usd=0, employee_receivable_usd=0,
+            transferred_credit_pending_usd=0, balance_usd=1138.45)])
         for row in detail:
             self.assertEqual(len([field for field in statement.FIELDS if row[field]]), 1)
             self.assertIn('source_document', row)

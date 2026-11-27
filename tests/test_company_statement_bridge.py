@@ -132,8 +132,12 @@ def test_reclassification_of_original_debit_preserves_dated_credit_and_bridge():
         snapshot = project([], [deposit(19.25, allocation_detail=[])], [credit], cutoff=day)
         core = [ledger(-19.25, 'deposit', 'D')] + ([ledger(19.25, 'item', 'CORE')] if day >= '2025-06-01' else [])
         rows = explain(core, snapshot)
-        assert rows[-1]['statement_amount_usd'] == -19.25
+        assert rows[-1]['statement_amount_usd'] == (-19.25 if day == '2025-04-30' else 0)
         assert rows[-1]['unexplained_usd'] == 0
+        assert changes(rows) == []
+        info = [row for row in rows if row['bridge_row_type'] == 'documentary']
+        assert [(row['source_document'], row['transferred_credit_pending_usd'], row['statement_amount_usd'])
+                for row in info] == ([] if day == '2025-04-30' else [('CORE', 19.25, 0)])
 
 
 def test_split_company_credit_and_refund_preserve_bridge_at_each_date():
@@ -144,11 +148,14 @@ def test_split_company_credit_and_refund_preserve_bridge_at_each_date():
     core_item = item('CORE', category='Compensación entre partidas', amount_usd=.10,
         accounting_source_key='K', source_debit=.10, source_credit=0, source_date='2025-06-01',
         posting_date='2025-06-01', reclassification_allocations=[portion])
-    for day in ('2025-04-30', '2025-06-01', '2025-07-01'):
+    for day, balance, pending in [('2025-04-30', -.10, 0), ('2025-06-01', 0, .03), ('2025-07-01', 0, .02)]:
         snapshot = project([], [deposit(.10, allocation_detail=[])], [core_item], cutoff=day)
         core = [ledger(-.10, 'deposit', 'D')] + ([ledger(.10, 'item', 'CORE')] if day >= '2025-06-01' else [])
         rows = explain(core, snapshot)
+        assert rows[-1]['statement_amount_usd'] == balance
         assert rows[-1]['unexplained_usd'] == 0
+        assert changes(rows) == []
+        assert sum(row.get('transferred_credit_pending_usd', 0) for row in rows) == pending
 
 
 def test_split_credit_bridge_keeps_each_company_separate():
@@ -213,7 +220,8 @@ def test_entry_point_is_dated_and_preserves_report_data_for_export():
         columns, rows, message = report.execute(dict(view_mode='Conciliación', employer='E', compact_view=1))
     core.assert_called_once_with(dict(employer='E', cutoff_date='2025-05-31'))
     cut.assert_called_once_with(dict(employer='E', cutoff_date='2025-05-31'), include_bridge=True)
-    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd', 'pending_core_difference_usd']
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == [
+        'statement_amount_usd', 'transferred_credit_pending_usd', 'pending_core_difference_usd']
     assert rows[-1]['bridge_concept'] == 'Saldo de gestión'
     assert 'no representa por sí solo un asiento' in message
     def reject(message):

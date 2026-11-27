@@ -146,6 +146,27 @@ def test_credit_drill_keeps_negative_sign_without_loading_core():
     assert not any(c['fieldname'] in {'balance_usd', 'core_balance_usd'} for c in columns)
 
 
+def test_transferred_credit_is_informational_in_current_summary_and_drill():
+    transferred = credit(61.88, accounting_source_key='TRANSFER', credit_origin_date='2026-05-10',
+        reclassification_date='2026-05-15', registered_deposit='DEP', source_voucher='AS-1')
+    ordinary = dict(credit(10), name='UNTRANSFERRED')
+    core = ledger([evidence('OPENING', credit=10)])
+    management = build_detail([], [], [transferred, ordinary], [])
+
+    with patch.object(report, 'load_detail', return_value=management), patch.object(report, 'load_core_detail', return_value=core):
+        columns, summary, _ = report.execute({'compact_view': 1})
+        _, rows, _ = report.execute({'view_mode': 'Detalle', 'component': 'transferred_credit_pending_usd'})
+
+    assert any(c['fieldname'] == 'transferred_credit_pending_usd' and not c.get('hidden') for c in columns)
+    total, = summary
+    assert (total['client_credit_usd'], total['management_net_usd'], total['reconciliation_difference_usd']) == (-10, -10, 0)
+    assert total['transferred_credit_pending_usd'] == 61.88
+    detail, footer = rows
+    assert (detail['source_document'], detail['related_deposits'], detail['reference']) == ('CREDIT', 'DEP', 'AS-1')
+    assert detail['transferred_credit_pending_usd'] == footer['transferred_credit_pending_usd'] == 61.88
+    assert detail['statement_amount_usd'] == footer['statement_amount_usd'] == 0
+
+
 def test_compact_detail_has_one_signed_amount_and_one_pending_balance():
     core = ledger([evidence('APP', debit=100)], [evidence('DEP', credit=90)])
     management = build_detail([], [], [credit(60.26)], [], adjustment_receivables=[
@@ -154,7 +175,8 @@ def test_compact_detail_has_one_signed_amount_and_one_pending_balance():
     original = deepcopy((core, management))
     with patch.object(report, 'load_core_detail', return_value=core), patch.object(report, 'load_detail', return_value=management):
         columns, rows, _ = report.execute({'view_mode': 'Detalle', 'compact_view': 1})
-    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == ['statement_amount_usd', 'pending_core_difference_usd']
+    assert [col['fieldname'] for col in columns if col['fieldtype'] == 'Currency' and not col.get('hidden')] == [
+        'statement_amount_usd', 'transferred_credit_pending_usd', 'pending_core_difference_usd']
     amounts = {row['source_document']: row['statement_amount_usd'] for row in rows if not row.get('_is_statement_total')}
     assert amounts == {'CREDIT': -60.26, 'ADJUSTMENT': 10}
     totals = {row['_total_component']: row['statement_amount_usd'] for row in rows if row.get('_is_statement_total')}
